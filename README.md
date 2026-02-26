@@ -28,6 +28,8 @@ Set at least:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 
+**Production:** Set `NEXT_PUBLIC_APP_URL` (e.g. `https://cantara.yourdomain.com`) for correct logout/redirect URLs.
+
 Google OAuth callback:
 
 - `GOOGLE_REDIRECT_URI` defaults to `http://localhost:3000/api/admin/google-drive/callback`
@@ -91,6 +93,7 @@ docker run -d \
   -p 127.0.0.1:3020:3000 \
   -e DATABASE_URL="postgresql://..." \
   -e SESSION_SECRET="your-secret" \
+  -e NEXT_PUBLIC_APP_URL="https://cantara.yourdomain.com" \
   -e DEMO_ADMIN_EMAIL="admin@cantara.demo" \
   -e DEMO_ADMIN_PASSWORD="your-password" \
   cantara:latest

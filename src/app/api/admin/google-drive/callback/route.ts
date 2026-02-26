@@ -2,15 +2,16 @@ import { Role } from "@prisma/client";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { requireUserForRoute } from "@/lib/auth";
-import { GOOGLE_OAUTH_STATE_COOKIE_NAME } from "@/lib/constants";
+import { getAppBaseUrl, GOOGLE_OAUTH_STATE_COOKIE_NAME } from "@/lib/constants";
 import { exchangeGoogleCodeForTokens } from "@/lib/drive";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: Request) {
   const auth = await requireUserForRoute(Role.ADMIN);
+  const base = getAppBaseUrl(new URL(request.url).origin);
 
   if ("error" in auth) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    return NextResponse.redirect(new URL("/login", base || request.url));
   }
 
   const { searchParams } = new URL(request.url);
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   const oauthError = searchParams.get("error");
 
   if (oauthError) {
-    return NextResponse.redirect(new URL(`/admin?drive_error=${encodeURIComponent(oauthError)}`, request.url));
+    return NextResponse.redirect(new URL(`/admin?drive_error=${encodeURIComponent(oauthError)}`, base || request.url));
   }
 
   const store = await cookies();
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
   });
 
   if (!code || !state || !expectedState || state !== expectedState) {
-    return NextResponse.redirect(new URL("/admin?drive_error=invalid_oauth_state", request.url));
+    return NextResponse.redirect(new URL("/admin?drive_error=invalid_oauth_state", base || request.url));
   }
 
   try {
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
 
     if (!refreshToken) {
       return NextResponse.redirect(
-        new URL("/admin?drive_error=missing_refresh_token", request.url),
+        new URL("/admin?drive_error=missing_refresh_token", base || request.url),
       );
     }
 
@@ -65,9 +66,9 @@ export async function GET(request: Request) {
       },
     });
 
-    return NextResponse.redirect(new URL("/admin?drive_connected=1", request.url));
+    return NextResponse.redirect(new URL("/admin?drive_connected=1", base || request.url));
   } catch (error) {
     console.error(error);
-    return NextResponse.redirect(new URL("/admin?drive_error=oauth_exchange_failed", request.url));
+    return NextResponse.redirect(new URL("/admin?drive_error=oauth_exchange_failed", base || request.url));
   }
 }
