@@ -15,6 +15,8 @@ RUN npx prisma generate
 # Copy source and build
 COPY . .
 COPY docker-entrypoint.sh ./
+# Next.js build loads API routes which need DATABASE_URL; use placeholder
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 RUN npm run build
 
 # Production stage
