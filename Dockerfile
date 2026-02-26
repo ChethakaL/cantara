@@ -36,15 +36,16 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy Prisma for runtime (client + schema for migrate)
+# Copy Prisma schema, migrations, config, generated client
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
+
+# Install Prisma CLI for migrations (adds valibot etc.; must be after COPY standalone)
+RUN npm install prisma
 
 USER nextjs
 
