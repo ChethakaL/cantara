@@ -34,7 +34,7 @@ export function LandingHero({ isLoggedIn, portalHref }: LandingHeroProps) {
             className="space-y-6"
           >
             <p className="text-xs font-semibold tracking-[0.35em] text-white/80 uppercase">
-              Cantara Capital
+              Cantara
             </p>
             <motion.h1
               initial={{ opacity: 0, y: 24 }}

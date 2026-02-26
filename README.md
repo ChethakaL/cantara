@@ -77,6 +77,27 @@ Validated locally:
 - `npm run lint`
 - `npm run build`
 
+## Docker (VPS Deployment)
+
+Build and run:
+
+```bash
+# Build
+docker build -t cantara:latest .
+
+# Run (pass env vars; e.g. port 3020 to avoid conflicts)
+docker run -d \
+  --name cantara \
+  -p 127.0.0.1:3020:3000 \
+  -e DATABASE_URL="postgresql://..." \
+  -e SESSION_SECRET="your-secret" \
+  -e DEMO_ADMIN_EMAIL="admin@cantara.demo" \
+  -e DEMO_ADMIN_PASSWORD="your-password" \
+  cantara:latest
+```
+
+Migrations run automatically on container start when `DATABASE_URL` is set.
+
 ## Notes
 
 - Uploaded files are stored locally in `storage/uploads`.

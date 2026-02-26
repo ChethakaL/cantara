@@ -34,7 +34,7 @@ export function PortalShell({
                 href="/"
                 className="text-xs font-semibold tracking-[0.25em] text-[color:var(--navy-soft)] uppercase transition hover:text-[color:var(--navy)]"
               >
-                Cantara Capital Console
+                Cantara Console
               </Link>
               <h1 className="font-display mt-3 text-3xl leading-tight text-[color:var(--navy)] sm:text-5xl">
                 {heading}
