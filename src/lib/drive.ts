@@ -12,7 +12,10 @@ function getGoogleOAuthConfig() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const redirectUri =
-    process.env.GOOGLE_REDIRECT_URI ?? "http://localhost:3000/api/admin/google-drive/callback";
+    process.env.GOOGLE_REDIRECT_URI ??
+    (process.env.NEXT_PUBLIC_APP_URL
+      ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/admin/google-drive/callback`
+      : "http://localhost:3000/api/admin/google-drive/callback");
 
   if (!clientId || !clientSecret) {
     throw new Error(
