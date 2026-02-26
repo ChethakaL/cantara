@@ -90,7 +90,9 @@ docker build -t cantara:latest .
 # Run (pass env vars; e.g. port 3020 to avoid conflicts)
 docker run -d \
   --name cantara \
+  --restart unless-stopped \
   -p 127.0.0.1:3020:3000 \
+  -v cantara-storage:/app/storage \
   -e DATABASE_URL="postgresql://..." \
   -e SESSION_SECRET="your-secret" \
   -e NEXT_PUBLIC_APP_URL="https://cantara.yourdomain.com" \
@@ -103,5 +105,5 @@ Migrations run automatically on container start when `DATABASE_URL` is set.
 
 ## Notes
 
-- Uploaded files are stored locally in `storage/uploads`.
+- Uploaded files are stored in `storage/uploads`. Use `-v cantara-storage:/app/storage` when running Docker so uploads persist across container restarts.
 - No Google login is used for clients; OAuth is only for admin-side Drive syncing.
