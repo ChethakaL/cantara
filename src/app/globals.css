@@ -1,26 +1,123 @@
 @import "tailwindcss";
+@import "sileo/styles.css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #f8fafc;
+  --paper-soft: #ffffff;
+  --ink: #0f172a;
+  --ink-soft: #475569;
+  --navy: #0c1929;
+  --navy-soft: #1e3a5f;
+  --navy-light: #e8eef5;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: var(--font-body), sans-serif;
+  background: var(--paper);
+}
+
+.font-display {
+  font-family: var(--font-display), serif;
+}
+
+.fin-card {
+  background: var(--paper-soft);
+  border: 1px solid rgba(12, 25, 41, 0.08);
+  box-shadow: 0 1px 3px rgba(12, 25, 41, 0.06);
+}
+
+.fin-interactive {
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+
+.fin-interactive:hover {
+  transform: translateY(-2px);
+  border-color: rgba(12, 25, 41, 0.12);
+  box-shadow: 0 8px 24px -12px rgba(12, 25, 41, 0.12);
+}
+
+.fin-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.fine-grid {
+  background-image:
+    linear-gradient(rgba(12, 25, 41, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(12, 25, 41, 0.03) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.animate-rise {
+  opacity: 0;
+  animation: rise-up 720ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.animate-delay-1 {
+  animation-delay: 90ms;
+}
+
+.animate-delay-2 {
+  animation-delay: 180ms;
+}
+
+.animate-delay-3 {
+  animation-delay: 270ms;
+}
+
+.animate-delay-4 {
+  animation-delay: 360ms;
+}
+
+.animate-delay-5 {
+  animation-delay: 450ms;
+}
+
+.animate-float {
+  animation: float-y 7s ease-in-out infinite;
+}
+
+@keyframes rise-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+/* Sileo toast: ensure light text on dark background */
+[data-sileo-viewport] [data-sileo-title] {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+[data-sileo-viewport] [data-sileo-description] {
+  color: rgba(255, 255, 255, 0.85) !important;
 }

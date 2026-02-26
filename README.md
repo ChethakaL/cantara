@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cantara Dealflow Demo
 
-## Getting Started
+A polished two-portal diligence platform demo for private equity workflows.
 
-First, run the development server:
+- Client portal: register via onboarding wizard, view document requests, upload files.
+- Admin portal: view clients by stage (`Initial Review`, `In Progress`, `Completed`), issue requests, review uploads, connect Google Drive, choose parent folder location, and sync files.
+
+## Stack
+
+- Next.js 16 (App Router) + TypeScript + Tailwind CSS
+- Prisma 7 + PostgreSQL
+- Session auth (email/password, role-based routing)
+- Google Drive API (OAuth client ID + client secret)
+
+## 1. Environment
+
+Create env file:
+
+```bash
+cp .env.example .env
+```
+
+Set at least:
+
+- `DATABASE_URL`
+- `DEMO_ADMIN_EMAIL`
+- `DEMO_ADMIN_PASSWORD`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+
+Google OAuth callback:
+
+- `GOOGLE_REDIRECT_URI` defaults to `http://localhost:3000/api/admin/google-drive/callback`
+- Add that exact URI to Google Cloud Console under:
+  `APIs & Services -> Credentials -> OAuth 2.0 Client IDs -> Authorized redirect URIs`
+
+## 2. Install and Generate Prisma Client
+
+```bash
+npm install
+npm run prisma:generate
+```
+
+## 3. Apply Database Schema
+
+```bash
+npm run prisma:migrate -- --name init
+```
+
+## 4. Seed Admin User
+
+```bash
+npm run prisma:seed
+```
+
+## 5. Run
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Demo Flow
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Admin signs in and opens `/admin`.
+2. Admin clicks `Connect Google Drive`, authorizes, then selects a Drive folder location.
+3. Client registers at `/register` and fills business profile.
+4. Admin adds standard (`Business registration`, `Business plan`) or custom document requests.
+5. Client uploads requested documents in `/client`.
+6. Admin clicks `Save to Drive`; if the client has no folder yet, a new client folder is created inside the selected Drive location.
 
-## Learn More
+## Quality Checks
 
-To learn more about Next.js, take a look at the following resources:
+Validated locally:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `npm run lint`
+- `npm run build`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Notes
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Uploaded files are stored locally in `storage/uploads`.
+- No Google login is used for clients; OAuth is only for admin-side Drive syncing.
