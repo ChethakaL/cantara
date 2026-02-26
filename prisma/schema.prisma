@@ -92,6 +92,12 @@ model ClientDocument {
   size              Int
   localPath         String
   googleDriveFileId String?
+  aiReviewStatus    String?
+  aiReviewSummary   String?
+  aiReviewFlags     String[]        @default([])
+  aiDetectedType    String?
+  aiBusinessNameMatch Boolean?
+  aiReviewedAt      DateTime?
   createdAt         DateTime        @default(now())
   request           DocumentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   client            ClientProfile   @relation(fields: [clientId], references: [id], onDelete: Cascade)

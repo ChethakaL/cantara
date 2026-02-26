@@ -64,6 +64,10 @@ export default async function AdminClientPage({ params }: Props) {
     notFound();
   }
 
+  const uploadedDocuments = client.requests.flatMap((request) => request.documents);
+  const reviewedDocuments = uploadedDocuments.filter((doc) => Boolean(doc.aiReviewStatus));
+  const redFlagDocuments = uploadedDocuments.filter((doc) => doc.aiReviewStatus === "RED_FLAG");
+
   return (
     <PortalShell
       heading={client.businessName}
@@ -90,6 +94,36 @@ export default async function AdminClientPage({ params }: Props) {
           <p className="mt-4 rounded-xl border border-[color:var(--navy)]/10 bg-white/70 p-4 text-sm leading-relaxed text-[color:var(--ink)]">
             {client.businessDescription}
           </p>
+          <div className="mt-4 rounded-xl border border-[color:var(--navy)]/10 bg-[color:var(--navy-light)]/45 p-4">
+            <p className="text-xs font-semibold tracking-[0.08em] text-[color:var(--ink-soft)] uppercase">AI Review</p>
+            {uploadedDocuments.length === 0 ? (
+              <p className="mt-2 text-sm text-[color:var(--ink-soft)]">No uploads yet, so no AI review yet.</p>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-[color:var(--ink-soft)]">
+                  Reviewed {reviewedDocuments.length} of {uploadedDocuments.length} upload(s). Red flags:{" "}
+                  {redFlagDocuments.length}.
+                </p>
+                {redFlagDocuments.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {redFlagDocuments.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900"
+                      >
+                        <p className="font-semibold">{doc.fileName}</p>
+                        <p className="mt-1">{doc.aiReviewSummary ?? "Potential mismatch detected."}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                    No red-flag uploads based on keyword/type/name checks.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </article>
 
         <article className="fin-card animate-rise animate-delay-1 rounded-2xl p-5">
@@ -147,6 +181,31 @@ export default async function AdminClientPage({ params }: Props) {
                         <p className="text-xs text-[color:var(--ink-soft)]">
                           Uploaded by {doc.uploadedBy.name} on {format(doc.createdAt, "MMM d, yyyy h:mm a")}
                         </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <span
+                            className={
+                              doc.aiReviewStatus === "RED_FLAG"
+                                ? "rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-800"
+                                : doc.aiReviewStatus === "PASS"
+                                  ? "rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800"
+                                  : "rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
+                            }
+                          >
+                            {doc.aiReviewStatus === "RED_FLAG"
+                              ? "AI Red Flag"
+                              : doc.aiReviewStatus === "PASS"
+                                ? "AI Pass"
+                                : "AI Pending"}
+                          </span>
+                          {doc.aiDetectedType ? (
+                            <span className="rounded-full bg-[color:var(--navy)]/10 px-2 py-0.5 text-[11px] font-semibold text-[color:var(--navy)]">
+                              Type: {doc.aiDetectedType.replaceAll("_", " ").toLowerCase()}
+                            </span>
+                          ) : null}
+                        </div>
+                        {doc.aiReviewSummary ? (
+                          <p className="mt-2 text-xs text-[color:var(--ink-soft)]">{doc.aiReviewSummary}</p>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Link

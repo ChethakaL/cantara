@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -42,4 +42,14 @@ export async function readStoredFile(relativePath: string) {
 
   const content = await readFile(resolved);
   return content;
+}
+
+export async function deleteStoredFile(relativePath: string) {
+  const resolved = path.join(process.cwd(), relativePath);
+
+  if (!resolved.startsWith(STORAGE_ROOT)) {
+    throw new Error("Invalid path");
+  }
+
+  await unlink(resolved);
 }

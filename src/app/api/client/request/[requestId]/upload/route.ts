@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { MAX_UPLOAD_SIZE } from "@/lib/constants";
 import { requireUserForRoute } from "@/lib/auth";
+import { runDocumentAiReview } from "@/lib/document-ai-review";
 import { prisma } from "@/lib/prisma";
 import { persistUpload } from "@/lib/storage";
 
@@ -30,6 +31,7 @@ export async function POST(request: Request, { params }: RouteContext) {
           select: {
             id: true,
             userId: true,
+            businessName: true,
           },
         },
       },
@@ -76,10 +78,33 @@ export async function POST(request: Request, { params }: RouteContext) {
         size: file.size,
         localPath: stored.relativePath,
       },
-      select: {
-        id: true,
-      },
+      select: { id: true },
     });
+
+    try {
+      const review = await runDocumentAiReview({
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        buffer,
+        businessName: targetRequest.client.businessName,
+        requestTitle: targetRequest.title,
+        requestDescription: targetRequest.description,
+      });
+
+      await prisma.clientDocument.update({
+        where: { id: document.id },
+        data: {
+          aiReviewStatus: review.status,
+          aiReviewSummary: review.summary,
+          aiReviewFlags: review.flags,
+          aiDetectedType: review.detectedType,
+          aiBusinessNameMatch: review.businessNameMatch,
+          aiReviewedAt: review.reviewedAt,
+        },
+      });
+    } catch (reviewError) {
+      console.error("AI review failed", reviewError);
+    }
 
     return NextResponse.json({ success: true, documentId: document.id }, { status: 201 });
   } catch (error) {

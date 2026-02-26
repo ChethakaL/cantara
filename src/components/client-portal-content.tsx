@@ -2,6 +2,7 @@
 
 import { format } from "date-fns";
 import { motion } from "framer-motion";
+import { DocumentDeleteButton } from "./document-delete-button";
 import { DocumentUploadForm } from "./document-upload-form";
 import { QuestionAnswerForm } from "./question-answer-form";
 import { StageBadge } from "./stage-badge";
@@ -144,11 +145,17 @@ export function ClientPortalContent({ profile }: Props) {
                   ) : (
                     <ul className="mt-2 space-y-1.5">
                       {request.documents.map((doc) => (
-                        <li key={doc.id} className="text-sm font-medium text-[color:var(--navy)]">
-                          {doc.fileName}
-                          <span className="ml-2 text-xs font-normal text-[color:var(--ink-soft)]">
-                            ({format(doc.createdAt, "MMM d, h:mm a")})
-                          </span>
+                        <li
+                          key={doc.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[color:var(--navy)]/8 bg-white/70 p-2"
+                        >
+                          <div className="text-sm font-medium text-[color:var(--navy)]">
+                            {doc.fileName}
+                            <span className="ml-2 text-xs font-normal text-[color:var(--ink-soft)]">
+                              ({format(doc.createdAt, "MMM d, h:mm a")})
+                            </span>
+                          </div>
+                          <DocumentDeleteButton documentId={doc.id} fileName={doc.fileName} />
                         </li>
                       ))}
                     </ul>
