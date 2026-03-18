@@ -6,7 +6,6 @@ import { LeaseReport as ILeaseReport } from '../../lib/lease-analysis/types'
 import { SnapshotTable } from './report-sections/SnapshotTable'
 import { DetailedFindings } from './report-sections/DetailedFindings'
 import { FlagAnalysis } from './report-sections/FlagAnalysis'
-import { TransactionChecklist } from './report-sections/TransactionChecklist'
 import { DocumentInventoryReport } from './report-sections/DocumentInventoryReport'
 import { ReportExportBar } from './ReportExportBar'
 
@@ -22,7 +21,6 @@ const REPORT_TABS = [
   { key: 'snapshot', label: 'Snapshot', icon: FileText },
   { key: 'findings', label: 'Findings', icon: FileText },
   { key: 'flags', label: 'Flags', icon: AlertTriangle },
-  { key: 'checklist', label: 'Checklist', icon: ClipboardList },
   { key: 'documents', label: 'Documents', icon: Folder },
 ]
 
@@ -39,7 +37,6 @@ export function LeaseReport({ report, fileName, clientName, onNewAnalysis, onDel
     switch (key) {
       case 'flags': return flagCounts.red + flagCounts.orange + flagCounts.green
       case 'findings': return (report.detailedFindings || []).length
-      case 'checklist': return (report.transactionChecklist || []).length
       case 'documents': return (report.documentInventory || []).length
       default: return 0
     }
@@ -102,7 +99,6 @@ export function LeaseReport({ report, fileName, clientName, onNewAnalysis, onDel
         {activeTab === 'snapshot' && <SnapshotTable rows={report.snapshotTable} />}
         {activeTab === 'findings' && <DetailedFindings findings={report.detailedFindings} raw={report.raw} />}
         {activeTab === 'flags' && <FlagAnalysis red={report.redFlags} orange={report.orangeFlags} green={report.greenFlags} />}
-        {activeTab === 'checklist' && <TransactionChecklist rows={report.transactionChecklist} />}
         {activeTab === 'documents' && <DocumentInventoryReport rows={report.documentInventory} />}
       </div>
     </Card>

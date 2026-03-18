@@ -14,7 +14,7 @@ export interface LeaseReport {
   redFlags: Flag[];
   orangeFlags: Flag[];
   greenFlags: Flag[];
-  transactionChecklist: ChecklistItem[];
+  transactionChecklist?: ChecklistItem[];
   documentInventory: DocumentInventoryItem[];
   generatedAt: string;                  // ISO timestamp
 }
@@ -35,7 +35,6 @@ export interface Flag {
   issue: string;
   whyItMatters: string;
   sourceSection: string;
-  recommendedAction?: string;           // red & orange only
 }
 
 export interface ChecklistItem {

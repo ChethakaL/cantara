@@ -33,7 +33,6 @@ export function FlagAnalysis({ red, orange, green }: Props) {
                 <p className="font-semibold text-rose-800 text-sm mb-1">{f.issue}</p>
                 {f.whyItMatters && <p className="text-sm text-rose-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
                 {f.sourceSection && <p className="text-xs text-rose-600 font-mono mb-2">Source: {f.sourceSection}</p>}
-                {f.recommendedAction && <p className="text-xs text-rose-700 bg-rose-100 rounded px-2 py-1"><strong>Action:</strong> {f.recommendedAction}</p>}
               </div>
             ))}
           </div>
@@ -52,7 +51,6 @@ export function FlagAnalysis({ red, orange, green }: Props) {
                 <p className="font-semibold text-amber-800 text-sm mb-1">{f.issue}</p>
                 {f.whyItMatters && <p className="text-sm text-amber-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
                 {f.sourceSection && <p className="text-xs text-amber-600 font-mono mb-2">Source: {f.sourceSection}</p>}
-                {f.recommendedAction && <p className="text-xs text-amber-700 bg-amber-100 rounded px-2 py-1"><strong>Action:</strong> {f.recommendedAction}</p>}
               </div>
             ))}
           </div>
