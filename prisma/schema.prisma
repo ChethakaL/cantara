@@ -1,0 +1,205 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model LeaseAnalysis {
+  id        String        @id @default(cuid())
+  clientId  String
+  fileName  String
+  report    String        @db.Text
+  parsed    Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model ClientDocument {
+  id                  String          @id @default(cuid())
+  requestId           String?
+  clientId            String
+  uploadedById        String
+  fileName            String
+  mimeType            String
+  size                Int
+  localPath           String
+  googleDriveFileId   String?
+  createdAt           DateTime        @default(now())
+  aiBusinessNameMatch Boolean?
+  aiDetectedType      String?
+  aiReviewFlags       String[]        @default([])
+  aiReviewStatus      String?
+  aiReviewSummary     String?
+  aiReviewedAt        DateTime?
+  ClientProfile       ClientProfile   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  DocumentRequest     DocumentRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  User                User            @relation(fields: [uploadedById], references: [id])
+
+  @@index([clientId, createdAt])
+}
+
+model ClientProfile {
+  id                  String            @id @default(cuid())
+  userId              String            @unique
+  businessName        String
+  businessDescription String?           @db.Text
+  email               String?
+  phone               String?
+  workstream          Workstream?
+  businessType        BusinessType      @default(SINGLE)
+  stage               ClientStage       @default(ONBOARDING)
+  driveFolderId       String?
+  notes               String?           @db.Text
+  valuationDocUploaded Boolean           @default(false)
+  provisionedAt       DateTime?
+  lastLogin           DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  
+  ClientDocument      ClientDocument[]
+  User                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  DocumentRequest     DocumentRequest[]
+  LeaseAnalysis       LeaseAnalysis[]
+  Questions           Question[]
+  Branches            Branch[]
+  ChatMessages        ChatMessage[]
+  AdditionalRequirements AdditionalRequirement[]
+}
+
+model Branch {
+  id        String        @id @default(cuid())
+  name      String
+  clientId  String
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model ChatMessage {
+  id           String        @id @default(cuid())
+  clientId     String
+  senderRole   Role
+  senderName   String
+  message      String        @db.Text
+  timestamp    DateTime      @default(now())
+  readByAdmin  Boolean       @default(false)
+  readByClient Boolean       @default(false)
+  client       ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, timestamp])
+}
+
+model AdditionalRequirement {
+  id          String        @id @default(cuid())
+  clientId    String
+  title       String
+  description String?       @db.Text
+  priority    Priority      @default(MEDIUM)
+  status      RequirementStatus @default(OPEN)
+  createdAt   DateTime      @default(now())
+  client      ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model DocumentRequest {
+  id             String           @id @default(cuid())
+  clientId       String
+  title          String
+  description    String?          @db.Text
+  createdById    String
+  dueDate        DateTime?
+  createdAt      DateTime         @default(now())
+  ClientDocument ClientDocument[]
+  ClientProfile  ClientProfile    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  User           User             @relation(fields: [createdById], references: [id])
+
+  @@index([clientId, createdAt])
+}
+
+model Question {
+  id            String        @id @default(cuid())
+  clientId      String
+  askedById     String
+  question      String        @db.Text
+  answer        String?       @db.Text
+  answeredAt    DateTime?
+  createdAt     DateTime      @default(now())
+  User          User          @relation(fields: [askedById], references: [id])
+  ClientProfile ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([userId])
+}
+
+model User {
+  id                        String            @id @default(cuid())
+  name                      String
+  email                     String            @unique
+  passwordHash              String
+  role                      Role              @default(CLIENT)
+  googleAccessToken         String?
+  googleRefreshToken        String?
+  googleTokenExpiry         DateTime?
+  googleDriveRootFolderId   String?
+  googleDriveRootFolderName String?
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+  ClientDocument            ClientDocument[]
+  ClientProfile             ClientProfile?
+  DocumentRequest           DocumentRequest[]
+  Questions                 Question[]
+  Sessions                  Session[]
+}
+
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+enum ClientStage {
+  ONBOARDING
+  COLLECTION
+  REVIEW
+  FINAL
+  CLOSED
+}
+
+enum Workstream {
+  WS1
+  WS2
+  BOTH
+  MA
+}
+
+enum BusinessType {
+  SINGLE
+  MULTI
+  PARENT
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum RequirementStatus {
+  OPEN
+  RESOLVED
+}

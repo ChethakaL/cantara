@@ -1,0 +1,7 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/clients/[id]/route": "app/api/clients/[id]/route.js",
+  "/admin/client/[id]/page": "app/admin/client/[id]/page.js",
+  "/api/lease-analysis/analyze/route": "app/api/lease-analysis/analyze/route.js",
+  "/api/lease-analysis/reports/route": "app/api/lease-analysis/reports/route.js"
+}

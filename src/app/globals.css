@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gold: #b8922a;
+  --gold-light: #d4a843;
+  --navy: #0d1829;
+  --navy-mid: #111e35;
+  --gold-glow: rgba(184, 146, 42, 0.15);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: hsl(220, 18%, 96%);
+  color: #1e293b;
+}
+
+.cantara-serif { font-family: Georgia, serif; }
+
+.gold-line {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(184,146,42,0.4) 30%, rgba(212,168,67,0.6) 50%, rgba(184,146,42,0.4) 70%, transparent);
+}
+
+.flag-red { background: #fff1f2; border-left: 3px solid #f43f5e; }
+.flag-orange { background: #fffbeb; border-left: 3px solid #f59e0b; }
+.flag-green { background: #f0fdf4; border-left: 3px solid #22c55e; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(184,146,42,0.3); border-radius: 99px; }
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.35s ease forwards; }
+
+/* Tab underline active */
+.tab-active { border-bottom: 2px solid var(--gold); color: #0f172a; }
+.tab-inactive { border-bottom: 2px solid transparent; color: #94a3b8; }
+.tab-inactive:hover { color: #475569; }
+
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(184, 146, 42, 0.2); border-radius: 99px; }
+.custom-scrollbar:hover::-webkit-scrollbar-thumb { background: rgba(184, 146, 42, 0.4); }
