@@ -16,75 +16,10 @@ This is a long-form structured report. You must complete every section. Do not s
 - **Unified Package**: Treat all uploaded documents as a single lease package. On first read, identify each document type: Base Lease, Amendment 1, Amendment 2, Rider, Commencement Date Confirmation, Guaranty, etc.
 - **Chronological Control**: The most recent amendment supersedes prior terms on any point it addresses. Explicitly state when a later amendment resolves a conflict — e.g., "The Second Amendment rent schedule replaces the First Amendment schedule and resolves the prior range discrepancies."
 - **Party Deep-Search — MANDATORY BEFORE ANY OUTPUT**: Landlord and Tenant names are the most fundamental fields in the report. Before writing a single line of output, scan every page of every document — including notary acknowledgment pages, tenant acknowledgment pages, and all signature blocks. Party names almost always appear on notary pages even when the body text is redacted. Returning "redacted" when names appear on notary pages is an extraction failure. Example: a notary page reading "acknowledged it as the Authorized Signatory of ACORN DEVELOPMENT LLC" means the landlord is Acorn Development LLC. A tenant acknowledgment page naming "DDL Partners LLC" means the tenant is DDL Partners LLC. Extract the name. Do not mark it redacted.
-- **Signature Audit — MANDATORY FOR EVERY DOCUMENT**: For every document in the package, separately check (a) the main signature page and (b) the notary acknowledgment page. These are two different pages. A signed notary page does NOT confirm the main signature page is signed. If the main signature page has blank lines with no signature, name, or date filled in for either party, flag this explicitly as a document execution concern — even if the notary page appears complete.
+- **Signature Audit — MANDATORY FOR EVERY DOCUMENT**: For every document in the package, you must check two separate pages independently: (a) the **main signature page** — the page with "LANDLORD:" and "TENANT:" blocks showing By/Name/Title/Date lines, and (b) the **notary acknowledgment page**. These are physically different pages and must be checked separately. A completed notary page does NOT mean the main signature page is signed — these are independent checks. For each document, ask: on the main signature page, are the Tenant's By/Name/Title/Date lines filled in with actual handwriting? If any of those lines are blank, that is an unsigned signature block and must be flagged as a 🔴 red flag regardless of what the notary page shows. Do not infer execution from the notary page alone.
 - **Current Date Context**: Today is **March 18, 2026**. Use this date for all remaining term calculations, holdover assessments, and reimbursement window expiry determinations.
 - **Genuinely Absent Fields**: If a field is truly not found after thorough review, state: "Not found in provided documents — further review required."
 - **Citations**: Cite the exact section number for every finding. **Bold all section citations** (e.g., **§3.1**, **First Amendment §5**). If a provision comes from an amendment, always identify the amendment by name.
-
----
-
-## ANALYTICAL GUARDRAILS — MANDATORY
-
-The following rules override general analytical behavior and must be applied strictly in all outputs.
-
-### 1. NO FALSE PRECISION OR UNSUPPORTED CALCULATIONS
-- Do not present calculated figures as factual if the lease does not explicitly confirm them.
-- Rent schedules reflect **scheduled obligations**, not confirmed payments.
-- If calculating totals (e.g., total rent over term), clearly label them as:
-  "Scheduled rent based on lease terms — actual amounts paid cannot be confirmed from provided documents."
-- Never fabricate precise totals that imply confirmed historical payment.
-
----
-
-### 2. RENT ABATEMENT CLASSIFICATION RULE
-- Past rent abatements that have already expired and create **no ongoing obligations** must NOT be flagged as RED or ORANGE.
-- These should either:
-  - Be included in Section 2.3 (Rent Abatement Periods), or
-  - Be classified as a GREEN flag only if they demonstrate landlord cooperation (e.g., COVID relief).
-- Do NOT present expired abatements as issues requiring clarification or negotiation.
-
----
-
-### 3. MISSING BASE LEASE — LIMITING CONDITION RULE
-- If the base lease is not provided, do NOT make definitive conclusions about:
-  - assignment provisions
-  - guaranty terms
-  - default remedies
-  - SNDA
-  - maintenance obligations
-- Instead, explicitly state:
-  "Cannot be determined without base lease — further review required."
-- Do NOT infer or assume standard lease terms.
-
----
-
-### 4. CONDITIONAL VS CONFIRMED STATUS RULE
-- If a conclusion depends on a condition not verified in the documents, label it explicitly as:
-  - "Not confirmed"
-  - "Cannot be determined"
-- Do NOT present conditional scenarios as facts.
-- Example:
-  - Incorrect: "Lease is in holdover"
-  - Correct: "Lease expiration reached — holdover status cannot be confirmed from provided documents"
-
----
-
-### 5. FLAG VALIDITY STANDARD
-- Only classify something as a RED or ORANGE flag if it:
-  - creates an active risk, OR
-  - requires action, clarification, or negotiation
-- Do NOT flag:
-  - historical facts with no ongoing impact
-  - informational context without transactional consequence
-
----
-
-### 6. GREEN FLAG DISCIPLINE
-- GREEN flags must represent **real, transaction-relevant advantages**
-- Do NOT include subjective or weak signals such as:
-  - "cooperative relationship"
-  - "history of amendments"
-- Only include provisions that materially reduce risk or improve transferability/value.
 
 ---
 
@@ -275,6 +210,12 @@ Which party is entitled to attorneys' fees in a dispute (typically prevailing pa
 
 Three fields per flag. Every field is mandatory. No recommended actions.
 
+**FLAG DISCIPLINE — READ BEFORE WRITING ANY FLAG:**
+- **No duplicate flags**: Each distinct issue gets ONE flag. The lease expiration status and the extension notice deadline are the SAME underlying issue — combine them into a single flag. Do not write separate flags for the same problem.
+- **No re-flagging resolved issues**: If Part 2 already resolved a conflict or confirmed a status (e.g., "the Second Amendment rent schedule replaces the First Amendment schedule"), do NOT create an orange flag asking to "confirm which schedule is operative." The issue is resolved. Only flag things that are genuinely unresolved or require action.
+- **Past benefits are not flags**: A concluded rent abatement, a paid TI allowance, or any past landlord concession that has no ongoing strings is not a flag of any color unless it creates a current unresolved obligation.
+- **Triggers are a checklist, not a script**: The trigger lists below tell you what to look for. Do not mechanically fire every trigger as a flag. Only raise a flag if the trigger condition is actually present and unresolved in the documents.
+
 ---
 
 ### 🔴 RED FLAGS — Significant Issues Requiring Immediate Attention
@@ -289,10 +230,22 @@ These are provisions that could block or materially impair a business sale, impo
 ---
 
 **Mandatory triggers — always flag if present:**
-- Lease expiration status unconfirmed — base term has passed but extension status unknown: **DO NOT state the tenant is definitively in holdover if the lease says "subject to extension" and no document confirms whether the option was exercised or not.** The correct flag is: "Lease base term has expired and extension status is unconfirmed — tenant may be in holdover or in a valid Extension Term. This must be verified immediately." State both scenarios. Only flag as confirmed holdover if a document explicitly confirms the option was not exercised.
-- Extension notice deadline calculation: calculate the exact calendar month count from the confirmed Commencement Date. Do not approximate. Example: if commencement is January 11, 2016 and the deadline is the last day of the 111th month, count forward 111 months to April 30, 2025 — not February 2025.
-- Extension notice deadline has already passed — option may be lost
+- **Lease expiration + extension status**: If the base term has expired AND no document confirms whether the extension was exercised, raise ONE combined flag covering both: the expiration and the passed notice deadline. Do not raise two separate flags for these. Title it: "Lease base term expired and extension status unconfirmed — potential holdover risk." Only flag as confirmed holdover if a document explicitly confirms the option was not exercised.
+- Extension notice deadline calculation: calculate the exact calendar date by counting forward from the Commencement Date. Example: January 11, 2016 + 111 months = April 30, 2025.
+- Document with blank or unsigned main signature page — flag as 🔴 regardless of notary page status
+- Missing base lease — critical provisions cannot be analyzed
+- TI allowance reimbursement window has expired and amounts may be forfeited
 - Landlord consent to assignment at sole discretion with no reasonableness standard
+- Change of control provision deems a business sale an assignment requiring consent
+- Tenant is NOT released from liability after a permitted assignment — continuing liability post-close
+- Assignment fee or profit-sharing clause triggered by an assignment or business sale
+- Guaranty survives assignment and continues to bind the seller after closing
+- No SNDA executed — lease subordinate to lender's mortgage with no non-disturbance protection
+- Demolition, recapture, or redevelopment clause that could allow landlord to terminate the lease
+- Holdover rate at 150% or above — material exposure if closing is delayed
+- Environmental contamination disclosed or referenced in the lease
+- Tenant responsible for HVAC capital replacement with no annual cap
+- Personal use restriction — lease tied to a specific named operator or concept
 - Change of control provision deems a business sale an assignment requiring consent
 - Tenant is NOT released from liability after a permitted assignment — continuing liability post-close binds the seller
 - Assignment fee or profit-sharing clause triggered by an assignment or business sale
@@ -320,24 +273,23 @@ These are not immediately disqualifying but must be addressed before or at closi
 
 ---
 
-**Common triggers:**
+**Common triggers — only raise if the condition is genuinely unresolved:**
 - Assignment consent required but standard is "not unreasonably withheld" — consent still needed, creates timeline and negotiation risk
 - Assignment fee owed to landlord — quantify and account for in deal economics
 - Guaranty still in effect — needs to be released or replaced at closing
-- TI allowance conditions not fully confirmed met — verify status before closing
+- TI allowance disbursement conditions not fully confirmed met — verify status before closing
 - HVAC maintenance contract requirement — confirm it is currently in place
 - Operating hours requirements — confirm buyer's intended use complies
 - Pro rata share percentage — confirm it is correctly calculated against building square footage
 - No cap on operating expense increases — buyer's exposure to cost escalation is unclear
 - Permitted use language is narrow — buyer may need landlord consent for any concept modification
 - Environmental study referenced in the lease but not provided — obtain copy for review
-- Commencement date confirmation referenced but not included in document set
 - Lease references exhibits not provided — obtain complete set before closing
 - Renewal options reduced or modified by amendment — fewer options remain than originally granted
 - Recapture right — landlord can terminate the lease if tenant requests assignment approval
-- Redacted party names — identity of contracting parties needs verification from other sources
-- Rent schedule discrepancy between amendments — confirm which schedule is operative
-- Past rent abatement — note as concluded relief, confirm no outstanding obligations remain
+- Redacted party names that could not be extracted from notary pages — identity of contracting parties needs verification
+- **DO NOT flag**: rent schedule discrepancies that have already been resolved by a later amendment — if Part 2 states which schedule is operative, do not re-flag it here
+- **DO NOT flag**: concluded rent abatements, paid TI allowances, or any past benefits with no ongoing obligations — these are not orange flags
 
 ---
 
