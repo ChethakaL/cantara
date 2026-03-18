@@ -16,7 +16,7 @@ export function parseReport(markdown: string): LeaseReport {
     redFlags: parseFlags(sections["PART 3"] ?? "", "red"),
     orangeFlags: parseFlags(sections["PART 3"] ?? "", "orange"),
     greenFlags: parseFlags(sections["PART 3"] ?? "", "green"),
-    documentInventory: parseDocumentInventory(sections["PART 5"] ?? ""),
+    documentInventory: parseDocumentInventory(sections["PART 4"] ?? ""),
     generatedAt: new Date().toISOString(),
   };
 }
@@ -24,26 +24,18 @@ export function parseReport(markdown: string): LeaseReport {
 function splitBySections(markdown: string): Record<string, string> {
   const parts: Record<string, string> = {};
   
-  const getSection = (startMarker: RegExp, endMarker?: RegExp) => {
-    const startMatch = markdown.match(startMarker);
-    if (!startMatch) return "";
-    
-    const startIndex = startMatch.index!;
-    if (!endMarker) return markdown.substring(startIndex).trim();
-    
-    const remainder = markdown.substring(startIndex + startMatch[0].length);
-    const endMatch = remainder.match(endMarker);
-    
-    if (endMatch) {
-      return markdown.substring(startIndex, startIndex + startMatch[0].length + endMatch.index!).trim();
-    }
-    return markdown.substring(startIndex).trim();
+  const extract = (start: string, end: string) => {
+    const s = markdown.indexOf(start);
+    const e = markdown.indexOf(end);
+    if (s === -1) return "";
+    const content = e === -1 ? markdown.slice(s + start.length) : markdown.slice(s + start.length, e);
+    return content.trim();
   };
 
-  parts["PART 1"] = getSection(/PART 1[^\n]*\n/i, /PART 2[^\n]*\n/i);
-  parts["PART 2"] = getSection(/PART 2[^\n]*\n/i, /PART 3[^\n]*\n/i);
-  parts["PART 3"] = getSection(/PART 3[^\n]*\n/i, /PART 5[^\n]*\n/i);
-  parts["PART 5"] = getSection(/PART 5[^\n]*\n/i);
+  parts["PART 1"] = extract("---START_PART1---", "---END_PART1---");
+  parts["PART 2"] = extract("---START_PART2---", "---END_PART2---");
+  parts["PART 3"] = extract("---START_PART3---", "---END_PART3---");
+  parts["PART 4"] = extract("---START_PART4---", "---END_PART4---");
 
   return parts;
 }
@@ -52,17 +44,27 @@ function parseMarkdownTable(text: string): string[][] {
   const lines = text.split("\n").filter(l => l.includes("|"));
   const rows: string[][] = [];
   for (const line of lines) {
-    if (line.match(/^\|?[-|\s]+\|?$/)) continue; // separator row
+    if (line.match(/^\|?[-|\s]+\|?$/)) continue; // ignore table header separator
     const cells = line.split("|").map(c => c.trim());
     
     if (cells[0] === "") cells.shift();
     if (cells.length > 0 && cells[cells.length - 1] === "") cells.pop();
     
+    // Skip header rows
+    const isHeader = cells.some(c => 
+      c.toLowerCase() === "field" || 
+      c.toLowerCase() === "finding" || 
+      c.toLowerCase() === "source section" ||
+      c.toLowerCase() === "document" ||
+      c.toLowerCase() === "document type"
+    );
+    if (isHeader) continue;
+    
     if (cells.length > 0 && !cells.every(c => c === "" || c.match(/^-+$/))) {
       rows.push(cells);
     }
   }
-  return rows.slice(1); // skip header
+  return rows;
 }
 
 function parseSnapshotTable(text: string): SnapshotRow[] {
@@ -75,51 +77,69 @@ function parseSnapshotTable(text: string): SnapshotRow[] {
 }
 
 function parseDetailedFindings(text: string): FindingSection[] {
-  const sections = text.split(/(?=(?:### )?\d+\.\d+ )/g).filter(s => s.trim());
+  const sections = text.split(/\n(?=### \d+\.\d+)/g).filter(s => s.trim());
   
   return sections.map(s => {
-    const titleMatch = s.match(/(?:### )?(\d+\.\d+) (.+?)(?:\n|$)/);
+    const titleMatch = s.match(/### (\d+\.\d+)\s+([^\n]+)/);
     if (!titleMatch) return null;
     
-    return {
-      id: titleMatch[1] ?? "",
-      title: titleMatch[2]?.trim() ?? "",
-      content: s.replace(/(?:### )?\d+\.\d+ .+\n/, "").trim(),
-    };
-  }).filter(Boolean) as FindingSection[];
+    const id = titleMatch[1];
+    const title = titleMatch[2].trim().replace(/\*\*+/g, "").trim();
+    const content = s.replace(/### \d+\.\d+ [^\n]+\n/, "").trim();
+    
+    return { id, title, content };
+  }).filter((s): s is FindingSection => s !== null);
 }
 
 function parseFlags(text: string, type: "red" | "orange" | "green"): Flag[] {
-  const parseSection = (sectionText: string) => {
-    // Split by variations of "Issue:" or "**Issue:**"
-    const items = sectionText.split(/(?=\*\*?Issue\*\*?:?|\*\*?ISSUE\*\*?:?|Issue:?)/i).filter(s => s.trim().length > 15);
-    
-    return items.map(item => {
-      const get = (label: string) => {
-        const escapedLabel = label.replace(/ /g, "\\s*");
-        // Look for "**Label:** Value" or "Label: Value"
-        const re = new RegExp(`(?:\\*\\*)?${escapedLabel}(?:\\*\\*)?(?::)?\\s*([^\\n]+(?:\\n(?!\\s*(?:\\*\\*)?(?:Issue|Why|Source)[a-z\\s]*\\b(?:\\*\\*)?(?::)?)[^\\n]*)*)`, "i");
-        return (item.match(re)?.[1] ?? "").trim();
-      };
-      
-      const issue = get("ISSUE").replace(/^\*\*(.*?)\*\*$/, '$1').trim();
-      const whyItMatters = get("WHY IT MATTERS").replace(/^\*\*(.*?)\*\*$/, '$1').trim();
-      const sourceSection = get("SOURCE").replace(/^\*\*(.*?)\*\*$/, '$1').trim();
-      
-      return { issue, whyItMatters, sourceSection };
-    }).filter(i => i.issue);
-  };
-
-  let section = "";
+  let region = "";
   if (type === "red") {
-    section = text.match(/(?:### )?🔴 RED FLAGS[\s\S]*?(?=(?:### )?🟡|$)/i)?.[0] ?? "";
+    region = text.match(/🔴 RED FLAGS[\s\S]*?(?=🟡 ORANGE FLAGS|$)/i)?.[0] ?? "";
   } else if (type === "orange") {
-    section = text.match(/(?:### )?🟡 ORANGE FLAGS[\s\S]*?(?=(?:### )?🟢|$)/i)?.[0] ?? "";
+    region = text.match(/🟡 ORANGE FLAGS[\s\S]*?(?=🟢 GREEN FLAGS|$)/i)?.[0] ?? "";
   } else if (type === "green") {
-    section = text.match(/(?:### )?🟢 GREEN FLAGS[\s\S]*?(?=(?:PART 5|$))/i)?.[0] ?? "";
+    region = text.match(/🟢 GREEN FLAGS[\s\S]*?$/i)?.[0] ?? "";
   }
 
-  return parseSection(section);
+  if (!region) return [];
+  region = region.replace(/^.*(RED|ORANGE|GREEN)\s*FLAGS.*$/im, "").trim();
+
+  // Optimized split to perfectly isolate items
+  const items: string[] = [];
+  const startRegex = /(?:\n|^)\s*(?:\*\*)?\s*Issue\s*(?:\*\*)?\s*:?\s*/gi;
+  let match;
+  let startIndices: number[] = [];
+  while ((match = startRegex.exec(region)) !== null) {
+      startIndices.push(match.index);
+  }
+  for (let i = 0; i < startIndices.length; i++) {
+      const nextIndex = startIndices[i + 1] || region.length;
+      items.push(region.substring(startIndices[i], nextIndex).trim());
+  }
+
+  return items.map(item => {
+    const get = (label: string) => {
+      const escapedLabel = label.replace(/[ \s&]+/g, "\\s*(?:&|and)?\\s*");
+      // Aggressive capture until next marker or end
+      const re = new RegExp(`(?:\\*\\*)?${escapedLabel}(?:\\*\\*)?(?::|\\*+)?\\s*([\\s\\S]*?)(?=\\n\\s*(?:\\*\\*)?(?:Issue|Why|Source|Quote)[a-z\\s&]*\\b|$)`, "i");
+      let val = (item.match(re)?.[1] ?? "").trim();
+      
+      // Intensive cleanup of markdown noise (stars, multiple dashes, trailing pound signs)
+      return val
+        .replace(/\*\*/g, "")
+        .replace(/###+/g, "")
+        .replace(/---+/g, "")
+        .replace(/^\s*[—:;]+\s*/g, "") 
+        .replace(/\s*[—:;–]+\s*$/g, "")
+        .trim();
+    };
+    
+    return {
+      issue: get("Issue"),
+      whyItMatters: get("Why It Matters"),
+      sourceSection: get("Source & Quote") || get("Source")
+    };
+  }).filter(i => i.issue);
 }
 
 function parseDocumentInventory(text: string): DocumentInventoryItem[] {

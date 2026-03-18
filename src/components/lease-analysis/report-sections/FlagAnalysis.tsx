@@ -63,11 +63,12 @@ export function FlagAnalysis({ red, orange, green }: Props) {
             <h5 className="font-semibold text-emerald-700">Green Flags — Favorable Provisions</h5>
             <Badge color="green">{green.length}</Badge>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {green.map((f, i) => (
               <div key={i} className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
                 <p className="font-semibold text-emerald-800 text-sm mb-1">{f.issue}</p>
-                {f.sourceSection && <p className="text-xs text-emerald-600 font-mono">Source: {f.sourceSection}</p>}
+                {f.whyItMatters && <p className="text-sm text-emerald-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
+                {f.sourceSection && <p className="text-xs text-emerald-600 font-mono italic">Source: {f.sourceSection}</p>}
               </div>
             ))}
           </div>
