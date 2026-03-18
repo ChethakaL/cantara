@@ -227,9 +227,14 @@ export async function deleteLeaseAnalysis(id: string) {
         const res = await fetch(`/api/lease-analysis/reports?id=${id}`, {
             method: 'DELETE',
         });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || 'Failed to delete lease analysis');
+        }
         return await res.json();
     } catch (error) {
         console.error(error);
+        throw error
     }
 }
 

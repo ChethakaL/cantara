@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
 import { FileText, Plus } from 'lucide-react'
-import { Button, Card } from '@/components/ui'
+import { Button, Card, Modal } from '@/components/ui'
 import type { LeaseAnalysis } from '@/lib/store'
 import { saveLeaseAnalysis, getLeaseAnalyses, deleteLeaseAnalysis } from '@/lib/store'
 import { useLeaseAnalysis } from '@/hooks/useLeaseAnalysis'
@@ -19,6 +19,8 @@ interface Props {
 export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
   const [analyses, setAnalyses] = useState<LeaseAnalysis[]>([])
   const [activeAnalysis, setActiveAnalysis] = useState<LeaseAnalysis | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   
   const { 
     documents: uploads, 
@@ -38,12 +40,17 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
     return data
   }, [clientId])
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this analysis?')) return
-    await deleteLeaseAnalysis(id)
-    const updated = await loadAnalyses()
-    if (activeAnalysis?.id === id) {
-        setActiveAnalysis(updated[0] ?? null)
+  const handleDeleteConfirmed = async () => {
+    const id = activeAnalysis?.id
+    if (!id) return
+    setDeleting(true)
+    try {
+      await deleteLeaseAnalysis(id)
+      const updated = await loadAnalyses()
+      setActiveAnalysis(updated[0] ?? null)
+    } finally {
+      setDeleting(false)
+      setDeleteOpen(false)
     }
   }
 
@@ -57,18 +64,16 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
   useEffect(() => {
     if (status === 'complete' && streamedReport) {
       const allNames = uploads.map(d => d.name).join(', ')
-      const analysis: LeaseAnalysis = {
-        id: 'la' + Date.now(),
+      
+      saveLeaseAnalysis({
         clientId,
         fileName: allNames,
-        createdAt: new Date().toISOString(),
         report: rawMarkdown,
-        parsed: streamedReport
-      }
-      
-      saveLeaseAnalysis(analysis).then(() => {
+        parsed: streamedReport,
+      }).then((saved) => {
+        // Use DB-generated ID so deletes work on first click.
+        if (saved?.id) setActiveAnalysis(saved)
         loadAnalyses()
-        setActiveAnalysis(analysis)
         clearAll()
       })
     }
@@ -148,10 +153,30 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
             fileName={displayFileName}
             clientName={clientName}
             onNewAnalysis={clearAll}
-            onDelete={activeAnalysis ? () => handleDelete(activeAnalysis.id) : undefined}
+            onDelete={activeAnalysis ? () => setDeleteOpen(true) : undefined}
           />
         )}
       </div>
+
+      <Modal
+        open={deleteOpen}
+        onClose={() => (deleting ? null : setDeleteOpen(false))}
+        title="Delete this analysis?"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            This will permanently delete the saved lease analysis report.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" disabled={deleting} onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" disabled={deleting} onClick={handleDeleteConfirmed}>
+              {deleting ? 'Deleting…' : 'Delete'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
