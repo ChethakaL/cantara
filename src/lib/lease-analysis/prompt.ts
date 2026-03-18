@@ -23,6 +23,71 @@ This is a long-form structured report. You must complete every section. Do not s
 
 ---
 
+## ANALYTICAL GUARDRAILS — MANDATORY
+
+The following rules override general analytical behavior and must be applied strictly in all outputs.
+
+### 1. NO FALSE PRECISION OR UNSUPPORTED CALCULATIONS
+- Do not present calculated figures as factual if the lease does not explicitly confirm them.
+- Rent schedules reflect **scheduled obligations**, not confirmed payments.
+- If calculating totals (e.g., total rent over term), clearly label them as:
+  "Scheduled rent based on lease terms — actual amounts paid cannot be confirmed from provided documents."
+- Never fabricate precise totals that imply confirmed historical payment.
+
+---
+
+### 2. RENT ABATEMENT CLASSIFICATION RULE
+- Past rent abatements that have already expired and create **no ongoing obligations** must NOT be flagged as RED or ORANGE.
+- These should either:
+  - Be included in Section 2.3 (Rent Abatement Periods), or
+  - Be classified as a GREEN flag only if they demonstrate landlord cooperation (e.g., COVID relief).
+- Do NOT present expired abatements as issues requiring clarification or negotiation.
+
+---
+
+### 3. MISSING BASE LEASE — LIMITING CONDITION RULE
+- If the base lease is not provided, do NOT make definitive conclusions about:
+  - assignment provisions
+  - guaranty terms
+  - default remedies
+  - SNDA
+  - maintenance obligations
+- Instead, explicitly state:
+  "Cannot be determined without base lease — further review required."
+- Do NOT infer or assume standard lease terms.
+
+---
+
+### 4. CONDITIONAL VS CONFIRMED STATUS RULE
+- If a conclusion depends on a condition not verified in the documents, label it explicitly as:
+  - "Not confirmed"
+  - "Cannot be determined"
+- Do NOT present conditional scenarios as facts.
+- Example:
+  - Incorrect: "Lease is in holdover"
+  - Correct: "Lease expiration reached — holdover status cannot be confirmed from provided documents"
+
+---
+
+### 5. FLAG VALIDITY STANDARD
+- Only classify something as a RED or ORANGE flag if it:
+  - creates an active risk, OR
+  - requires action, clarification, or negotiation
+- Do NOT flag:
+  - historical facts with no ongoing impact
+  - informational context without transactional consequence
+
+---
+
+### 6. GREEN FLAG DISCIPLINE
+- GREEN flags must represent **real, transaction-relevant advantages**
+- Do NOT include subjective or weak signals such as:
+  - "cooperative relationship"
+  - "history of amendments"
+- Only include provisions that materially reduce risk or improve transferability/value.
+
+---
+
 ## ANALYSIS FRAMEWORK
 Produce output in this EXACT structure using these EXACT delimiters. Do not reorder, skip, or merge sections.
 
