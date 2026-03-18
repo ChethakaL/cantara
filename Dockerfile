@@ -44,8 +44,7 @@ COPY --from=builder /app/prisma.config.ts ./
 COPY --from=builder /app/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
-# Install Prisma CLI for migrations (adds valibot etc.; must be after COPY standalone)
-RUN npm install prisma
+
 
 # Create storage dir for uploads; nextjs user needs write access
 RUN mkdir -p /app/storage/uploads && chown -R nextjs:nodejs /app/storage
