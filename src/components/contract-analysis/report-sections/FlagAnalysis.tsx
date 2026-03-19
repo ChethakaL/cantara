@@ -10,12 +10,9 @@ interface Props {
 }
 
 export function FlagAnalysis({ riskCards, red, orange, green }: Props) {
-  const total = red.length + orange.length + green.length
-  const groupedFlags = groupFlagsByContract(red, orange, green)
-  const hasRiskCards = riskCards.length > 0
-  const hasGroupedFlags = groupedFlags.length > 0
+  const sections = buildContractSections(riskCards, red, orange, green)
 
-  if (!hasRiskCards && !hasGroupedFlags && total === 0) {
+  if (!sections.length) {
     return (
       <div className="py-12 text-center text-sm text-slate-400">
         No flags parsed. View the raw report for flag analysis.
@@ -25,207 +22,128 @@ export function FlagAnalysis({ riskCards, red, orange, green }: Props) {
 
   return (
     <div className="space-y-6">
-      {hasGroupedFlags ? (
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-base">🗂️</span>
-            <h5 className="font-semibold text-slate-800">Flags By Contract</h5>
-            <Badge color="slate">{groupedFlags.length}</Badge>
-          </div>
-          <div className="space-y-4">
-            {groupedFlags.map((group) => {
-              const totalForContract = group.red.length + group.orange.length + group.green.length
-              return (
-                <div key={group.contractName} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/70 flex items-start justify-between gap-4 flex-wrap">
-                    <div>
-                      {group.contractId && <p className="text-xs font-mono text-slate-400 mb-1">{group.contractId}</p>}
-                      <h6 className="font-semibold text-slate-900">{group.contractName}</h6>
-                    </div>
-                    <Badge color="slate">{totalForContract} flags</Badge>
-                  </div>
-                  <div className="p-5 space-y-4">
-                    {group.red.length > 0 && (
-                      <FlagSection
-                        title={`${group.contractName} Red Flags`}
-                        emoji="🔴"
-                        tone="rose"
-                        flags={group.red}
-                      />
-                    )}
-                    {group.orange.length > 0 && (
-                      <FlagSection
-                        title={`${group.contractName} Orange Flags`}
-                        emoji="🟡"
-                        tone="amber"
-                        flags={group.orange}
-                      />
-                    )}
-                    {group.green.length > 0 && (
-                      <FlagSection
-                        title={`${group.contractName} Green Flags`}
-                        emoji="🟢"
-                        tone="emerald"
-                        flags={group.green}
-                      />
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      ) : hasRiskCards ? (
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-base">🗂️</span>
-            <h5 className="font-semibold text-slate-800">Per-Contract Risk Cards</h5>
-            <Badge color="slate">{riskCards.length}</Badge>
-          </div>
-          <div className="space-y-4">
-            {riskCards.map((card) => {
-              const contractTotal = card.redFlags.length + card.orangeFlags.length + card.greenFlags.length
-              return (
-                <div key={card.contractId} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/70 flex items-start justify-between gap-4 flex-wrap">
-                    <div>
-                      <p className="text-xs font-mono text-slate-400 mb-1">{card.contractId}</p>
-                      <h6 className="font-semibold text-slate-900">{card.contractName}</h6>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge color={normalizeRiskTier(card.riskTier)}>{card.riskTier}</Badge>
-                      <Badge color="slate">{card.recommendedAction}</Badge>
-                      <Badge color="slate">{contractTotal} flags</Badge>
-                    </div>
-                  </div>
-                  <div className="p-5 grid gap-4 md:grid-cols-3">
-                    {card.redFlags.length > 0 && (
-                      <FlagSection title={`${card.contractId} Red Flags`} emoji="🔴" tone="rose" flags={card.redFlags} />
-                    )}
-                    {card.orangeFlags.length > 0 && (
-                      <FlagSection title={`${card.contractId} Orange Flags`} emoji="🟡" tone="amber" flags={card.orangeFlags} />
-                    )}
-                    {card.greenFlags.length > 0 && (
-                      <FlagSection title={`${card.contractId} Green Flags`} emoji="🟢" tone="emerald" flags={card.greenFlags} />
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      ) : null}
+      {sections.map((section) => {
+        const totalFlags = section.red.length + section.orange.length + section.green.length
+        return (
+          <section key={section.key} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/70 flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                {section.contractId && (
+                  <p className="text-xs font-mono text-slate-400 mb-1">{section.contractId}</p>
+                )}
+                <h5 className="font-semibold text-slate-900">{section.contractName}</h5>
+              </div>
+              <Badge color="slate">{totalFlags} flags</Badge>
+            </div>
 
-      {!hasRiskCards && !hasGroupedFlags && red.length > 0 && (
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-base">🔴</span>
-            <h5 className="font-semibold text-rose-700">Package-Level Red Flags</h5>
-            <Badge color="red">{red.length}</Badge>
-          </div>
-          <div className="space-y-3">
-            {red.map((f, i) => (
-              <div key={i} className="p-4 rounded-xl bg-rose-50 border border-rose-100">
-                <p className="font-semibold text-rose-800 text-sm mb-1">{f.issue}</p>
-                {f.whyItMatters && <p className="text-sm text-rose-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
-                {f.sourceSection && <p className="text-xs text-rose-600 font-mono mb-2">Source: {f.sourceSection}</p>}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-      {!hasRiskCards && !hasGroupedFlags && orange.length > 0 && (
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-base">🟡</span>
-            <h5 className="font-semibold text-amber-700">Package-Level Orange Flags</h5>
-            <Badge color="gold">{orange.length}</Badge>
-          </div>
-          <div className="space-y-3">
-            {orange.map((f, i) => (
-              <div key={i} className="p-4 rounded-xl bg-amber-50 border border-amber-100">
-                <p className="font-semibold text-amber-800 text-sm mb-1">{f.issue}</p>
-                {f.whyItMatters && <p className="text-sm text-amber-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
-                {f.sourceSection && <p className="text-xs text-amber-600 font-mono mb-2">Source: {f.sourceSection}</p>}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-      {!hasRiskCards && !hasGroupedFlags && green.length > 0 && (
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-base">🟢</span>
-            <h5 className="font-semibold text-emerald-700">Package-Level Green Flags</h5>
-            <Badge color="green">{green.length}</Badge>
-          </div>
-          <div className="grid grid-cols-1 gap-3">
-            {green.map((f, i) => (
-              <div key={i} className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
-                <p className="font-semibold text-emerald-800 text-sm mb-1">{f.issue}</p>
-                {f.whyItMatters && <p className="text-sm text-emerald-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
-                {f.sourceSection && <p className="text-xs text-emerald-600 font-mono italic">Source: {f.sourceSection}</p>}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+            <div className="p-5 space-y-4">
+              {section.red.length > 0 && (
+                <FlagGroup title="Red Flags" emoji="🔴" tone="rose" flags={section.red} />
+              )}
+              {section.orange.length > 0 && (
+                <FlagGroup title="Orange Flags" emoji="🟡" tone="amber" flags={section.orange} />
+              )}
+              {section.green.length > 0 && (
+                <FlagGroup title="Green Flags" emoji="🟢" tone="emerald" flags={section.green} />
+              )}
+            </div>
+          </section>
+        )
+      })}
     </div>
   )
 }
 
-function groupFlagsByContract(red: Flag[], orange: Flag[], green: Flag[]) {
-  const groups = new Map<string, { contractName: string; contractId?: string; red: Flag[]; orange: Flag[]; green: Flag[] }>()
+function buildContractSections(riskCards: ContractRiskCard[], red: Flag[], orange: Flag[], green: Flag[]) {
+  const sections = riskCards.map((card) => ({
+    key: card.contractId || card.contractName,
+    contractId: card.contractId,
+    contractName: card.contractName,
+    aliases: buildAliases(card.contractName),
+    red: [] as Flag[],
+    orange: [] as Flag[],
+    green: [] as Flag[],
+  }))
 
-  const addFlags = (flags: Flag[], type: 'red' | 'orange' | 'green') => {
+  const fallbackSections = new Map<string, {
+    key: string
+    contractId?: string
+    contractName: string
+    aliases: string[]
+    red: Flag[]
+    orange: Flag[]
+    green: Flag[]
+  }>()
+
+  const assignFlags = (flags: Flag[], tone: 'red' | 'orange' | 'green') => {
     for (const flag of flags) {
-      const parsed = parseContractSource(flag)
-      if (!parsed.contractName) continue
+      const parsedName = extractContractName(flag.sourceSection || '') || flag.contractName || 'Unmapped Contract'
+      const normalized = normalizeLabel(parsedName)
 
-      const existing = groups.get(parsed.contractName) ?? {
-        contractName: parsed.contractName,
-        contractId: parsed.contractId,
-        red: [],
-        orange: [],
-        green: [],
+      const existing = sections.find((section) => section.aliases.some((alias) => normalized.includes(alias) || alias.includes(normalized)))
+      if (existing) {
+        existing[tone].push(flag)
+        continue
       }
 
-      if (!existing.contractId && parsed.contractId) existing.contractId = parsed.contractId
-      existing[type].push(flag)
-      groups.set(parsed.contractName, existing)
+      const key = normalized || parsedName
+      const fallback =
+        fallbackSections.get(key) ??
+        {
+          key,
+          contractName: parsedName,
+          aliases: [normalized],
+          red: [],
+          orange: [],
+          green: [],
+        }
+      fallback[tone].push(flag)
+      fallbackSections.set(key, fallback)
     }
   }
 
-  addFlags(red, 'red')
-  addFlags(orange, 'orange')
-  addFlags(green, 'green')
+  assignFlags(red, 'red')
+  assignFlags(orange, 'orange')
+  assignFlags(green, 'green')
 
-  return Array.from(groups.values())
+  return [
+    ...sections.filter((section) => section.red.length || section.orange.length || section.green.length),
+    ...Array.from(fallbackSections.values()),
+  ]
 }
 
-function parseContractSource(flag: Flag): { contractName: string | null; contractId?: string } {
-  if (flag.contractName) {
-    const match = flag.contractName.match(/^(Contract\s+\d+)\s+[—-]\s+(.+)$/i)
-    if (match) {
-      return { contractId: match[1], contractName: match[2].trim() }
-    }
-    return { contractName: flag.contractName }
-  }
+function buildAliases(contractName: string) {
+  const aliases = new Set<string>()
+  const normalized = normalizeLabel(contractName)
+  if (normalized) aliases.add(normalized)
 
-  const source = flag.sourceSection || ''
-  const contractName = source.split(',')[0]?.trim() || null
-  return { contractName }
+  const [mainName] = contractName.split('—').map((part) => part.trim())
+  const mainNormalized = normalizeLabel(mainName || contractName)
+  if (mainNormalized) aliases.add(mainNormalized)
+
+  if (mainNormalized.includes('exclusive supply agreement')) aliases.add(normalizeLabel('Supply Agreement'))
+  if (mainNormalized.includes('software subscription agreement')) aliases.add(normalizeLabel('Software Agreement'))
+  if (mainNormalized.includes('equipment finance agreement')) aliases.add(normalizeLabel('Equipment Finance'))
+  if (mainNormalized.includes('staffing services agreement')) aliases.add(normalizeLabel('Staffing Agreement'))
+
+  return Array.from(aliases)
 }
 
-function normalizeRiskTier(tier: string): 'red' | 'gold' | 'green' | 'slate' {
-  const lower = tier.toLowerCase()
-  if (lower.includes('high')) return 'red'
-  if (lower.includes('medium')) return 'gold'
-  if (lower.includes('low')) return 'green'
-  return 'slate'
+function extractContractName(source: string) {
+  const cleaned = source.replace(/\*\*/g, '').trim()
+  const match = cleaned.match(/^([^,]+?)(?:\s+Section|\s+§|,|$)/i)
+  return match?.[1]?.trim() || null
 }
 
-function FlagSection({
+function normalizeLabel(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function FlagGroup({
   title,
   emoji,
   tone,
