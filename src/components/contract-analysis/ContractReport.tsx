@@ -32,10 +32,14 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
     orange: (report.orangeFlags || []).length,
     green: (report.greenFlags || []).length,
   }
+  const perContractFlagCount = (report.contractRiskCards || []).reduce(
+    (sum, card) => sum + card.redFlags.length + card.orangeFlags.length + card.greenFlags.length,
+    0,
+  )
 
   const getCount = (key: string) => {
     switch (key) {
-      case 'flags': return flagCounts.red + flagCounts.orange + flagCounts.green
+      case 'flags': return perContractFlagCount || flagCounts.red + flagCounts.orange + flagCounts.green
       case 'findings': return (report.detailedFindings || []).length
       case 'documents': return (report.documentInventory || []).length
       default: return 0
@@ -98,7 +102,14 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
       <div className="p-6 min-h-[400px]">
         {activeTab === 'snapshot' && <SnapshotTable rows={report.snapshotTable} />}
         {activeTab === 'findings' && <DetailedFindings findings={report.detailedFindings} raw={report.raw} />}
-        {activeTab === 'flags' && <FlagAnalysis red={report.redFlags} orange={report.orangeFlags} green={report.greenFlags} />}
+        {activeTab === 'flags' && (
+          <FlagAnalysis
+            riskCards={report.contractRiskCards || []}
+            red={report.redFlags}
+            orange={report.orangeFlags}
+            green={report.greenFlags}
+          />
+        )}
         {activeTab === 'documents' && <DocumentInventoryReport rows={report.documentInventory} />}
       </div>
     </Card>

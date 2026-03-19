@@ -11,6 +11,7 @@ export interface ContractReport {
   raw: string;
   snapshotTable: SnapshotRow[];
   detailedFindings: FindingSection[];
+  contractRiskCards: ContractRiskCard[];
   redFlags: Flag[];
   orangeFlags: Flag[];
   greenFlags: Flag[];
@@ -32,9 +33,21 @@ export interface FindingSection {
 }
 
 export interface Flag {
+  contractName?: string;
+  riskLevel?: "red" | "orange" | "green";
   issue: string;
   whyItMatters: string;
   sourceSection: string;
+}
+
+export interface ContractRiskCard {
+  contractId: string;
+  contractName: string;
+  riskTier: string;
+  recommendedAction: string;
+  redFlags: Flag[];
+  orangeFlags: Flag[];
+  greenFlags: Flag[];
 }
 
 export interface ChecklistItem {

@@ -1,5 +1,6 @@
 import {
   ChecklistItem,
+  ContractRiskCard,
   ContractReport,
   DocumentInventoryItem,
   FindingSection,
@@ -14,6 +15,7 @@ export function parseReport(markdown: string): ContractReport {
     raw: markdown,
     snapshotTable: parseSnapshotTable(sections["PART 1"] ?? ""),
     detailedFindings: parseDetailedFindings(sections["PART 2"] ?? ""),
+    contractRiskCards: parseContractRiskCards(sections["PART 2"] ?? ""),
     redFlags: parseFlags(sections["PART 3"] ?? "", "red"),
     orangeFlags: parseFlags(sections["PART 3"] ?? "", "orange"),
     greenFlags: parseFlags(sections["PART 3"] ?? "", "green"),
@@ -21,6 +23,31 @@ export function parseReport(markdown: string): ContractReport {
     transactionChecklist: parseChecklist(sections["PART 5"] ?? ""),
     generatedAt: new Date().toISOString(),
   };
+}
+
+function parseContractRiskCards(text: string): ContractRiskCard[] {
+  const findings = parseDetailedFindings(text);
+
+  return findings.map((finding) => {
+    const riskTier =
+      finding.content.match(/\*\*Risk Tier:\*\*\s*([^\n]+)/i)?.[1]?.trim() ||
+      finding.content.match(/Risk Tier:\s*([^\n]+)/i)?.[1]?.trim() ||
+      "Not stated";
+    const recommendedAction =
+      finding.content.match(/\*\*Recommended Action:\*\*\s*([^\n]+)/i)?.[1]?.trim() ||
+      finding.content.match(/Recommended Action:\s*([^\n]+)/i)?.[1]?.trim() ||
+      "Further review required";
+
+    return {
+      contractId: finding.id,
+      contractName: finding.title,
+      riskTier,
+      recommendedAction,
+      redFlags: parseContractSpecificFlagList(finding, "red"),
+      orangeFlags: parseContractSpecificFlagList(finding, "orange"),
+      greenFlags: parseContractSpecificFlagList(finding, "green"),
+    };
+  });
 }
 
 function splitBySections(markdown: string): Record<string, string> {
@@ -119,7 +146,7 @@ function parseSnapshotTable(text: string): SnapshotRow[] {
 
 function parseDetailedFindings(text: string): FindingSection[] {
   const sections = text
-    .split(/\n(?=###\s+(?:\d+\.\d+|CONTRACT\s+\[\d+\]:))/g)
+    .split(/\n(?=###\s+(?:\d+\.\d+|CONTRACT\s+(?:\[\d+\]|\d+)(?:\s+RISK\s+CARD)?\s*:))/gi)
     .filter((section) => section.trim());
 
   return sections
@@ -133,13 +160,16 @@ function parseDetailedFindings(text: string): FindingSection[] {
         };
       }
 
-      const contractMatch = section.match(/###\s+CONTRACT\s+\[(\d+)\]:\s+([^\n]+)/i);
+      const contractMatch = section.match(/###\s+CONTRACT\s+(?:\[(\d+)\]|(\d+))(?:\s+RISK\s+CARD)?\s*:\s+([^\n]+)/i);
       if (!contractMatch) return null;
 
+      const contractNumber = contractMatch[1] || contractMatch[2];
+      const contractTitle = contractMatch[3];
+
       return {
-        id: `C${contractMatch[1]}`,
-        title: contractMatch[2].trim().replace(/\*\*+/g, "").trim(),
-        content: section.replace(/###\s+CONTRACT\s+\[\d+\]:\s+[^\n]+\n/i, "").trim(),
+        id: `Contract ${contractNumber}`,
+        title: contractTitle.trim().replace(/\*\*+/g, "").trim(),
+        content: section.replace(/###\s+CONTRACT\s+(?:\[\d+\]|\d+)(?:\s+RISK\s+CARD)?\s*:\s+[^\n]+\n/i, "").trim(),
       };
     })
     .filter((section): section is FindingSection => section !== null);
@@ -192,6 +222,7 @@ function parseFlags(text: string, type: "red" | "orange" | "green"): Flag[] {
       };
 
       return {
+        riskLevel: type,
         issue: get("Issue"),
         whyItMatters: get("Why It Matters"),
         sourceSection: get("Contract & Source") || get("Source & Quote") || get("Source"),
@@ -226,5 +257,56 @@ function parseChecklist(text: string): ChecklistItem[] {
     actionItem: row[1] ?? "",
     priority: row[2] ?? "",
     notes: row[3] ?? "",
-  }));
+    }));
+}
+
+function parseContractSpecificFlagList(
+  finding: FindingSection,
+  type: "red" | "orange" | "green",
+): Flag[] {
+  const emoji = type === "red" ? "🔴" : type === "orange" ? "🟡" : "🟢";
+  const sectionLabel =
+    type === "red"
+      ? "Contract-Specific Red Flags"
+      : type === "orange"
+        ? "Contract-Specific Orange Flags"
+        : "Contract-Specific Green Flags";
+
+  const escapedLabel = sectionLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let region =
+    finding.content.match(
+      new RegExp(
+        `(?:\\*\\*)?${escapedLabel}(?:\\*\\*)?\\s*([\\s\\S]*?)(?=\\n####\\s|\\n(?:\\*\\*)?Contract-Specific\\s+(?:Red|Orange|Green)\\s+Flags|\\n####\\s+DISPOSITION|$)`,
+        "i",
+      ),
+    )?.[1] ?? "";
+
+  if (!region) {
+    const genericRegion =
+      finding.content.match(
+        /####\s+RISK FLAGS FOR THIS CONTRACT([\s\S]*?)(?=\n####\s+DISPOSITION|\n####\s+[A-Z]|$)/i,
+      )?.[1] ?? "";
+
+    if (!genericRegion) return [];
+    region = genericRegion
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith(emoji))
+      .map((line) => line.replace(new RegExp(`^${emoji}\\s*`), "").trim())
+      .join("\n");
+  }
+
+  return region
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("-") || line.startsWith(emoji))
+    .map((line) => line.replace(/^-+\s*/, "").replace(new RegExp(`^${emoji}\\s*`), "").trim())
+    .filter((issue) => issue && !/^none identified/i.test(issue))
+    .map((issue) => ({
+      contractName: finding.title,
+      riskLevel: type,
+      issue,
+      whyItMatters: "",
+      sourceSection: finding.id,
+    }));
 }

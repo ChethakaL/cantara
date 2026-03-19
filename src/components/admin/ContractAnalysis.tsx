@@ -5,6 +5,7 @@ import { Button, Card, Modal } from '@/components/ui'
 import type { ContractAnalysis } from '@/lib/store'
 import { deleteContractAnalysis, getContractAnalyses, saveContractAnalysis } from '@/lib/store'
 import { useContractAnalysis } from '@/hooks/useContractAnalysis'
+import { parseReport } from '@/lib/contract-analysis/parse-report'
 import { ContractUploader } from '../contract-analysis/ContractUploader'
 import { AnalysisProgress } from '../contract-analysis/AnalysisProgress'
 import { ContractReport } from '../contract-analysis/ContractReport'
@@ -77,7 +78,9 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
 
   const displayReport = (status === 'streaming' || status === 'complete') && streamedReport
     ? streamedReport
-    : activeAnalysis?.parsed
+    : activeAnalysis?.report
+      ? parseReport(activeAnalysis.report)
+      : activeAnalysis?.parsed
 
   const displayFileName = status === 'streaming' || status === 'complete'
     ? uploads.map((doc) => doc.name).join(', ')

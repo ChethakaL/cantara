@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    const stream = await client.messages.stream({
+    const result = await client.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 8000,
       temperature: 0,
@@ -39,25 +39,16 @@ export async function POST(req: NextRequest) {
       messages: [{ role: "user", content: userContent }],
     });
 
-    const readableStream = new ReadableStream({
-      async start(controller) {
-        for await (const chunk of stream) {
-          if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
-            controller.enqueue(new TextEncoder().encode(chunk.delta.text));
-          }
-        }
-        controller.close();
-      },
-      cancel() {
-        stream.controller.abort();
-      },
-    });
+    const text = result.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("");
 
-    return new Response(readableStream, {
+    console.log("[contract-analysis] Claude response:\n", text);
+
+    return new Response(text, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-        "X-Accel-Buffering": "no",
       },
     });
   } catch (error: any) {
