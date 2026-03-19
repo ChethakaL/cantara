@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { mapClientForFrontend } from "@/lib/client-mappers";
 
 // GET /api/clients - Get all clients for admin dashboard
 export async function GET(req: NextRequest) {
   try {
-    const clients = await prisma.clientProfile.findMany({
+    const clients = await (prisma as any).clientProfile.findMany({
       include: {
         Branches: true,
+        TeamMembers: true,
+        ClientDocumentStatuses: true,
         User: true,
         ChatMessages: {
           orderBy: { timestamp: "desc" },
@@ -17,7 +20,7 @@ export async function GET(req: NextRequest) {
     });
 
     // Map to match the frontend expected structure
-    const mappedClients = await Promise.all(clients.map(async (c) => {
+    const mappedClients = await Promise.all(clients.map(async (c: any) => {
       const unreadCount = await prisma.chatMessage.count({
         where: {
           clientId: c.id,
@@ -26,18 +29,7 @@ export async function GET(req: NextRequest) {
         },
       });
 
-      return {
-        ...c,
-        name: c.User?.name || 'Unknown Client',
-        company: c.businessName,
-        email: c.User?.email || c.email,
-        workstream: c.workstream ? c.workstream.toLowerCase() : null,
-        stage: c.stage ? c.stage.toLowerCase() : 'onboarding',
-        businessType: c.businessType ? c.businessType.toLowerCase() : 'single',
-        teamMembers: [], // Placeholder for team members if needed
-        documentStatuses: {}, // Placeholder
-        unreadCount,
-      };
+      return mapClientForFrontend(c, unreadCount);
     }));
 
     return NextResponse.json(mappedClients);
@@ -50,7 +42,7 @@ export async function GET(req: NextRequest) {
 // POST /api/clients - Create a new client (Admin only)
 export async function POST(req: NextRequest) {
   try {
-    const { name, email, company } = await req.json();
+    const { name, email, company, password } = await req.json();
 
     if (!name || !email) {
       return new Response("Missing required fields", { status: 400 });
@@ -61,7 +53,7 @@ export async function POST(req: NextRequest) {
       data: {
         name,
         email,
-        passwordHash: "password123", // Default password for new clients
+        passwordHash: password || "password123",
         role: "CLIENT",
       },
     });

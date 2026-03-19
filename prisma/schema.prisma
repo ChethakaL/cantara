@@ -20,15 +20,31 @@ model LeaseAnalysis {
   @@index([clientId, createdAt])
 }
 
+model ContractAnalysis {
+  id        String        @id @default(cuid())
+  clientId  String
+  fileName  String
+  report    String        @db.Text
+  parsed    Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
 model ClientDocument {
   id                  String          @id @default(cuid())
   requestId           String?
+  documentId          String?
   clientId            String
   uploadedById        String
   fileName            String
   mimeType            String
   size                Int
   localPath           String
+  storageProvider     String?         @default("s3")
+  storageBucket       String?
   googleDriveFileId   String?
   createdAt           DateTime        @default(now())
   aiBusinessNameMatch Boolean?
@@ -42,6 +58,36 @@ model ClientDocument {
   User                User            @relation(fields: [uploadedById], references: [id])
 
   @@index([clientId, createdAt])
+}
+
+model TeamMember {
+  id        String        @id @default(cuid())
+  clientId  String
+  name      String
+  email     String
+  role      String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model ClientDocumentStatus {
+  id           String        @id @default(cuid())
+  clientId     String
+  documentId   String
+  hasDoc       Boolean?
+  assignedTo   String?
+  uploadedAt   DateTime?
+  fileName     String?
+  notApplicable Boolean      @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  client       ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, documentId])
+  @@index([clientId, updatedAt])
 }
 
 model ClientProfile {
@@ -63,9 +109,12 @@ model ClientProfile {
   updatedAt           DateTime          @updatedAt
   
   ClientDocument      ClientDocument[]
+  ClientDocumentStatuses ClientDocumentStatus[]
+  TeamMembers         TeamMember[]
   User                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   DocumentRequest     DocumentRequest[]
   LeaseAnalysis       LeaseAnalysis[]
+  ContractAnalysis    ContractAnalysis[]
   Questions           Question[]
   Branches            Branch[]
   ChatMessages        ChatMessage[]

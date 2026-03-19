@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { mapClientForFrontend } from "@/lib/client-mappers";
 
 // GET /api/clients/[id] - Get single client detail
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
   try {
-    const client = await prisma.clientProfile.findUnique({
+    const client = await (prisma as any).clientProfile.findUnique({
       where: { id },
       include: {
         Branches: true,
+        TeamMembers: true,
+        ClientDocumentStatuses: true,
         User: true,
       },
     });
@@ -16,27 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (!client) return new Response("Not Found", { status: 404 });
 
     // Map to store-compatible type
-    const mapped = {
-        id: client.id,
-        name: client.User.name,
-        email: client.User.email,
-        company: client.businessName,
-        phone: client.phone || '',
-        workstream: client.workstream ? client.workstream.toLowerCase() : null,
-        stage: client.stage ? client.stage.toLowerCase() : 'onboarding',
-        businessType: client.businessType ? client.businessType.toLowerCase() : 'single',
-        branches: client.Branches.map(b => ({ id: b.id, name: b.name })),
-        teamMembers: [], // Placeholder
-        documentStatuses: {}, // Placeholder
-        driveFolder: client.driveFolderId,
-        createdAt: client.createdAt.toISOString(),
-        provisionedAt: client.provisionedAt?.toISOString() || null,
-        lastLogin: client.lastLogin?.toISOString() || null,
-        notes: client.notes || '',
-        valuationDocUploaded: client.valuationDocUploaded,
-    };
-
-    return NextResponse.json(mapped);
+    return NextResponse.json(mapClientForFrontend(client));
   } catch (error) {
     console.error("GET Client [id] Error:", error);
     return new Response("Internal Server Error", { status: 500 });
@@ -49,11 +32,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const body = await req.json();
     
-    // Update ClientProfile first
-    const updated = await prisma.clientProfile.update({
+    const teamMembers = Array.isArray(body.teamMembers) ? body.teamMembers : undefined;
+    const documentStatuses =
+      body.documentStatuses && typeof body.documentStatuses === "object" ? body.documentStatuses : undefined;
+
+    const updated = await (prisma as any).clientProfile.update({
       where: { id },
       data: {
         businessName: body.company,
+        email: body.email,
         phone: body.phone,
         workstream: body.workstream ? body.workstream.toUpperCase() : undefined,
         stage: body.stage ? body.stage.toUpperCase() : undefined,
@@ -62,18 +49,75 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         valuationDocUploaded: body.valuationDocUploaded,
         updatedAt: new Date(),
       },
-      include: { User: true }
+      include: { User: true, Branches: true, TeamMembers: true, ClientDocumentStatuses: true }
     });
     
     // Update User name if provided
     if (body.name) {
       await prisma.user.update({
         where: { id: updated.userId },
-        data: { name: body.name }
+        data: { name: body.name, email: body.email || undefined }
       });
     }
 
-    return NextResponse.json(updated);
+    if (Array.isArray(body.branches)) {
+      await (prisma as any).branch.deleteMany({ where: { clientId: id } });
+      const nextBranches = body.branches
+        .filter((branch: { name?: string }) => branch?.name?.trim())
+        .map((branch: { name: string }) => ({ clientId: id, name: branch.name.trim() }));
+      if (nextBranches.length) {
+        await (prisma as any).branch.createMany({ data: nextBranches });
+      }
+    }
+
+    if (teamMembers) {
+      await (prisma as any).teamMember.deleteMany({ where: { clientId: id } });
+      const nextMembers = teamMembers
+        .filter((member: { name?: string; email?: string }) => member?.name?.trim() && member?.email?.trim())
+        .map((member: { name: string; email: string; role?: string }) => ({
+          clientId: id,
+          name: member.name.trim(),
+          email: member.email.trim(),
+          role: (member.role || "").trim(),
+        }));
+      if (nextMembers.length) {
+        await (prisma as any).teamMember.createMany({ data: nextMembers });
+      }
+    }
+
+    if (documentStatuses) {
+      const entries = Object.entries(documentStatuses) as Array<[string, any]>;
+      await (prisma as any).$transaction(
+        entries.map(([documentId, status]) =>
+          (prisma as any).clientDocumentStatus.upsert({
+            where: { clientId_documentId: { clientId: id, documentId } },
+            update: {
+              hasDoc: status.hasDoc ?? null,
+              assignedTo: status.assignedTo ?? null,
+              uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
+              fileName: status.fileName ?? null,
+              notApplicable: Boolean(status.notApplicable),
+            },
+            create: {
+              clientId: id,
+              documentId,
+              hasDoc: status.hasDoc ?? null,
+              assignedTo: status.assignedTo ?? null,
+              uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
+              fileName: status.fileName ?? null,
+              notApplicable: Boolean(status.notApplicable),
+            },
+          }),
+        ),
+      );
+    }
+
+    const reloaded = await (prisma as any).clientProfile.findUnique({
+      where: { id },
+      include: { User: true, Branches: true, TeamMembers: true, ClientDocumentStatuses: true },
+    });
+
+    return NextResponse.json(reloaded ? mapClientForFrontend(reloaded) : updated);
   } catch (error) {
     console.error("PATCH Client Error:", error);
     return new Response("Internal Server Error", { status: 500 });

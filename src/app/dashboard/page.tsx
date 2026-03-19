@@ -63,13 +63,28 @@ const PHASES = [
 ]
 
 // ── Document upload dropzone ─────────────────────────────────────────────────
-function DocumentUpload({ docId, docName, onUploaded }: {
-  docId: string; docName: string; onUploaded: (fileName: string) => void
+function DocumentUpload({ docId, docName, clientId, uploaderEmail, onUploaded }: {
+  docId: string; docName: string; clientId: string; uploaderEmail: string; onUploaded: (fileName: string) => void
 }) {
   const [uploaded, setUploaded] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: (files) => {
-      if (files[0]) { onUploaded(files[0].name); setUploaded(true) }
+    onDrop: async (files) => {
+      if (!files[0]) return
+      setUploading(true)
+      const form = new FormData()
+      form.append('file', files[0])
+      form.append('clientId', clientId)
+      form.append('documentId', docId)
+      form.append('uploaderEmail', uploaderEmail)
+      const res = await fetch('/api/client-documents/upload', {
+        method: 'POST',
+        body: form,
+      })
+      setUploading(false)
+      if (!res.ok) return
+      onUploaded(files[0].name)
+      setUploaded(true)
     },
     multiple: false,
   })
@@ -82,7 +97,7 @@ function DocumentUpload({ docId, docName, onUploaded }: {
     <div {...getRootProps()} className={`border border-dashed rounded-lg px-3 py-2 cursor-pointer text-xs transition-all flex items-center gap-2 ${isDragActive ? 'border-amber-400 bg-amber-50 text-amber-600' : 'border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'}`}>
       <input {...getInputProps()} />
       <Upload className="w-3.5 h-3.5 shrink-0" />
-      {isDragActive ? 'Drop file here' : 'Upload file'}
+      {uploading ? 'Uploading...' : isDragActive ? 'Drop file here' : 'Upload file'}
     </div>
   )
 }
@@ -101,6 +116,7 @@ export default function ClientDashboard() {
   const [chatDraft, setChatDraft] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [requirements, setRequirements] = useState<AdditionalRequirement[]>([])
+  const [savingStatuses, setSavingStatuses] = useState(false)
   const chatBottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -131,6 +147,24 @@ export default function ClientDashboard() {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, showChat])
+
+  useEffect(() => {
+    if (!client) return
+    const timeout = setTimeout(async () => {
+      setSavingStatuses(true)
+      try {
+        await fetch('/api/client-portal/statuses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId: client.id, statuses: docStatuses }),
+        })
+      } finally {
+        setSavingStatuses(false)
+      }
+    }, 400)
+
+    return () => clearTimeout(timeout)
+  }, [docStatuses, client])
 
   if (!client) {
     return (
@@ -236,7 +270,7 @@ export default function ClientDashboard() {
             <div className="mt-5">
               <div className="flex justify-between text-xs text-slate-400 mb-1.5">
                 <span>Overall progress</span>
-                <span>{submittedDocs.length} of {allDocs.length} documents submitted</span>
+                <span>{submittedDocs.length} of {allDocs.length} documents submitted{savingStatuses ? ' · Saving…' : ''}</span>
               </div>
               <ProgressBar value={allDocs.length ? Math.round((submittedDocs.length / allDocs.length) * 100) : 0} />
             </div>
@@ -281,9 +315,9 @@ export default function ClientDashboard() {
             transition={{ duration: 0.2 }}
           >
             {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} onStart={() => setPhase('valuation')} />}
-            {phase === 'valuation' && <ValuationTab docs={VALUATION_DOCS} getStatus={getDocStatus} setStatus={setDocStatus} onNext={() => setPhase('assign')} />}
+            {phase === 'valuation' && <ValuationTab docs={VALUATION_DOCS} getStatus={getDocStatus} setStatus={setDocStatus} onNext={() => setPhase('assign')} clientId={client.id} uploaderEmail={client.email} />}
             {phase === 'assign' && <AssignTab categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
-            {phase === 'collection' && <CollectionTab categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} />}
+            {phase === 'collection' && <CollectionTab categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} clientId={client.id} uploaderEmail={client.email} />}
             {phase === 'requirements' && <RequirementsClientTab requirements={requirements} />}
             {phase === 'roadmap' && <RoadmapTab />}
           </motion.div>
@@ -441,11 +475,13 @@ function OverviewTab({ client, wsLabel, onStart }: { client: Client; wsLabel: Re
 }
 
 // ── Valuation Tab ────────────────────────────────────────────────────────────
-function ValuationTab({ docs, getStatus, setStatus, onNext }: {
+function ValuationTab({ docs, getStatus, setStatus, onNext, clientId, uploaderEmail }: {
   docs: typeof VALUATION_DOCS
   getStatus: (id: string) => DocumentStatus
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
   onNext: () => void
+  clientId: string
+  uploaderEmail: string
 }) {
   const allSubmitted = docs.every(d => getStatus(d.id).fileName)
   return (
@@ -481,6 +517,8 @@ function ValuationTab({ docs, getStatus, setStatus, onNext }: {
                 <DocumentUpload
                   docId={doc.id}
                   docName={doc.name}
+                  clientId={clientId}
+                  uploaderEmail={uploaderEmail}
                   onUploaded={(fileName) => setStatus(doc.id, { fileName, uploadedAt: new Date().toISOString() })}
                 />
               </div>
@@ -654,10 +692,12 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
 }
 
 // ── Collection Tab ────────────────────────────────────────────────────────────
-function CollectionTab({ categories, getStatus, setStatus }: {
+function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEmail }: {
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
+  clientId: string
+  uploaderEmail: string
 }) {
   return (
     <div className="space-y-4">
@@ -694,6 +734,8 @@ function CollectionTab({ categories, getStatus, setStatus }: {
                       <DocumentUpload
                         docId={doc.id}
                         docName={doc.name}
+                        clientId={clientId}
+                        uploaderEmail={uploaderEmail}
                         onUploaded={(fileName) => setStatus(doc.id, { fileName, uploadedAt: new Date().toISOString() })}
                       />
                     </div>

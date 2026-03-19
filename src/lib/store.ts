@@ -56,6 +56,15 @@ export interface LeaseAnalysis {
   parsed: any | null
 }
 
+export interface ContractAnalysis {
+  id: string
+  clientId: string
+  fileName: string
+  createdAt: string
+  report: string
+  parsed: any | null
+}
+
 export interface Client {
   id: string
   name: string
@@ -236,6 +245,53 @@ export async function deleteLeaseAnalysis(id: string) {
         console.error(error);
         throw error
     }
+}
+
+// ── Contract Analyses ───────────────────────────────────────────────────────
+
+export async function getContractAnalyses(clientId: string): Promise<ContractAnalysis[]> {
+  try {
+    const res = await fetch(`/api/contract-analysis/reports?clientId=${clientId}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+export async function saveContractAnalysis(data: {
+  clientId: string;
+  fileName: string;
+  report: string;
+  parsed: any;
+}) {
+  try {
+    const res = await fetch('/api/contract-analysis/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await res.json();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+export async function deleteContractAnalysis(id: string) {
+  try {
+    const res = await fetch(`/api/contract-analysis/reports?id=${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(text || 'Failed to delete contract analysis');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error(error);
+    throw error
+  }
 }
 
 // ── Auth Helpers (Still using LocalStorage/Cookies for session) ───────────────

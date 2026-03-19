@@ -2,10 +2,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { use } from 'react'
-import { ArrowLeft, FileText, MessageSquare, AlertCircle, Settings, Landmark, BarChart3 } from 'lucide-react'
+import { ArrowLeft, FileText, MessageSquare, AlertCircle, Settings, Landmark, Briefcase } from 'lucide-react'
 import { motion } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
 import LeaseAnalysisTab from '@/components/admin/LeaseAnalysis'
+import ContractAnalysisTab from '@/components/admin/ContractAnalysis'
 import AdminChat from '@/components/admin/AdminChat'
 import AdditionalRequirementsAdmin from '@/components/admin/AdditionalRequirements'
 import ClientManager from '@/components/admin/ClientManager'
@@ -18,6 +19,7 @@ const TABS = [
   { key: 'manage', label: 'Client Management', icon: Settings },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'lease', label: 'Lease Analysis', icon: Landmark },
+  { key: 'contract', label: 'Contract Analysis', icon: Briefcase },
   { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
 ]
@@ -142,6 +144,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'lease' && (
               <LeaseAnalysisTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'contract' && (
+              <ContractAnalysisTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />
