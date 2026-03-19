@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
           assignedTo?: string | null;
           uploadedAt?: string | null;
           fileName?: string | null;
+          fileUrl?: string | null;
           notApplicable?: boolean;
         },
       ]
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
             assignedTo: status.assignedTo ?? null,
             uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
             fileName: status.fileName ?? null,
+            fileUrl: status.fileUrl ?? null,
             notApplicable: Boolean(status.notApplicable),
           },
           create: {
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
             assignedTo: status.assignedTo ?? null,
             uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
             fileName: status.fileName ?? null,
+            fileUrl: status.fileUrl ?? null,
             notApplicable: Boolean(status.notApplicable),
           },
         }),

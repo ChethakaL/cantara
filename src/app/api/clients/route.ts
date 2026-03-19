@@ -9,7 +9,9 @@ export async function GET(req: NextRequest) {
       include: {
         Branches: true,
         TeamMembers: true,
+        AdvisorProfiles: true,
         ClientDocumentStatuses: true,
+        ClientDocument: true,
         User: true,
         ChatMessages: {
           orderBy: { timestamp: "desc" },

@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
       priority: r.priority.toLowerCase(),
       status: r.status.toLowerCase(),
       createdAt: r.createdAt.toISOString(),
+      respondedAt: r.respondedAt?.toISOString() ?? null,
     }));
 
     return NextResponse.json(mapped);
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 // POST /api/requirements - Create a new requirement
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, title, description, priority } = await req.json();
+    const { clientId, title, description, question, requestUpload, sourceDocumentId, sourceDocumentName, sourceUploadedFileName, priority } = await req.json();
 
     if (!clientId || !title) {
       return new Response("Missing required fields", { status: 400 });
@@ -41,6 +42,11 @@ export async function POST(req: NextRequest) {
         clientId,
         title,
         description,
+        question,
+        requestUpload: Boolean(requestUpload),
+        sourceDocumentId,
+        sourceDocumentName,
+        sourceUploadedFileName,
         priority: priority ? priority.toUpperCase() : "MEDIUM",
         status: "OPEN",
       },

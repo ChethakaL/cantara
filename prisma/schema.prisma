@@ -73,6 +73,18 @@ model TeamMember {
   @@index([clientId, createdAt])
 }
 
+model AdvisorProfile {
+  id        String        @id @default(cuid())
+  clientId  String
+  name      String
+  imageUrl  String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
 model ClientDocumentStatus {
   id           String        @id @default(cuid())
   clientId     String
@@ -81,6 +93,7 @@ model ClientDocumentStatus {
   assignedTo   String?
   uploadedAt   DateTime?
   fileName     String?
+  fileUrl      String?
   notApplicable Boolean      @default(false)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -102,6 +115,7 @@ model ClientProfile {
   stage               ClientStage       @default(ONBOARDING)
   driveFolderId       String?
   notes               String?           @db.Text
+  sectionSubmissions  Json?
   valuationDocUploaded Boolean           @default(false)
   provisionedAt       DateTime?
   lastLogin           DateTime?
@@ -111,6 +125,7 @@ model ClientProfile {
   ClientDocument      ClientDocument[]
   ClientDocumentStatuses ClientDocumentStatus[]
   TeamMembers         TeamMember[]
+  AdvisorProfiles     AdvisorProfile[]
   User                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   DocumentRequest     DocumentRequest[]
   LeaseAnalysis       LeaseAnalysis[]
@@ -147,6 +162,15 @@ model AdditionalRequirement {
   clientId    String
   title       String
   description String?       @db.Text
+  question    String?       @db.Text
+  requestUpload Boolean     @default(false)
+  sourceDocumentId String?
+  sourceDocumentName String?
+  sourceUploadedFileName String?
+  clientResponse String?    @db.Text
+  responseFileName String?
+  responseFileUrl String?
+  respondedAt DateTime?
   priority    Priority      @default(MEDIUM)
   status      RequirementStatus @default(OPEN)
   createdAt   DateTime      @default(now())

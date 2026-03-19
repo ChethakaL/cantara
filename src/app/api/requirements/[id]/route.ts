@@ -11,12 +11,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data: {
         title: body.title,
         description: body.description,
+        question: body.question,
+        requestUpload: typeof body.requestUpload === 'boolean' ? body.requestUpload : undefined,
+        sourceDocumentId: body.sourceDocumentId,
+        sourceDocumentName: body.sourceDocumentName,
+        sourceUploadedFileName: body.sourceUploadedFileName,
+        clientResponse: body.clientResponse,
+        responseFileName: body.responseFileName,
+        responseFileUrl: body.responseFileUrl,
+        respondedAt: body.respondedAt ? new Date(body.respondedAt) : body.clientResponse || body.responseFileName ? new Date() : undefined,
         priority: body.priority ? body.priority.toUpperCase() : undefined,
         status: body.status ? body.status.toUpperCase() : undefined,
       },
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json({
+      ...updated,
+      priority: updated.priority.toLowerCase(),
+      status: updated.status.toLowerCase(),
+      createdAt: updated.createdAt.toISOString(),
+      respondedAt: updated.respondedAt?.toISOString() ?? null,
+    });
   } catch (error) {
     console.error("PATCH Requirement Error:", error);
     return new Response("Internal Server Error", { status: 500 });

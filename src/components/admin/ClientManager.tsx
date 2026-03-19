@@ -1,6 +1,6 @@
 'use client'
-import { useState } from 'react'
-import { ExternalLink, FolderOpen, Plus, Trash2, Building2, Users } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ExternalLink, FolderOpen, Plus, Trash2, Building2, Users, Briefcase, Upload, Image as ImageIcon, Loader2, CheckCircle2 } from 'lucide-react'
 import { Button, Input, Select, Textarea, Badge, WorkstreamBadge } from '@/components/ui'
 import { saveClient } from '@/lib/store'
 import type { Client, Workstream, BusinessType } from '@/lib/store'
@@ -29,7 +29,11 @@ export default function ClientManager({ client: initial, onSaved }: {
   const [saved, setSaved] = useState(false)
   const [newBranch, setNewBranch] = useState('')
   const [newMember, setNewMember] = useState({ name: '', email: '', role: '' })
+  const [newAdvisor, setNewAdvisor] = useState({ name: '', imageUrl: '', previewUrl: '' })
   const [addingMember, setAddingMember] = useState(false)
+  const [addingAdvisor, setAddingAdvisor] = useState(false)
+  const [uploadingAdvisorImage, setUploadingAdvisorImage] = useState(false)
+  const advisorImageInputRef = useRef<HTMLInputElement | null>(null)
 
   const update = <K extends keyof Client>(key: K, val: Client[K]) =>
     setClient(p => ({ ...p, [key]: val }))
@@ -85,6 +89,65 @@ export default function ClientManager({ client: initial, onSaved }: {
   }
 
   const removeMember = (id: string) => update('teamMembers', client.teamMembers.filter(m => m.id !== id))
+
+  const addAdvisor = () => {
+    if (!newAdvisor.name || !newAdvisor.imageUrl) return
+    const nextAdvisors = [...client.advisors, { id: 'adv' + Date.now(), name: newAdvisor.name, imageUrl: newAdvisor.imageUrl }]
+    const nextClient = { ...client, advisors: nextAdvisors }
+    setClient(nextClient)
+    void saveClient(nextClient).then((savedClient) => {
+      if (savedClient) {
+        setClient(savedClient)
+        onSaved(savedClient)
+      }
+    })
+    setNewAdvisor({ name: '', imageUrl: '', previewUrl: '' })
+    setAddingAdvisor(false)
+  }
+
+  const removeAdvisor = (id: string) => {
+    const nextClient = { ...client, advisors: client.advisors.filter(a => a.id !== id) }
+    setClient(nextClient)
+    void saveClient(nextClient).then((savedClient) => {
+      if (savedClient) {
+        setClient(savedClient)
+        onSaved(savedClient)
+      }
+    })
+  }
+
+  const handleAdvisorImageUpload = async (file?: File | null) => {
+    if (!file) return
+    setUploadingAdvisorImage(true)
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Failed to read image'))
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read image'))
+      reader.readAsDataURL(file)
+    }).catch(() => '')
+
+    if (dataUrl) {
+      setNewAdvisor(p => ({ ...p, imageUrl: dataUrl, previewUrl: dataUrl }))
+    }
+
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('clientId', client.id)
+      const res = await fetch('/api/advisor-images/upload', {
+        method: 'POST',
+        body: form,
+      })
+      if (!res.ok) {
+        throw new Error(await res.text())
+      }
+      await res.json()
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setUploadingAdvisorImage(false)
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -178,6 +241,102 @@ export default function ClientManager({ client: initial, onSaved }: {
               <Button variant="outline" onClick={addBranch} disabled={!newBranch.trim()}>Add</Button>
             </div>
           </div>
+        )}
+      </section>
+
+      {/* Advisors */}
+      <section>
+        <h4 className="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100 flex items-center gap-2">
+          <Briefcase className="w-4 h-4" /> Advisor Team
+        </h4>
+        <div className="space-y-2 mb-3">
+          {client.advisors.map(a => (
+            <div key={a.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <img src={a.imageUrl} alt={a.name} className="w-10 h-10 rounded-full object-cover bg-slate-200" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-800">{a.name}</p>
+                <p className="text-xs text-slate-400">Client-facing advisor</p>
+              </div>
+              <button onClick={() => removeAdvisor(a.id)} className="text-slate-300 hover:text-rose-400 transition-colors">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        {addingAdvisor ? (
+          <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 space-y-3">
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-[minmax(0,1fr)_220px] gap-3 items-start">
+                <Input
+                  placeholder="Advisor name"
+                  value={newAdvisor.name}
+                  onChange={e => setNewAdvisor(p => ({ ...p, name: e.target.value }))}
+                />
+                <div className="flex items-center justify-end gap-2 pt-0.5">
+                  <Button variant="ghost" size="sm" onClick={() => setAddingAdvisor(false)}>Cancel</Button>
+                  <Button size="sm" onClick={addAdvisor} disabled={!newAdvisor.name || !newAdvisor.imageUrl || uploadingAdvisorImage}>Add Advisor</Button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
+                <input
+                  ref={advisorImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={e => void handleAdvisorImageUpload(e.target.files?.[0] || null)}
+                  className="hidden"
+                />
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl overflow-hidden bg-amber-50 border border-amber-100 shrink-0 flex items-center justify-center">
+                    {newAdvisor.previewUrl || newAdvisor.imageUrl ? (
+                      <img src={newAdvisor.previewUrl || newAdvisor.imageUrl} alt="Advisor preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-amber-600" />
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-700">
+                      {uploadingAdvisorImage ? 'Uploading advisor image...' : newAdvisor.previewUrl || newAdvisor.imageUrl ? 'Advisor image selected' : 'Upload advisor image'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      JPG, PNG, or WebP. Maximum file size: 5MB. This image will appear in the client portal.
+                    </p>
+                    {uploadingAdvisorImage && (
+                      <div className="mt-2 inline-flex items-center gap-2 text-xs text-amber-700">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Uploading...
+                      </div>
+                    )}
+                    {!uploadingAdvisorImage && (newAdvisor.previewUrl || newAdvisor.imageUrl) && (
+                      <div className="mt-2 inline-flex items-center gap-2 text-xs text-emerald-700">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Image ready
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={uploadingAdvisorImage}
+                    onClick={() => advisorImageInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-all hover:bg-amber-100 shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {uploadingAdvisorImage ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="w-3.5 h-3.5" />
+                    )}
+                    {uploadingAdvisorImage ? 'Uploading' : newAdvisor.previewUrl || newAdvisor.imageUrl ? 'Replace Image' : 'Choose File'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setAddingAdvisor(true)}>
+            <Plus className="w-3.5 h-3.5" /> Add Advisor
+          </Button>
         )}
       </section>
 

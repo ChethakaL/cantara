@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { use } from 'react'
-import { ArrowLeft, FileText, MessageSquare, AlertCircle, Settings, Landmark, Briefcase } from 'lucide-react'
+import { ArrowLeft, FileText, MessageSquare, AlertCircle, Settings, Landmark, Briefcase, CalendarDays } from 'lucide-react'
 import { motion } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
 import LeaseAnalysisTab from '@/components/admin/LeaseAnalysis'
@@ -11,6 +11,7 @@ import AdminChat from '@/components/admin/AdminChat'
 import AdditionalRequirementsAdmin from '@/components/admin/AdditionalRequirements'
 import ClientManager from '@/components/admin/ClientManager'
 import AdminDocumentsView from '@/components/admin/AdminDocuments'
+import MeetingsTab from '@/components/admin/MeetingsTab'
 import { Badge, WorkstreamBadge, ProgressBar, GoldLine, Card } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -18,6 +19,7 @@ import type { Client } from '@/lib/store'
 const TABS = [
   { key: 'manage', label: 'Client Management', icon: Settings },
   { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'meetings', label: 'Meetings', icon: CalendarDays },
   { key: 'lease', label: 'Lease Analysis', icon: Landmark },
   { key: 'contract', label: 'Contract Analysis', icon: Briefcase },
   { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
@@ -40,6 +42,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     }
     load()
   }, [id])
+
+  useEffect(() => {
+    if (!client) return
+    const interval = setInterval(async () => {
+      const refreshed = await getClient(id)
+      if (refreshed) setClient(refreshed)
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [id, client])
 
   if (!client) {
     return (
@@ -147,6 +158,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'contract' && (
               <ContractAnalysisTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'meetings' && (
+              <MeetingsTab clientName={client.name} />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />

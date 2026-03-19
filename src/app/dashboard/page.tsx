@@ -6,11 +6,11 @@ import { useDropzone } from 'react-dropzone'
 import {
   LogOut, Bell, Settings, ChevronRight, CheckCircle, Upload, X,
   MessageSquare, AlertCircle, Send, Users, Plus, Trash2,
-  FileText, HelpCircle, ChevronDown, ChevronUp, Map
+  FileText, HelpCircle, ChevronDown, ChevronUp, Map, Briefcase, Lock, Loader2
 } from 'lucide-react'
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
 import { VALUATION_DOCS, DOCUMENT_CATEGORIES, getDocsForWorkstream } from '@/lib/documentData'
-import { getClients, getMessages, saveMessage, getRequirements, getCurrentRole, logout } from '@/lib/store'
+import { getClients, getMessages, saveMessage, getRequirements, getCurrentRole, logout, getClient, saveClient, updateRequirement } from '@/lib/store'
 import type { Client, DocumentStatus, ChatMessage, AdditionalRequirement } from '@/lib/store'
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
@@ -55,18 +55,17 @@ function ClientNav({ clientName, unreadCount, onSettings, showSettings }: {
 // ── Phase tabs ───────────────────────────────────────────────────────────────
 const PHASES = [
   { id: 'overview', label: 'Overview' },
-  { id: 'valuation', label: 'Valuation' },
   { id: 'assign', label: 'Assign' },
   { id: 'collection', label: 'Collection' },
   { id: 'requirements', label: 'Additional Requirements' },
-  { id: 'roadmap', label: 'Roadmap' },
+  { id: 'roadmap', label: 'Roadmap', disabled: true },
 ]
 
 // ── Document upload dropzone ─────────────────────────────────────────────────
-function DocumentUpload({ docId, docName, clientId, uploaderEmail, onUploaded }: {
-  docId: string; docName: string; clientId: string; uploaderEmail: string; onUploaded: (fileName: string) => void
+function DocumentUpload({ docId, docName, clientId, uploaderEmail, onUploaded, currentFileName }: {
+  docId: string; docName: string; clientId: string; uploaderEmail: string; onUploaded: (fileName: string, fileUrl?: string | null) => void; currentFileName?: string | null
 }) {
-  const [uploaded, setUploaded] = useState(false)
+  const [uploadedName, setUploadedName] = useState(currentFileName ?? '')
   const [uploading, setUploading] = useState(false)
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: async (files) => {
@@ -83,21 +82,36 @@ function DocumentUpload({ docId, docName, clientId, uploaderEmail, onUploaded }:
       })
       setUploading(false)
       if (!res.ok) return
-      onUploaded(files[0].name)
-      setUploaded(true)
+      const data = await res.json()
+      onUploaded(files[0].name, data.fileUrl || null)
+      setUploadedName(files[0].name)
     },
     multiple: false,
   })
-  if (uploaded) return (
-    <div className="flex items-center gap-2 text-xs text-emerald-600">
-      <CheckCircle className="w-3.5 h-3.5" /> Uploaded
-    </div>
-  )
   return (
-    <div {...getRootProps()} className={`border border-dashed rounded-lg px-3 py-2 cursor-pointer text-xs transition-all flex items-center gap-2 ${isDragActive ? 'border-amber-400 bg-amber-50 text-amber-600' : 'border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'}`}>
+    <div
+      {...getRootProps()}
+      className={`border border-dashed rounded-lg px-3 py-2 cursor-pointer text-xs transition-all flex items-center gap-2 min-w-[132px] ${
+        uploading
+          ? 'border-amber-300 bg-amber-50 text-amber-700'
+          : uploadedName
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : isDragActive
+          ? 'border-amber-400 bg-amber-50 text-amber-600'
+          : 'border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'
+      }`}
+    >
       <input {...getInputProps()} />
-      <Upload className="w-3.5 h-3.5 shrink-0" />
-      {uploading ? 'Uploading...' : isDragActive ? 'Drop file here' : 'Upload file'}
+      {uploading ? (
+        <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
+      ) : uploadedName ? (
+        <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+      ) : (
+        <Upload className="w-3.5 h-3.5 shrink-0" />
+      )}
+      <span className="truncate">
+        {uploading ? 'Uploading...' : uploadedName ? uploadedName : isDragActive ? 'Drop file here' : 'Upload file'}
+      </span>
     </div>
   )
 }
@@ -117,6 +131,10 @@ export default function ClientDashboard() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [requirements, setRequirements] = useState<AdditionalRequirement[]>([])
   const [savingStatuses, setSavingStatuses] = useState(false)
+  const [submittingSectionId, setSubmittingSectionId] = useState<string | null>(null)
+  const [newTeamMember, setNewTeamMember] = useState({ name: '', email: '', role: '' })
+  const [savingTeamMember, setSavingTeamMember] = useState(false)
+  const [editingTeamMemberId, setEditingTeamMemberId] = useState<string | null>(null)
   const chatBottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -138,6 +156,11 @@ export default function ClientDashboard() {
   useEffect(() => {
     if (!client) return
     const interval = setInterval(async () => {
+      const refreshedClient = await getClient(client.id)
+      if (refreshedClient) {
+        setClient(refreshedClient)
+        setDocStatuses(refreshedClient.documentStatuses ?? {})
+      }
       setMessages(await getMessages(client.id))
       setRequirements(await getRequirements(client.id))
     }, 3000)
@@ -181,13 +204,115 @@ export default function ClientDashboard() {
     }))
   }
 
+  const submitSection = async (sectionId: string) => {
+    if (!client) return
+    setSubmittingSectionId(sectionId)
+    const nextClient = {
+      ...client,
+      sectionSubmissions: {
+        ...(client.sectionSubmissions ?? {}),
+        [sectionId]: { submittedAt: new Date().toISOString() },
+      },
+    }
+    setClient(nextClient)
+    try {
+      const savedClient = await saveClient(nextClient)
+      if (savedClient) {
+        setClient(savedClient)
+      }
+    } finally {
+      setSubmittingSectionId(null)
+    }
+  }
+
+  const addTeamMember = async () => {
+    if (!client || !newTeamMember.name.trim() || !newTeamMember.email.trim()) return
+    setSavingTeamMember(true)
+    const nextMembers = editingTeamMemberId
+      ? client.teamMembers.map(member =>
+          member.id === editingTeamMemberId
+            ? {
+                ...member,
+                name: newTeamMember.name.trim(),
+                email: newTeamMember.email.trim(),
+                role: newTeamMember.role.trim(),
+              }
+            : member,
+        )
+      : [
+          ...client.teamMembers,
+          {
+            id: `tm_${Date.now()}`,
+            name: newTeamMember.name.trim(),
+            email: newTeamMember.email.trim(),
+            role: newTeamMember.role.trim(),
+          },
+        ]
+    const nextClient = {
+      ...client,
+      teamMembers: nextMembers,
+    }
+    setClient(nextClient)
+    try {
+      const savedClient = await saveClient(nextClient)
+      if (savedClient) {
+        setClient(savedClient)
+      }
+      setNewTeamMember({ name: '', email: '', role: '' })
+      setEditingTeamMemberId(null)
+    } finally {
+      setSavingTeamMember(false)
+    }
+  }
+
+  const startEditingTeamMember = (member: Client['teamMembers'][number]) => {
+    setEditingTeamMemberId(member.id)
+    setNewTeamMember({
+      name: member.name,
+      email: member.email,
+      role: member.role,
+    })
+  }
+
+  const deleteTeamMember = async (memberId: string) => {
+    if (!client) return
+    setSavingTeamMember(true)
+    const nextClient = {
+      ...client,
+      teamMembers: client.teamMembers.filter(member => member.id !== memberId),
+    }
+    setClient(nextClient)
+    try {
+      const savedClient = await saveClient(nextClient)
+      if (savedClient) {
+        setClient(savedClient)
+      }
+      if (editingTeamMemberId === memberId) {
+        setEditingTeamMemberId(null)
+        setNewTeamMember({ name: '', email: '', role: '' })
+      }
+    } finally {
+      setSavingTeamMember(false)
+    }
+  }
+
   const getDocStatus = (docId: string): DocumentStatus =>
     docStatuses[docId] ?? { id: docId, hasDoc: null, assignedTo: null, uploadedAt: null, fileName: null, notApplicable: false }
 
   const categories = getDocsForWorkstream(client.workstream, client.businessType)
-  const allDocs = [...VALUATION_DOCS, ...categories.flatMap(c => c.documents)]
-  const confirmedDocs = allDocs.filter(d => getDocStatus(d.id).hasDoc === true)
-  const allConfirmedAssigned = confirmedDocs.length > 0 && confirmedDocs.every(d => getDocStatus(d.id).assignedTo || getDocStatus(d.id).fileName)
+  const diligenceDocs = categories.flatMap(c => c.documents)
+  const allDocs = [...VALUATION_DOCS, ...diligenceDocs]
+  const requiredAndValuationDocs = [
+    ...VALUATION_DOCS,
+    ...diligenceDocs.filter(d => d.type === 'required'),
+  ]
+  const yesDocs = diligenceDocs.filter(d => d.type !== 'required' && getDocStatus(d.id).hasDoc === true)
+  const docsNeedingAssignment = [...requiredAndValuationDocs, ...yesDocs].filter(
+    (doc, index, arr) => arr.findIndex(item => item.id === doc.id) === index,
+  )
+  const allConfirmedAssigned =
+    docsNeedingAssignment.length > 0 &&
+    docsNeedingAssignment.every(d => getDocStatus(d.id).assignedTo || getDocStatus(d.id).fileName)
   const submittedDocs = allDocs.filter(d => getDocStatus(d.id).fileName)
   const openReqs = requirements.filter(r => r.status === 'open')
   const unreadMsgs = messages.filter(m => m.senderRole === 'admin' && !m.readByClient).length
@@ -224,7 +349,7 @@ export default function ClientDashboard() {
         showSettings={showSettings}
       />
 
-      <main className="max-w-4xl mx-auto px-4 md:px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 md:px-6 py-8">
 
         {/* Welcome banner */}
         <motion.div
@@ -277,51 +402,75 @@ export default function ClientDashboard() {
           </div>
         </motion.div>
 
-        {/* Phase navigation */}
-        <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
-          {PHASES.map(p => {
-            const isActive = phase === p.id
-            const hasBadge = p.id === 'requirements' && openReqs.length > 0
-            return (
-              <button
-                key={p.id}
-                onClick={() => setPhase(p.id)}
-                className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
-                  isActive ? 'text-white shadow-sm' : 'text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700'
-                }`}
-                style={isActive ? { background: 'linear-gradient(135deg, #0d1829, #111e35)', border: '1px solid rgba(184,146,42,0.3)' } : {}}
-              >
-                {p.id === 'assign' && allConfirmedAssigned && (
-                  <CheckCircle className="w-3 h-3 text-emerald-400" />
-                )}
-                {p.label}
-                {hasBadge && (
-                  <span className="w-4 h-4 rounded-full text-xs font-bold flex items-center justify-center" style={{ background: '#f43f5e', color: 'white', fontSize: '0.55rem' }}>
-                    {openReqs.length}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-6 items-start">
+          <aside className="bg-white rounded-2xl border border-slate-200 p-3 sticky top-24">
+            <div className="mb-3 px-3 pt-2 pb-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Portal Sections</p>
+            </div>
+            <div className="space-y-1">
+              {PHASES.map(p => {
+                const isActive = phase === p.id
+                const hasBadge = p.id === 'requirements' && openReqs.length > 0
+                const disabled = Boolean((p as any).disabled)
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => !disabled && setPhase(p.id)}
+                    disabled={disabled}
+                    className={`w-full relative flex items-center justify-between gap-2 px-3 py-3 rounded-xl text-sm font-medium transition-all ${
+                      disabled
+                        ? 'text-slate-300 bg-slate-50 border border-slate-100 cursor-not-allowed'
+                        : isActive
+                        ? 'text-white shadow-sm'
+                        : 'text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700'
+                    }`}
+                    style={disabled ? {} : isActive ? { background: 'linear-gradient(135deg, #0d1829, #111e35)', border: '1px solid rgba(184,146,42,0.3)' } : {}}
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      {p.id === 'assign' && allConfirmedAssigned && !disabled && (
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                      )}
+                      {disabled && <Lock className="w-3.5 h-3.5" />}
+                      <span className="truncate">{p.label}</span>
+                    </span>
+                    {hasBadge && (
+                      <span className="w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: '#f43f5e', color: 'white' }}>
+                        {openReqs.length}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </aside>
 
-        {/* Tab content */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={phase}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.2 }}
-          >
-            {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} onStart={() => setPhase('valuation')} />}
-            {phase === 'valuation' && <ValuationTab docs={VALUATION_DOCS} getStatus={getDocStatus} setStatus={setDocStatus} onNext={() => setPhase('assign')} clientId={client.id} uploaderEmail={client.email} />}
-            {phase === 'assign' && <AssignTab categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
-            {phase === 'collection' && <CollectionTab categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} clientId={client.id} uploaderEmail={client.email} />}
-            {phase === 'requirements' && <RequirementsClientTab requirements={requirements} />}
-            {phase === 'roadmap' && <RoadmapTab />}
-          </motion.div>
-        </AnimatePresence>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={phase}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} />}
+              {phase === 'assign' && <AssignTab categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
+              {phase === 'collection' && (
+                <CollectionTab
+                  categories={categories}
+                  getStatus={getDocStatus}
+                  setStatus={setDocStatus}
+                  clientId={client.id}
+                  uploaderEmail={client.email}
+                  sectionSubmissions={client.sectionSubmissions ?? {}}
+                  onSubmitSection={submitSection}
+                  submittingSectionId={submittingSectionId}
+                />
+              )}
+              {phase === 'requirements' && <RequirementsClientTab requirements={requirements} />}
+              {phase === 'roadmap' && <RoadmapTab />}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </main>
 
       {/* Settings panel */}
@@ -355,16 +504,65 @@ export default function ClientDashboard() {
             <div className="pt-2 border-t border-slate-100">
               <p className="text-xs font-medium text-slate-600 mb-2">Your Team</p>
               {client.teamMembers.length === 0 ? (
-                <p className="text-xs text-slate-400">No team members added. Contact your advisor to add team members.</p>
+                <p className="text-xs text-slate-400">No team members added yet. Add the people who will help upload documents.</p>
               ) : client.teamMembers.map(m => (
                 <div key={m.id} className="flex items-center gap-2 py-1.5">
                   <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center text-xs font-semibold text-amber-700">{m.name[0]}</div>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-slate-700">{m.name}</p>
-                    <p className="text-xs text-slate-400">{m.role}</p>
+                    <p className="text-xs text-slate-400">{m.email}{m.role ? ` · ${m.role}` : ''}</p>
                   </div>
+                  <button
+                    onClick={() => startEditingTeamMember(m)}
+                    className="text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => void deleteTeamMember(m.id)}
+                    className="text-xs text-rose-500 hover:text-rose-700"
+                  >
+                    Delete
+                  </button>
                 </div>
               ))}
+              <div className="mt-3 space-y-2">
+                <Input
+                  placeholder="Team member name"
+                  value={newTeamMember.name}
+                  onChange={e => setNewTeamMember(prev => ({ ...prev, name: e.target.value }))}
+                />
+                <Input
+                  placeholder="Team member email"
+                  type="email"
+                  value={newTeamMember.email}
+                  onChange={e => setNewTeamMember(prev => ({ ...prev, email: e.target.value }))}
+                />
+                <Input
+                  placeholder="Role (optional)"
+                  value={newTeamMember.role}
+                  onChange={e => setNewTeamMember(prev => ({ ...prev, role: e.target.value }))}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => void addTeamMember()}
+                  disabled={savingTeamMember || !newTeamMember.name.trim() || !newTeamMember.email.trim()}
+                >
+                  {savingTeamMember ? (editingTeamMemberId ? 'Saving...' : 'Adding...') : (editingTeamMemberId ? 'Save Changes' : 'Add Team Member')}
+                </Button>
+                {editingTeamMemberId && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setEditingTeamMemberId(null)
+                      setNewTeamMember({ name: '', email: '', role: '' })
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
             </div>
           </motion.div>
         </div>
@@ -433,28 +631,65 @@ export default function ClientDashboard() {
 }
 
 // ── Overview Tab ─────────────────────────────────────────────────────────────
-function OverviewTab({ client, wsLabel, onStart }: { client: Client; wsLabel: Record<string, string>; onStart: () => void }) {
+function OverviewTab({ client, wsLabel }: { client: Client; wsLabel: Record<string, string> }) {
   const steps = [
-    { num: 1, title: 'Business Valuation', desc: 'Upload your P&L documents so we can assess your starting valuation.' },
-    { num: 2, title: 'Assign Documents', desc: 'Tell us which documents you have, then assign them to the right team members.' },
-    { num: 3, title: 'Upload & Collect', desc: 'Your team uploads documents directly to the portal — all in one secure place.' },
-    { num: 4, title: 'Review & Analysis', desc: 'Your advisor team reviews everything and will reach out with any questions.' },
-    { num: 5, title: 'Final Deliverable', desc: 'Receive your sale readiness report, valuation, and roadmap.' },
+    { title: 'Assign Documents', desc: 'Review the requested checklist and assign each document to yourself or a team member who will upload it.' },
+    { title: 'Collection', desc: 'Upload the required documents, including the valuation materials highlighted by your Cantara team.' },
+    { title: 'Review', desc: 'Your advisor team will review materials and follow up through the chat button in the bottom right corner.' },
   ]
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl p-6 border border-slate-200">
-        <h3 className="text-lg font-semibold text-slate-800 cantara-serif mb-4">Your Process</h3>
-        {client.workstream && (
-          <div className="mb-5 p-3 rounded-xl text-xs" style={{ background: 'rgba(184,146,42,0.06)', border: '1px solid rgba(184,146,42,0.15)', color: '#9a7a22' }}>
-            You are enrolled in: <strong>{wsLabel[client.workstream]}</strong>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-3">Assigned Workstream</p>
+        <h3 className="text-xl font-semibold text-slate-800 cantara-serif">
+          {client.workstream ? wsLabel[client.workstream] : 'Awaiting Workstream Assignment'}
+        </h3>
+        <p className="text-sm text-slate-500 mt-3 max-w-2xl leading-relaxed">
+          Your advisor team will guide you through the process. If you have questions at any point, use the chat button in the bottom right corner.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+        <div className="flex items-center gap-2 mb-4">
+          <Briefcase className="w-4 h-4 text-amber-600" />
+          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Your Advisor Team</h3>
+        </div>
+        {client.advisors.length === 0 ? (
+          <p className="text-sm text-slate-400">Your advisor team will appear here once added by Cantara.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {client.advisors.map(advisor => (
+              <div key={advisor.id} className="p-5 rounded-xl border border-slate-100 bg-slate-50">
+                <img
+                  src={advisor.imageUrl}
+                  alt={advisor.name}
+                  className="w-20 h-20 rounded-full object-cover bg-slate-200 mb-4"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                    const next = e.currentTarget.nextElementSibling as HTMLElement | null
+                    if (next) next.style.display = 'flex'
+                  }}
+                />
+                <div
+                  className="w-20 h-20 rounded-full bg-amber-100 text-amber-700 mb-4 hidden items-center justify-center text-2xl font-semibold"
+                >
+                  {advisor.name[0]}
+                </div>
+                <p className="text-sm font-semibold text-slate-800">{advisor.name}</p>
+                <p className="text-xs text-slate-400 mt-1">Advisor</p>
+              </div>
+            ))}
           </div>
         )}
+      </div>
+
+      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+        <h3 className="text-lg font-semibold text-slate-800 cantara-serif mb-4">The Process</h3>
         <div className="space-y-4">
-          {steps.map(step => (
-            <div key={step.num} className="flex gap-4">
+          {steps.map((step, index) => (
+            <div key={step.title} className="flex gap-4">
               <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white" style={{ background: '#b8922a' }}>
-                {step.num}
+                {index + 1}
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-800">{step.title}</p>
@@ -463,82 +698,12 @@ function OverviewTab({ client, wsLabel, onStart }: { client: Client; wsLabel: Re
             </div>
           ))}
         </div>
-        <div className="mt-6 pt-6 border-t border-slate-100">
-          <p className="text-xs text-slate-400 mb-4">
-            Your advisor team will guide you through each step. If you have questions at any point, use the chat button in the bottom right corner.
-          </p>
-          <Button onClick={onStart}>Begin with Business Valuation <ChevronRight className="w-4 h-4" /></Button>
-        </div>
       </div>
     </div>
   )
 }
 
 // ── Valuation Tab ────────────────────────────────────────────────────────────
-function ValuationTab({ docs, getStatus, setStatus, onNext, clientId, uploaderEmail }: {
-  docs: typeof VALUATION_DOCS
-  getStatus: (id: string) => DocumentStatus
-  setStatus: (id: string, u: Partial<DocumentStatus>) => void
-  onNext: () => void
-  clientId: string
-  uploaderEmail: string
-}) {
-  const allSubmitted = docs.every(d => getStatus(d.id).fileName)
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-slate-200 p-5">
-        <div className="flex items-start gap-3 mb-5">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(184,146,42,0.08)' }}>
-            <span className="text-sm">📊</span>
-          </div>
-          <div>
-            <h3 className="font-semibold text-slate-800">Business Valuation Documents</h3>
-            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              These documents are required first — your advisor will use them to establish a starting valuation for your business.
-              Please upload P&Ls in Excel format with all GL codes visible. Upload what you have now — you can add more at any time.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {docs.map(doc => {
-            const status = getStatus(doc.id)
-            return (
-              <div key={doc.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800">{doc.name}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{doc.description}</p>
-                  {status.fileName && (
-                    <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" /> {status.fileName}
-                    </p>
-                  )}
-                </div>
-                <DocumentUpload
-                  docId={doc.id}
-                  docName={doc.name}
-                  clientId={clientId}
-                  uploaderEmail={uploaderEmail}
-                  onUploaded={(fileName) => setStatus(doc.id, { fileName, uploadedAt: new Date().toISOString() })}
-                />
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
-          <p className="text-xs text-slate-400">
-            {docs.filter(d => getStatus(d.id).fileName).length} of {docs.length} uploaded
-          </p>
-          <Button onClick={onNext} variant={allSubmitted ? 'primary' : 'outline'} size="sm">
-            {allSubmitted ? 'Continue to Assign' : 'Continue (upload remaining later)'} <ChevronRight className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Assign Tab (was Preparation) ─────────────────────────────────────────────
 // UX from meeting: client first says Yes/No per doc, then assigns YES docs only
 function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned }: {
@@ -549,9 +714,13 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
   allAssigned: boolean
 }) {
   const [subView, setSubView] = useState<'yesno' | 'assign'>('yesno')
-  const allDocs = categories.flatMap(c => c.documents)
-  const confirmedDocs = allDocs.filter(d => getStatus(d.id).hasDoc === true)
-  const answeredAll = allDocs.every(d => getStatus(d.id).hasDoc !== null || getStatus(d.id).notApplicable)
+  const valuationDocs = VALUATION_DOCS
+  const diligenceDocs = categories.flatMap(c => c.documents)
+  const allDocs = [...valuationDocs, ...diligenceDocs]
+  const assignableDocs = allDocs.filter(d => d.type === 'required' || valuationDocs.some(v => v.id === d.id) || getStatus(d.id).hasDoc === true)
+  const answeredAll = diligenceDocs
+    .filter(d => d.type !== 'required')
+    .every(d => getStatus(d.id).hasDoc !== null || getStatus(d.id).notApplicable)
 
   return (
     <div className="space-y-4">
@@ -564,7 +733,7 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
             className={`flex-1 py-2.5 rounded-xl text-xs font-medium transition-all ${subView === v ? 'text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
             style={subView === v ? { background: '#0d1829' } : {}}
           >
-            {v === 'yesno' ? '1 — Do you have this document?' : '2 — Assign documents'}
+            {v === 'yesno' ? '1 — Do you have these documents?' : '2 — Assign documents'}
             {v === 'assign' && allAssigned && <CheckCircle className="w-3 h-3 text-emerald-400 inline ml-1.5" />}
           </button>
         ))}
@@ -573,7 +742,7 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
       {subView === 'yesno' && (
         <div className="space-y-4">
           <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-700">
-            Go through each document and indicate whether you have it. If you say yes, you'll assign it in the next step. You can change your answers at any time.
+            Only optional documents are shown here. Required documents and valuation documents are already available in the Assign documents step.
           </div>
           {categories.map(cat => (
             <div key={cat.id} className="bg-white rounded-2xl border border-slate-200">
@@ -581,7 +750,7 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
                 <h4 className="text-sm font-semibold text-slate-700">{cat.title}</h4>
               </div>
               <div className="divide-y divide-slate-50">
-                {cat.documents.map(doc => {
+                {cat.documents.filter(doc => doc.type !== 'required').map(doc => {
                   const s = getStatus(doc.id)
                   return (
                     <div key={doc.id} className="px-5 py-4 flex items-center gap-4">
@@ -633,7 +802,7 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
           {answeredAll && (
             <div className="flex justify-end">
               <Button onClick={() => setSubView('assign')}>
-                Assign {confirmedDocs.length} Documents <ChevronRight className="w-4 h-4" />
+                Assign Documents <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
           )}
@@ -642,16 +811,52 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
 
       {subView === 'assign' && (
         <div className="space-y-4">
-          {confirmedDocs.length === 0 ? (
+          {assignableDocs.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400">
-              Go back and mark which documents you have before assigning.
+              No documents available to assign yet.
             </div>
           ) : (
             <>
-              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-700">
-                Showing {confirmedDocs.length} confirmed documents. Assign each to yourself or a team member who will upload it.
+              <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl overflow-hidden">
+                <div className="px-5 py-3 border-b border-amber-200/80">
+                  <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
+                  <p className="text-xs text-amber-700 mt-1">Assign these first to yourself or a team member who will upload them.</p>
+                </div>
+                <div className="divide-y divide-amber-100/80">
+                  {valuationDocs.map(doc => {
+                    const s = getStatus(doc.id)
+                    const options = [
+                      { value: 'me', label: 'Me (I\'ll upload it)' },
+                      ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
+                    ]
+                    return (
+                      <div key={doc.id} className="px-5 py-4 bg-white/60 flex items-center gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-slate-800">{doc.name}</p>
+                            <Badge color="gold">Required</Badge>
+                          </div>
+                        </div>
+                        <select
+                          className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all"
+                          value={s.assignedTo ?? ''}
+                          onChange={e => setStatus(doc.id, { assignedTo: e.target.value || null })}
+                        >
+                          <option value="">— Assign to —</option>
+                          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                        {s.assignedTo && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-              {confirmedDocs.map(doc => {
+              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-700">
+                Required documents and valuation documents appear here automatically. Optional documents appear here once the client confirms they have them.
+              </div>
+              {diligenceDocs
+                .filter(doc => doc.type === 'required' || getStatus(doc.id).hasDoc === true)
+                .map(doc => {
                 const s = getStatus(doc.id)
                 const options = [
                   { value: 'me', label: 'Me (I\'ll upload it)' },
@@ -660,7 +865,10 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
                 return (
                   <div key={doc.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800">{doc.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-slate-800">{doc.name}</p>
+                        {doc.type === 'required' && <Badge color="gold">Required</Badge>}
+                      </div>
                     </div>
                     <select
                       className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all"
@@ -692,17 +900,98 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
 }
 
 // ── Collection Tab ────────────────────────────────────────────────────────────
-function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEmail }: {
+function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId }: {
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
   clientId: string
   uploaderEmail: string
+  sectionSubmissions: Record<string, { submittedAt: string }>
+  onSubmitSection: (sectionId: string) => Promise<void>
+  submittingSectionId: string | null
 }) {
+  const renderSectionFooter = (sectionId: string, totalCount: number, uploadedCount: number) => {
+    const isSubmitted = Boolean(sectionSubmissions[sectionId])
+    const canSubmit = totalCount > 0 && uploadedCount === totalCount
+
+    if (isSubmitted) {
+      return (
+        <div className="px-5 py-4 border-t border-slate-100 bg-slate-50">
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+            Thank you for uploading documents, documents are under review
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
+        <p className="text-xs text-slate-400">
+          {uploadedCount === totalCount && totalCount > 0
+            ? 'All documents uploaded. Submit this section for review.'
+            : 'Upload all documents in this section before submitting.'}
+        </p>
+        <Button
+          size="sm"
+          onClick={() => void onSubmitSection(sectionId)}
+          disabled={!canSubmit || submittingSectionId === sectionId}
+        >
+          {submittingSectionId === sectionId ? 'Submitting...' : 'Submit Section'}
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
         Upload documents for each item your team confirmed in the Assign step. You can upload in batches — progress is saved automatically. Assigned team members have been notified by email.
+      </div>
+      <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
+        <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
+          <span className="text-xs text-amber-700">
+            {VALUATION_DOCS.filter(d => getStatus(d.id).fileName).length}/{VALUATION_DOCS.length} uploaded
+          </span>
+        </div>
+        <div className="divide-y divide-amber-100/80">
+          {VALUATION_DOCS.map(doc => {
+            const s = getStatus(doc.id)
+            if (s.hasDoc === false || s.notApplicable) return null
+            return (
+              <div key={doc.id} className="px-5 py-4 bg-white/60">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-slate-800">{doc.name}</p>
+                      {s.assignedTo && <Badge color="slate">{s.assignedTo}</Badge>}
+                    </div>
+                    <p className="text-xs text-amber-700 mt-0.5">{doc.description}</p>
+                  </div>
+                  <DocumentUpload
+                    docId={doc.id}
+                    docName={doc.name}
+                    clientId={clientId}
+                    uploaderEmail={uploaderEmail}
+                    currentFileName={s.fileName}
+                    onUploaded={(fileName, fileUrl) => setStatus(doc.id, { fileName, fileUrl: fileUrl || null, uploadedAt: new Date().toISOString() })}
+                  />
+                </div>
+                {s.fileName && (
+                  <div className="flex items-center gap-2 text-xs text-emerald-600 mt-1">
+                    <CheckCircle className="w-3 h-3" /> {s.fileName}
+                    <span className="text-slate-300">· {s.uploadedAt ? new Date(s.uploadedAt).toLocaleDateString() : ''}</span>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {renderSectionFooter(
+          'valuation',
+          VALUATION_DOCS.length,
+          VALUATION_DOCS.filter(d => getStatus(d.id).fileName).length,
+        )}
       </div>
       {categories.map(cat => {
         const docsToShow = cat.documents.filter(d => {
@@ -710,12 +999,14 @@ function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEma
           return s.hasDoc !== false && !s.notApplicable // show docs they said yes to or unanswered
         })
         if (docsToShow.length === 0) return null
+        const isSubmitted = Boolean(sectionSubmissions[cat.id])
+        const uploadedCount = docsToShow.filter(d => getStatus(d.id).fileName).length
         return (
-          <div key={cat.id} className="bg-white rounded-2xl border border-slate-200">
+          <div key={cat.id} className={`rounded-2xl border overflow-hidden ${isSubmitted ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-white border-slate-200'}`}>
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
               <h4 className="text-sm font-semibold text-slate-700">{cat.title}</h4>
               <span className="text-xs text-slate-400">
-                {docsToShow.filter(d => getStatus(d.id).fileName).length}/{docsToShow.length} uploaded
+                {uploadedCount}/{docsToShow.length} uploaded
               </span>
             </div>
             <div className="divide-y divide-slate-50">
@@ -736,7 +1027,8 @@ function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEma
                         docName={doc.name}
                         clientId={clientId}
                         uploaderEmail={uploaderEmail}
-                        onUploaded={(fileName) => setStatus(doc.id, { fileName, uploadedAt: new Date().toISOString() })}
+                        currentFileName={s.fileName}
+                        onUploaded={(fileName, fileUrl) => setStatus(doc.id, { fileName, fileUrl: fileUrl || null, uploadedAt: new Date().toISOString() })}
                       />
                     </div>
                     {s.fileName && (
@@ -749,6 +1041,7 @@ function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEma
                 )
               })}
             </div>
+            {renderSectionFooter(cat.id, docsToShow.length, uploadedCount)}
           </div>
         )
       })}
@@ -758,6 +1051,54 @@ function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEma
 
 // ── Additional Requirements (client view) ─────────────────────────────────────
 function RequirementsClientTab({ requirements }: { requirements: AdditionalRequirement[] }) {
+  const [drafts, setDrafts] = useState<Record<string, { response: string; fileName: string | null; fileUrl: string | null; uploading: boolean; saving: boolean }>>({})
+
+  const getDraft = (id: string) => drafts[id] ?? { response: '', fileName: null, fileUrl: null, uploading: false, saving: false }
+
+  const uploadRequirementFile = async (requirementId: string, file?: File | null) => {
+    if (!file) return
+    setDrafts(prev => ({ ...prev, [requirementId]: { ...getDraft(requirementId), uploading: true } }))
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('requirementId', requirementId)
+      const res = await fetch('/api/requirements/upload-response', {
+        method: 'POST',
+        body: form,
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setDrafts(prev => ({
+        ...prev,
+        [requirementId]: {
+          ...getDraft(requirementId),
+          fileName: data.fileName,
+          fileUrl: data.fileUrl,
+          uploading: false,
+        },
+      }))
+    } catch {
+      setDrafts(prev => ({ ...prev, [requirementId]: { ...getDraft(requirementId), uploading: false } }))
+    }
+  }
+
+  const submitRequirementResponse = async (req: AdditionalRequirement) => {
+    const draft = getDraft(req.id)
+    setDrafts(prev => ({ ...prev, [req.id]: { ...draft, saving: true } }))
+    try {
+      await updateRequirement(req.id, {
+        clientResponse: draft.response || req.clientResponse || null,
+        responseFileName: draft.fileName || req.responseFileName || null,
+        responseFileUrl: draft.fileUrl || req.responseFileUrl || null,
+        respondedAt: new Date().toISOString(),
+        status: 'open',
+      })
+      window.location.reload()
+    } finally {
+      setDrafts(prev => ({ ...prev, [req.id]: { ...getDraft(req.id), saving: false } }))
+    }
+  }
+
   const open = requirements.filter(r => r.status === 'open')
   const resolved = requirements.filter(r => r.status === 'resolved')
   return (
@@ -782,6 +1123,73 @@ function RequirementsClientTab({ requirements }: { requirements: AdditionalRequi
                 </Badge>
               </div>
               {req.description && <p className="text-sm text-slate-600 leading-relaxed">{req.description}</p>}
+              {req.sourceDocumentName && (
+                <p className="text-xs text-slate-400 mt-2">Related document: {req.sourceDocumentName}</p>
+              )}
+              {req.sourceUploadedFileName && (
+                <p className="text-xs text-slate-400 mt-1">Uploaded file: {req.sourceUploadedFileName}</p>
+              )}
+              {req.question && (
+                <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-slate-700">
+                  <span className="font-semibold text-blue-700">Question:</span> {req.question}
+                </div>
+              )}
+              {(req.question || req.requestUpload) && (
+                <div className="mt-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  {req.question && (
+                    <Textarea
+                      rows={4}
+                      placeholder="Type your response..."
+                      value={getDraft(req.id).response || req.clientResponse || ''}
+                      onChange={e => setDrafts(prev => ({
+                        ...prev,
+                        [req.id]: { ...getDraft(req.id), response: e.target.value },
+                      }))}
+                    />
+                  )}
+                  {req.requestUpload && (
+                    <div className="flex items-center gap-3">
+                      <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 cursor-pointer hover:border-amber-300">
+                        <Upload className="w-3.5 h-3.5" />
+                        {getDraft(req.id).uploading ? 'Uploading...' : 'Upload supporting file'}
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={e => void uploadRequirementFile(req.id, e.target.files?.[0] || null)}
+                        />
+                      </label>
+                      {(getDraft(req.id).fileName || req.responseFileName) && (
+                        <span className="text-xs text-emerald-700">
+                          {getDraft(req.id).fileName || req.responseFileName}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={() => void submitRequirementResponse(req)}
+                      disabled={getDraft(req.id).saving || (!req.requestUpload && !req.question)}
+                    >
+                      {getDraft(req.id).saving ? 'Submitting...' : 'Submit Response'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {req.clientResponse && (
+                <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-slate-700">
+                  <span className="font-semibold text-emerald-700">Submitted response:</span> {req.clientResponse}
+                </div>
+              )}
+              {req.responseFileName && (
+                <div className="mt-2 text-xs text-emerald-700">
+                  {req.responseFileUrl ? (
+                    <a href={req.responseFileUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                      {req.responseFileName}
+                    </a>
+                  ) : req.responseFileName}
+                </div>
+              )}
               <p className="text-xs text-slate-400 mt-3">Added {new Date(req.createdAt).toLocaleDateString()}</p>
             </div>
           ))}
@@ -805,8 +1213,8 @@ function RequirementsClientTab({ requirements }: { requirements: AdditionalRequi
 // ── Roadmap Tab ───────────────────────────────────────────────────────────────
 function RoadmapTab() {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400">
-      <Map className="w-10 h-10 text-slate-200 mx-auto mb-4" />
+    <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400 opacity-70">
+      <Map className="w-10 h-10 text-slate-300 mx-auto mb-4" />
       <p className="font-medium text-slate-600 mb-2">Your Roadmap</p>
       <p className="text-xs leading-relaxed max-w-sm mx-auto">
         Your sale readiness roadmap and action plan will appear here once your advisor team has completed their initial review of your documents.

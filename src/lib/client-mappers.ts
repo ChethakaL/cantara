@@ -8,9 +8,26 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
         assignedTo: status.assignedTo,
         uploadedAt: status.uploadedAt?.toISOString() ?? null,
         fileName: status.fileName ?? null,
+        fileUrl: status.fileUrl ?? null,
         notApplicable: status.notApplicable,
       },
     ]),
+  );
+
+  const uploadedDocuments = Object.fromEntries(
+    (client.ClientDocument ?? [])
+      .filter((doc: any) => doc.documentId)
+      .sort((a: any, b: any) => +new Date(b.createdAt) - +new Date(a.createdAt))
+      .filter((doc: any, index: number, arr: any[]) => arr.findIndex((item) => item.documentId === doc.documentId) === index)
+      .map((doc: any) => [
+        doc.documentId,
+        {
+          documentId: doc.documentId,
+          fileName: doc.fileName,
+          fileUrl: doc.googleDriveFileId ?? null,
+          uploadedAt: doc.createdAt.toISOString(),
+        },
+      ]),
   );
 
   return {
@@ -29,7 +46,14 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
       email: member.email,
       role: member.role,
     })),
+    advisors: (client.AdvisorProfiles ?? []).map((advisor) => ({
+      id: advisor.id,
+      name: advisor.name,
+      imageUrl: advisor.imageUrl,
+    })),
+    sectionSubmissions: (client.sectionSubmissions as Record<string, { submittedAt?: string }> | null) ?? {},
     documentStatuses,
+    uploadedDocuments,
     driveFolder: client.driveFolderId,
     createdAt: client.createdAt.toISOString(),
     provisionedAt: client.provisionedAt?.toISOString() ?? null,

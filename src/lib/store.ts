@@ -12,6 +12,16 @@ export interface TeamMember {
   role: string
 }
 
+export interface AdvisorProfile {
+  id: string
+  name: string
+  imageUrl: string
+}
+
+export interface SectionSubmission {
+  submittedAt: string
+}
+
 export interface Branch {
   id: string
   name: string
@@ -23,7 +33,15 @@ export interface DocumentStatus {
   assignedTo: string | null
   uploadedAt: string | null
   fileName: string | null
+  fileUrl?: string | null
   notApplicable: boolean
+}
+
+export interface UploadedDocument {
+  documentId: string
+  fileName: string
+  fileUrl?: string | null
+  uploadedAt: string
 }
 
 export interface ChatMessage {
@@ -42,6 +60,15 @@ export interface AdditionalRequirement {
   clientId: string
   title: string
   description: string
+  question?: string | null
+  requestUpload?: boolean
+  sourceDocumentId?: string | null
+  sourceDocumentName?: string | null
+  sourceUploadedFileName?: string | null
+  clientResponse?: string | null
+  responseFileName?: string | null
+  responseFileUrl?: string | null
+  respondedAt?: string | null
   priority: 'high' | 'medium' | 'low'
   status: 'open' | 'resolved'
   createdAt: string
@@ -76,7 +103,10 @@ export interface Client {
   businessType: BusinessType
   branches: Branch[]
   teamMembers: TeamMember[]
+  advisors: AdvisorProfile[]
+  sectionSubmissions: Record<string, SectionSubmission>
   documentStatuses: Record<string, DocumentStatus>
+  uploadedDocuments: Record<string, UploadedDocument>
   driveFolder: string | null
   createdAt: string
   provisionedAt: string | null

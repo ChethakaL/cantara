@@ -1,7 +1,7 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertS3Configured, s3BucketName, s3Client } from "@/lib/s3";
+import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
         ContentType: file.type || "application/octet-stream",
       }),
     );
+    const publicUrl = buildPublicFileUrl(key);
 
     const document = await (prisma as any).clientDocument.create({
       data: {
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
         localPath: key,
         storageBucket: s3BucketName,
         storageProvider: "s3",
+        googleDriveFileId: publicUrl,
       },
     });
 
@@ -58,6 +60,7 @@ export async function POST(req: NextRequest) {
       update: {
         hasDoc: true,
         fileName: file.name,
+        fileUrl: publicUrl,
         uploadedAt: new Date(),
         notApplicable: false,
       },
@@ -66,6 +69,7 @@ export async function POST(req: NextRequest) {
         documentId,
         hasDoc: true,
         fileName: file.name,
+        fileUrl: publicUrl,
         uploadedAt: new Date(),
         notApplicable: false,
       },
@@ -74,6 +78,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       id: document.id,
       fileName: document.fileName,
+      fileUrl: publicUrl,
       uploadedAt: document.createdAt.toISOString(),
     });
   } catch (error) {

@@ -11,7 +11,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       include: {
         Branches: true,
         TeamMembers: true,
+        AdvisorProfiles: true,
         ClientDocumentStatuses: true,
+        ClientDocument: true,
         User: true,
       },
     });
@@ -33,6 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const body = await req.json();
     
     const teamMembers = Array.isArray(body.teamMembers) ? body.teamMembers : undefined;
+    const advisors = Array.isArray(body.advisors) ? body.advisors : undefined;
     const documentStatuses =
       body.documentStatuses && typeof body.documentStatuses === "object" ? body.documentStatuses : undefined;
 
@@ -46,10 +49,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         stage: body.stage ? body.stage.toUpperCase() : undefined,
         businessType: body.businessType ? body.businessType.toUpperCase() : undefined,
         notes: body.notes,
+        sectionSubmissions:
+          body.sectionSubmissions && typeof body.sectionSubmissions === "object"
+            ? body.sectionSubmissions
+            : undefined,
         valuationDocUploaded: body.valuationDocUploaded,
         updatedAt: new Date(),
       },
-      include: { User: true, Branches: true, TeamMembers: true, ClientDocumentStatuses: true }
+      include: { User: true, Branches: true, TeamMembers: true, AdvisorProfiles: true, ClientDocumentStatuses: true, ClientDocument: true }
     });
     
     // Update User name if provided
@@ -85,6 +92,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
 
+    if (advisors) {
+      await (prisma as any).advisorProfile.deleteMany({ where: { clientId: id } });
+      const nextAdvisors = advisors
+        .filter((advisor: { name?: string; imageUrl?: string }) => advisor?.name?.trim() && advisor?.imageUrl?.trim())
+        .map((advisor: { name: string; imageUrl: string }) => ({
+          clientId: id,
+          name: advisor.name.trim(),
+          imageUrl: advisor.imageUrl.trim(),
+        }));
+      if (nextAdvisors.length) {
+        await (prisma as any).advisorProfile.createMany({ data: nextAdvisors });
+      }
+    }
+
     if (documentStatuses) {
       const entries = Object.entries(documentStatuses) as Array<[string, any]>;
       await (prisma as any).$transaction(
@@ -96,6 +117,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
               assignedTo: status.assignedTo ?? null,
               uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
               fileName: status.fileName ?? null,
+              fileUrl: status.fileUrl ?? null,
               notApplicable: Boolean(status.notApplicable),
             },
             create: {
@@ -105,6 +127,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
               assignedTo: status.assignedTo ?? null,
               uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
               fileName: status.fileName ?? null,
+              fileUrl: status.fileUrl ?? null,
               notApplicable: Boolean(status.notApplicable),
             },
           }),
@@ -114,7 +137,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const reloaded = await (prisma as any).clientProfile.findUnique({
       where: { id },
-      include: { User: true, Branches: true, TeamMembers: true, ClientDocumentStatuses: true },
+      include: { User: true, Branches: true, TeamMembers: true, AdvisorProfiles: true, ClientDocumentStatuses: true, ClientDocument: true },
     });
 
     return NextResponse.json(reloaded ? mapClientForFrontend(reloaded) : updated);

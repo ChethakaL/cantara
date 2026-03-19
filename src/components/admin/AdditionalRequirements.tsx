@@ -1,20 +1,30 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Plus, CheckCircle, AlertCircle, Clock } from 'lucide-react'
+import { Plus, CheckCircle, AlertCircle, Clock, MessageSquareMore, UploadCloud, FileText } from 'lucide-react'
 import { Button, Badge, Textarea, Select, Input, Modal } from '@/components/ui'
 import { getRequirements, saveRequirement, updateRequirement } from '@/lib/store'
 import type { AdditionalRequirement } from '@/lib/store'
 
+const EMPTY_FORM = {
+  title: '',
+  description: '',
+  question: '',
+  requestUpload: false,
+  sourceDocumentId: '',
+  sourceDocumentName: '',
+  priority: 'medium' as 'high' | 'medium' | 'low',
+}
+
 export default function AdditionalRequirementsAdmin({ clientId }: { clientId: string }) {
   const [reqs, setReqs] = useState<AdditionalRequirement[]>([])
   const [adding, setAdding] = useState(false)
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium' as 'high' | 'medium' | 'low' })
+  const [form, setForm] = useState(EMPTY_FORM)
 
   const load = async () => {
     const data = await getRequirements(clientId)
     setReqs(data)
   }
-  useEffect(() => { load() }, [clientId])
+  useEffect(() => { void load() }, [clientId])
 
   const submit = async () => {
     if (!form.title.trim()) return
@@ -22,11 +32,20 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
       clientId,
       title: form.title.trim(),
       description: form.description.trim(),
+      question: form.question.trim() || null,
+      requestUpload: form.requestUpload,
+      sourceDocumentId: form.sourceDocumentId || null,
+      sourceDocumentName: form.sourceDocumentName || null,
+      sourceUploadedFileName: null,
       priority: form.priority,
       status: 'open',
+      clientResponse: null,
+      responseFileName: null,
+      responseFileUrl: null,
+      respondedAt: null,
       createdAt: new Date().toISOString(),
     })
-    setForm({ title: '', description: '', priority: 'medium' })
+    setForm(EMPTY_FORM)
     setAdding(false)
     await load()
   }
@@ -44,7 +63,7 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-slate-800">Additional Requirements</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Flag documents or information needed from the client</p>
+          <p className="text-xs text-slate-400 mt-0.5">Ask follow-up questions, request uploads, or do both from one requirement.</p>
         </div>
         <Button size="sm" onClick={() => setAdding(true)}>
           <Plus className="w-3.5 h-3.5" /> Add Requirement
@@ -68,13 +87,53 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-medium text-slate-800">{req.title}</p>
-                  <Badge color={req.priority === 'high' ? 'red' : req.priority === 'medium' ? 'gold' : 'slate'}>
-                    {req.priority}
-                  </Badge>
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{req.title}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Badge color={req.priority === 'high' ? 'red' : req.priority === 'medium' ? 'gold' : 'slate'}>
+                        {req.priority}
+                      </Badge>
+                      {req.question && <Badge color="blue">Question</Badge>}
+                      {req.requestUpload && <Badge color="gold">Upload Requested</Badge>}
+                      {req.sourceDocumentName && <Badge color="slate">{req.sourceDocumentName}</Badge>}
+                    </div>
+                  </div>
                 </div>
-                {req.description && <p className="text-xs text-slate-500 mt-1 leading-relaxed">{req.description}</p>}
-                <p className="text-xs text-slate-300 mt-2">{new Date(req.createdAt).toLocaleDateString()}</p>
+                {req.sourceUploadedFileName && (
+                  <p className="text-xs text-slate-400 mt-2">Uploaded file: {req.sourceUploadedFileName}</p>
+                )}
+                {req.description && <p className="text-xs text-slate-500 mt-3 leading-relaxed">{req.description}</p>}
+                {req.question && (
+                  <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700">
+                    <span className="font-medium text-blue-700">Follow-up question:</span> {req.question}
+                  </div>
+                )}
+                {req.clientResponse && (
+                  <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-slate-700">
+                    <span className="font-medium text-emerald-700">Client response:</span> {req.clientResponse}
+                  </div>
+                )}
+                {req.responseFileName && (
+                  <div className="mt-2">
+                    {req.responseFileUrl ? (
+                      <a
+                        href={req.responseFileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-xs text-emerald-700 underline underline-offset-2"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        {req.responseFileName}
+                      </a>
+                    ) : (
+                      <span className="inline-flex items-center gap-2 text-xs text-emerald-700">
+                        <FileText className="w-3.5 h-3.5" />
+                        {req.responseFileName}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-slate-300 mt-3">{new Date(req.createdAt).toLocaleDateString()}</p>
               </div>
               <Button variant="outline" size="sm" onClick={() => resolve(req.id)}>
                 <CheckCircle className="w-3.5 h-3.5" /> Resolve
@@ -103,16 +162,39 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
         <div className="space-y-4">
           <Input
             label="Requirement title"
-            placeholder="e.g. Missing 2023 tax return"
+            placeholder="e.g. Clarify 2023 P&L adjustments"
             value={form.title}
             onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
           />
           <Textarea
-            label="Description / instructions for client"
-            placeholder="Describe what is needed and why..."
-            rows={4}
+            label="Context / instructions"
+            placeholder="Explain what you need the client to clarify or upload..."
+            rows={3}
             value={form.description}
             onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+          />
+          <Textarea
+            label="Follow-up question"
+            placeholder="Ask a specific question the client should answer..."
+            rows={3}
+            value={form.question}
+            onChange={e => setForm(p => ({ ...p, question: e.target.value }))}
+          />
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <label className="flex items-center gap-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.requestUpload}
+                onChange={e => setForm(p => ({ ...p, requestUpload: e.target.checked }))}
+              />
+              Ask the client to upload a supporting file
+            </label>
+          </div>
+          <Input
+            label="Related document name (optional)"
+            placeholder="e.g. P&L — Current Year to Date"
+            value={form.sourceDocumentName}
+            onChange={e => setForm(p => ({ ...p, sourceDocumentName: e.target.value }))}
           />
           <Select
             label="Priority"
@@ -124,6 +206,20 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
               { value: 'low', label: '🟢 Low — When possible' },
             ]}
           />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+              <div className="flex items-center gap-2 text-slate-700 font-medium mb-1">
+                <MessageSquareMore className="w-3.5 h-3.5" /> Question
+              </div>
+              Use this when you need clarification or a written response.
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+              <div className="flex items-center gap-2 text-slate-700 font-medium mb-1">
+                <UploadCloud className="w-3.5 h-3.5" /> Upload request
+              </div>
+              Use this when the client needs to attach a supporting document.
+            </div>
+          </div>
           <div className="flex gap-3 justify-end pt-2">
             <Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
             <Button onClick={submit} disabled={!form.title.trim()}>Add Requirement</Button>
