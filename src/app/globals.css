@@ -50,3 +50,12 @@ body {
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(184, 146, 42, 0.2); border-radius: 99px; }
 .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: rgba(184, 146, 42, 0.4); }
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}

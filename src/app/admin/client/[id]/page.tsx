@@ -123,7 +123,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
         {/* Tab navigation */}
         <Card className="mb-6">
-          <div className="flex overflow-x-auto border-b border-slate-100">
+          <div className="flex overflow-x-auto hide-scrollbar border-b border-slate-100">
             {TABS.map(tab => {
               const Icon = tab.icon
               const active = activeTab === tab.key
