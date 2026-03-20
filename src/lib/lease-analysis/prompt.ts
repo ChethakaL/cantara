@@ -17,9 +17,9 @@ This is a long-form structured report. You must complete every section. Do not s
 - **Chronological Control**: The most recent amendment supersedes prior terms on any point it addresses. Explicitly state when a later amendment resolves a conflict — e.g., "The Second Amendment rent schedule replaces the First Amendment schedule and resolves the prior range discrepancies."
 - **Party Deep-Search — MANDATORY BEFORE ANY OUTPUT**: Landlord and Tenant names are the most fundamental fields in the report. Before writing a single line of output, scan every page of every document — including notary acknowledgment pages, tenant acknowledgment pages, and all signature blocks. Party names almost always appear on notary pages even when the body text is redacted. Returning "redacted" when names appear on notary pages is an extraction failure. Example: a notary page reading "acknowledged it as the Authorized Signatory of ACORN DEVELOPMENT LLC" means the landlord is Acorn Development LLC. A tenant acknowledgment page naming "DDL Partners LLC" means the tenant is DDL Partners LLC. Extract the name. Do not mark it redacted.
 - **Signature Audit — MANDATORY FOR EVERY DOCUMENT**: For every document in the package, you must check two separate pages independently: (a) the **main signature page** — the page with "LANDLORD:" and "TENANT:" blocks showing By/Name/Title/Date lines, and (b) the **notary acknowledgment page**. These are physically different pages and must be checked separately. A completed notary page does NOT mean the main signature page is signed — these are independent checks. For each document, ask: on the main signature page, are the Tenant's By/Name/Title/Date lines filled in with actual handwriting? If any of those lines are blank, that is an unsigned signature block and must be flagged as a 🔴 red flag regardless of what the notary page shows. Do not infer execution from the notary page alone.
-- **Current Date Context**: Today is **March 18, 2026**. Use this date for all remaining term calculations, holdover assessments, and reimbursement window expiry determinations.
+- **Current Date Context**: Today is **March 20, 2026**. Use this date for all remaining term calculations, holdover assessments, and reimbursement window expiry determinations.
 - **Genuinely Absent Fields**: If a field is truly not found after thorough review, state: "Not found in provided documents — further review required."
-- **Citations**: Cite the exact section number for every finding. **Bold all section citations** (e.g., **§3.1**, **First Amendment §5**). If a provision comes from an amendment, always identify the amendment by name.
+- **Citations**: Cite the exact section number for every finding. **Bold all section citations** (e.g., **Base Lease §3.1**, **Amendment A §2.1**, **First Amendment §5**). If a provision comes from an amendment, always identify the amendment by name or letter. Never use generic citations like "Section 2 of the lease."
 
 ---
 
@@ -27,53 +27,52 @@ This is a long-form structured report. You must complete every section. Do not s
 Produce output in this EXACT structure using these EXACT delimiters. Do not reorder, skip, or merge sections.
 
 ---START_PART1---
-## PART 1 — LEASE SNAPSHOT TABLE
+## PART 1 — LEASE SUMMARY TABLE
 
 **Table A — Property, Parties & Dates**
 
-| Field | Finding | Source Section |
-|---|---|---|
-| Property Location (common address) | | |
-| Legal Address / Legal Description | | |
-| Landlord Name & Entity Type | | |
-| Tenant Name & Entity Type | | |
-| Permitted Use | | |
-| Signed Lease Date | | |
-| Commencement Date | | |
-| Rent Commencement Date (if different) | | |
-| Initial Term | | |
-| Expiration / Termination Date | | |
-| Governing Law | | |
+| Key Item | Finding |
+|---|---|
+| Property Location | |
+| Landlord Name & Entity Type | |
+| Tenant Name & Entity Type | |
+| Permitted Use | |
+| Signed Lease Date | |
+| Commencement Date | |
+| Rent Commencement Date (if different) | |
+| Initial Term | |
+| Initial Term Expiration | |
+| Governing Law | |
 
 **Table B — Financial & Transaction Terms**
 
-| Field | Finding | Source Section |
-|---|---|---|
-| Extension Options | | |
-| Extension Notice Deadline | | |
-| Current Base Rent (Monthly) | | |
-| Lease Type (NNN / Gross / Modified Gross) | | |
-| Tenant's Pro Rata Share | | |
-| Security Deposit | | |
-| Tenant Allowance / Landlord Contribution | | |
-| Guarantor(s) | | |
-| Guaranty Expiration (if applicable) | | |
-| Assignability | | |
-| Change of Control Trigger | | |
-| Continuing Liability After Assignment | | |
-| Demolition / Recapture / Relocation Clause | | |
-| Survival Obligations Post-Termination | | |
+| Key Item | Finding |
+|---|---|
+| Extension Options | |
+| Extension Notice Deadline | |
+| Current Base Rent (Monthly) | |
+| Lease Type (NNN / Gross / Modified Gross) | |
+| Tenant's Pro Rata Share | |
+| Tenant Allowance / Landlord Contribution | |
+| Guarantor(s) | |
+| Guaranty Expiration (if applicable) | |
+| Assignability | |
+| Change of Control Trigger | |
+| Continuing Liability After Assignment | |
+| Demolition / Recapture / Relocation Clause | |
+| Survival Obligations Post-Termination | |
 
+Do not include a Source column in Part 1.
 Every cell must be populated or marked "Not found in provided documents — further review required."
 ---END_PART1---
 
 ---START_PART2---
 ## PART 2 — DETAILED FINDINGS (SECTION BY SECTION)
 
-For each section provide: (a) plain-English explanation of what the lease says, (b) exact section citation in **bold**, and (c) a brief verbatim or near-verbatim excerpt of the key operative language — minimum necessary to establish the point. If no provision exists, state "No express provision found."
+For each section provide: (a) plain-English explanation of what the lease says, (b) exact section citation in **bold**, and (c) a brief verbatim or near-verbatim excerpt of the key operative language — minimum necessary to establish the point. Every citation must identify both the specific document and the exact section/subsection, for example **Base Lease §2.1**, **Amendment A §2.1**, or **First Amendment §5**. Never write generic citations like "Section 2 of the lease." If no provision exists, state "No express provision found."
 
 ### 2.1 PROPERTY & PARTIES
-**Property Location** — Full common address and suite/unit designation. Note if a legal description is in an exhibit.
+**Property Location** — Full property address and suite/unit designation. Note if a legal description is in an exhibit.
 **Landlord** — Full legal name, entity type, state of formation. Note any ownership change across amendments.
 **Tenant** — Full legal name, entity type, state of formation. Note any DBA. Check notary pages if body text is redacted.
 **Permitted Use** — Reproduce exact permitted use language. Flag restrictions, exclusives, animal-related operational requirements, and any "similar to other [chain] locations" language that could restrict concept changes after a sale.
@@ -83,11 +82,11 @@ For each section provide: (a) plain-English explanation of what the lease says, 
 **Commencement Date** — When the lease term began. Note if a Commencement Date Confirmation exists and whether it differs from the base lease.
 **Rent Commencement Date** — Whether rent commencement differs from term commencement. Exact duration and end date of any free rent period.
 **Initial Term** — Number of months/years. Exact start and end dates.
-**Remaining Term** — Calculate as of **March 18, 2026**. If the base term has expired, do not automatically declare holdover — check whether an extension option exists and whether any document confirms it was exercised or not exercised. State the status as: confirmed active, confirmed expired/holdover, or unconfirmed (base term expired, extension status unknown — verify immediately).
+**Remaining Term** — Calculate as of **March 20, 2026**. If the base term has expired, do not automatically declare holdover — check whether an extension option exists and whether any document confirms it was exercised or not exercised. State the status as: confirmed active, confirmed expired/holdover, or unconfirmed (base term expired, extension status unknown — verify immediately).
 **Expiration Date** — Exact date the lease expires absent any extension.
 
 ### 2.3 RENT
-**Current Base Rent** — Monthly and annual base rent as of March 18, 2026. Identify which rent tranche this falls within.
+**Current Base Rent** — Monthly and annual base rent as of March 20, 2026. Identify which rent tranche this falls within.
 **Complete Rent Schedule** — Reproduce the full operative rent schedule (most recent amendment controls). Present as a table:
 
 | Lease Year | Months | Per Annum | Per Month |
@@ -96,7 +95,7 @@ For each section provide: (a) plain-English explanation of what the lease says, 
 If amendments modified the schedule, state which document's schedule is operative and note what changed from the prior version.
 
 **Total Rent Obligation (Remaining Term)** — Total base rent remaining through expiration. Show the calculation.
-**Total Rent Paid (Historical)** — If calculable, total base rent paid from commencement through March 18, 2026.
+**Total Rent Paid (Historical)** — If calculable, total base rent paid from commencement through March 20, 2026.
 **Rent Abatement Periods** — All periods of abated or reduced rent. Exact dates and source section. Note if the abatement period has already concluded.
 **Rent Escalation Mechanism** — Fixed step-ups, CPI, percentage of sales, or other. Reproduce the escalation formula. Note any floor or cap.
 **Additional Rent / NNN Charges** — What tenant pays beyond base rent. Pro rata share percentage and how it is calculated. Exclusions from Operating Expenses. Cap on management fees.
@@ -105,7 +104,7 @@ If amendments modified the schedule, state which document's schedule is operativ
 
 ### 2.4 EXTENSIONS & RENEWAL OPTIONS
 **Extension Options — Full Detail** — For each option: number available, length, rent during extension (exact method — fixed schedule, FMV, CPI), conditions to exercise (no default, continuous occupancy, etc.), and whether options are personal to the named tenant or transferable to assignees.
-**Extension Notice Deadline** — Calculate the exact calendar date by counting forward from the confirmed Commencement Date. Do not approximate. Example: commencement January 11, 2016 + 111 months = April 30, 2025. State the exact calculated date. Then assess: has this deadline passed as of March 18, 2026? If yes, flag it — but also note whether any document confirms the option was already exercised before that deadline.
+**Extension Notice Deadline** — Calculate the exact calendar date by counting forward from the confirmed Commencement Date. Do not approximate. Example: commencement January 11, 2016 + 111 months = April 30, 2025. State the exact calculated date. Then assess: has this deadline passed as of March 20, 2026? If yes, flag it — but also note whether any document confirms the option was already exercised before that deadline.
 **Status of Options** — Note if any options have been exercised. State how many remain available.
 
 ### 2.5 ASSIGNMENT & SUBLETTING
@@ -125,7 +124,7 @@ If amendments modified the schedule, state which document's schedule is operativ
 **Scope** — Full and unconditional? What obligations does it cover (rent, Additional Rent, all lease obligations)?
 **Duration / Burn-Down** — Does the guaranty expire after a set period? Reproduce exact burn-down language.
 **Survival** — Does the guaranty survive lease termination or assignment?
-**Burn-Down Status** — Calculate whether the guaranty has expired or is still in effect as of March 18, 2026.
+**Burn-Down Status** — Calculate whether the guaranty has expired or is still in effect as of March 20, 2026.
 
 ### 2.7 MAINTENANCE, REPAIRS & HVAC
 **Tenant's Obligations** — Everything tenant is responsible for at tenant's cost. Specifically call out: HVAC, plumbing, electrical, lighting, storefront, doors, windows, plate glass.
@@ -177,7 +176,7 @@ Identify obligations that expressly survive lease termination or expiration: ind
 ### 2.16 TENANT ALLOWANCE & LANDLORD CONTRIBUTIONS
 **Original TI Allowance** — Amount, conditions for disbursement, timing, permitted uses. Note if the parties confirm it has been paid in full.
 **Amendment TI Allowance** — Any additional allowance from amendments. Full terms: amount, disbursement schedule, conditions, deadline for requests, and what happens to unclaimed amounts.
-**Reimbursement Window Status** — Calculate whether the reimbursement request deadline has passed as of **March 18, 2026**. If expired, state that any unclaimed portion is likely forfeited.
+**Reimbursement Window Status** — Calculate whether the reimbursement request deadline has passed as of **March 20, 2026**. If expired, state that any unclaimed portion is likely forfeited.
 **Overall Status** — Based on the documents, does the allowance appear paid in full or are amounts potentially outstanding?
 
 ### 2.17 SIGNAGE
@@ -225,7 +224,7 @@ These are provisions that could block or materially impair a business sale, impo
 **Format:**
 **Issue:** [Plain English statement of the problem]
 **Why It Matters:** [Specific impact on a prospective buyer or the M&A transaction]
-**Source & Quote:** [Document name, section citation, and the specific verbatim sentence confirming the flag]
+**Source & Quote:** [Specific document or amendment name, exact section/subsection citation, and the specific verbatim sentence confirming the flag]
 
 ---
 
@@ -269,7 +268,7 @@ These are not immediately disqualifying but must be addressed before or at closi
 **Format:**
 **Issue:** [Plain English statement]
 **Why It Matters:** [Impact on the transaction]
-**Source & Quote:** [Document name, section citation, and verbatim sentence]
+**Source & Quote:** [Specific document or amendment name, exact section/subsection citation, and verbatim sentence]
 
 ---
 
@@ -300,7 +299,7 @@ Provisions that protect the tenant, favor a sale, or reduce buyer risk.
 **Format:**
 **Issue:** [Plain English statement of the favorable provision]
 **Why It Matters:** [How this specifically benefits the tenant or reduces buyer risk]
-**Source & Quote:** [Document name, section citation, and verbatim sentence]
+**Source & Quote:** [Specific document or amendment name, exact section/subsection citation, and verbatim sentence]
 
 ---
 
@@ -339,7 +338,7 @@ After the table, note: (1) any documents that appear missing from a complete lea
 - Use Markdown headers and tables throughout
 - **Bold all section citations** (e.g., **§3.1**, **First Amendment §5**)
 - Use exactly 🔴, 🟡, 🟢 — no substitutes
-- Every finding in Parts 1 and 2 must have a source citation — if none exists, write "No express provision found"
+- Every finding in Part 2 and every flag in Part 3 must have a document-specific source citation — if none exists, write "No express provision found"
 - Do not use bullet points inside table cells — use short prose
 - The report must stand alone as a due diligence document — no separate reference to the underlying lease should be needed to understand any finding
 - End the report at the close of Part 4. No summaries, sign-offs, or closing remarks.

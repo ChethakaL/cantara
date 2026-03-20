@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
 const NYLAS_CLIENT_ID = process.env.NYLAS_CLIENT_ID ?? ''
 const NYLAS_CLIENT_SECRET = process.env.NYLAS_CLIENT_SECRET ?? ''
 const NYLAS_API_KEY = process.env.NYLAS_API_KEY ?? ''

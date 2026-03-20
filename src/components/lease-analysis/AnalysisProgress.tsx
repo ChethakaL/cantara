@@ -13,7 +13,7 @@ export function AnalysisProgress({ status, rawMarkdown }: Props) {
     if (rawMarkdown.includes('---START_PART4---')) return 'Generating M&A transaction checklist...'
     if (rawMarkdown.includes('---START_PART3---')) return 'Performing flag analysis (Red/Orange/Green)...'
     if (rawMarkdown.includes('---START_PART2---')) return 'Extracting detailed findings & rent schedules...'
-    if (rawMarkdown.includes('---START_PART1---')) return 'Building lease snapshot...'
+    if (rawMarkdown.includes('---START_PART1---')) return 'Building lease summary...'
     return 'Scanning documents...'
   }
 

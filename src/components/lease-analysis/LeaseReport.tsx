@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { FileText, AlertTriangle, ClipboardList, Folder } from 'lucide-react'
+import { FileText, AlertTriangle, Folder } from 'lucide-react'
 import { Card, Badge } from '@/components/ui'
 import { LeaseReport as ILeaseReport } from '../../lib/lease-analysis/types'
 import { SnapshotTable } from './report-sections/SnapshotTable'
@@ -8,6 +8,7 @@ import { DetailedFindings } from './report-sections/DetailedFindings'
 import { FlagAnalysis } from './report-sections/FlagAnalysis'
 import { DocumentInventoryReport } from './report-sections/DocumentInventoryReport'
 import { ReportExportBar } from './ReportExportBar'
+import { getVisibleFlags } from '@/lib/lease-analysis/report-utils'
 
 interface Props {
   report: ILeaseReport
@@ -15,22 +16,32 @@ interface Props {
   clientName: string
   onNewAnalysis: () => void
   onDelete?: () => void
+  onReportUpdated?: (report: ILeaseReport) => Promise<void>
+  adminMode?: boolean
 }
 
 const REPORT_TABS = [
-  { key: 'snapshot', label: 'Snapshot', icon: FileText },
+  { key: 'summary', label: 'Summary', icon: FileText },
   { key: 'findings', label: 'Findings', icon: FileText },
   { key: 'flags', label: 'Flags', icon: AlertTriangle },
   { key: 'documents', label: 'Documents', icon: Folder },
 ]
 
-export function LeaseReport({ report, fileName, clientName, onNewAnalysis, onDelete }: Props) {
-  const [activeTab, setActiveTab] = useState('snapshot')
+export function LeaseReport({
+  report,
+  fileName,
+  clientName,
+  onNewAnalysis,
+  onDelete,
+  onReportUpdated,
+  adminMode = false,
+}: Props) {
+  const [activeTab, setActiveTab] = useState('summary')
 
   const flagCounts = {
-    red: (report.redFlags || []).length,
-    orange: (report.orangeFlags || []).length,
-    green: (report.greenFlags || []).length,
+    red: getVisibleFlags(report.redFlags || []).length,
+    orange: getVisibleFlags(report.orangeFlags || []).length,
+    green: getVisibleFlags(report.greenFlags || []).length,
   }
 
   const getCount = (key: string) => {
@@ -56,7 +67,7 @@ export function LeaseReport({ report, fileName, clientName, onNewAnalysis, onDel
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Badge color="red">🔴 {flagCounts.red} Red</Badge>
-            <Badge color="gold">🟡 {flagCounts.orange} Orange</Badge>
+            <Badge color="gold">🟡 {flagCounts.orange} Yellow</Badge>
             <Badge color="green">🟢 {flagCounts.green} Green</Badge>
           </div>
           <div className="w-px h-4 bg-slate-200 mx-1" />
@@ -96,9 +107,18 @@ export function LeaseReport({ report, fileName, clientName, onNewAnalysis, onDel
 
       {/* Section content */}
       <div className="p-6 min-h-[400px]">
-        {activeTab === 'snapshot' && <SnapshotTable rows={report.snapshotTable} />}
+        {activeTab === 'summary' && <SnapshotTable rows={report.snapshotTable} />}
         {activeTab === 'findings' && <DetailedFindings findings={report.detailedFindings} raw={report.raw} />}
-        {activeTab === 'flags' && <FlagAnalysis red={report.redFlags} orange={report.orangeFlags} green={report.greenFlags} />}
+        {activeTab === 'flags' && (
+          <FlagAnalysis
+            red={report.redFlags}
+            orange={report.orangeFlags}
+            green={report.greenFlags}
+            adminMode={adminMode}
+            onReportUpdated={onReportUpdated}
+            report={report}
+          />
+        )}
         {activeTab === 'documents' && <DocumentInventoryReport rows={report.documentInventory} />}
       </div>
     </Card>

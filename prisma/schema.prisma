@@ -33,6 +33,77 @@ model ContractAnalysis {
   @@index([clientId, createdAt])
 }
 
+model TtmAnalysis {
+  id              String            @id @default(cuid())
+  clientId        String
+  version         Int
+  status          TtmRunStatus      @default(RUNNING)
+  hitlStatus      TtmHitlStatus     @default(PENDING_REVIEW)
+  inputFingerprint String
+  model           String
+  temperature     Float
+  maxTokens       Int
+  inputSnapshot   Json
+  normalizedData  Json?
+  structuredModel Json?
+  ttmSummary      Json?
+  annualModel     Json?
+  workingCapital  Json?
+  dataQualityReport Json?
+  summary         Json?
+  errorMessage    String?           @db.Text
+  approvedAt      DateTime?
+  approvedByName  String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  client          ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  flags           TtmFlag[]
+  dispatchTasks   AgentDispatchTask[]
+
+  @@unique([clientId, version])
+  @@index([clientId, createdAt])
+  @@index([clientId, inputFingerprint])
+}
+
+model TtmFlag {
+  id                    String                  @id @default(cuid())
+  analysisId            String
+  section               TtmFlagSection
+  severity              TtmFlagSeverity
+  title                 String
+  description           String?                 @db.Text
+  payload               Json
+  resolutionStatus      TtmFlagResolutionStatus @default(OPEN)
+  resolutionAction      TtmFlagResolutionAction?
+  resolutionNotes       String?                 @db.Text
+  escalatedRequirementId String?
+  resolvedAt            DateTime?
+  resolvedByName        String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  analysis              TtmAnalysis             @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([analysisId, section])
+  @@index([analysisId, resolutionStatus])
+}
+
+model AgentDispatchTask {
+  id           String             @id @default(cuid())
+  analysisId   String
+  clientId     String
+  agentId      String
+  status       AgentDispatchStatus
+  payload      Json?
+  releasedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  analysis     TtmAnalysis        @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  client       ClientProfile      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([analysisId, agentId])
+  @@index([clientId, status])
+}
+
 model ClientDocument {
   id                  String          @id @default(cuid())
   requestId           String?
@@ -134,6 +205,8 @@ model ClientProfile {
   Branches            Branch[]
   ChatMessages        ChatMessage[]
   AdditionalRequirements AdditionalRequirement[]
+  TtmAnalyses         TtmAnalysis[]
+  AgentDispatchTasks  AgentDispatchTask[]
 }
 
 model Branch {
@@ -275,4 +348,49 @@ enum Priority {
 enum RequirementStatus {
   OPEN
   RESOLVED
+}
+
+enum TtmRunStatus {
+  RUNNING
+  HITL_PENDING
+  APPROVED
+  FAILED
+}
+
+enum TtmHitlStatus {
+  PENDING_REVIEW
+  IN_REVIEW
+  APPROVED
+}
+
+enum TtmFlagSection {
+  A
+  B
+  C
+  D
+  E
+}
+
+enum TtmFlagSeverity {
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum TtmFlagResolutionStatus {
+  OPEN
+  ACTIONED
+}
+
+enum TtmFlagResolutionAction {
+  RESOLVE
+  OVERRIDE
+  ESCALATE_CLIENT
+}
+
+enum AgentDispatchStatus {
+  BLOCKED_HITL
+  READY
+  RELEASED
 }

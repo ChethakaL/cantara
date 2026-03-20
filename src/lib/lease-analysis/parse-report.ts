@@ -53,7 +53,9 @@ function parseMarkdownTable(text: string): string[][] {
     // Skip header rows
     const isHeader = cells.some(c => 
       c.toLowerCase() === "field" || 
+      c.toLowerCase() === "key item" ||
       c.toLowerCase() === "finding" || 
+      c.toLowerCase() === "source" ||
       c.toLowerCase() === "source section" ||
       c.toLowerCase() === "document" ||
       c.toLowerCase() === "document type"

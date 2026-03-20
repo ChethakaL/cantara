@@ -1,6 +1,8 @@
 // Central database-backed store
 // Replaces localStorage with asynchronous API calls
 
+import type { LeaseReport as ParsedLeaseReport } from '@/lib/lease-analysis/types'
+
 export type Workstream = 'ws1' | 'ws2' | 'both' | 'ma' | null
 export type BusinessType = 'single' | 'multi' | 'parent'
 export type ClientStage = 'onboarding' | 'collection' | 'review' | 'final' | 'closed'
@@ -80,7 +82,7 @@ export interface LeaseAnalysis {
   fileName: string
   createdAt: string
   report: string
-  parsed: any | null
+  parsed: ParsedLeaseReport | null
 }
 
 export interface ContractAnalysis {
@@ -230,8 +232,6 @@ export async function updateRequirement(id: string, update: Partial<AdditionalRe
 
 // ── Lease Analyses ──────────────────────────────────────────────────────────
 
-export type ParsedLeaseReport = any; // Flexible for now
-
 export async function getLeaseAnalyses(clientId: string): Promise<LeaseAnalysis[]> {
   try {
     const res = await fetch(`/api/lease-analysis/reports?clientId=${clientId}`);
@@ -247,7 +247,7 @@ export async function saveLeaseAnalysis(data: {
     clientId: string;
     fileName: string;
     report: string;
-    parsed: any;
+    parsed: ParsedLeaseReport;
 }) {
     try {
         const res = await fetch('/api/lease-analysis/reports', {
@@ -258,6 +258,27 @@ export async function saveLeaseAnalysis(data: {
         return await res.json();
     } catch (error) {
         console.error(error);
+    }
+}
+
+export async function updateLeaseAnalysis(id: string, update: {
+    report?: string;
+    parsed?: ParsedLeaseReport;
+}) {
+    try {
+        const res = await fetch(`/api/lease-analysis/reports?id=${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(update),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || 'Failed to update lease analysis');
+        }
+        return await res.json();
+    } catch (error) {
+        console.error(error);
+        throw error
     }
 }
 

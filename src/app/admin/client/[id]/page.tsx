@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { use } from 'react'
-import { ArrowLeft, FileText, MessageSquare, AlertCircle, Settings, Landmark, Briefcase, CalendarDays } from 'lucide-react'
+import { ArrowLeft, FileText, MessageSquare, AlertCircle, Settings, Landmark, Briefcase, CalendarDays, FileSpreadsheet } from 'lucide-react'
 import { motion } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
 import LeaseAnalysisTab from '@/components/admin/LeaseAnalysis'
@@ -12,6 +12,7 @@ import AdditionalRequirementsAdmin from '@/components/admin/AdditionalRequiremen
 import ClientManager from '@/components/admin/ClientManager'
 import AdminDocumentsView from '@/components/admin/AdminDocuments'
 import MeetingsTab from '@/components/admin/MeetingsTab'
+import { TtmAnalysisTab } from '@/components/ttm-agent/TtmAnalysisTab'
 import { Badge, WorkstreamBadge, ProgressBar, GoldLine, Card } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -20,6 +21,7 @@ const TABS = [
   { key: 'manage', label: 'Client Management', icon: Settings },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'meetings', label: 'Meetings', icon: CalendarDays },
+  { key: 'ttm', label: 'TTM Analysis', icon: FileSpreadsheet },
   { key: 'lease', label: 'Lease Analysis', icon: Landmark },
   { key: 'contract', label: 'Contract Analysis', icon: Briefcase },
   { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
@@ -152,6 +154,14 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'documents' && (
               <AdminDocumentsView client={client} />
+            )}
+            {activeTab === 'ttm' && (
+              <TtmAnalysisTab
+                clientId={client.id}
+                clientName={client.name}
+                adminName={adminName}
+                documentStatuses={client.documentStatuses}
+              />
             )}
             {activeTab === 'lease' && (
               <LeaseAnalysisTab clientId={client.id} clientName={client.name} />

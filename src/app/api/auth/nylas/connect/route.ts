@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
 // ── Nylas OAuth flow for admin Google sign-in ──────────────────────────────
 // Production flow:
 // 1. Admin clicks "Continue with Google"

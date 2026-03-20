@@ -19,6 +19,8 @@ export interface LeaseReport {
   generatedAt: string;                  // ISO timestamp
 }
 
+export type FlagReviewStatus = "relevant" | "not_applicable";
+
 export interface SnapshotRow {
   field: string;
   finding: string;
@@ -35,6 +37,7 @@ export interface Flag {
   issue: string;
   whyItMatters: string;
   sourceSection: string;
+  reviewStatus?: FlagReviewStatus;
 }
 
 export interface ChecklistItem {

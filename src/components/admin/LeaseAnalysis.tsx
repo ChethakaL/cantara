@@ -3,8 +3,9 @@ import { useState, useCallback, useEffect } from 'react'
 import { FileText, Plus } from 'lucide-react'
 import { Button, Card, Modal } from '@/components/ui'
 import type { LeaseAnalysis } from '@/lib/store'
-import { saveLeaseAnalysis, getLeaseAnalyses, deleteLeaseAnalysis } from '@/lib/store'
+import { saveLeaseAnalysis, getLeaseAnalyses, deleteLeaseAnalysis, updateLeaseAnalysis } from '@/lib/store'
 import { useLeaseAnalysis } from '@/hooks/useLeaseAnalysis'
+import type { LeaseReport as LeaseReportData } from '@/lib/lease-analysis/types'
 
 // Modular components
 import { LeaseUploader } from '../lease-analysis/LeaseUploader'
@@ -53,6 +54,20 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
       setDeleteOpen(false)
     }
   }
+
+  const handleReportUpdated = useCallback(async (nextReport: LeaseReportData) => {
+    if (!activeAnalysis?.id) return
+
+    const updated = await updateLeaseAnalysis(activeAnalysis.id, {
+      report: nextReport.raw,
+      parsed: nextReport,
+    })
+
+    setActiveAnalysis(updated)
+    setAnalyses((current) => current.map((analysis) => (
+      analysis.id === updated.id ? updated : analysis
+    )))
+  }, [activeAnalysis])
 
   useEffect(() => {
     loadAnalyses().then(data => {
@@ -154,6 +169,8 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
             clientName={clientName}
             onNewAnalysis={clearAll}
             onDelete={activeAnalysis ? () => setDeleteOpen(true) : undefined}
+            onReportUpdated={activeAnalysis && status === 'idle' ? handleReportUpdated : undefined}
+            adminMode={Boolean(activeAnalysis && status === 'idle')}
           />
         )}
       </div>

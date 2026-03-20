@@ -48,6 +48,31 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return new Response("id is required", { status: 400 });
+  }
+
+  try {
+    const body = await req.json();
+    const updated = await prisma.leaseAnalysis.update({
+      where: { id },
+      data: {
+        ...(body.report !== undefined ? { report: body.report } : {}),
+        ...(body.parsed !== undefined ? { parsed: body.parsed } : {}),
+      },
+    });
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error("Failed to update report:", error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
