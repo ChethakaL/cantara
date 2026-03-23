@@ -41,7 +41,10 @@ export function Ws2DerivedReportsPanel({
   const [runningAgentId, setRunningAgentId] = useState<Ws2DerivedAgentId | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const approvedRecast = analysis.recastAnalyses?.find((recast) => recast.status === 'APPROVED') ?? null
+  const completedRecast =
+    analysis.recastAnalyses?.find((recast) => recast.status === 'APPROVED') ??
+    analysis.recastAnalyses?.find((recast) => recast.status === 'HITL_PENDING') ??
+    null
   const taskByAgent = new Map(analysis.dispatchTasks.map((task) => [task.agentId, task]))
 
   const runAgent = async (agentId: Ws2DerivedAgentId) => {
@@ -102,7 +105,7 @@ export function Ws2DerivedReportsPanel({
           <div>
             <h4 className="text-sm font-semibold text-slate-800">WS2-3 / WS2-4 / WS2-5</h4>
             <p className="text-xs text-slate-400 mt-1">
-              WS2-3 and WS2-4 release after Craig approves WS2-1. WS2-5 releases only after WS2-2 is approved because it depends on the recast output.
+              WS2-3 and WS2-4 release after Craig approves WS2-1. WS2-5 releases after WS2-2 completes because it depends on the recast output.
             </p>
           </div>
           <Badge color={analysis.status === 'APPROVED' ? 'green' : 'gold'}>
@@ -117,7 +120,7 @@ export function Ws2DerivedReportsPanel({
             const report = analysis.derivedReports?.find((item) => item.agentId === agent.id) ?? null
             const dispatchTask = taskByAgent.get(agent.id)
             const released = !dispatchTask || dispatchTask.status === 'RELEASED'
-            const disabled = analysis.status !== 'APPROVED' || !released || (agent.id === 'ws2_5_labor_v1' && !approvedRecast)
+            const disabled = analysis.status !== 'APPROVED' || !released || (agent.id === 'ws2_5_labor_v1' && !completedRecast)
 
             return (
               <div key={agent.id} className="rounded-2xl border border-slate-200 p-4">
@@ -128,7 +131,7 @@ export function Ws2DerivedReportsPanel({
                     <p className="text-[11px] text-slate-400 mt-2">
                       {released
                         ? agent.id === 'ws2_5_labor_v1'
-                          ? 'Released after approved WS2-2 recast.'
+                          ? 'Released after WS2-2 completed.'
                           : 'Released from WS2-1 HITL gate.'
                         : 'Not released yet.'}
                     </p>

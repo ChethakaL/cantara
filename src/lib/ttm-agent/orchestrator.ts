@@ -27,6 +27,8 @@ import { buildWorkingCapitalSummary } from "@/lib/ttm-agent/wc-calculator";
 import { TTM_AGENT_MAX_TOKENS, TTM_AGENT_MODEL, TTM_AGENT_TEMPERATURE, WS2_RECAST_MAX_TOKENS } from "@/lib/ttm-agent/prompt";
 import {
   buildWs2WorkbookBuffer,
+  extractWs2RecastFlagPayloads,
+  extractWs2RecastMetrics,
   resolveWs2RecastMetrics,
 } from "@/lib/ws2/report-utils";
 
@@ -77,27 +79,6 @@ function mapRecastFlag(flag: any) {
     createdAt: flag.createdAt.toISOString(),
     updatedAt: flag.updatedAt.toISOString(),
   };
-}
-
-function dedupeWs2RecastFlagPayloads(
-  flags: Array<{
-    title: string;
-    description: string;
-    severity: "HIGH" | "MEDIUM" | "LOW" | "INFO";
-    payload: Record<string, unknown>;
-  }>,
-) {
-  const seen = new Set<string>();
-  const deduped: typeof flags = [];
-
-  for (const flag of flags) {
-    const key = `${flag.severity}::${flag.title.trim()}::${flag.description.trim()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(flag);
-  }
-
-  return deduped;
 }
 
 function mapRecastAnalysis(record: any): Ws2RecastView {
@@ -537,7 +518,7 @@ export async function runTtmAgent(args: {
             clientId: args.clientId,
             agentId: "ws2_5_labor_v1",
             status: "BLOCKED_HITL",
-            payload: { reason: "Awaiting Craig WS2-1 approval and approved WS2-2 recast" },
+            payload: { reason: "Awaiting Craig WS2-1 approval and completed WS2-2 recast" },
           },
           {
             analysisId: created.id,
@@ -687,7 +668,7 @@ export async function approveTtmAnalysis(args: { analysisId: string; actorName?:
     }),
     // V3 Section 9: WS2-3 and WS2-4 release after WS2-1 approval.
     // WS2-2 also releases here so Craig can enter the valuation inputs and run it.
-    // WS2-5 waits for an approved WS2-2 recast because it depends on owner comp adjustments.
+    // WS2-5 releases when WS2-2 completes because it depends on the recast output.
     (prisma as any).agentDispatchTask.updateMany({
       where: {
         analysisId: args.analysisId,
@@ -836,443 +817,6 @@ function buildWs2DerivedPromptPayload(analysis: TtmAnalysisView, recast: Ws2Reca
   };
 }
 
-function parseCsvLine(line: string) {
-  const cells: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (char === '"') {
-      if (inQuotes && line[index + 1] === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (char === "," && !inQuotes) {
-      cells.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-
-  cells.push(current.trim());
-  return cells;
-}
-
-function parseYearTokens(value: string) {
-  return Array.from(value.matchAll(/\b(20\d{2})\b/g)).map((match) => match[1]);
-}
-
-function parseFirstYear(value: string) {
-  return parseYearTokens(value)[0] ?? null;
-}
-
-function parseDisclosureRows(preparedDocuments: PreparedDocumentInput[]) {
-  const prepared = preparedDocuments.find((doc) => doc.documentId === "addback_disclosure");
-  const text = prepared?.textBlocks?.map((block) => block.text).join("\n") ?? "";
-  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-
-  const ownerComp: Array<{ name: string; glCode: string; annualAmount: number }> = [];
-  const personalExpenses: Array<{ description: string; glCode: string; annualAmount: number; years: string[] }> = [];
-  const oneOffExpenses: Array<{ description: string; glCode: string; amount: number; yearLabel: string; year: string | null }> = [];
-  const tenantImprovements: Array<{ description: string; glCode: string; amount: number; yearLabel: string; year: string | null; expensed: boolean }> = [];
-
-  let section: "2.1" | "2.2" | "2.3" | "2.4" | null = null;
-  for (const line of lines) {
-    if (line.includes("2.1")) {
-      section = "2.1";
-      continue;
-    }
-    if (line.includes("2.2")) {
-      section = "2.2";
-      continue;
-    }
-    if (line.includes("2.3")) {
-      section = "2.3";
-      continue;
-    }
-    if (line.includes("2.4")) {
-      section = "2.4";
-      continue;
-    }
-    if (!/^\d+,/.test(line)) continue;
-
-    const cells = parseCsvLine(line);
-    if (section === "2.1" && cells.length >= 6) {
-      const annualAmount = Number(cells[5].replace(/,/g, ""));
-      if (Number.isFinite(annualAmount) && cells[4]) {
-        ownerComp.push({ name: cells[1], glCode: cells[4], annualAmount });
-      }
-    }
-    if (section === "2.2" && cells.length >= 7) {
-      const annualAmount = Number(cells[4].replace(/,/g, ""));
-      if (Number.isFinite(annualAmount) && cells[3]) {
-        personalExpenses.push({ description: cells[1], glCode: cells[3], annualAmount, years: parseYearTokens(cells[6]) });
-      }
-    }
-    if (section === "2.3" && cells.length >= 6) {
-      const amount = Number(cells[4].replace(/,/g, ""));
-      if (Number.isFinite(amount) && cells[3]) {
-        oneOffExpenses.push({ description: cells[1], glCode: cells[3], amount, yearLabel: cells[5], year: parseFirstYear(cells[5]) });
-      }
-    }
-    if (section === "2.4" && cells.length >= 7) {
-      const amount = Number(cells[4].replace(/,/g, ""));
-      if (Number.isFinite(amount) && cells[3]) {
-        tenantImprovements.push({
-          description: cells[1],
-          glCode: cells[3],
-          amount,
-          yearLabel: cells[5],
-          year: parseFirstYear(cells[5]),
-          expensed: /expensed/i.test(cells[6]),
-        });
-      }
-    }
-  }
-
-  return { ownerComp, personalExpenses, oneOffExpenses, tenantImprovements };
-}
-
-function sumMappedRowValue(
-  rows: Array<Record<string, unknown>>,
-  predicate: (row: Record<string, unknown>) => boolean,
-  months: string[],
-) {
-  return rows
-    .filter(predicate)
-    .reduce((total, row) => {
-      const valuesByMonth = row.valuesByMonth && typeof row.valuesByMonth === "object" ? (row.valuesByMonth as Record<string, unknown>) : {};
-      return total + months.reduce((acc, month) => acc + (typeof valuesByMonth[month] === "number" ? Number(valuesByMonth[month]) : 0), 0);
-    }, 0);
-}
-
-function groupMonthsByYear(months: string[]) {
-  return months.reduce<Record<string, string[]>>((acc, month) => {
-    const year = month.slice(0, 4);
-    acc[year] = [...(acc[year] ?? []), month];
-    return acc;
-  }, {});
-}
-
-function findMappedRow(
-  rows: Array<Record<string, unknown>>,
-  matchers: { accountCode?: string; accountNamePattern?: RegExp }[],
-) {
-  return rows.find((row) =>
-    matchers.some((matcher) => {
-      const codeMatch = matcher.accountCode ? String(row.accountCode ?? "") === matcher.accountCode : false;
-      const nameMatch = matcher.accountNamePattern ? matcher.accountNamePattern.test(String(row.accountName ?? "")) : false;
-      return codeMatch || nameMatch;
-    }),
-  );
-}
-
-function buildDeterministicWs2Recast(args: {
-  analysis: TtmAnalysisView;
-  assumptions: Ws2RecastAssumptions;
-  preparedDocuments: PreparedDocumentInput[];
-}) {
-  const mappedPlRows = Array.isArray(args.analysis.normalizedData?.mappedPlRows)
-    ? (args.analysis.normalizedData?.mappedPlRows as Array<Record<string, unknown>>)
-    : [];
-  const monthKeys = Array.isArray(args.analysis.normalizedData?.monthKeys)
-    ? (args.analysis.normalizedData?.monthKeys as string[])
-    : [];
-  const byYearMonths = groupMonthsByYear(monthKeys);
-  const annualYears = args.analysis.annualModel?.years ?? [];
-  const ttmMonths = monthKeys.slice(-12);
-  const ttmYear = args.analysis.ttmSummary?.endMonth?.slice(0, 4) ?? annualYears.at(-1)?.fiscalYear ?? null;
-  const disclosure = parseDisclosureRows(args.preparedDocuments);
-
-  const ownerWageByYear = (year: string) =>
-    sumMappedRowValue(
-      mappedPlRows,
-      (row) => String(row.accountCode ?? "") === "6020" || /officer wages/i.test(String(row.accountName ?? "")),
-      byYearMonths[year] ?? [],
-    );
-  const ownerHealthByYear = (year: string) =>
-    sumMappedRowValue(
-      mappedPlRows,
-      (row) => String(row.accountCode ?? "") === "6021" || /s.?corp health/i.test(String(row.accountName ?? "")),
-      byYearMonths[year] ?? [],
-    );
-  const ownerWageTtm =
-    sumMappedRowValue(mappedPlRows, (row) => String(row.accountCode ?? "") === "6020" || /officer wages/i.test(String(row.accountName ?? "")), ttmMonths);
-  const ownerHealthTtm =
-    sumMappedRowValue(mappedPlRows, (row) => String(row.accountCode ?? "") === "6021" || /s.?corp health/i.test(String(row.accountName ?? "")), ttmMonths);
-
-  const autoExpenseTtm = sumMappedRowValue(
-    mappedPlRows,
-    (row) => String(row.accountCode ?? "") === "7400" || /auto expense/i.test(String(row.accountName ?? "")),
-    ttmMonths,
-  );
-  const personalCellTtm = sumMappedRowValue(
-    mappedPlRows,
-    (row) => String(row.accountCode ?? "") === "7401" || /personal cell phone/i.test(String(row.accountName ?? "")),
-    ttmMonths,
-  );
-  const donationsTtm = sumMappedRowValue(
-    mappedPlRows,
-    (row) => String(row.accountCode ?? "") === "7300" || /donations/i.test(String(row.accountName ?? "")),
-    ttmMonths,
-  );
-
-  const replacementSalary = args.assumptions.replacementSalary ?? 65000;
-  const ownerNetByYear = (year: string) => {
-    const wages = ownerWageByYear(year);
-    const health = ownerHealthByYear(year);
-    const fica = wages * 0.0765;
-    return wages + health + fica - replacementSalary;
-  };
-  const ownerNetTtm = ownerWageTtm + ownerHealthTtm + ownerWageTtm * 0.0765 - replacementSalary;
-
-  const personalByYear = (year: string) => {
-    const months = byYearMonths[year] ?? [];
-    if (!months.length) return 0;
-    return (
-      sumMappedRowValue(mappedPlRows, (row) => String(row.accountCode ?? "") === "7400" || /auto expense/i.test(String(row.accountName ?? "")), months) +
-      sumMappedRowValue(mappedPlRows, (row) => String(row.accountCode ?? "") === "7401" || /personal cell phone/i.test(String(row.accountName ?? "")), months) +
-      sumMappedRowValue(mappedPlRows, (row) => String(row.accountCode ?? "") === "7300" || /donations/i.test(String(row.accountName ?? "")), months)
-    );
-  };
-  const personalTtm = autoExpenseTtm + personalCellTtm + donationsTtm;
-
-  const oneOffByYear = (year: string) =>
-    disclosure.oneOffExpenses.reduce((total, item) => total + (item.year === year ? item.amount : 0), 0);
-  const tiByYear = (year: string) =>
-    disclosure.tenantImprovements.reduce((total, item) => total + (item.expensed && item.year === year ? item.amount : 0), 0);
-  const oneOffTtm = ttmYear ? oneOffByYear(ttmYear) : 0;
-  const tiTtm = ttmYear ? tiByYear(ttmYear) : 0;
-
-  const annualNormalized = annualYears.map((year) => {
-    const normalizedEbitda =
-      year.ebitdaPreRecast +
-      ownerNetByYear(year.fiscalYear) +
-      personalByYear(year.fiscalYear) +
-      oneOffByYear(year.fiscalYear) +
-      tiByYear(year.fiscalYear);
-    return {
-      fiscalYear: year.fiscalYear,
-      normalizedEbitda,
-      normalizedMargin: year.totalRevenue ? (normalizedEbitda / year.totalRevenue) * 100 : null,
-    };
-  });
-
-  const startingTtm = args.analysis.ttmSummary?.ebitdaPreRecast ?? 0;
-  const totalAddBackTtm = ownerNetTtm + personalTtm + oneOffTtm + tiTtm;
-  const normalizedEbitda = startingTtm + totalAddBackTtm;
-  const valuationLow = normalizedEbitda * Number(args.assumptions.multipleLow ?? 0);
-  const valuationMid = normalizedEbitda * Number(args.assumptions.multipleMid ?? 0);
-  const valuationHigh = normalizedEbitda * Number(args.assumptions.multipleHigh ?? 0);
-  const ttmRevenue = args.analysis.ttmSummary?.totalRevenue ?? 0;
-
-  const flags: Array<{ title: string; description: string; severity: "HIGH" | "MEDIUM" | "LOW" | "INFO"; payload: Record<string, unknown> }> = [];
-
-  const phoneRow = findMappedRow(mappedPlRows, [{ accountCode: "7401" }, { accountNamePattern: /personal cell phone/i }]);
-  const phoneValues = phoneRow?.valuesByMonth && typeof phoneRow.valuesByMonth === "object" ? Object.values(phoneRow.valuesByMonth as Record<string, unknown>).filter((v): v is number => typeof v === "number") : [];
-  if (phoneValues.length >= 12 && phoneValues.every((value) => Math.abs(value - phoneValues[0]) < 0.01)) {
-    flags.push({
-      title: "TEST 1 (Recurrence): Cell phone shows exact $280/month - SUSPICIOUS-RECURRING but reasonable for fixed service",
-      description: "Cell phone expense is a fixed identical monthly charge. Craig should confirm this is truly personal and not a continuing business-required expense.",
-      severity: "MEDIUM",
-      payload: { source: "CONTROL_SCAN", dollarImpact: personalTtm },
-    });
-  }
-
-  const donationRow = findMappedRow(mappedPlRows, [{ accountCode: "7300" }, { accountNamePattern: /donations/i }]);
-  const donationValues = donationRow?.valuesByMonth && typeof donationRow.valuesByMonth === "object"
-    ? ttmMonths.map((month) => {
-        const raw = (donationRow.valuesByMonth as Record<string, unknown>)[month];
-        return typeof raw === "number" ? raw : 0;
-      })
-    : [];
-  const donationNonZero = donationValues.filter((value) => Math.abs(value) > 0.01);
-  if (
-    donationValues.length >= 12 &&
-    donationNonZero.length >= 4 &&
-    donationNonZero.every((value) => Math.abs(value - donationNonZero[0]) < 0.01) &&
-    Math.abs(donationNonZero[0] - 250) < 0.01
-  ) {
-    flags.push({
-      title: "Donations show an exact quarterly round-number pattern",
-      description: "Donations post as the same $250 amount each quarter. This pattern suggests an owner estimate or standing personal contribution rather than a naturally varying business expense. Craig should confirm the add-back basis.",
-      severity: "MEDIUM",
-      payload: { source: "CONTROL_PATTERN", glCode: "7300", dollarImpact: donationsTtm },
-    });
-  }
-
-  const duplicateOneOffTiGlCodes = Array.from(
-    new Set(
-      disclosure.oneOffExpenses
-        .map((item) => item.glCode)
-        .filter((code) => disclosure.tenantImprovements.some((ti) => ti.glCode === code)),
-    ),
-  );
-  for (const glCode of duplicateOneOffTiGlCodes) {
-    const oneOffDescriptions = disclosure.oneOffExpenses.filter((item) => item.glCode === glCode).map((item) => item.description);
-    const tiDescriptions = disclosure.tenantImprovements.filter((item) => item.glCode === glCode).map((item) => item.description);
-    flags.push({
-      title: `GL ${glCode} is used in both one-off and TI add-back categories`,
-      description: `GL ${glCode} supports both one-off expense item(s) (${oneOffDescriptions.join("; ")}) and tenant improvement item(s) (${tiDescriptions.join("; ")}). Craig should confirm these are distinct events and not the same spend claimed twice under different categories.`,
-      severity: "HIGH",
-      payload: { source: "CONTROL_GL_OVERLAP", glCode, oneOffDescriptions, tiDescriptions },
-    });
-  }
-
-  const disclosedAutoExpense = disclosure.personalExpenses
-    .filter((item) => item.glCode === "7400" && (!ttmYear || item.years.includes(ttmYear)))
-    .reduce((total, item) => total + item.annualAmount, 0);
-  if (disclosedAutoExpense > 0 && Math.abs(disclosedAutoExpense - autoExpenseTtm) >= 1) {
-    flags.push({
-      title: "Auto expense disclosure does not match the actual TTM P&L total",
-      description: `The seller disclosure claims $${disclosedAutoExpense.toLocaleString()} for auto expense, but the actual TTM P&L total for GL 7400 is $${Math.round(autoExpenseTtm).toLocaleString()}. Craig should verify the add-back uses the actual booked amount rather than the rounded disclosed estimate.`,
-      severity: "MEDIUM",
-      payload: {
-        source: "CONTROL_DISCLOSURE_MISMATCH",
-        glCode: "7400",
-        disclosedAmount: disclosedAutoExpense,
-        actualTtmAmount: Math.round(autoExpenseTtm),
-        variance: Math.round(disclosedAutoExpense - autoExpenseTtm),
-      },
-    });
-  }
-
-  for (const item of disclosure.oneOffExpenses.filter((entry) => entry.year && ttmYear && entry.year !== ttmYear)) {
-    flags.push({
-      title: "One-Off Expenses item appears outside the TTM period",
-      description: `${item.description} is tagged to ${item.yearLabel}, which pre-dates the TTM window starting ${args.analysis.ttmSummary?.startMonth}. Craig should verify it is not being added back to TTM EBITDA unless it is actually present in the TTM period.`,
-      severity: "HIGH",
-      payload: { source: "CONTROL_OUT_OF_PERIOD", description: item.description, sourcePeriodLabel: item.yearLabel, dollarImpact: item.amount },
-    });
-  }
-  for (const item of disclosure.tenantImprovements.filter((entry) => entry.expensed && entry.year && ttmYear && entry.year !== ttmYear)) {
-    flags.push({
-      title: "TI Add-Backs item appears outside the TTM period",
-      description: `${item.description} is tagged to ${item.yearLabel}, which pre-dates the TTM window starting ${args.analysis.ttmSummary?.startMonth}. Craig should verify it is not being added back to TTM EBITDA unless it is actually present in the TTM period.`,
-      severity: "HIGH",
-      payload: { source: "CONTROL_OUT_OF_PERIOD", description: item.description, sourcePeriodLabel: item.yearLabel, dollarImpact: item.amount },
-    });
-  }
-
-  const addBackPct = startingTtm !== 0 ? (totalAddBackTtm / Math.abs(startingTtm)) * 100 : null;
-  if (addBackPct !== null && addBackPct > 30) {
-    flags.push({
-      title: `Total add-backs are ${addBackPct.toFixed(1)}% of pre-recast EBITDA`,
-      description: `Total adjustments of $${totalAddBackTtm.toLocaleString()} represent ${addBackPct.toFixed(1)}% of the pre-recast EBITDA ($${startingTtm.toLocaleString()}). This exceeds the 30% threshold. Craig must verify carefully — unusually large add-backs reduce buyer confidence.`,
-      severity: "HIGH",
-      payload: { source: "ADDBACK_THRESHOLD", addBackPct, totalAddBack: totalAddBackTtm, preRecastEbitda: startingTtm, dollarImpact: totalAddBackTtm },
-    });
-  }
-
-  const ttmStart = args.analysis.ttmSummary?.startMonth ?? ttmMonths[0] ?? "n/a";
-  const ttmEnd = args.analysis.ttmSummary?.endMonth ?? ttmMonths.at(-1) ?? "n/a";
-  const comparisonRevenue = annualYears.at(-1)?.totalRevenue ?? ttmRevenue;
-  const trendLabel =
-    ttmRevenue > comparisonRevenue
-      ? "GROWING REVENUE"
-      : ttmRevenue < comparisonRevenue
-        ? "DECLINING REVENUE"
-        : "FLAT REVENUE";
-
-  const reportMarkdown = [
-    "# EBITDA RECAST REPORT",
-    "",
-    "## STARTING POINT",
-    "",
-    `Starting TTM 4-Wall EBITDA (Pre-Recast): $${startingTtm.toLocaleString()}`,
-    "",
-    "3-year annual pre-recast EBITDA for context:",
-    ...annualYears.map((year, index) => `- FY${index + 1} (${year.fiscalYear}): ${year.ebitdaPreRecast < 0 ? `($${Math.abs(year.ebitdaPreRecast).toLocaleString()})` : `$${year.ebitdaPreRecast.toLocaleString()}`}`),
-    "",
-    "## CATEGORY 1: OWNER COMPENSATION",
-    "",
-    `TTM owner wages: $${ownerWageTtm.toLocaleString()}`,
-    `TTM owner health insurance: $${ownerHealthTtm.toLocaleString()}`,
-    `Employer FICA on owner wages (7.65%): $${Math.round(ownerWageTtm * 0.0765).toLocaleString()}`,
-    `Replacement salary deduction: ($${replacementSalary.toLocaleString()})`,
-    `Net Owner Compensation Add-Back (TTM): $${Math.round(ownerNetTtm).toLocaleString()}`,
-    "",
-    "## CATEGORY 2: PERSONAL EXPENSES",
-    "",
-    `Included in TTM: $${Math.round(personalTtm).toLocaleString()}`,
-    `Auto Expense (GL 7400 actual TTM): $${Math.round(autoExpenseTtm).toLocaleString()}`,
-    `Personal Cell Phone (GL 7401 actual TTM): $${Math.round(personalCellTtm).toLocaleString()}`,
-    `Donations (GL 7300 actual TTM): $${Math.round(donationsTtm).toLocaleString()}`,
-    "",
-    "## CATEGORY 3: ONE-OFF NON-RECURRING EXPENSES",
-    "",
-    oneOffTtm ? `Included in TTM: $${oneOffTtm.toLocaleString()}` : "No one-off items fall inside the TTM period. Out-of-period one-off items are excluded from the TTM schedule and only affect their original fiscal years.",
-    "",
-    "## CATEGORY 4: TENANT IMPROVEMENT ADD-BACKS",
-    "",
-    tiTtm ? `Included in TTM: $${tiTtm.toLocaleString()}` : "No tenant improvement add-backs fall inside the TTM period. Out-of-period TI items are excluded from the TTM schedule and only affect their original fiscal years.",
-    "",
-    "## CATEGORY 5: FAIR MARKET RENT NORMALIZATION",
-    "",
-    "Not Applicable — no related-party rent adjustment required.",
-    "",
-    "## EBITDA RECAST SCHEDULE",
-    "",
-    `EBITDA RECAST SCHEDULE — TTM ${ttmStart} to ${ttmEnd}`,
-    "",
-    "| # | Category | Item Description | GL Reference | TTM Amount | Status |",
-    "|---|---|---|---|---|---|",
-    `| — | TTM 4-Wall EBITDA (Pre-Recast) | Starting point from WS2-1 | — | $${startingTtm.toLocaleString()} | — |`,
-    `| 1a | Owner Compensation | Gross owner compensation in books | 6020 / 6021 | $${(ownerWageTtm + ownerHealthTtm).toLocaleString()} | VERIFIED ✓ |`,
-    `| 1b | Owner Compensation | Employer FICA on owner wages | 6020 | $${Math.round(ownerWageTtm * 0.0765).toLocaleString()} | CALCULATED |`,
-    `| 1c | Owner Compensation | Replacement Manager Salary (deduction) | — | -$${replacementSalary.toLocaleString()} | Craig-confirmed |`,
-    `| 2a | Personal Expenses | Actual TTM GL totals for disclosed personal expenses | 7400 / 7401 / 7300 | $${Math.round(personalTtm).toLocaleString()} | VERIFIED ✓ |`,
-    `| 3a | One-Off Expenses | Outside-TTM one-off items excluded from TTM schedule | 6502 / 6801 | $${oneOffTtm.toLocaleString()} | ${oneOffTtm ? "VERIFIED ✓" : "EXCLUDED — OUTSIDE TTM"} |`,
-    `| 4a | TI Add-Backs | Outside-TTM TI items excluded from TTM schedule | 6502 | $${tiTtm.toLocaleString()} | ${tiTtm ? "VERIFIED-EXPENSED ✓" : "EXCLUDED — OUTSIDE TTM"} |`,
-    `| 5a | FMR Rent Adjustment | Not applicable - unrelated landlord | — | $0 | N/A |`,
-    `| — | **TOTAL ADD-BACKS** | | | **$${Math.round(totalAddBackTtm).toLocaleString()}** | |`,
-    `| — | **NORMALIZED / RECAST EBITDA (TTM)** | | | **$${Math.round(normalizedEbitda).toLocaleString()}** | |`,
-    `| — | **NORMALIZED EBITDA MARGIN (TTM)** | | | **${ttmRevenue ? ((normalizedEbitda / ttmRevenue) * 100).toFixed(1) : "0.0"}%** | |`,
-    "",
-    "## 3-YEAR NORMALIZED EBITDA SUMMARY",
-    "",
-    "| Period | Normalized EBITDA | Normalized Margin |",
-    "|--------|-------------------|-------------------|",
-    ...annualNormalized.map((year, index) => `| FY${index + 1} (${year.fiscalYear}) | $${Math.round(year.normalizedEbitda).toLocaleString()} | ${year.normalizedMargin?.toFixed(1) ?? "n/a"}% |`),
-    `| TTM (${ttmYear ?? "Current"}) | $${Math.round(normalizedEbitda).toLocaleString()} | ${ttmRevenue ? ((normalizedEbitda / ttmRevenue) * 100).toFixed(1) : "0.0"}% |`,
-    "",
-    "## FLAG LIST FOR CRAIG REVIEW",
-    "",
-    ...(flags.length ? flags.map((flag) => `- ${flag.description}`) : ["- No items require Craig's review."]),
-    "",
-    "## PRELIMINARY VALUATION RANGE",
-    "",
-    `- Low: $${Math.round(normalizedEbitda).toLocaleString()} × ${args.assumptions.multipleLow}x = **$${Math.round(valuationLow).toLocaleString()}**`,
-    `- Mid: $${Math.round(normalizedEbitda).toLocaleString()} × ${args.assumptions.multipleMid}x = **$${Math.round(valuationMid).toLocaleString()}**`,
-    `- High: $${Math.round(normalizedEbitda).toLocaleString()} × ${args.assumptions.multipleHigh}x = **$${Math.round(valuationHigh).toLocaleString()}**`,
-    "",
-    `Revenue Trend Adjustment Flag: **${trendLabel}**`,
-    "",
-    "## SUMMARY FOR CRAIG",
-    "",
-    `Normalized TTM EBITDA is $${Math.round(normalizedEbitda).toLocaleString()} with total TTM add-backs of $${Math.round(totalAddBackTtm).toLocaleString()}. Out-of-period one-off and TI items are excluded from the TTM schedule. ${flags.length} item(s) require Craig review before approval.`,
-    "",
-  ].join("\n");
-
-  return {
-      reportMarkdown,
-      metrics: {
-        startingEbitda: startingTtm,
-        normalizedEbitda: Math.round(normalizedEbitda),
-        valuationLow: Math.round(valuationLow),
-      valuationMid: Math.round(valuationMid),
-      valuationHigh: Math.round(valuationHigh),
-    },
-    flags,
-  };
-}
-
 async function getLatestApprovedRecast(analysisId: string) {
   const record = await (prisma as any).ws2RecastAnalysis.findFirst({
     where: {
@@ -1360,16 +904,9 @@ export async function runWs2RecastAnalysis(args: {
         preparedDocuments: args.preparedDocuments,
       }),
     );
-    const deterministic = buildDeterministicWs2Recast({
-      analysis,
-      assumptions: normalizedAssumptions,
-      preparedDocuments: args.preparedDocuments,
-    });
-    const reportMarkdown = deterministic.reportMarkdown;
-    const metrics = deterministic.metrics;
-    const flagPayloads = dedupeWs2RecastFlagPayloads([
-      ...deterministic.flags,
-    ]);
+    const reportMarkdown = rawReportMarkdown;
+    const metrics = extractWs2RecastMetrics(reportMarkdown);
+    const flagPayloads = extractWs2RecastFlagPayloads(reportMarkdown);
 
     // V3 Section 10: Default salary flag
     if (usedDefaultSalary) {
@@ -1416,6 +953,18 @@ export async function runWs2RecastAnalysis(args: {
       }
     });
 
+    await (prisma as any).agentDispatchTask.updateMany({
+      where: {
+        analysisId: args.analysisId,
+        agentId: "ws2_5_labor_v1",
+        status: "BLOCKED_HITL",
+      },
+      data: {
+        status: "RELEASED",
+        releasedAt: new Date(),
+      },
+    });
+
     const updated = await getTtmAnalysis(args.analysisId);
     if (!updated) {
       throw new TtmOrchestratorError("WS2-1 analysis not found after WS2-2 run.", 404);
@@ -1430,7 +979,6 @@ export async function runWs2RecastAnalysis(args: {
       valuationHigh: metrics.valuationHigh,
       flagCount: flagPayloads.length,
       flagTitles: flagPayloads.map((flag) => flag.title),
-      rawDraftSuppressed: Boolean(rawReportMarkdown),
     });
     return updated;
   } catch (error) {
@@ -1613,7 +1161,7 @@ export async function approveWs2RecastAnalysis(args: { recastAnalysisId: string;
     (prisma as any).agentDispatchTask.updateMany({
       where: {
         analysisId: frontendAnalysis.id,
-        agentId: { in: ["ws2_5_labor_v1", "ws2_8_seller_net_proceeds_v1"] },
+        agentId: { in: ["ws2_8_seller_net_proceeds_v1"] },
       },
       data: {
         status: "RELEASED",
@@ -1661,9 +1209,11 @@ export async function runWs2DerivedAgent(args: {
     throw new TtmOrchestratorError(`${args.agentId} has not been released by the required HITL gate yet.`, 400);
   }
 
-  const recast = await getLatestApprovedRecast(args.analysisId);
+  const approvedRecast = await getLatestApprovedRecast(args.analysisId);
+  const latestRecastRecord = analysis.recastAnalyses?.find((item) => item.status !== "FAILED") ?? null;
+  const recast = args.agentId === "ws2_5_labor_v1" ? latestRecastRecord : approvedRecast;
   if (args.agentId === "ws2_5_labor_v1" && !recast) {
-    throw new TtmOrchestratorError("WS2-5 requires an approved WS2-2 recast before it can run.", 400);
+    throw new TtmOrchestratorError("WS2-5 requires a completed WS2-2 recast output before it can run.", 400);
   }
 
   const preparedMap = buildPreparedDocumentMap(args.preparedDocuments ?? []);
