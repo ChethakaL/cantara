@@ -51,6 +51,7 @@ model TtmAnalysis {
   workingCapital  Json?
   dataQualityReport Json?
   summary         Json?
+  reportMarkdown  String?           @db.Text
   errorMessage    String?           @db.Text
   approvedAt      DateTime?
   approvedByName  String?
@@ -59,6 +60,8 @@ model TtmAnalysis {
   client          ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
   flags           TtmFlag[]
   dispatchTasks   AgentDispatchTask[]
+  recastAnalyses  Ws2RecastAnalysis[]
+  derivedReports  Ws2DerivedReport[]
 
   @@unique([clientId, version])
   @@index([clientId, createdAt])
@@ -102,6 +105,79 @@ model AgentDispatchTask {
 
   @@unique([analysisId, agentId])
   @@index([clientId, status])
+}
+
+model Ws2RecastAnalysis {
+  id              String                  @id @default(cuid())
+  clientId        String
+  ttmAnalysisId   String
+  version         Int
+  status          TtmRunStatus            @default(RUNNING)
+  hitlStatus      TtmHitlStatus           @default(PENDING_REVIEW)
+  model           String
+  temperature     Float
+  maxTokens       Int
+  assumptions     Json
+  reportMarkdown  String?                 @db.Text
+  parsedReport    Json?
+  workbookKey     String?
+  workbookUrl     String?
+  normalizedEbitda Float?
+  valuationLow    Float?
+  valuationMid    Float?
+  valuationHigh   Float?
+  errorMessage    String?                 @db.Text
+  approvedAt      DateTime?
+  approvedByName  String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  client          ClientProfile           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  ttmAnalysis     TtmAnalysis             @relation(fields: [ttmAnalysisId], references: [id], onDelete: Cascade)
+  flags           Ws2RecastFlag[]
+  derivedReports  Ws2DerivedReport[]
+
+  @@unique([ttmAnalysisId, version])
+  @@index([clientId, createdAt])
+}
+
+model Ws2RecastFlag {
+  id               String                  @id @default(cuid())
+  recastAnalysisId String
+  severity         TtmFlagSeverity
+  title            String
+  description      String?                 @db.Text
+  payload          Json
+  resolutionStatus TtmFlagResolutionStatus @default(OPEN)
+  resolutionAction TtmFlagResolutionAction?
+  resolutionNotes  String?                 @db.Text
+  overrideAmount   Float?
+  resolvedAt       DateTime?
+  resolvedByName   String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  recastAnalysis   Ws2RecastAnalysis       @relation(fields: [recastAnalysisId], references: [id], onDelete: Cascade)
+
+  @@index([recastAnalysisId, resolutionStatus])
+}
+
+model Ws2DerivedReport {
+  id               String                 @id @default(cuid())
+  clientId         String
+  ttmAnalysisId    String
+  recastAnalysisId String?
+  agentId          Ws2DerivedAgentId
+  status           Ws2DerivedReportStatus @default(RUNNING)
+  reportMarkdown   String?                @db.Text
+  parsedReport     Json?
+  errorMessage     String?                @db.Text
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  client           ClientProfile          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  ttmAnalysis      TtmAnalysis            @relation(fields: [ttmAnalysisId], references: [id], onDelete: Cascade)
+  recastAnalysis   Ws2RecastAnalysis?     @relation(fields: [recastAnalysisId], references: [id], onDelete: Cascade)
+
+  @@unique([ttmAnalysisId, agentId])
+  @@index([clientId, createdAt])
 }
 
 model ClientDocument {
@@ -188,6 +264,8 @@ model ClientProfile {
   notes               String?           @db.Text
   sectionSubmissions  Json?
   valuationDocUploaded Boolean           @default(false)
+  approvedNormalizedEbitda Float?
+  approvedNormalizedEbitdaAt DateTime?
   provisionedAt       DateTime?
   lastLogin           DateTime?
   createdAt           DateTime          @default(now())
@@ -207,6 +285,8 @@ model ClientProfile {
   AdditionalRequirements AdditionalRequirement[]
   TtmAnalyses         TtmAnalysis[]
   AgentDispatchTasks  AgentDispatchTask[]
+  Ws2RecastAnalyses   Ws2RecastAnalysis[]
+  Ws2DerivedReports   Ws2DerivedReport[]
 }
 
 model Branch {
@@ -393,4 +473,16 @@ enum AgentDispatchStatus {
   BLOCKED_HITL
   READY
   RELEASED
+}
+
+enum Ws2DerivedAgentId {
+  ws2_3_rev_vertical_v1
+  ws2_4_benchmark_v1
+  ws2_5_labor_v1
+}
+
+enum Ws2DerivedReportStatus {
+  RUNNING
+  COMPLETE
+  FAILED
 }

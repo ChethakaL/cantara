@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import { extractAccountantStatementsFromPdf } from "@/lib/ttm-agent/claude";
-import { ParsedAccountantStatements } from "@/lib/ttm-agent/types";
+import { ParsedAccountantStatements, PreparedDocumentInput } from "@/lib/ttm-agent/types";
 import { parseNumber, parseYearLabel } from "@/lib/ttm-agent/parsers/excel";
 
 type SheetRows = Array<Array<string | number | Date | null>>;
@@ -39,6 +39,19 @@ function sheetToRows(sheet: XLSX.WorkSheet) {
     defval: null,
     blankrows: false,
   }) as SheetRows;
+}
+
+function csvTextToRows(text: string) {
+  const workbook = XLSX.read(text, {
+    type: "string",
+    cellDates: true,
+    raw: false,
+  });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) {
+    return [] as SheetRows;
+  }
+  return sheetToRows(workbook.Sheets[firstSheetName]);
 }
 
 function findYearHeader(rows: SheetRows) {
@@ -151,6 +164,74 @@ function parseFromWorkbook(buffer: Buffer): ParsedAccountantStatements {
   };
 }
 
+function parseFromPreparedDocument(preparedDocument: PreparedDocumentInput): ParsedAccountantStatements {
+  const yearlyMetrics = new Map<string, ParsedAccountantStatements["years"][number]>();
+  const notes: string[] = [];
+  let matchedSheetCount = 0;
+
+  for (const block of preparedDocument.textBlocks ?? []) {
+    const rows = csvTextToRows(block.text);
+
+    let header;
+    try {
+      header = findYearHeader(rows);
+    } catch {
+      continue;
+    }
+
+    matchedSheetCount += 1;
+    notes.push(`Detected fiscal year columns in accountant sheet "${block.sheetName}" at row ${header.rowIndex + 1}.`);
+
+    const firstYearColumn = Math.min(...header.yearColumns.map((column) => column.columnIndex));
+    const accountColumnIndex = Math.max(0, firstYearColumn - 1);
+
+    for (let rowIndex = header.rowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+      const row = rows[rowIndex] ?? [];
+      const lineName = String(row[accountColumnIndex] ?? "").trim();
+      const normalizedLine = normalizeText(lineName);
+      if (!normalizedLine) continue;
+
+      const metricScores = (Object.keys(TARGET_LINE_MATCHERS) as Array<Exclude<MetricKey, "fiscalYear">>)
+        .map((metric) => ({ metric, score: scoreMetric(normalizedLine, metric) }))
+        .sort((a, b) => b.score - a.score);
+
+      if (!metricScores[0] || metricScores[0].score < 0.6) continue;
+
+      const metric = metricScores[0].metric;
+      for (const column of header.yearColumns) {
+        const rawValue = parseNumber(row[column.columnIndex]);
+        if (!Number.isFinite(rawValue)) continue;
+
+        const existing = yearlyMetrics.get(column.fiscalYear) ?? {
+          fiscalYear: column.fiscalYear,
+          revenue: null,
+          cogs: null,
+          grossProfit: null,
+          opEx: null,
+          netIncome: null,
+        };
+
+        if (existing[metric] === null || metricScores[0].score > 0.9) {
+          existing[metric] = rawValue;
+          yearlyMetrics.set(column.fiscalYear, existing);
+        }
+      }
+    }
+  }
+
+  if (!matchedSheetCount) {
+    throw new Error("Could not parse accountant statement prepared text blocks.");
+  }
+
+  const years = Array.from(yearlyMetrics.values()).sort((a, b) => a.fiscalYear.localeCompare(b.fiscalYear));
+  return {
+    sourceType: "xlsx",
+    confidence: "HIGH",
+    years,
+    notes,
+  };
+}
+
 export async function parseAccountantStatementsDocument(args: {
   fileName: string;
   mimeType: string;
@@ -172,4 +253,16 @@ export async function parseAccountantStatementsDocument(args: {
   }
 
   throw new Error(`Unsupported accountant statement format for ${args.fileName}.`);
+}
+
+export async function parseAccountantStatementsPreparedDocument(preparedDocument: PreparedDocumentInput) {
+  if (preparedDocument.textBlocks?.length) {
+    return parseFromPreparedDocument(preparedDocument);
+  }
+
+  if (preparedDocument.base64 && preparedDocument.mimeType.includes("pdf")) {
+    return extractAccountantStatementsFromPdf(preparedDocument.fileName, preparedDocument.base64);
+  }
+
+  throw new Error(`Unsupported accountant statement format for ${preparedDocument.fileName}.`);
 }

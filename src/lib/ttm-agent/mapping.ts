@@ -55,14 +55,8 @@ function isCalculatedSummaryRow(row: NormalizedLedgerRow) {
   );
 }
 
-function isExcludedBalanceSheetRow(row: NormalizedLedgerRow) {
-  const normalized = normalizeText(`${row.accountCode ?? ""} ${row.accountName}`);
-  return /(cash|checking|petty cash|savings account|money market)/.test(normalized);
-}
-
 function shouldExcludeFromMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs") {
   if (isCalculatedSummaryRow(row)) return true;
-  if (statementKind === "bs" && isExcludedBalanceSheetRow(row)) return true;
   return false;
 }
 

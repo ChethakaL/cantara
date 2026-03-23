@@ -2,7 +2,7 @@ import { ParsedArAging, SectionReportItem, WorkingCapitalSummary } from "@/lib/t
 import { getCategoryLabel } from "@/lib/ttm-agent/taxonomy";
 import { MappedLedgerRow } from "@/lib/ttm-agent/types";
 
-const WC_ASSET_CODES = ["WC-AR", "WC-INV", "WC-PREPAID"] as const;
+const WC_ASSET_CODES = ["WC-CASH", "WC-AR", "WC-INV", "WC-PREPAID"] as const;
 const WC_LIABILITY_CODES = ["WC-AP", "WC-ACCR", "WC-DREV"] as const;
 
 function safeNumber(value: number) {

@@ -5,9 +5,27 @@ export const TTM_REQUIRED_DOCUMENT_IDS = [
   "ar_aging_detail",
 ] as const;
 
+export const WS2_RECAST_REQUIRED_DOCUMENT_IDS = [
+  "addback_disclosure",
+] as const;
+
+/** @deprecated V2 used separate doc IDs — kept for migration compatibility */
+export const WS2_RECAST_LEGACY_DOCUMENT_IDS = [
+  "shareholder_remuneration_36m",
+  "personal_expenses_36m",
+  "non_recurring_expenses_36m",
+  "tenant_improvements_36m",
+] as const;
+
+export const WS2_RECAST_OPTIONAL_DOCUMENT_IDS = ["leases", "quickbooks_api", "owner_gm_assessment"] as const;
+
 export type TtmRequiredDocumentId = (typeof TTM_REQUIRED_DOCUMENT_IDS)[number];
+export type Ws2RecastRequiredDocumentId = (typeof WS2_RECAST_REQUIRED_DOCUMENT_IDS)[number];
+export type Ws2RecastLegacyDocumentId = (typeof WS2_RECAST_LEGACY_DOCUMENT_IDS)[number];
+export type Ws2RecastOptionalDocumentId = (typeof WS2_RECAST_OPTIONAL_DOCUMENT_IDS)[number];
 export type TtmOptionalDocumentId = "quickbooks_api";
 export type TtmDocumentId = TtmRequiredDocumentId | TtmOptionalDocumentId;
+export type Ws2DocumentId = TtmRequiredDocumentId | Ws2RecastRequiredDocumentId | Ws2RecastLegacyDocumentId | Ws2RecastOptionalDocumentId;
 
 export type WorkbookFormat = "qb" | "standalone";
 export type LedgerKind = "pl" | "bs";
@@ -17,9 +35,25 @@ export type FlagResolutionAction = "RESOLVE" | "OVERRIDE" | "ESCALATE_CLIENT";
 export type TtmRunStatus = "RUNNING" | "HITL_PENDING" | "APPROVED" | "FAILED";
 export type TtmHitlStatus = "PENDING_REVIEW" | "IN_REVIEW" | "APPROVED";
 export type AgentDispatchStatus = "BLOCKED_HITL" | "READY" | "RELEASED";
+export type Ws2DerivedAgentId = "ws2_3_rev_vertical_v1" | "ws2_4_benchmark_v1" | "ws2_5_labor_v1";
+export type Ws2DerivedReportStatus = "RUNNING" | "COMPLETE" | "FAILED";
+
+export interface PreparedDocumentTextBlock {
+  sheetName: string;
+  text: string;
+}
+
+export interface PreparedDocumentInput {
+  documentId: Ws2DocumentId;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  textBlocks?: PreparedDocumentTextBlock[];
+  base64?: string;
+}
 
 export interface InputDocumentSnapshot {
-  documentId: TtmRequiredDocumentId;
+  documentId: string;
   fileName: string;
   mimeType: string;
   size: number;
@@ -148,11 +182,6 @@ export interface TtmSummary {
   ebitdaMarginPct: number | null;
 }
 
-export interface AnnualCategoryBreakdown {
-  fiscalYear: string;
-  breakdown: CategoryBreakdown[];
-}
-
 export interface AnnualTrend {
   fromFiscalYear: string;
   toFiscalYear: string;
@@ -269,6 +298,7 @@ export interface TtmAnalysisView {
   workingCapital: WorkingCapitalSummary | null;
   dataQualityReport: DataQualityReport | null;
   summary: TtmAgentSummary | null;
+  reportMarkdown: string | null;
   errorMessage: string | null;
   approvedAt: string | null;
   approvedByName: string | null;
@@ -276,10 +306,80 @@ export interface TtmAnalysisView {
   updatedAt: string;
   flags: TtmFlagView[];
   dispatchTasks: AgentDispatchTaskView[];
+  recastAnalyses?: Ws2RecastView[];
+  derivedReports?: Ws2DerivedReportView[];
+}
+
+export interface Ws2RecastAssumptions {
+  multipleLow: number | null;
+  multipleMid: number | null;
+  multipleHigh: number | null;
+  replacementSalary: number | null;
+  relatedPartyOwnership: boolean;
+  fmrEstimate: number | null;
+  notes?: string | null;
+}
+
+export interface Ws2RecastFlagView {
+  id: string;
+  recastAnalysisId: string;
+  severity: FlagSeverity;
+  title: string;
+  description: string | null;
+  payload: Record<string, unknown>;
+  resolutionStatus: "OPEN" | "ACTIONED";
+  resolutionAction: FlagResolutionAction | null;
+  resolutionNotes: string | null;
+  overrideAmount: number | null;
+  resolvedAt: string | null;
+  resolvedByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Ws2RecastView {
+  id: string;
+  clientId: string;
+  ttmAnalysisId: string;
+  version: number;
+  status: TtmRunStatus;
+  hitlStatus: TtmHitlStatus;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  assumptions: Ws2RecastAssumptions;
+  reportMarkdown: string | null;
+  parsedReport: Record<string, unknown> | null;
+  workbookKey: string | null;
+  workbookUrl: string | null;
+  normalizedEbitda: number | null;
+  valuationLow: number | null;
+  valuationMid: number | null;
+  valuationHigh: number | null;
+  errorMessage: string | null;
+  approvedAt: string | null;
+  approvedByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  flags: Ws2RecastFlagView[];
+}
+
+export interface Ws2DerivedReportView {
+  id: string;
+  clientId: string;
+  ttmAnalysisId: string;
+  recastAnalysisId: string | null;
+  agentId: Ws2DerivedAgentId;
+  status: Ws2DerivedReportStatus;
+  reportMarkdown: string | null;
+  parsedReport: Record<string, unknown> | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface TtmReadinessItem {
-  documentId: TtmRequiredDocumentId;
+  documentId: Ws2DocumentId;
   label: string;
   uploaded: boolean;
   fileName: string | null;

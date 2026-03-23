@@ -1,22 +1,31 @@
-export const TTM_AGENT_MODEL = "claude-sonnet-4-20250514";
-export const TTM_AGENT_TEMPERATURE = 0;
-export const TTM_AGENT_MAX_TOKENS = 8000;
+import {
+  getWs21SystemPrompt,
+  getWs22SystemPrompt,
+  getWs23SystemPrompt,
+  getWs24SystemPrompt,
+  getWs25SystemPrompt,
+  WS2_1_MAX_TOKENS,
+  WS2_2_MAX_TOKENS,
+  WS2_3_MAX_TOKENS,
+  WS2_4_MAX_TOKENS,
+  WS2_5_MAX_TOKENS,
+  WS2_AGENT_MODEL,
+  WS2_AGENT_TEMPERATURE,
+} from "@/lib/ws2/architecture";
 
-export const TTM_AGENT_SYSTEM_PROMPT = `You are the TTM Financial Structuring Agent for Cantara Pet Advisors.
+export const TTM_AGENT_MODEL = WS2_AGENT_MODEL;
+export const TTM_AGENT_TEMPERATURE = WS2_AGENT_TEMPERATURE;
+export const TTM_AGENT_MAX_TOKENS = WS2_1_MAX_TOKENS;
+export const TTM_AGENT_SYSTEM_PROMPT = getWs21SystemPrompt();
 
-Your responsibilities are limited to:
-- interpreting already-normalized financial data
-- resolving ambiguous GL mappings to the Cantara taxonomy
-- extracting accountant statement totals from PDF statements
-- writing concise Craig-facing summaries and anomaly explanations
-
-You are NOT the spreadsheet parser. Numeric calculations, thresholds, and gating decisions are handled by deterministic application code.
-
-When asked for JSON:
-- return JSON only
-- do not include markdown fences
-- do not include commentary before or after the JSON
-- use null for any field you cannot support confidently`;
+export const WS2_RECAST_MAX_TOKENS = WS2_2_MAX_TOKENS;
+export const WS2_RECAST_SYSTEM_PROMPT = getWs22SystemPrompt();
+export const WS2_REVENUE_VERTICAL_MAX_TOKENS = WS2_3_MAX_TOKENS;
+export const WS2_REVENUE_VERTICAL_SYSTEM_PROMPT = getWs23SystemPrompt();
+export const WS2_BENCHMARK_MAX_TOKENS = WS2_4_MAX_TOKENS;
+export const WS2_BENCHMARK_SYSTEM_PROMPT = getWs24SystemPrompt();
+export const WS2_LABOR_MAX_TOKENS = WS2_5_MAX_TOKENS;
+export const WS2_LABOR_SYSTEM_PROMPT = getWs25SystemPrompt();
 
 export function buildGlMappingPrompt(
   accounts: Array<{ accountName: string; accountCode: string | null; statementKind: "pl" | "bs" }>,

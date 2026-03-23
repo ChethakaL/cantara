@@ -2,8 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, Send } from 'lucide-react'
-import { Badge, Button, Card, Textarea } from '@/components/ui'
+import { Badge, Button, Card, Select, Textarea } from '@/components/ui'
+import { logWs2ClientEvent, logWs2Error, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import type { FlagResolutionAction, TtmAnalysisView, TtmFlagView } from '@/lib/ttm-agent/types'
+import { CANTARA_TAXONOMY } from '@/lib/ttm-agent/taxonomy'
 
 function severityColor(severity: TtmFlagView['severity']) {
   if (severity === 'HIGH') return 'red' as const
@@ -29,9 +31,12 @@ function labelize(value: string) {
 
 function getDispatchLabel(agentId: string) {
   const labels: Record<string, string> = {
-    agent_ebitda_recast_v1: 'EBITDA Recast Workstream',
-    agent_seller_net_proceeds_v1: 'Seller Net Proceeds Workstream',
-    agent_3yr_recast_v1: 'Three-Year Recast Workstream',
+    ws2_2_recast_v1: 'WS2-2 EBITDA Recast',
+    ws2_3_rev_vertical_v1: 'WS2-3 Revenue by Vertical',
+    ws2_4_benchmark_v1: 'WS2-4 P&L Expense Benchmark',
+    ws2_5_labor_v1: 'WS2-5 Labor Expense Analysis',
+    ws2_8_seller_net_proceeds_v1: 'WS2-8 Seller Net Proceeds',
+    ws2_10_report_generator_v1: 'WS2-10 Report Generator',
   }
 
   return labels[agentId] ?? labelize(agentId)
@@ -52,6 +57,7 @@ function renderPayloadSummary(section: string, payload: Record<string, unknown>)
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <PayloadMetric label="Source Account" value={String(payload.accountName ?? 'Unknown account')} />
         <PayloadMetric label="Account Code" value={String(payload.accountCode ?? 'Not provided')} />
+        {payload.assignedCantaraCode && <PayloadMetric label="Craig Assignment" value={String(payload.assignedCantaraCode)} />}
         <PayloadMetric label="Mapping Confidence" value={confidencePct === null ? 'n/a' : `${confidencePct}%`} />
         <PayloadMetric label="Candidate Codes" value={candidates.length ? candidates.join(', ') : 'No candidates suggested'} />
         {monthlyRange && (
@@ -213,10 +219,21 @@ export function CraigReviewDashboard({
   onUpdated: (analysis: TtmAnalysisView) => void
 }) {
   const [notesByFlagId, setNotesByFlagId] = useState<Record<string, string>>({})
+  const [assignedCodesByFlagId, setAssignedCodesByFlagId] = useState<Record<string, string>>({})
   const [savingFlagId, setSavingFlagId] = useState<string | null>(null)
   const [approving, setApproving] = useState(false)
   const unresolvedCount = analysis.flags.filter((flag) => flag.resolutionStatus !== 'ACTIONED').length
   const sectionOrder = analysis.dataQualityReport?.sectionOrder ?? []
+  const cantaraOptions = useMemo(
+    () => [
+      { value: '', label: 'Select Cantara code' },
+      ...CANTARA_TAXONOMY.map((entry) => ({
+        value: entry.code,
+        label: `${entry.code} — ${entry.category}`,
+      })),
+    ],
+    [],
+  )
 
   const summaryCards = useMemo(
     () =>
@@ -229,9 +246,54 @@ export function CraigReviewDashboard({
     [analysis.dataQualityReport, sectionOrder],
   )
 
-  const submitFlagAction = async (flagId: string, resolutionAction: FlagResolutionAction) => {
+  const sectionEntries = useMemo(() => {
+    const report = analysis.dataQualityReport
+    if (!report) return {} as Record<string, Array<{ item: (typeof report.sections.A.items)[number]; flag: TtmFlagView | null }>>
+
+    return Object.fromEntries(
+      sectionOrder.map((section) => {
+        const reportSection = report.sections[section]
+        const sectionFlags = analysis.flags.filter((flag) => flag.section === section)
+        const unmatchedFlags = [...sectionFlags]
+        const entries = reportSection.items.map((item) => {
+          const matchIndex = unmatchedFlags.findIndex(
+            (flag) =>
+              flag.title === item.title &&
+              (flag.description ?? '') === item.description &&
+              flag.severity === item.severity,
+          )
+
+          const flag = matchIndex >= 0 ? unmatchedFlags.splice(matchIndex, 1)[0] : null
+          return { item, flag }
+        })
+
+        unmatchedFlags.forEach((flag) => {
+          entries.push({
+            item: {
+              title: flag.title,
+              description: flag.description ?? 'Persisted flag detail available.',
+              severity: flag.severity,
+              payload: flag.payload,
+            },
+            flag,
+          })
+        })
+
+        return [section, entries]
+      }),
+    ) as Record<string, Array<{ item: (typeof report.sections.A.items)[number]; flag: TtmFlagView | null }>>
+  }, [analysis.dataQualityReport, analysis.flags, sectionOrder])
+
+  const submitFlagAction = async (flagId: string, resolutionAction: FlagResolutionAction, payloadPatch?: Record<string, unknown>) => {
     setSavingFlagId(flagId)
     try {
+      logWs2ClientEvent('WS2-1 HITL flag action request', {
+        analysisId: analysis.id,
+        flagId,
+        resolutionAction,
+        resolutionNotes: notesByFlagId[flagId] || '',
+        payloadPatch,
+      })
       const res = await fetch('/api/ttm-agent/hitl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -242,8 +304,10 @@ export function CraigReviewDashboard({
           resolutionAction,
           resolutionNotes: notesByFlagId[flagId] || '',
           actorName,
+          payloadPatch,
         }),
       })
+      await logWs2Response('WS2-1 HITL flag action response', res)
 
       if (!res.ok) {
         const text = await res.text().catch(() => '')
@@ -252,7 +316,11 @@ export function CraigReviewDashboard({
 
       onUpdated(await res.json())
     } catch (error) {
-      console.error(error)
+      logWs2Error('WS2-1 HITL flag action', error, {
+        analysisId: analysis.id,
+        flagId,
+        resolutionAction,
+      })
       alert(error instanceof Error ? error.message : 'Failed to update flag')
     } finally {
       setSavingFlagId(null)
@@ -262,6 +330,10 @@ export function CraigReviewDashboard({
   const approveAnalysis = async () => {
     setApproving(true)
     try {
+      logWs2ClientEvent('WS2-1 approve request', {
+        analysisId: analysis.id,
+        actorName,
+      })
       const res = await fetch('/api/ttm-agent/hitl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -271,6 +343,7 @@ export function CraigReviewDashboard({
           actorName,
         }),
       })
+      await logWs2Response('WS2-1 approve response', res)
 
       if (!res.ok) {
         const text = await res.text().catch(() => '')
@@ -279,7 +352,9 @@ export function CraigReviewDashboard({
 
       onUpdated(await res.json())
     } catch (error) {
-      console.error(error)
+      logWs2Error('WS2-1 approve', error, {
+        analysisId: analysis.id,
+      })
       alert(error instanceof Error ? error.message : 'Failed to approve analysis')
     } finally {
       setApproving(false)
@@ -329,7 +404,10 @@ export function CraigReviewDashboard({
       {sectionOrder.map((section) => {
         const reportSection = analysis.dataQualityReport?.sections[section]
         if (!reportSection) return null
-        const sectionFlags = analysis.flags.filter((f) => f.section === section)
+        const entries = sectionEntries[section] ?? []
+        const openEntries = entries.filter((entry) => entry.flag?.resolutionStatus !== 'ACTIONED')
+        const resolvedEntries = entries.filter((entry) => entry.flag?.resolutionStatus === 'ACTIONED')
+        const visibleEntries = openEntries.length > 0 ? openEntries : entries
 
         return (
           <Card key={section} className="p-5">
@@ -348,13 +426,23 @@ export function CraigReviewDashboard({
             </div>
 
             <div className="mt-4 space-y-4">
-              {reportSection.items.length === 0 ? (
+              {resolvedEntries.length > 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  {resolvedEntries.length} {resolvedEntries.length === 1 ? 'item has' : 'items have'} been actioned in this section.
+                  {openEntries.length > 0 ? ' The next unresolved issue is shown below.' : ' This section is ready.'}
+                </div>
+              )}
+
+              {visibleEntries.length === 0 ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                  {reportSection.status === 'skipped' ? 'This section is present but not active because QuickBooks is not connected.' : 'No open items in this section.'}
+                  {reportSection.status === 'skipped'
+                    ? 'This section is present but not active because QuickBooks is not connected.'
+                    : resolvedEntries.length > 0
+                      ? 'All items in this section have been actioned.'
+                      : 'No open items in this section.'}
                 </div>
               ) : (
-                reportSection.items.map((item, itemIndex) => {
-                  const flag = sectionFlags[itemIndex]
+                visibleEntries.map(({ item, flag }, itemIndex) => {
                   return (
                     <div key={`${section}-${itemIndex}-${item.title}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -393,6 +481,19 @@ export function CraigReviewDashboard({
 
                       {flag && flag.resolutionStatus !== 'ACTIONED' && (
                         <div className="mt-4 space-y-3">
+                          {section === 'A' && (
+                            <Select
+                              label="Assign Cantara Code"
+                              options={cantaraOptions}
+                              value={assignedCodesByFlagId[flag.id] ?? String(flag.payload.assignedCantaraCode ?? '')}
+                              onChange={(event) =>
+                                setAssignedCodesByFlagId((current) => ({
+                                  ...current,
+                                  [flag.id]: event.target.value,
+                                }))
+                              }
+                            />
+                          )}
                           <Textarea
                             rows={2}
                             label="Reviewer notes"
@@ -406,30 +507,57 @@ export function CraigReviewDashboard({
                             placeholder="Add context, override rationale, or client follow-up instructions..."
                           />
                           <div className="flex gap-2 flex-wrap">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={savingFlagId === flag.id}
-                              onClick={() => void submitFlagAction(flag.id, 'RESOLVE')}
-                            >
-                              Resolve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={savingFlagId === flag.id}
-                              onClick={() => void submitFlagAction(flag.id, 'OVERRIDE')}
-                            >
-                              Override
-                            </Button>
-                            <Button
-                              size="sm"
-                              disabled={savingFlagId === flag.id}
-                              onClick={() => void submitFlagAction(flag.id, 'ESCALATE_CLIENT')}
-                            >
-                              <Send className="w-3.5 h-3.5" />
-                              Escalate to Client
-                            </Button>
+                            {section === 'A' ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={savingFlagId === flag.id || !(assignedCodesByFlagId[flag.id] ?? String(flag.payload.assignedCantaraCode ?? ''))}
+                                  onClick={() =>
+                                    void submitFlagAction(flag.id, 'RESOLVE', {
+                                      assignedCantaraCode: assignedCodesByFlagId[flag.id] ?? String(flag.payload.assignedCantaraCode ?? ''),
+                                    })
+                                  }
+                                >
+                                  Assign Cantara Code
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  disabled={savingFlagId === flag.id}
+                                  onClick={() => void submitFlagAction(flag.id, 'ESCALATE_CLIENT')}
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                  Escalate to Client
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={savingFlagId === flag.id}
+                                  onClick={() => void submitFlagAction(flag.id, 'RESOLVE')}
+                                >
+                                  {section === 'B' || section === 'C' ? 'Acknowledge' : 'Resolve'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={savingFlagId === flag.id}
+                                  onClick={() => void submitFlagAction(flag.id, 'OVERRIDE')}
+                                >
+                                  {section === 'B' || section === 'C' ? 'Investigate' : 'Override'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  disabled={savingFlagId === flag.id}
+                                  onClick={() => void submitFlagAction(flag.id, 'ESCALATE_CLIENT')}
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                  Escalate to Client
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </div>
                       )}

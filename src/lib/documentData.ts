@@ -49,6 +49,41 @@ export const VALUATION_DOCS: DocumentDef[] = [
     type: 'required',
     workstreams: ['ws1', 'ws2', 'both', 'ma'],
   },
+  {
+    id: 'addback_disclosure',
+    name: 'File 5 — Seller Add-Back Disclosure',
+    description: 'Consolidated add-back disclosure: owner/officer compensation, personal expenses, non-recurring expenses, and tenant improvements over 36 months with GL cross-references.',
+    type: 'required',
+    workstreams: ['ws2', 'both', 'ma'],
+  },
+  {
+    id: 'shareholder_remuneration_36m',
+    name: 'Shareholder List + Remuneration (36 months)',
+    description: 'Owner/shareholder compensation detail for the last 36 months with GL cross-references. (Legacy — use File 5 if available.)',
+    type: 'conditional',
+    workstreams: ['ws2', 'both', 'ma'],
+  },
+  {
+    id: 'personal_expenses_36m',
+    name: 'Personal Expenses Charged to Business (36 months)',
+    description: 'List of personal expenses run through the business over the last 36 months with GL cross-references. (Legacy — use File 5 if available.)',
+    type: 'conditional',
+    workstreams: ['ws2', 'both', 'ma'],
+  },
+  {
+    id: 'non_recurring_expenses_36m',
+    name: 'Material One-Off Non-Recurring Expenses (36 months)',
+    description: 'List of non-recurring expenses above $5,000 over the last 36 months with GL cross-references. (Legacy — use File 5 if available.)',
+    type: 'conditional',
+    workstreams: ['ws2', 'both', 'ma'],
+  },
+  {
+    id: 'tenant_improvements_36m',
+    name: 'Material Tenant Improvements (36 months)',
+    description: 'List of tenant improvements above $5,000 over the last 36 months with GL cross-references. (Legacy — use File 5 if available.)',
+    type: 'conditional',
+    workstreams: ['ws2', 'both', 'ma'],
+  },
 ]
 
 export const DOCUMENT_CATEGORIES: CategoryDef[] = [

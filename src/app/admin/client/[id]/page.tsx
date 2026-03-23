@@ -21,7 +21,7 @@ const TABS = [
   { key: 'manage', label: 'Client Management', icon: Settings },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'meetings', label: 'Meetings', icon: CalendarDays },
-  // { key: 'ttm', label: 'TTM Analysis', icon: FileSpreadsheet },
+  { key: 'ttm', label: 'WS2 Analysis', icon: FileSpreadsheet },
   { key: 'lease', label: 'Lease Analysis', icon: Landmark },
   { key: 'contract', label: 'Contract Analysis', icon: Briefcase },
   { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },

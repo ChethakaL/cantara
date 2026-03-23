@@ -9,7 +9,14 @@ import {
   StructuredFinancialModel,
   TtmSummary,
 } from "@/lib/ttm-agent/types";
-import { COGS_CODES, getCategoryLabel, OPEX_CODES, REVENUE_CODES, WORKING_CAPITAL_CODES } from "@/lib/ttm-agent/taxonomy";
+import {
+  COGS_CODES,
+  EBITDA_OPERATING_EXPENSE_CODES,
+  getCategoryLabel,
+  OPEX_CODES,
+  REVENUE_CODES,
+  WORKING_CAPITAL_CODES,
+} from "@/lib/ttm-agent/taxonomy";
 import { MappedLedgerRow } from "@/lib/ttm-agent/types";
 
 function sum(values: number[]) {
@@ -181,9 +188,8 @@ function buildStructuredModel(rows: MappedLedgerRow[], monthKeys: string[]): Str
     const revenue = sumRowsForMonths(rows, [month], REVENUE_CODES);
     const cogs = sumRowsForMonths(rows, [month], COGS_CODES);
     const grossProfit = revenue - cogs;
-    const opEx = sumRowsForMonths(rows, [month], OPEX_CODES);
-    const depreciation = sumRowsForMonths(rows, [month], ["OPX-DEPR"]);
-    const ebitdaPreRecast = grossProfit - opEx + depreciation;
+    const opEx = sumRowsForMonths(rows, [month], EBITDA_OPERATING_EXPENSE_CODES);
+    const ebitdaPreRecast = grossProfit - opEx;
 
     return {
       month,
@@ -210,9 +216,8 @@ function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[]): TtmSumma
   const totalRevenue = sumRowsForMonths(rows, ttmMonths, REVENUE_CODES);
   const totalCogs = sumRowsForMonths(rows, ttmMonths, COGS_CODES);
   const grossProfit = totalRevenue - totalCogs;
-  const totalOpEx = sumRowsForMonths(rows, ttmMonths, OPEX_CODES);
-  const depreciation = sumRowsForMonths(rows, ttmMonths, ["OPX-DEPR"]);
-  const ebitdaPreRecast = grossProfit - totalOpEx + depreciation;
+  const totalOpEx = sumRowsForMonths(rows, ttmMonths, EBITDA_OPERATING_EXPENSE_CODES);
+  const ebitdaPreRecast = grossProfit - totalOpEx;
 
   return {
     startMonth: ttmMonths[0],
@@ -236,9 +241,8 @@ function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[]): AnnualM
     const totalRevenue = sumRowsForMonths(rows, months, REVENUE_CODES);
     const totalCogs = sumRowsForMonths(rows, months, COGS_CODES);
     const grossProfit = totalRevenue - totalCogs;
-    const totalOpEx = sumRowsForMonths(rows, months, OPEX_CODES);
-    const depreciation = sumRowsForMonths(rows, months, ["OPX-DEPR"]);
-    const ebitdaPreRecast = grossProfit - totalOpEx + depreciation;
+    const totalOpEx = sumRowsForMonths(rows, months, EBITDA_OPERATING_EXPENSE_CODES);
+    const ebitdaPreRecast = grossProfit - totalOpEx;
     const netIncome: number | null = null;
 
     return {
@@ -342,8 +346,13 @@ function buildMappingSection(
       const sourceCol = toExcelColumnName(source.accountColumnIndex + 1);
       return {
         title: `Mapping request for ${row.accountName}`,
-        severity: row.isMajor ? ("HIGH" as const) : ("MEDIUM" as const),
-        description: `Assign a Cantara code for ${row.accountName}${row.accountCode ? ` (${row.accountCode})` : ""}.`,
+        // V3 Section 10: GL mapping confidence < 60% for a major account → HIGH SEVERITY
+        severity: (row.mappingConfidence < 0.6 && row.isMajor)
+          ? ("HIGH" as const)
+          : row.isMajor ? ("HIGH" as const) : ("MEDIUM" as const),
+        description: (row.mappingConfidence < 0.6 && row.isMajor)
+          ? `HIGH: Confidence ${confidencePct}% for major account ${row.accountName}${row.accountCode ? ` (${row.accountCode})` : ""}. Do not auto-assign — Craig must classify manually.`
+          : `Assign a Cantara code for ${row.accountName}${row.accountCode ? ` (${row.accountCode})` : ""}.`,
         payload: {
           accountName: row.accountName,
           accountCode: row.accountCode,
@@ -476,6 +485,18 @@ export function reconcileFinancials(args: {
     E: [],
   };
 
+  // V3 Section 10: Fewer than 24 months → flag in DQR; label all outputs as "PARTIAL DATA"
+  const isPartialData = monthKeys.length < 24;
+  if (isPartialData) {
+    structuredModel.confidence = "LOW";
+    sections.D.push({
+      title: "PARTIAL DATA: Fewer than 24 months available",
+      severity: "HIGH",
+      description: `Only ${monthKeys.length} months of data are available (minimum 24 required for reliable analysis). All outputs from this analysis are labeled PARTIAL DATA. Proceed with caution.`,
+      payload: { monthCount: monthKeys.length, label: "PARTIAL DATA" },
+    });
+  }
+
   const totalFlags = Object.values(sections).reduce((s, items) => s + items.length, 0);
   console.log(`[TTM] Quality sections: A=${sections.A.length} B=${sections.B.length} C=${sections.C.length} D=${sections.D.length} E=${sections.E.length} (total=${totalFlags})`);
 
@@ -486,6 +507,7 @@ export function reconcileFinancials(args: {
     dataQualitySections: sections,
     normalizedData: {
       monthKeys,
+      partialDataLabel: isPartialData ? "PARTIAL DATA" : null,
       monthlyPl: {
         format: args.monthlyPl.format,
         notes: args.monthlyPl.notes,

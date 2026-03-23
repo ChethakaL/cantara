@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { ParsedArAging, ParsedMonthlyWorkbook, TtmRequiredDocumentId } from "@/lib/ttm-agent/types";
+import { ParsedArAging, ParsedMonthlyWorkbook, PreparedDocumentInput, TtmRequiredDocumentId } from "@/lib/ttm-agent/types";
 
 const MONTH_INDEX: Record<string, number> = {
   jan: 0,
@@ -52,6 +52,12 @@ const AR_BUCKET_ALIASES: Array<{ key: keyof Omit<ParsedArAging["entries"][number
 ];
 
 type WorksheetRows = Array<Array<string | number | Date | null>>;
+type ParsedMonthlySection = {
+  sheetName: string;
+  rows: WorksheetRows;
+  headerRowIndex: number;
+  monthColumns: number[];
+};
 
 function readWorkbook(buffer: Buffer) {
   return XLSX.read(buffer, {
@@ -68,6 +74,19 @@ function sheetToRows(sheet: XLSX.WorkSheet): WorksheetRows {
     defval: null,
     blankrows: false,
   }) as WorksheetRows;
+}
+
+function csvTextToRows(text: string): WorksheetRows {
+  const workbook = XLSX.read(text, {
+    type: "string",
+    cellDates: true,
+    raw: false,
+  });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) {
+    return [];
+  }
+  return sheetToRows(workbook.Sheets[firstSheetName]);
 }
 
 export function parseNumber(value: unknown) {
@@ -113,6 +132,13 @@ export function parseMonthLabel(value: unknown): string | null {
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
 
+  // Do not treat plain numeric strings as dates. In prepared CSV rows these are
+  // usually GL codes or financial amounts, and permissive Date parsing will
+  // misclassify detail rows as month headers.
+  if (/^-?\d+(?:\.\d+)?$/.test(normalized)) {
+    return null;
+  }
+
   const yyyyMm = normalized.match(/^(\d{4})[-/](\d{1,2})$/);
   if (yyyyMm) {
     const year = Number(yyyyMm[1]);
@@ -135,9 +161,12 @@ export function parseMonthLabel(value: unknown): string | null {
     if (month >= 0 && month <= 11) return toYearMonth(year, month);
   }
 
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.valueOf())) {
-    return toYearMonth(parsed.getUTCFullYear(), parsed.getUTCMonth());
+  // Only allow generic Date parsing for strings that visibly look date-like.
+  if (/[a-z]/i.test(normalized) || /[/-]/.test(normalized)) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.valueOf())) {
+      return toYearMonth(parsed.getUTCFullYear(), parsed.getUTCMonth());
+    }
   }
 
   return null;
@@ -281,6 +310,203 @@ function chooseBestMonthlySheet(workbook: XLSX.WorkBook, documentId: TtmRequired
   return best;
 }
 
+function chooseBestMonthlySheetFromPrepared(
+  preparedDocument: PreparedDocumentInput,
+  documentId: TtmRequiredDocumentId,
+) {
+  let best:
+    | {
+        sheetName: string;
+        rows: WorksheetRows;
+        headerRowIndex: number;
+        monthColumns: number[];
+      }
+    | null = null;
+
+  for (const block of preparedDocument.textBlocks ?? []) {
+    const rows = csvTextToRows(block.text);
+    try {
+      const header = pickHeaderRow(rows);
+      const score = header.monthColumns.length * 100 + rows.length;
+      const currentBestScore = best ? best.monthColumns.length * 100 + best.rows.length : -1;
+      const boostedScore =
+        score +
+        (documentId === "monthly_pl_excel" && /(profit|loss|p&l|income)/i.test(block.sheetName) ? 25 : 0) +
+        (documentId === "monthly_bs_excel" && /(balance|sheet|bs)/i.test(block.sheetName) ? 25 : 0);
+
+      if (boostedScore > currentBestScore) {
+        best = { sheetName: block.sheetName, rows, headerRowIndex: header.index, monthColumns: header.monthColumns };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (!best) {
+    throw new Error("Could not find a valid monthly statement sheet in prepared text blocks.");
+  }
+
+  return best;
+}
+
+function extractPreparedMonthlySections(preparedDocument: PreparedDocumentInput) {
+  const sections: ParsedMonthlySection[] = [];
+
+  for (const block of preparedDocument.textBlocks ?? []) {
+    const normalizedText = block.text.replace(/\r\n/g, "\n");
+    const matches = Array.from(
+      normalizedText.matchAll(/=== SHEET:\s*(.+?)\s*===\n([\s\S]*?)(?=\n=== END OF SHEET — NEXT FISCAL YEAR BELOW ===|\n=== SHEET:\s*.+?\s*===\n|$)/g),
+    );
+
+    if (matches.length > 0) {
+      for (const match of matches) {
+        const sheetName = match[1]?.trim() || block.sheetName;
+        const csvText = match[2]?.trim();
+        if (!csvText) continue;
+
+        const rows = csvTextToRows(csvText);
+        const header = pickHeaderRow(rows);
+        sections.push({
+          sheetName,
+          rows,
+          headerRowIndex: header.index,
+          monthColumns: header.monthColumns,
+        });
+      }
+      continue;
+    }
+
+    const rows = csvTextToRows(block.text);
+    const header = pickHeaderRow(rows);
+    sections.push({
+      sheetName: block.sheetName,
+      rows,
+      headerRowIndex: header.index,
+      monthColumns: header.monthColumns,
+    });
+  }
+
+  return sections;
+}
+
+function parsePreparedMonthlySection(section: ParsedMonthlySection) {
+  const headerRow = section.rows[section.headerRowIndex] ?? [];
+  const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, section.monthColumns);
+  const monthKeys = sortMonthKeys(
+    section.monthColumns
+      .map((columnIndex) => parseMonthLabel(headerRow[columnIndex]))
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  const monthIndexMap = new Map<number, string>();
+  section.monthColumns.forEach((columnIndex) => {
+    const monthKey = parseMonthLabel(headerRow[columnIndex]);
+    if (monthKey) monthIndexMap.set(columnIndex, monthKey);
+  });
+
+  const rows = [];
+
+  for (let rowIndex = section.headerRowIndex + 1; rowIndex < section.rows.length; rowIndex += 1) {
+    const row = section.rows[rowIndex] ?? [];
+    const accountName = String(row[accountColumnIndex] ?? "").trim();
+    const accountCode = codeColumnIndex === null ? null : String(row[codeColumnIndex] ?? "").trim() || null;
+
+    const values = Array.from(monthIndexMap.entries()).map(([columnIndex]) => parseNumber(row[columnIndex]));
+    if (shouldSkipLedgerRow(accountName, accountCode, values)) continue;
+
+    const valuesByMonth = Object.fromEntries(
+      Array.from(monthIndexMap.entries()).map(([columnIndex, monthKey]) => [
+        monthKey,
+        Number.isFinite(parseNumber(row[columnIndex])) ? parseNumber(row[columnIndex]) : 0,
+      ]),
+    );
+
+    rows.push({
+      accountName,
+      accountCode,
+      valuesByMonth,
+      total: Object.values(valuesByMonth).reduce((sum, value) => sum + value, 0),
+      sourceSheet: section.sheetName,
+      rowIndex,
+    });
+  }
+
+  return {
+    headerRow,
+    accountColumnIndex,
+    codeColumnIndex,
+    monthKeys,
+    rows,
+  };
+}
+
+function mergePreparedMonthlySections(
+  parsedSections: Array<
+    ReturnType<typeof parsePreparedMonthlySection> & {
+      sheetName: string;
+      headerRowIndex: number;
+    }
+  >,
+  documentId: Extract<TtmRequiredDocumentId, "monthly_pl_excel" | "monthly_bs_excel">,
+): ParsedMonthlyWorkbook {
+  const allMonthKeys = sortMonthKeys(parsedSections.flatMap((section) => section.monthKeys));
+  const mergedRows = new Map<
+    string,
+    {
+      accountName: string;
+      accountCode: string | null;
+      valuesByMonth: Record<string, number>;
+      total: number;
+      sourceSheet: string;
+      rowIndex: number;
+    }
+  >();
+
+  for (const section of parsedSections) {
+    for (const row of section.rows) {
+      const rowKey = `${row.accountCode ?? ""}::${normalizeText(row.accountName)}`;
+      const existing = mergedRows.get(rowKey);
+
+      if (!existing) {
+        mergedRows.set(rowKey, {
+          ...row,
+          valuesByMonth: { ...row.valuesByMonth },
+          sourceSheet: row.sourceSheet,
+        });
+        continue;
+      }
+
+      for (const [monthKey, value] of Object.entries(row.valuesByMonth) as Array<[string, number]>) {
+        existing.valuesByMonth[monthKey] = value;
+      }
+      existing.total = Object.values(existing.valuesByMonth).reduce((sum, value) => sum + value, 0);
+      if (!existing.sourceSheet.includes(row.sourceSheet)) {
+        existing.sourceSheet = `${existing.sourceSheet}, ${row.sourceSheet}`;
+      }
+    }
+  }
+
+  const firstSection = parsedSections[0];
+  const lastSection = parsedSections[parsedSections.length - 1];
+  const formats = parsedSections.map((section) => deriveFormat(section.headerRow, section.codeColumnIndex));
+  const format = formats.includes("qb") ? "qb" as const : "standalone" as const;
+
+  return {
+    documentId,
+    format,
+    headerRowIndex: firstSection?.headerRowIndex ?? 0,
+    monthKeys: allMonthKeys,
+    accountColumnIndex: firstSection?.accountColumnIndex ?? 0,
+    codeColumnIndex: firstSection?.codeColumnIndex ?? null,
+    rows: Array.from(mergedRows.values()),
+    notes: [
+      `Parsed ${parsedSections.length} fiscal-year sections from prepared input.`,
+      `Month coverage spans ${allMonthKeys[0] ?? "n/a"} through ${allMonthKeys[allMonthKeys.length - 1] ?? "n/a"}.`,
+      `Merged recurring GL rows across sections ${firstSection?.sheetName ?? "?"} → ${lastSection?.sheetName ?? "?"}.`,
+    ],
+  };
+}
+
 export function parseMonthlyWorkbook(
   buffer: Buffer,
   documentId: Extract<TtmRequiredDocumentId, "monthly_pl_excel" | "monthly_bs_excel">,
@@ -339,6 +565,78 @@ export function parseMonthlyWorkbook(
     notes: [
       `Detected ${deriveFormat(headerRow, codeColumnIndex)} format in sheet "${selected.sheetName}".`,
       `Header row located at Excel row ${selected.headerRowIndex + 1}.`,
+    ],
+  };
+}
+
+export function parseMonthlyWorkbookFromPrepared(
+  preparedDocument: PreparedDocumentInput,
+  documentId: Extract<TtmRequiredDocumentId, "monthly_pl_excel" | "monthly_bs_excel">,
+): ParsedMonthlyWorkbook {
+  const preparedSections = extractPreparedMonthlySections(preparedDocument);
+  if (preparedSections.length > 1) {
+    const parsedSections = preparedSections.map((section) => ({
+      sheetName: section.sheetName,
+      headerRowIndex: section.headerRowIndex,
+      ...parsePreparedMonthlySection(section),
+    }));
+
+    return mergePreparedMonthlySections(parsedSections, documentId);
+  }
+
+  const selected = chooseBestMonthlySheetFromPrepared(preparedDocument, documentId);
+  const headerRow = selected.rows[selected.headerRowIndex] ?? [];
+  const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, selected.monthColumns);
+  const monthKeys = sortMonthKeys(
+    selected.monthColumns
+      .map((columnIndex) => parseMonthLabel(headerRow[columnIndex]))
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  const monthIndexMap = new Map<number, string>();
+  selected.monthColumns.forEach((columnIndex) => {
+    const monthKey = parseMonthLabel(headerRow[columnIndex]);
+    if (monthKey) monthIndexMap.set(columnIndex, monthKey);
+  });
+
+  const rows = [];
+
+  for (let rowIndex = selected.headerRowIndex + 1; rowIndex < selected.rows.length; rowIndex += 1) {
+    const row = selected.rows[rowIndex] ?? [];
+    const accountName = String(row[accountColumnIndex] ?? "").trim();
+    const accountCode = codeColumnIndex === null ? null : String(row[codeColumnIndex] ?? "").trim() || null;
+
+    const values = Array.from(monthIndexMap.entries()).map(([columnIndex]) => parseNumber(row[columnIndex]));
+    if (shouldSkipLedgerRow(accountName, accountCode, values)) continue;
+
+    const valuesByMonth = Object.fromEntries(
+      Array.from(monthIndexMap.entries()).map(([columnIndex, monthKey]) => [
+        monthKey,
+        Number.isFinite(parseNumber(row[columnIndex])) ? parseNumber(row[columnIndex]) : 0,
+      ]),
+    );
+
+    rows.push({
+      accountName,
+      accountCode,
+      valuesByMonth,
+      total: Object.values(valuesByMonth).reduce((sum, value) => sum + value, 0),
+      sourceSheet: selected.sheetName,
+      rowIndex,
+    });
+  }
+
+  return {
+    documentId,
+    format: deriveFormat(headerRow, codeColumnIndex),
+    headerRowIndex: selected.headerRowIndex,
+    monthKeys,
+    accountColumnIndex,
+    codeColumnIndex,
+    rows,
+    notes: [
+      `Detected ${deriveFormat(headerRow, codeColumnIndex)} format in sheet "${selected.sheetName}".`,
+      `Header row located at CSV row ${selected.headerRowIndex + 1}.`,
     ],
   };
 }
@@ -423,4 +721,54 @@ export function parseArAgingWorkbook(buffer: Buffer): ParsedArAging {
   }
 
   throw new Error("Could not find a valid AR aging sheet.");
+}
+
+export function parseArAgingWorkbookFromPrepared(preparedDocument: PreparedDocumentInput): ParsedArAging {
+  for (const block of preparedDocument.textBlocks ?? []) {
+    const rows = csvTextToRows(block.text);
+    try {
+      const header = findArAgingHeader(rows);
+      const firstBucketColumn = Math.min(...header.buckets.map((bucket) => bucket.columnIndex));
+      const headerRow = rows[header.rowIndex] ?? [];
+      const customerHeaderIndex = headerRow.findIndex((cell) => /(customer|client|account|name)/.test(normalizeText(cell)));
+      const customerColumnIndex = customerHeaderIndex >= 0 ? customerHeaderIndex : Math.max(0, firstBucketColumn - 1);
+      const entries = [];
+
+      for (let rowIndex = header.rowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex] ?? [];
+        const customerName = String(row[customerColumnIndex] ?? "").trim();
+        const normalizedCustomer = normalizeText(customerName);
+        const bucketValues = Object.fromEntries(
+          header.buckets.map((bucket) => [
+            bucket.key,
+            Number.isFinite(parseNumber(row[bucket.columnIndex])) ? parseNumber(row[bucket.columnIndex]) : 0,
+          ]),
+        ) as Record<"current" | "days1To30" | "days31To60" | "days61To90" | "days90Plus", number>;
+
+        const total = Object.values(bucketValues).reduce((sum, value) => sum + value, 0);
+        if (!normalizedCustomer && total === 0) continue;
+        if (/^total\b/.test(normalizedCustomer)) continue;
+
+        entries.push({
+          customerName: customerName || `Row ${rowIndex + 1}`,
+          ...bucketValues,
+          total,
+        });
+      }
+
+      return {
+        headerRowIndex: header.rowIndex,
+        sourceSheet: block.sheetName,
+        entries,
+        notes: [
+          `AR aging parsed from sheet "${block.sheetName}".`,
+          `Header row located at CSV row ${header.rowIndex + 1}.`,
+        ],
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error("Could not find a valid AR aging sheet in prepared text blocks.");
 }

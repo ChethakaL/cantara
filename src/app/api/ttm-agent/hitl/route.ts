@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
         resolutionAction: FlagResolutionAction;
         resolutionNotes?: string;
         actorName?: string;
+        payloadPatch?: Record<string, unknown>;
       };
 
       if (!analysisId || !flagId || !resolutionAction) {
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
         action: resolutionAction,
         notes: resolutionNotes,
         actorName,
+        payloadPatch: typeof body.payloadPatch === "object" && body.payloadPatch ? body.payloadPatch : undefined,
       });
       return NextResponse.json(updated);
     }

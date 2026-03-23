@@ -5,12 +5,16 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, triggeredByName } = await req.json();
+    const { clientId, triggeredByName, preparedDocuments } = await req.json();
     if (!clientId) {
       return new Response("clientId is required", { status: 400 });
     }
 
-    const analysis = await runTtmAgent({ clientId, triggeredByName });
+    if (!Array.isArray(preparedDocuments) || preparedDocuments.length === 0) {
+      return new Response("preparedDocuments is required", { status: 400 });
+    }
+
+    const analysis = await runTtmAgent({ clientId, triggeredByName, preparedDocuments });
     return NextResponse.json(analysis);
   } catch (error) {
     if (error instanceof TtmOrchestratorError) {
