@@ -3,6 +3,9 @@ import { AnalysisStatus, LeaseDocument, LeaseReport } from "@/lib/lease-analysis
 import { convertPdfToBase64 } from "@/lib/lease-analysis/pdf-to-base64";
 import { parseReport } from "@/lib/lease-analysis/parse-report";
 
+const ANALYZE_MAX_ATTEMPTS = 3;
+const ANALYZE_RETRY_DELAYS_MS = [1000, 2500];
+
 export function useLeaseAnalysis(clientId?: string) {
   const [documents, setDocuments] = useState<LeaseDocument[]>([]);
   const [status, setStatus] = useState<AnalysisStatus>("idle");
@@ -80,37 +83,65 @@ export function useLeaseAnalysis(clientId?: string) {
     setError(null);
 
     try {
-      const res = await fetch("/api/lease-analysis/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documents, clientId }),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || "API Request Failed");
-      }
-      
-      if (!res.body) {
-        throw new Error("No response body returned from API");
-      }
-
-      console.log("[useLeaseAnalysis] Starting stream reader...");
-      
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
       let accumulated = "";
 
-      // Stream loop
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        accumulated += chunk;
-        
-        // Update state with new chunks
-        setRawMarkdown(accumulated);
+      for (let attempt = 1; attempt <= ANALYZE_MAX_ATTEMPTS; attempt += 1) {
+        let attemptMarkdown = "";
+
+        try {
+          const res = await fetch("/api/lease-analysis/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ documents, clientId }),
+          });
+
+          if (!res.ok) {
+            const errText = await res.text();
+            throw withStatus(new Error(extractErrorMessage(errText) || "API Request Failed"), res.status);
+          }
+
+          if (!res.body) {
+            throw new Error("No response body returned from API");
+          }
+
+          console.log(`[useLeaseAnalysis] Starting stream reader (attempt ${attempt}/${ANALYZE_MAX_ATTEMPTS})...`);
+
+          setStatus("streaming");
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            attemptMarkdown += chunk;
+            setRawMarkdown(attemptMarkdown);
+          }
+
+          accumulated = attemptMarkdown;
+          break;
+        } catch (error) {
+          const shouldRetry =
+            attempt < ANALYZE_MAX_ATTEMPTS &&
+            attemptMarkdown.length === 0 &&
+            isRetryableLeaseAnalysisError(error);
+
+          console.error(`Lease analysis attempt ${attempt} failed:`, error);
+
+          if (!shouldRetry) {
+            throw error;
+          }
+
+          await delay(ANALYZE_RETRY_DELAYS_MS[attempt - 1] ?? 3000);
+          setStatus("uploading");
+          setRawMarkdown("");
+        }
+      }
+
+      if (!accumulated.trim()) {
+        throw new Error("Lease analysis returned no content.");
       }
 
       console.log("[useLeaseAnalysis] Stream complete. Received", accumulated.length, "characters.");
@@ -123,7 +154,7 @@ export function useLeaseAnalysis(clientId?: string) {
 
     } catch (err) {
       console.error("Analysis Error:", err);
-      setError(err instanceof Error ? err.message : "An error occurred during analysis.");
+      setError(formatLeaseAnalysisError(err));
       setStatus("error");
     }
   }, [documents, clientId]);
@@ -140,4 +171,48 @@ export function useLeaseAnalysis(clientId?: string) {
     error,
     clientId
   };
+}
+
+function extractErrorMessage(payload: string) {
+  try {
+    const parsed = JSON.parse(payload);
+    if (parsed && typeof parsed.error === "string") {
+      return parsed.error;
+    }
+  } catch {}
+
+  return payload.trim();
+}
+
+function withStatus(error: Error, status: number) {
+  return Object.assign(error, { status });
+}
+
+function isRetryableLeaseAnalysisError(error: unknown) {
+  const status =
+    typeof error === "object" && error !== null && "status" in error
+      ? Number((error as { status?: number }).status)
+      : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+
+  return (
+    status === 408 ||
+    status === 429 ||
+    (typeof status === "number" && status >= 500) ||
+    /network error|failed to fetch|fetch failed|connection error|timeout|socket hang up|econnreset/i.test(message)
+  );
+}
+
+function formatLeaseAnalysisError(error: unknown) {
+  const message = error instanceof Error ? error.message : "An error occurred during analysis.";
+
+  if (isRetryableLeaseAnalysisError(error)) {
+    return `Lease analysis failed after ${ANALYZE_MAX_ATTEMPTS} attempts due to a transient network/provider error. ${message}`;
+  }
+
+  return message;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

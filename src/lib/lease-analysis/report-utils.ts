@@ -34,9 +34,68 @@ export function setFlagReviewStatus(
   index: number,
   reviewStatus?: FlagReviewStatus,
 ): LeaseReport {
+  return updateFlagReview(report, tone, index, { reviewStatus });
+}
+
+export function setFlagReviewNotes(
+  report: LeaseReport,
+  tone: "red" | "orange" | "green",
+  index: number,
+  reviewNotes?: string,
+): LeaseReport {
+  return updateFlagReview(report, tone, index, {
+    reviewNotes: normalizeReviewNotes(reviewNotes),
+  });
+}
+
+export function reevaluateFlagInReport(
+  report: LeaseReport,
+  currentTone: "red" | "orange" | "green",
+  index: number,
+  nextTone: "red" | "orange" | "green" | "remove",
+  nextFlag: Flag,
+): LeaseReport {
+  const currentKey = getFlagKey(currentTone);
+  const currentFlags = report[currentKey];
+  const target = currentFlags[index];
+
+  if (!target) return report;
+
+  const remainingCurrentFlags = currentFlags.filter((_, flagIndex) => flagIndex !== index);
+  const candidate: Flag = {
+    ...nextFlag,
+    reviewStatus: target.reviewStatus,
+    reviewNotes: target.reviewNotes,
+    reevaluatedAt: nextFlag.reevaluatedAt ?? new Date().toISOString(),
+    reevaluatedFromTone: currentTone,
+    reevaluationReasoning: nextFlag.reevaluationReasoning,
+  };
+
+  const nextReport: LeaseReport = {
+    ...report,
+    [currentKey]: remainingCurrentFlags,
+  };
+
+  if (nextTone === "remove") {
+    return updateReportPart3(nextReport);
+  }
+
+  const destinationKey = getFlagKey(nextTone);
+  return updateReportPart3({
+    ...nextReport,
+    [destinationKey]: [...nextReport[destinationKey], candidate],
+  });
+}
+
+function updateFlagReview(
+  report: LeaseReport,
+  tone: "red" | "orange" | "green",
+  index: number,
+  updates: Partial<Pick<Flag, "reviewStatus" | "reviewNotes">>,
+): LeaseReport {
   const flagKey = getFlagKey(tone);
   const nextFlags = report[flagKey].map((flag, flagIndex) =>
-    flagIndex === index ? { ...flag, reviewStatus } : flag,
+    flagIndex === index ? { ...flag, ...updates } : flag,
   );
 
   return updateReportPart3({
@@ -49,6 +108,11 @@ function getFlagKey(tone: "red" | "orange" | "green") {
   if (tone === "red") return "redFlags" as const;
   if (tone === "orange") return "orangeFlags" as const;
   return "greenFlags" as const;
+}
+
+function normalizeReviewNotes(reviewNotes?: string) {
+  const trimmed = reviewNotes?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function renderFlagSection(flags: Flag[]) {

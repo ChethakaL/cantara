@@ -41,6 +41,11 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
     return data
   }, [clientId])
 
+  const beginNewAnalysis = useCallback(() => {
+    clearAll()
+    setActiveAnalysis(null)
+  }, [clearAll])
+
   const handleDeleteConfirmed = async () => {
     const id = activeAnalysis?.id
     if (!id) return
@@ -112,7 +117,7 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
           <p className="text-xs text-slate-400 mt-0.5">Upload lease PDFs to run full M&A due diligence analysis</p>
         </div>
         {analyses.length > 0 && (
-          <Button variant="outline" size="sm" className="gap-2" onClick={clearAll}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={beginNewAnalysis}>
             <Plus className="w-3.5 h-3.5" /> New Analysis
           </Button>
         )}
@@ -167,7 +172,7 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
             report={displayReport}
             fileName={displayFileName}
             clientName={clientName}
-            onNewAnalysis={clearAll}
+            onNewAnalysis={beginNewAnalysis}
             onDelete={activeAnalysis ? () => setDeleteOpen(true) : undefined}
             onReportUpdated={activeAnalysis && status === 'idle' ? handleReportUpdated : undefined}
             adminMode={Boolean(activeAnalysis && status === 'idle')}

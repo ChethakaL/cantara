@@ -19,7 +19,7 @@ export interface LeaseReport {
   generatedAt: string;                  // ISO timestamp
 }
 
-export type FlagReviewStatus = "relevant" | "not_applicable";
+export type FlagReviewStatus = "relevant" | "not_applicable" | "questionable";
 
 export interface SnapshotRow {
   field: string;
@@ -38,6 +38,10 @@ export interface Flag {
   whyItMatters: string;
   sourceSection: string;
   reviewStatus?: FlagReviewStatus;
+  reviewNotes?: string;
+  reevaluatedAt?: string;
+  reevaluatedFromTone?: "red" | "orange" | "green";
+  reevaluationReasoning?: string;
 }
 
 export interface ChecklistItem {
