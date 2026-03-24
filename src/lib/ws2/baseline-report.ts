@@ -114,9 +114,15 @@ function buildRevenueMixTable(years: AnnualModelYear[], analysis: TtmAnalysisVie
 
 function buildEmbeddedReportSection(title: string, report: Ws2DerivedReportView | null, fallback: string) {
   return [
+    "---",
+    "",
     `## ${title}`,
     "",
+    `> Section break: You are now viewing ${title}.`,
+    "",
     report?.reportMarkdown?.trim() || fallback,
+    "",
+    `> End of ${title}.`,
     "",
   ].join("\n");
 }
@@ -220,6 +226,10 @@ export function buildBaselineValuationReport(args: {
     "",
     "WS2-4 benchmark findings are assembled below for review alongside the baseline valuation range.",
     "",
+    "---",
+    "",
+    "# WS2-4 Expense Benchmarks",
+    "",
     buildEmbeddedReportSection(
       "WS2-4 Expense Benchmark Detail",
       ws24,
@@ -230,6 +240,10 @@ export function buildBaselineValuationReport(args: {
     "",
     `Raw TTM labor cost from the WS2 model: ${formatCurrency(laborValue)} (${formatPct(laborPct)} of TTM revenue).`,
     "WS2-5 includes the role-level breakdown, industry benchmark comparison, and owner-labor normalization details assembled below.",
+    "",
+    "---",
+    "",
+    "# WS2-5 Labor Analysis",
     "",
     buildEmbeddedReportSection(
       "WS2-5 Labor Analysis Detail",
