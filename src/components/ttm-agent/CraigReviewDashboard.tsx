@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Clock3, Send } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Clock3, Send } from 'lucide-react'
 import { Badge, Button, Card, Select, Textarea } from '@/components/ui'
 import { logWs2ClientEvent, logWs2Error, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import type { FlagResolutionAction, TtmAnalysisView, TtmFlagView } from '@/lib/ttm-agent/types'
@@ -213,10 +213,14 @@ export function CraigReviewDashboard({
   analysis,
   actorName,
   onUpdated,
+  collapsed = false,
+  onToggleCollapse,
 }: {
   analysis: TtmAnalysisView
   actorName: string
   onUpdated: (analysis: TtmAnalysisView) => void
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }) {
   const [notesByFlagId, setNotesByFlagId] = useState<Record<string, string>>({})
   const [assignedCodesByFlagId, setAssignedCodesByFlagId] = useState<Record<string, string>>({})
@@ -379,6 +383,12 @@ export function CraigReviewDashboard({
             ) : (
               <Badge color="gold">{unresolvedCount} unresolved</Badge>
             )}
+            {onToggleCollapse && (
+              <Button size="sm" variant="outline" onClick={onToggleCollapse}>
+                {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                {collapsed ? 'Expand Review' : 'Collapse Review'}
+              </Button>
+            )}
             <Button
               size="sm"
               onClick={() => void approveAnalysis()}
@@ -389,6 +399,16 @@ export function CraigReviewDashboard({
           </div>
         </div>
 
+        {collapsed ? (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+            {analysis.status === 'APPROVED'
+              ? 'WS2-1 review is approved and collapsed.'
+              : unresolvedCount > 0
+                ? `${unresolvedCount} review item${unresolvedCount === 1 ? '' : 's'} still need action.`
+                : 'All review items are actioned. Approval is ready.'}
+          </div>
+        ) : (
+          <>
         <div className="grid gap-3 md:grid-cols-5 mt-4">
           {summaryCards.map((card) => (
             <div key={card.section} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -399,8 +419,12 @@ export function CraigReviewDashboard({
             </div>
           ))}
         </div>
+          </>
+        )}
       </Card>
 
+      {!collapsed && (
+        <>
       {sectionOrder.map((section) => {
         const reportSection = analysis.dataQualityReport?.sections[section]
         if (!reportSection) return null
@@ -598,6 +622,8 @@ export function CraigReviewDashboard({
           ))}
         </div>
       </Card>
+        </>
+      )}
     </div>
   )
 }

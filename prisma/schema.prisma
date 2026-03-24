@@ -479,6 +479,7 @@ enum Ws2DerivedAgentId {
   ws2_3_rev_vertical_v1
   ws2_4_benchmark_v1
   ws2_5_labor_v1
+  ws2_10_report_generator_v1
 }
 
 enum Ws2DerivedReportStatus {

@@ -31,6 +31,13 @@ import {
   extractWs2RecastMetrics,
   resolveWs2RecastMetrics,
 } from "@/lib/ws2/report-utils";
+import { buildBaselineValuationReport } from "@/lib/ws2/baseline-report";
+
+const WS2_BASELINE_SOURCE_AGENT_IDS = [
+  "ws2_3_rev_vertical_v1",
+  "ws2_4_benchmark_v1",
+  "ws2_5_labor_v1",
+] as const;
 
 class TtmOrchestratorError extends Error {
   statusCode: number;
@@ -142,6 +149,80 @@ function calculateTtmRevenueFromMappedRows(
   return mappedPlRows
     .filter((row) => /revenue|sales|income/i.test(row.accountName))
     .reduce((total, row) => total + ttmMonths.reduce((acc, month) => acc + (row.valuesByMonth[month] ?? 0), 0), 0);
+}
+
+function hasAllBaselineSourceReportsComplete(
+  analysis: Pick<TtmAnalysisView, "derivedReports"> | null | undefined,
+) {
+  return WS2_BASELINE_SOURCE_AGENT_IDS.every((agentId) =>
+    (analysis?.derivedReports ?? []).some((report) => report.agentId === agentId && report.status === "COMPLETE"),
+  );
+}
+
+async function getClientDisplayName(clientId: string) {
+  const client = await (prisma as any).clientProfile.findUnique({
+    where: { id: clientId },
+    include: { User: true },
+  });
+
+  return client?.businessName || client?.User?.name || clientId;
+}
+
+async function upsertWs210BaselineReport(args: {
+  analysisId: string;
+  approvedRecast: Ws2RecastView;
+}) {
+  const analysis = await getTtmAnalysis(args.analysisId);
+  if (!analysis) {
+    throw new TtmOrchestratorError("WS2-1 analysis not found while building WS2-10.", 404);
+  }
+
+  if (analysis.status !== "APPROVED" || args.approvedRecast.status !== "APPROVED") {
+    throw new TtmOrchestratorError("WS2-10 requires approved WS2-1 and WS2-2 outputs.", 400);
+  }
+
+  const ws23 = analysis.derivedReports?.find((report) => report.agentId === "ws2_3_rev_vertical_v1") ?? null;
+  const ws24 = analysis.derivedReports?.find((report) => report.agentId === "ws2_4_benchmark_v1") ?? null;
+  const ws25 = analysis.derivedReports?.find((report) => report.agentId === "ws2_5_labor_v1") ?? null;
+
+  if (ws23?.status !== "COMPLETE" || ws24?.status !== "COMPLETE" || ws25?.status !== "COMPLETE") {
+    throw new TtmOrchestratorError("WS2-10 requires completed WS2-3, WS2-4, and WS2-5 reports.", 400);
+  }
+
+  const clientName = await getClientDisplayName(analysis.clientId);
+  const { reportMarkdown, parsedReport } = buildBaselineValuationReport({
+    clientName,
+    analysis,
+    recast: args.approvedRecast,
+    ws23,
+    ws24,
+    ws25,
+  });
+
+  await (prisma as any).ws2DerivedReport.upsert({
+    where: {
+      ttmAnalysisId_agentId: {
+        ttmAnalysisId: args.analysisId,
+        agentId: "ws2_10_report_generator_v1",
+      },
+    },
+    update: {
+      status: "COMPLETE",
+      reportMarkdown,
+      parsedReport,
+      recastAnalysisId: args.approvedRecast.id,
+      errorMessage: null,
+    },
+    create: {
+      clientId: analysis.clientId,
+      ttmAnalysisId: args.analysisId,
+      recastAnalysisId: args.approvedRecast.id,
+      agentId: "ws2_10_report_generator_v1",
+      status: "COMPLETE",
+      reportMarkdown,
+      parsedReport,
+    },
+  });
 }
 
 export function mapTtmAnalysisForFrontend(record: any): TtmAnalysisView {
@@ -1103,14 +1184,8 @@ export async function approveWs2RecastAnalysis(args: { recastAnalysisId: string;
     ...mapRecastAnalysis(recast),
     ...resolveWs2RecastMetrics(mapRecastAnalysis(recast)),
   };
-  const allDerivedComplete = ["ws2_3_rev_vertical_v1", "ws2_4_benchmark_v1", "ws2_5_labor_v1"].every((agentId) =>
-    (frontendAnalysis.derivedReports ?? []).some((report) => report.agentId === agentId && report.status === "COMPLETE"),
-  );
-  const client = await (prisma as any).clientProfile.findUnique({
-    where: { id: frontendAnalysis.clientId },
-    include: { User: true },
-  });
-  const clientName = client?.businessName || client?.User?.name || frontendAnalysis.clientId;
+  const allDerivedComplete = hasAllBaselineSourceReportsComplete(frontendAnalysis);
+  const clientName = await getClientDisplayName(frontendAnalysis.clientId);
 
   assertS3Configured();
   const workbookBuffer = buildWs2WorkbookBuffer({
@@ -1184,6 +1259,16 @@ export async function approveWs2RecastAnalysis(args: { recastAnalysisId: string;
       : []),
   ]);
 
+  if (allDerivedComplete) {
+    const approvedRecast = await getLatestApprovedRecast(frontendAnalysis.id);
+    if (approvedRecast) {
+      await upsertWs210BaselineReport({
+        analysisId: frontendAnalysis.id,
+        approvedRecast,
+      });
+    }
+  }
+
   const updated = await getTtmAnalysis(frontendAnalysis.id);
   if (!updated) {
     throw new TtmOrchestratorError("WS2-1 analysis not found after WS2-2 approval.", 404);
@@ -1214,6 +1299,25 @@ export async function runWs2DerivedAgent(args: {
   const recast = args.agentId === "ws2_5_labor_v1" ? latestRecastRecord : approvedRecast;
   if (args.agentId === "ws2_5_labor_v1" && !recast) {
     throw new TtmOrchestratorError("WS2-5 requires a completed WS2-2 recast output before it can run.", 400);
+  }
+  if (args.agentId === "ws2_10_report_generator_v1") {
+    if (!approvedRecast) {
+      throw new TtmOrchestratorError("WS2-10 requires an approved WS2-2 recast before it can run.", 400);
+    }
+    if (!hasAllBaselineSourceReportsComplete(analysis)) {
+      throw new TtmOrchestratorError("WS2-10 requires completed WS2-3, WS2-4, and WS2-5 reports before it can run.", 400);
+    }
+
+    await upsertWs210BaselineReport({
+      analysisId: args.analysisId,
+      approvedRecast,
+    });
+
+    const updated = await getTtmAnalysis(args.analysisId);
+    if (!updated) {
+      throw new TtmOrchestratorError("WS2-1 analysis not found after WS2-10 generation.", 404);
+    }
+    return updated;
   }
 
   const preparedMap = buildPreparedDocumentMap(args.preparedDocuments ?? []);
@@ -1265,11 +1369,9 @@ export async function runWs2DerivedAgent(args: {
     },
   });
 
-  if (recast) {
+  if (approvedRecast) {
     const latestAnalysis = await getTtmAnalysis(args.analysisId);
-    const allDerivedComplete = ["ws2_3_rev_vertical_v1", "ws2_4_benchmark_v1", "ws2_5_labor_v1"].every((agentId) =>
-      (latestAnalysis?.derivedReports ?? []).some((report) => report.agentId === agentId && report.status === "COMPLETE"),
-    );
+    const allDerivedComplete = hasAllBaselineSourceReportsComplete(latestAnalysis);
 
     if (allDerivedComplete) {
       await (prisma as any).agentDispatchTask.updateMany({
@@ -1281,6 +1383,11 @@ export async function runWs2DerivedAgent(args: {
           status: "RELEASED",
           releasedAt: new Date(),
         },
+      });
+
+      await upsertWs210BaselineReport({
+        analysisId: args.analysisId,
+        approvedRecast,
       });
     }
   }

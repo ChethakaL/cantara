@@ -35,7 +35,11 @@ export type FlagResolutionAction = "RESOLVE" | "OVERRIDE" | "ESCALATE_CLIENT";
 export type TtmRunStatus = "RUNNING" | "HITL_PENDING" | "APPROVED" | "FAILED";
 export type TtmHitlStatus = "PENDING_REVIEW" | "IN_REVIEW" | "APPROVED";
 export type AgentDispatchStatus = "BLOCKED_HITL" | "READY" | "RELEASED";
-export type Ws2DerivedAgentId = "ws2_3_rev_vertical_v1" | "ws2_4_benchmark_v1" | "ws2_5_labor_v1";
+export type Ws2DerivedAgentId =
+  | "ws2_3_rev_vertical_v1"
+  | "ws2_4_benchmark_v1"
+  | "ws2_5_labor_v1"
+  | "ws2_10_report_generator_v1";
 export type Ws2DerivedReportStatus = "RUNNING" | "COMPLETE" | "FAILED";
 
 export interface PreparedDocumentTextBlock {

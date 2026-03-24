@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui'
@@ -31,12 +32,16 @@ export function Ws2RecastPanel({
   adminName,
   documentStatuses,
   onUpdated,
+  collapsed = false,
+  onToggleCollapse,
 }: {
   analysis: TtmAnalysisView
   clientId: string
   adminName: string
   documentStatuses: Record<string, DocumentStatus>
   onUpdated: (analysis: TtmAnalysisView) => void
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }) {
   const [assumptions, setAssumptions] = useState({
     multipleLow: '',
@@ -232,6 +237,12 @@ export function Ws2RecastPanel({
             <Badge color={recastDispatchTask?.status === 'RELEASED' ? 'green' : 'gold'}>
               {recastDispatchTask?.status === 'RELEASED' ? 'Released from HITL' : 'Awaiting WS2-1 Approval'}
             </Badge>
+            {onToggleCollapse && (
+              <Button size="sm" variant="outline" onClick={onToggleCollapse}>
+                {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                {collapsed ? 'Expand WS2-2' : 'Collapse WS2-2'}
+              </Button>
+            )}
             <Button size="sm" onClick={() => void runRecast()} disabled={!canRun || running}>
               {running ? 'Running WS2-2...' : 'Run WS2-2'}
             </Button>
@@ -240,6 +251,33 @@ export function Ws2RecastPanel({
 
         {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
+        {collapsed ? (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">Status</p>
+                <p className="mt-2 text-sm font-semibold text-slate-800">{latestRecast?.status ?? 'Not Run'}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">Open Flags</p>
+                <p className="mt-2 text-sm font-semibold text-slate-800">{unresolvedCount}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">Normalized EBITDA</p>
+                <p className="mt-2 text-sm font-semibold text-slate-800">
+                  {latestRecast?.normalizedEbitda?.toLocaleString() ?? 'n/a'}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">Workbook</p>
+                <p className="mt-2 text-sm font-semibold text-slate-800">
+                  {latestRecast?.workbookUrl ? 'Available' : 'Not generated'}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 mt-4">
           <Input label="Multiple Low" value={assumptions.multipleLow} onChange={(event) => setAssumptions((current) => ({ ...current, multipleLow: event.target.value }))} placeholder="3.5" />
           <Input label="Multiple Mid" value={assumptions.multipleMid} onChange={(event) => setAssumptions((current) => ({ ...current, multipleMid: event.target.value }))} placeholder="4.5" />
@@ -277,9 +315,11 @@ export function Ws2RecastPanel({
             </div>
           ))}
         </div>
+          </>
+        )}
       </Card>
 
-      {latestRecast && (
+      {!collapsed && latestRecast && (
         <>
           <Card className="p-5">
             <div className="flex items-start justify-between gap-4 flex-wrap">
