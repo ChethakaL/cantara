@@ -51,7 +51,7 @@ function isCalculatedSummaryRow(row: NormalizedLedgerRow) {
 
   return (
     /^total\b/.test(normalized) ||
-    /(gross profit|gross margin|net income|net ordinary income|ordinary income|ebitda|subtotal|pre recast)/.test(normalized)
+    /(gross profit|gross margin|net income|net ordinary income|ordinary income|ebitda|subtotal|pre recast|net working capital|working capital|current assets|current liabilities)/.test(normalized)
   );
 }
 
