@@ -28,6 +28,20 @@ function formatMultiple(value: number | null | undefined) {
   return isFiniteNumber(value) ? `${value.toFixed(1)}x` : "n/a";
 }
 
+function formatReportDate(value: string | null | undefined) {
+  if (!value) return "Pending";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
 function safeDiv(numerator: number | null | undefined, denominator: number | null | undefined) {
   return isFiniteNumber(numerator) && isFiniteNumber(denominator) && denominator !== 0
     ? numerator / denominator
@@ -184,7 +198,7 @@ export function buildBaselineValuationReport(args: {
     `# ${args.clientName} - Baseline Valuation Range Report`,
     "",
     `Prepared by Cantara Pet Advisors | Generated ${new Date().toISOString().slice(0, 10)}`,
-    `Craig HITL approval: ${recast.approvedAt ?? "Pending"}${recast.approvedByName ? ` | ${recast.approvedByName}` : ""}`,
+    `Craig HITL approval: ${formatReportDate(recast.approvedAt)}${recast.approvedByName ? ` | ${recast.approvedByName}` : ""}`,
     "Seller delivery status: BLOCKED - internal use only until Craig approves client release.",
     "",
     "## Executive Snapshot",
@@ -256,7 +270,7 @@ export function buildBaselineValuationReport(args: {
     `- WS2-1 data-quality items resolved: ${ws21Resolved} of ${analysis.flags.length}`,
     `- WS2-2 add-back review items resolved: ${ws22Resolved} of ${recast.flags.length}`,
     `- All WS2-1 / WS2-2 flags actioned: ${allFlagsResolved ? "YES" : "NO"}`,
-    `- Craig recast approval timestamp: ${recast.approvedAt ?? "Pending"}`,
+    `- Craig recast approval timestamp: ${formatReportDate(recast.approvedAt)}`,
     "",
     "## Required Disclaimer",
     "",

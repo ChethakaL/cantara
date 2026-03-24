@@ -22,7 +22,7 @@ import {
   Ws2RecastAssumptions,
   Ws2RecastView,
 } from "@/lib/ttm-agent/types";
-import { generateWs21Report, generateWs22Report, generateWs23Report, generateWs24Report, generateWs25Report, summarizeTtmAnalysis } from "@/lib/ttm-agent/claude";
+import { generateWs22Report, generateWs23Report, generateWs24Report, generateWs25Report, summarizeTtmAnalysis } from "@/lib/ttm-agent/claude";
 import { buildWorkingCapitalSummary } from "@/lib/ttm-agent/wc-calculator";
 import { TTM_AGENT_MAX_TOKENS, TTM_AGENT_MODEL, TTM_AGENT_TEMPERATURE, WS2_RECAST_MAX_TOKENS } from "@/lib/ttm-agent/prompt";
 import {
@@ -32,6 +32,7 @@ import {
   resolveWs2RecastMetrics,
 } from "@/lib/ws2/report-utils";
 import { buildBaselineValuationReport } from "@/lib/ws2/baseline-report";
+import { buildWs21DeterministicReport } from "@/lib/ws2/ws21-report";
 
 const WS2_BASELINE_SOURCE_AGENT_IDS = [
   "ws2_3_rev_vertical_v1",
@@ -495,17 +496,6 @@ export async function runTtmAgent(args: {
     reconciled.dataQualitySections.E.push(...wcResult.qualityItems);
     const dataQualityReport = buildDataQualityReport(reconciled.dataQualitySections);
 
-    console.log(`[TTM] Generating exact WS2-1 architecture report`);
-    const reportMarkdown = await generateWs21Report(
-      buildWs21PromptContent({
-        monthlyPl: preparedMonthlyPl,
-        monthlyBs: preparedMonthlyBs,
-        accountant: preparedAccountant,
-        accountantStatements,
-        arAging: preparedArAging,
-      }),
-    );
-
     console.log(`[TTM] Generating Craig summary`);
     const summary = await summarizeTtmAnalysis({
       ttmSummary: reconciled.ttmSummary,
@@ -514,6 +504,18 @@ export async function runTtmAgent(args: {
       qualityCounts: dataQualityReport.counts,
       workingCapital: wcResult.workingCapital,
       quickBooksStatus: "Skipped - QuickBooks not connected",
+    });
+
+    console.log(`[TTM] Building deterministic WS2-1 report from structured outputs`);
+    const reportMarkdown = buildWs21DeterministicReport({
+      structuredModelConfidence: reconciled.structuredModel.confidence,
+      mappedPlRows,
+      mappedBsRows,
+      ttmSummary: reconciled.ttmSummary,
+      annualModel: reconciled.annualModel,
+      workingCapital: wcResult.workingCapital,
+      dataQualityReport,
+      summary,
     });
 
     const partialDataLabel =

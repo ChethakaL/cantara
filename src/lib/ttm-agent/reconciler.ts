@@ -23,6 +23,20 @@ function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
 }
 
+const CORPORATE_OVERHEAD_PATTERNS = [
+  /corporate overhead/i,
+  /head\s*office/i,
+  /home\s*office/i,
+  /parent company/i,
+  /shared services/i,
+  /allocated overhead/i,
+  /overhead allocation/i,
+  /corporate allocation/i,
+  /allocation fee/i,
+  /regional overhead/i,
+  /franchise support/i,
+];
+
 function percent(numerator: number, denominator: number) {
   if (!denominator) return null;
   return (numerator / denominator) * 100;
@@ -58,6 +72,15 @@ function sumRowsForMonths(rows: MappedLedgerRow[], months: string[], codes: stri
     }, 0);
 }
 
+function isCorporateOverheadRow(row: Pick<MappedLedgerRow, "accountName" | "categoryType">) {
+  if (row.categoryType !== "opex") return false;
+  return CORPORATE_OVERHEAD_PATTERNS.some((pattern) => pattern.test(row.accountName));
+}
+
+function filterFourWallRows(rows: MappedLedgerRow[]) {
+  return rows.filter((row) => !isCorporateOverheadRow(row));
+}
+
 function buildBreakdown(rows: MappedLedgerRow[], months: string[], codes: string[]) {
   return codes.map((code) => ({
     code,
@@ -69,16 +92,22 @@ function buildBreakdown(rows: MappedLedgerRow[], months: string[], codes: string
 }
 
 function groupMonthsByFiscalYear(monthKeys: string[]) {
-  const grouped = new Map<string, string[]>();
+  const sorted = [...monthKeys].sort((a, b) => a.localeCompare(b));
+  const buckets: Array<{ fiscalYear: string; months: string[]; periodStart: string; periodEnd: string; accountantYearKey: string | null }> = [];
 
-  for (const monthKey of monthKeys) {
-    const fiscalYear = monthKey.slice(0, 4);
-    grouped.set(fiscalYear, [...(grouped.get(fiscalYear) ?? []), monthKey]);
+  for (let index = 0; index < sorted.length; index += 12) {
+    const months = sorted.slice(index, index + 12);
+    if (!months.length) continue;
+    buckets.push({
+      fiscalYear: `FY${buckets.length + 1}`,
+      months,
+      periodStart: months[0],
+      periodEnd: months[months.length - 1],
+      accountantYearKey: months.length === 12 ? months[months.length - 1].slice(0, 4) : null,
+    });
   }
 
-  return Array.from(grouped.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([fiscalYear, months]) => ({ fiscalYear, months: months.sort((a, b) => a.localeCompare(b)) }));
+  return buckets;
 }
 
 function compareAgainstThreshold(actual: number, expected: number, absoluteThreshold: number, pctThreshold: number) {
@@ -104,7 +133,7 @@ function toExcelColumnName(columnNumber: number) {
   return columnName;
 }
 
-function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: ParsedMonthlyWorkbook) {
+function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: ParsedMonthlyWorkbook, mappedPlRows: MappedLedgerRow[]) {
   const items: SectionReportItem[] = [];
   const plMonths = uniqueMonths(monthlyPl.monthKeys);
   const bsMonths = uniqueMonths(monthlyBs.monthKeys);
@@ -171,12 +200,34 @@ function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: Parse
 
   const plYears = groupMonthsByFiscalYear(plMonths).map((entry) => entry.fiscalYear);
   const bsYears = groupMonthsByFiscalYear(bsMonths).map((entry) => entry.fiscalYear);
-  if (plYears.join(",") !== bsYears.join(",")) {
+  if (plYears.length !== bsYears.length) {
     items.push({
       title: "Fiscal year alignment mismatch between P&L and balance sheet",
       severity: "MEDIUM",
       description: `P&L years: ${plYears.join(", ")}. Balance sheet years: ${bsYears.join(", ")}.`,
       payload: { plYears, bsYears },
+    });
+  }
+
+  const corporateOverheadRows = mappedPlRows.filter(isCorporateOverheadRow);
+  if (corporateOverheadRows.length) {
+    items.push({
+      title: "Potential corporate overhead allocations identified",
+      severity: "MEDIUM",
+      description: `Detected potential parent-company / corporate overhead allocations in the monthly P&L. These rows are excluded from 4-wall EBITDA and Craig should confirm the exclusion basis.`,
+      payload: {
+        accountNames: corporateOverheadRows.map((row) => row.accountName),
+        rowCount: corporateOverheadRows.length,
+      },
+    });
+  } else {
+    items.push({
+      title: "Corporate overhead not separately identifiable",
+      severity: "MEDIUM",
+      description: "No explicit parent-company or corporate overhead allocation lines were identified in the monthly P&L. Craig should confirm whether above-the-line corporate allocations are absent or embedded in other accounts.",
+      payload: {
+        reason: "No explicit corporate overhead allocation lines matched WS2-1 heuristics",
+      },
     });
   }
 
@@ -237,19 +288,23 @@ function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[]): TtmSumma
 
 function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[]): AnnualModel {
   const groupedYears = groupMonthsByFiscalYear(monthKeys).slice(-3);
-  const years: AnnualModelYear[] = groupedYears.map(({ fiscalYear, months }) => {
+  const fourWallRows = filterFourWallRows(rows);
+  const years: AnnualModelYear[] = groupedYears.map(({ fiscalYear, months, periodStart, periodEnd, accountantYearKey }) => {
     const totalRevenue = sumRowsForMonths(rows, months, REVENUE_CODES);
     const totalCogs = sumRowsForMonths(rows, months, COGS_CODES);
     const grossProfit = totalRevenue - totalCogs;
-    const totalOpEx = sumRowsForMonths(rows, months, EBITDA_OPERATING_EXPENSE_CODES);
+    const totalOpEx = sumRowsForMonths(fourWallRows, months, EBITDA_OPERATING_EXPENSE_CODES);
     const ebitdaPreRecast = grossProfit - totalOpEx;
-    const netIncome: number | null = null;
+    const netIncome = grossProfit - sumRowsForMonths(fourWallRows, months, OPEX_CODES);
 
     return {
       fiscalYear,
+      periodStart,
+      periodEnd,
+      accountantYearKey,
       revenueByCategory: buildBreakdown(rows, months, REVENUE_CODES),
       cogsByCategory: buildBreakdown(rows, months, COGS_CODES),
-      opExByCategory: buildBreakdown(rows, months, OPEX_CODES),
+      opExByCategory: buildBreakdown(fourWallRows, months, OPEX_CODES),
       totalRevenue,
       totalCogs,
       grossProfit,
@@ -380,13 +435,14 @@ function buildAccountantVarianceSection(args: {
   const accountantByYear = new Map(args.accountantStatements.years.map((year) => [year.fiscalYear, year]));
 
   for (const year of args.monthlyAnnualModel.years) {
-    const accountant = accountantByYear.get(year.fiscalYear);
+    const displayFiscalYear = `${year.fiscalYear} (${year.periodStart} — ${year.periodEnd})`;
+    const accountant = year.accountantYearKey ? accountantByYear.get(year.accountantYearKey) : null;
     if (!accountant) {
       items.push({
-        title: `Missing accountant totals for fiscal year ${year.fiscalYear}`,
+        title: `Missing accountant totals for fiscal year ${displayFiscalYear}`,
         severity: "HIGH",
-        description: `No accountant-prepared totals were found for fiscal year ${year.fiscalYear}.`,
-        payload: { fiscalYear: year.fiscalYear },
+        description: `No accountant-prepared totals were found for fiscal year ${displayFiscalYear}.`,
+        payload: { fiscalYear: displayFiscalYear },
       });
       continue;
     }
@@ -401,36 +457,36 @@ function buildAccountantVarianceSection(args: {
 
     for (const comparison of comparisons) {
       if (comparison.actual === null) {
-        console.log(`[TTM] Section C: ${comparison.lineItem} unavailable from monthly rollup for FY${year.fiscalYear}`);
+        console.log(`[TTM] Section C: ${comparison.lineItem} unavailable from monthly rollup for ${displayFiscalYear}`);
         items.push({
           title: `${comparison.lineItem} is unavailable from monthly rollup`,
           severity: "MEDIUM",
-          description: `${comparison.lineItem} could not be deterministically derived from the monthly P&L rollup for fiscal year ${year.fiscalYear}. This metric requires below-the-line items not present in the GL taxonomy.`,
-          payload: { fiscalYear: year.fiscalYear, lineItem: comparison.lineItem, reason: "Not derivable from Cantara GL taxonomy" },
+          description: `${comparison.lineItem} could not be deterministically derived from the monthly P&L rollup for fiscal year ${displayFiscalYear}. This metric requires below-the-line items not present in the GL taxonomy.`,
+          payload: { fiscalYear: displayFiscalYear, lineItem: comparison.lineItem, reason: "Not derivable from Cantara GL taxonomy" },
         });
         continue;
       }
 
       if (comparison.expected === null) {
-        console.log(`[TTM] Section C: ${comparison.lineItem} missing from accountant statements for FY${year.fiscalYear}`);
+        console.log(`[TTM] Section C: ${comparison.lineItem} missing from accountant statements for ${displayFiscalYear}`);
         items.push({
           title: `${comparison.lineItem} missing in accountant statements`,
           severity: "MEDIUM",
-          description: `${comparison.lineItem} is not explicitly stated in the accountant-prepared financial statements for fiscal year ${year.fiscalYear}.`,
-          payload: { fiscalYear: year.fiscalYear, lineItem: comparison.lineItem, reason: "Not present in accountant statements" },
+          description: `${comparison.lineItem} is not explicitly stated in the accountant-prepared financial statements for fiscal year ${displayFiscalYear}.`,
+          payload: { fiscalYear: displayFiscalYear, lineItem: comparison.lineItem, reason: "Not present in accountant statements" },
         });
         continue;
       }
 
       const variance = compareAgainstThreshold(comparison.actual, comparison.expected, 1000, 1);
       if (variance.isMaterial) {
-        console.log(`[TTM] Section C: ${comparison.lineItem} FY${year.fiscalYear} variance=$${variance.variance.toFixed(2)} (rollup=$${comparison.actual}, accountant=$${comparison.expected})`);
+        console.log(`[TTM] Section C: ${comparison.lineItem} ${displayFiscalYear} variance=$${variance.variance.toFixed(2)} (rollup=$${comparison.actual}, accountant=$${comparison.expected})`);
         items.push({
-          title: `${comparison.lineItem} variance for fiscal year ${year.fiscalYear}`,
+          title: `${comparison.lineItem} variance for fiscal year ${displayFiscalYear}`,
           severity: Math.abs(variance.variance) > 5000 ? "HIGH" : "MEDIUM",
           description: `${comparison.lineItem} differs from accountant totals by $${variance.variance.toFixed(2)}.`,
           payload: {
-            fiscalYear: year.fiscalYear,
+            fiscalYear: displayFiscalYear,
             lineItem: comparison.lineItem,
             monthlyRollup: comparison.actual,
             accountantStatement: comparison.expected,
@@ -455,10 +511,11 @@ export function reconcileFinancials(args: {
   accountantStatements: ParsedAccountantStatements;
 }) {
   const monthKeys = uniqueMonths(args.monthlyPl.monthKeys);
+  const fourWallPlRows = filterFourWallRows(args.mappedPlRows);
   console.log(`[TTM] Reconciling: ${monthKeys.length} months, ${args.mappedPlRows.length} P&L rows, ${args.mappedBsRows.length} BS rows`);
-  const structuredModel = buildStructuredModel(args.mappedPlRows, monthKeys);
+  const structuredModel = buildStructuredModel(fourWallPlRows, monthKeys);
   console.log(`[TTM] Structured model: ${structuredModel.months.length} months, confidence=${structuredModel.confidence}`);
-  const ttmSummary = buildTtmSummary(args.mappedPlRows, monthKeys);
+  const ttmSummary = buildTtmSummary(fourWallPlRows, monthKeys);
   console.log(`[TTM] TTM summary: revenue=$${ttmSummary.totalRevenue.toLocaleString()}, GM=${ttmSummary.grossMarginPct?.toFixed(1) ?? "n/a"}%, EBITDA=$${ttmSummary.ebitdaPreRecast.toLocaleString()}`);
   const annualModel = buildAnnualModel(args.mappedPlRows, monthKeys);
   console.log(`[TTM] Annual model: ${annualModel.years.length} years, ${annualModel.anomalies.length} anomalies`);
@@ -481,7 +538,7 @@ export function reconcileFinancials(args: {
       monthlyAnnualModel: annualModel,
       accountantStatements: args.accountantStatements,
     }),
-    D: buildCoverageSection(args.monthlyPl, args.monthlyBs),
+    D: buildCoverageSection(args.monthlyPl, args.monthlyBs, args.mappedPlRows),
     E: [],
   };
 

@@ -461,7 +461,7 @@ function fmtMultiple(value: number | null | undefined): number | null {
 }
 
 function yearLabel(year: AnnualModelYear) {
-  return `FY${year.fiscalYear}`;
+  return year.fiscalYear;
 }
 
 function safeDiv(numerator: number | null | undefined, denominator: number | null | undefined): number | null {

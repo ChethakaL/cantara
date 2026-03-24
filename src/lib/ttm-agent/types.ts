@@ -197,6 +197,9 @@ export interface AnnualTrend {
 
 export interface AnnualModelYear {
   fiscalYear: string;
+  periodStart: string;
+  periodEnd: string;
+  accountantYearKey: string | null;
   revenueByCategory: CategoryBreakdown[];
   cogsByCategory: CategoryBreakdown[];
   opExByCategory: CategoryBreakdown[];
