@@ -49,6 +49,428 @@ function toFiniteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function normalizeWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeDescriptionKey(value: string) {
+  return normalizeWhitespace(value).toLowerCase();
+}
+
+function parsePeriodReference(value: string | null | undefined) {
+  if (!value) return null;
+
+  const monthMatch = value.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i);
+  if (monthMatch) {
+    const months = {
+      january: "01",
+      february: "02",
+      march: "03",
+      april: "04",
+      may: "05",
+      june: "06",
+      july: "07",
+      august: "08",
+      september: "09",
+      october: "10",
+      november: "11",
+      december: "12",
+    } as const;
+    return `${monthMatch[2]}-${months[monthMatch[1].toLowerCase() as keyof typeof months]}`;
+  }
+
+  const yearMatch = value.match(/\b(20\d{2})\b/);
+  if (yearMatch) return `${yearMatch[1]}-01`;
+  return null;
+}
+
+function compareMonthKey(a: string, b: string) {
+  return a.localeCompare(b);
+}
+
+function monthsBetween(start: string, end: string) {
+  const result: string[] = [];
+  let [year, month] = start.split("-").map(Number);
+  const [endYear, endMonth] = end.split("-").map(Number);
+
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    result.push(`${year}-${String(month).padStart(2, "0")}`);
+    month += 1;
+    if (month === 13) {
+      month = 1;
+      year += 1;
+    }
+  }
+
+  return result;
+}
+
+function formatCurrencyForReport(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "n/a";
+  const abs = Math.abs(value);
+  const formatted = `$${abs.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  return value < 0 ? `-${formatted}` : formatted;
+}
+
+function formatPeriodMargin(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "n/a";
+  return `${value.toFixed(1)}%`;
+}
+
+function formatMultipleForReport(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "n/a";
+  return `${value.toFixed(2)}x`;
+}
+
+function periodMonths(year: AnnualModelYear) {
+  return monthsBetween(year.periodStart, year.periodEnd);
+}
+
+function sumGlForMonths(
+  rows: Array<{ accountCode?: string | null; valuesByMonth?: Record<string, number> }>,
+  glReference: string,
+  months: string[],
+) {
+  return rows
+    .filter((row) => (row.accountCode ?? "") === glReference)
+    .reduce(
+      (sum, row) =>
+        sum + months.reduce((monthTotal, month) => monthTotal + Number(row.valuesByMonth?.[month] ?? 0), 0),
+      0,
+    );
+}
+
+type Ws22ScheduleItem = {
+  index: string;
+  category: string;
+  description: string;
+  glReference: string;
+  ttmAmount: number | null;
+  status: string;
+};
+
+type Ws22PeriodMappedItem = Ws22ScheduleItem & {
+  sourcePeriod: string | null;
+  sourceAmount: number | null;
+};
+
+function parseScheduleTable(reportMarkdown: string) {
+  const match = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR CRAIG REVIEW|$)/i);
+  if (!match) return [] as Ws22ScheduleItem[];
+
+  return match[1]
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|"))
+    .filter((line) => !/^\|\s*-+/.test(line))
+    .map((line) =>
+      line
+        .replace(/^\|/, "")
+        .replace(/\|$/, "")
+        .split("|")
+        .map((cell) => normalizeWhitespace(cell.replace(/\*\*/g, ""))),
+    )
+    .filter((cells) => cells.length >= 6 && cells[0] !== "#" && cells[1] !== "Category")
+    .map((cells) => ({
+      index: cells[0],
+      category: cells[1],
+      description: cells[2],
+      glReference: cells[3],
+      ttmAmount: parseCurrencyValue(cells[4]),
+      status: cells[5],
+    }))
+    .filter(
+      (item) =>
+        !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN/i.test(item.category) &&
+        !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN/i.test(item.description),
+    );
+}
+
+function parseCategoryPeriodItems(reportMarkdown: string, heading: string) {
+  const sectionMatch = reportMarkdown.match(new RegExp(`## ${heading}([\\s\\S]*?)(?=\\n## |$)`, "i"));
+  if (!sectionMatch) return [] as Array<{ description: string; sourcePeriod: string | null; amount: number | null; glReference: string | null; status: string | null }>;
+
+  return Array.from(sectionMatch[1].matchAll(/\*\*Item\s+\d+:[^\n]*\*\*[\s\S]*?(?=(?:\n\*\*Item\s+\d+:)|$)/g)).map((match) => {
+    const block = match[0];
+    const description = normalizeWhitespace(block.match(/- Description:\s*([^\n]+)/i)?.[1] ?? "");
+    const sourcePeriod = parsePeriodReference(block.match(/- Year:\s*([^\n]+)/i)?.[1] ?? null);
+    const amount = parseCurrencyValue(block.match(/- Amount:\s*(\$[0-9,().-]+)/i)?.[1]);
+    const glReference = normalizeWhitespace(block.match(/- GL Account:\s*.*?\(([^)]+)\)/i)?.[1] ?? block.match(/- GL Account:\s*([^\n]+)/i)?.[1] ?? "");
+    const status = normalizeWhitespace(block.match(/- Status:\s*([^\n]+)/i)?.[1] ?? "");
+    return {
+      description,
+      sourcePeriod,
+      amount,
+      glReference: glReference || null,
+      status: status || null,
+    };
+  });
+}
+
+function buildPeriodKey(glReference: string | null | undefined, amount: number | null | undefined) {
+  return `${normalizeWhitespace(glReference ?? "").toLowerCase()}|${amount ?? "n/a"}`;
+}
+
+function buildWs22PeriodCorrection(args: {
+  reportMarkdown: string;
+  analysis: Pick<TtmAnalysisView, "ttmSummary" | "annualModel" | "normalizedData">;
+  assumptions: Pick<Ws2RecastView["assumptions"], "replacementSalary" | "multipleLow" | "multipleMid" | "multipleHigh">;
+}) {
+  const scheduleItems = parseScheduleTable(args.reportMarkdown);
+  const annualYears = args.analysis.annualModel?.years ?? [];
+  const ttmSummary = args.analysis.ttmSummary;
+  const mappedPlRows = Array.isArray(args.analysis.normalizedData?.mappedPlRows)
+    ? (args.analysis.normalizedData?.mappedPlRows as Array<{ accountCode?: string | null; valuesByMonth?: Record<string, number> }>)
+    : [];
+
+  if (!ttmSummary || annualYears.length < 3 || scheduleItems.length === 0) {
+    return null;
+  }
+
+  const ttmMonths = monthsBetween(ttmSummary.startMonth, ttmSummary.endMonth);
+  const category3Items = parseCategoryPeriodItems(args.reportMarkdown, "CATEGORY 3: ONE-OFF NON-RECURRING EXPENSES");
+  const category4Items = parseCategoryPeriodItems(args.reportMarkdown, "CATEGORY 4: TENANT IMPROVEMENT ADD-BACKS");
+  const periodByDescription = new Map<string, string | null>();
+  const periodByKey = new Map<string, string | null>();
+  const amountByDescription = new Map<string, number | null>();
+  const amountByKey = new Map<string, number | null>();
+  for (const item of [...category3Items, ...category4Items]) {
+    periodByDescription.set(normalizeDescriptionKey(item.description), item.sourcePeriod);
+    periodByKey.set(buildPeriodKey(item.glReference, item.amount), item.sourcePeriod);
+    amountByDescription.set(normalizeDescriptionKey(item.description), item.amount);
+    amountByKey.set(buildPeriodKey(item.glReference, item.amount), item.amount);
+  }
+  const categoryPeriodOrder = {
+    "One-Off Expenses": category3Items.map((item) => item.sourcePeriod),
+    "TI Add-Backs": category4Items.map((item) => item.sourcePeriod),
+  } as const;
+  const categoryAmountOrder = {
+    "One-Off Expenses": category3Items.map((item) => item.amount),
+    "TI Add-Backs": category4Items.map((item) => item.amount),
+  } as const;
+  const categoryCounters = new Map<string, number>();
+
+  const enrichedItems: Ws22PeriodMappedItem[] = scheduleItems.map((item) => ({
+    ...item,
+    sourcePeriod: (() => {
+      const direct =
+        periodByDescription.get(normalizeDescriptionKey(item.description)) ??
+        periodByKey.get(buildPeriodKey(item.glReference, item.ttmAmount)) ??
+        null;
+      if (direct) return direct;
+
+      if (item.category === "One-Off Expenses" || item.category === "TI Add-Backs") {
+        const currentIndex = categoryCounters.get(item.category) ?? 0;
+        categoryCounters.set(item.category, currentIndex + 1);
+        return categoryPeriodOrder[item.category][currentIndex] ?? null;
+      }
+
+      return null;
+    })(),
+    sourceAmount:
+      amountByDescription.get(normalizeDescriptionKey(item.description)) ??
+      amountByKey.get(buildPeriodKey(item.glReference, item.ttmAmount)) ??
+      ((item.category === "One-Off Expenses" || item.category === "TI Add-Backs")
+        ? categoryAmountOrder[item.category][(categoryCounters.get(item.category) ?? 1) - 1] ?? item.ttmAmount
+        : item.ttmAmount),
+  }));
+
+  const replacementSalary = toFiniteNumber(args.assumptions.replacementSalary) ?? 65000;
+
+  const computeItemAmount = (item: Ws22PeriodMappedItem, months: string[]) => {
+    if (item.index === "—") return item.ttmAmount ?? 0;
+    if (/Replacement Manager Salary/i.test(item.description)) {
+      return -(replacementSalary * months.length) / 12;
+    }
+    if (/Employer FICA on owner wages/i.test(item.description)) {
+      const ownerWages = sumGlForMonths(mappedPlRows, "6020", months);
+      return ownerWages * 0.0765;
+    }
+    if (item.category === "One-Off Expenses" || item.category === "TI Add-Backs") {
+      if (!item.sourcePeriod) return item.ttmAmount ?? 0;
+      return months.includes(item.sourcePeriod) ? item.sourceAmount ?? item.ttmAmount ?? 0 : 0;
+    }
+    if (/^\d+$/.test(item.glReference)) {
+      return sumGlForMonths(mappedPlRows, item.glReference, months);
+    }
+    return item.ttmAmount ?? 0;
+  };
+
+  const ttmStartingEbitda = ttmSummary.ebitdaPreRecast;
+  const annualStartingByYear = new Map(annualYears.map((year) => [year.fiscalYear, year.ebitdaPreRecast]));
+
+  const ttmAddbacks = enrichedItems
+    .filter((item) => item.index !== "—")
+    .reduce((sum, item) => sum + computeItemAmount(item, ttmMonths), 0);
+
+  const annualAddbacks = annualYears.map((year) => {
+    const months = periodMonths(year);
+    return enrichedItems
+      .filter((item) => item.index !== "—")
+      .reduce((sum, item) => sum + computeItemAmount(item, months), 0);
+  });
+
+  const normalizedByYear = annualYears.map((year, index) => {
+    const normalizedEbitda = (annualStartingByYear.get(year.fiscalYear) ?? 0) + annualAddbacks[index];
+    const margin = year.totalRevenue ? (normalizedEbitda / year.totalRevenue) * 100 : null;
+    return {
+      fiscalYear: year.fiscalYear,
+      normalizedEbitda,
+      margin,
+    };
+  });
+
+  const correctedNormalizedTtm = ttmStartingEbitda + ttmAddbacks;
+  const correctedTtmMargin = ttmSummary.totalRevenue ? (correctedNormalizedTtm / ttmSummary.totalRevenue) * 100 : null;
+  const valuationLow = toFiniteNumber(args.assumptions.multipleLow) != null ? correctedNormalizedTtm * Number(args.assumptions.multipleLow) : null;
+  const valuationMid = toFiniteNumber(args.assumptions.multipleMid) != null ? correctedNormalizedTtm * Number(args.assumptions.multipleMid) : null;
+  const valuationHigh = toFiniteNumber(args.assumptions.multipleHigh) != null ? correctedNormalizedTtm * Number(args.assumptions.multipleHigh) : null;
+
+  const correctedScheduleRows = enrichedItems.map((item) => {
+    if (item.index === "—") return item;
+    const correctedTtmAmount = computeItemAmount(item, ttmMonths);
+    const needsOutOfPeriodNote =
+      (item.category === "One-Off Expenses" || item.category === "TI Add-Backs") &&
+      item.sourcePeriod &&
+      !ttmMonths.includes(item.sourcePeriod) &&
+      correctedTtmAmount === 0;
+
+    return {
+      ...item,
+      ttmAmount: correctedTtmAmount,
+      status:
+        needsOutOfPeriodNote && !/OUT-OF-PERIOD FOR TTM/i.test(item.status)
+          ? `${item.status} · OUT-OF-PERIOD FOR TTM`
+          : item.status,
+    };
+  });
+
+  return {
+    correctedScheduleRows,
+    ttmAddbacks,
+    correctedNormalizedTtm,
+    correctedTtmMargin,
+    normalizedByYear,
+    valuationLow,
+    valuationMid,
+    valuationHigh,
+    hasOutOfPeriodItems:
+      correctedScheduleRows.some((item) => /OUT-OF-PERIOD FOR TTM/.test(item.status)),
+  };
+}
+
+export function applyWs22SpecCorrections(args: {
+  reportMarkdown: string;
+  analysis: Pick<TtmAnalysisView, "ttmSummary" | "annualModel" | "normalizedData">;
+  assumptions: Pick<Ws2RecastView["assumptions"], "replacementSalary" | "multipleLow" | "multipleMid" | "multipleHigh">;
+}) {
+  const correction = buildWs22PeriodCorrection(args);
+  if (!correction) {
+    return {
+      reportMarkdown: args.reportMarkdown,
+      metrics: extractWs2RecastMetrics(args.reportMarkdown),
+      extraFlags: [] as Array<{ title: string; description: string; severity: Ws2RecastFlagView["severity"]; payload: Record<string, unknown> }>,
+    };
+  }
+
+  const scheduleLines = [
+    "**EBITDA RECAST SCHEDULE — TTM Jan 2024 to Dec 2024**",
+    "",
+    "| # | Category | Item Description | GL Reference | TTM Amount | Status |",
+    "|---|---|---|---|---|---|",
+    ...correction.correctedScheduleRows.map((item) => [
+      item.index,
+      item.category,
+      item.description,
+      item.glReference,
+      item.index === "—" && /TTM 4-Wall EBITDA/i.test(item.description)
+        ? formatCurrencyForReport(args.analysis.ttmSummary?.ebitdaPreRecast ?? item.ttmAmount)
+        : formatCurrencyForReport(item.ttmAmount),
+      item.status,
+    ].join(" | ").replace(/^/, "| ").replace(/$/, " |")),
+    `| — | **TOTAL ADD-BACKS** |  |  | **${formatCurrencyForReport(correction.ttmAddbacks)}** |  |`,
+    `| — | **NORMALIZED / RECAST EBITDA (TTM)** |  |  | **${formatCurrencyForReport(correction.correctedNormalizedTtm)}** |  |`,
+    `| — | **NORMALIZED EBITDA MARGIN (TTM)** |  |  | **${formatPeriodMargin(correction.correctedTtmMargin)}** |  |`,
+    "",
+    "**3-Year Normalized EBITDA Summary:**",
+    ...correction.normalizedByYear.map(
+      (year, index) => `- ${year.fiscalYear} (${args.analysis.annualModel?.years?.[index]?.periodStart.slice(0, 4)}) Normalized EBITDA: ${formatCurrencyForReport(year.normalizedEbitda)} (${formatPeriodMargin(year.margin)} margin)`,
+    ),
+    `- TTM Normalized EBITDA: ${formatCurrencyForReport(correction.correctedNormalizedTtm)} (${formatPeriodMargin(correction.correctedTtmMargin)} margin)`,
+  ];
+
+  const valuationLines = [
+    "## PRELIMINARY VALUATION RANGE",
+    "",
+    "**Valuation Range:**",
+    `- Low: ${formatCurrencyForReport(correction.correctedNormalizedTtm)} × ${Number(args.assumptions.multipleLow ?? 0).toFixed(1)}x = ${formatCurrencyForReport(correction.valuationLow)}`,
+    `- Mid: ${formatCurrencyForReport(correction.correctedNormalizedTtm)} × ${Number(args.assumptions.multipleMid ?? 0).toFixed(1)}x = ${formatCurrencyForReport(correction.valuationMid)}`,
+    `- High: ${formatCurrencyForReport(correction.correctedNormalizedTtm)} × ${Number(args.assumptions.multipleHigh ?? 0).toFixed(1)}x = ${formatCurrencyForReport(correction.valuationHigh)}`,
+    "",
+    "**Revenue Multiple Cross-Check:**",
+    `- Low: ${formatCurrencyForReport(correction.valuationLow)} ÷ ${formatCurrencyForReport(args.analysis.ttmSummary?.totalRevenue)} = ${formatMultipleForReport(args.analysis.ttmSummary?.totalRevenue ? (correction.valuationLow ?? 0) / args.analysis.ttmSummary.totalRevenue : null)} revenue multiple`,
+    `- Mid: ${formatCurrencyForReport(correction.valuationMid)} ÷ ${formatCurrencyForReport(args.analysis.ttmSummary?.totalRevenue)} = ${formatMultipleForReport(args.analysis.ttmSummary?.totalRevenue ? (correction.valuationMid ?? 0) / args.analysis.ttmSummary.totalRevenue : null)} revenue multiple`,
+    `- High: ${formatCurrencyForReport(correction.valuationHigh)} ÷ ${formatCurrencyForReport(args.analysis.ttmSummary?.totalRevenue)} = ${formatMultipleForReport(args.analysis.ttmSummary?.totalRevenue ? (correction.valuationHigh ?? 0) / args.analysis.ttmSummary.totalRevenue : null)} revenue multiple`,
+    "",
+    "**Revenue Trend Adjustment Flag:**",
+    "FLAT REVENUE — TTM revenue equals FY3 annual revenue on this comparison basis.",
+    "",
+    "**This is a PRELIMINARY valuation range for Craig's internal planning. It has not been reviewed or approved. It must not be shared with the seller until Craig approves it.**",
+  ];
+
+  let reportMarkdown = args.reportMarkdown.replace(
+    /## EBITDA RECAST SCHEDULE[\s\S]*?(?=\n## FLAG LIST FOR CRAIG REVIEW|\n## PRELIMINARY VALUATION RANGE|$)/i,
+    `## EBITDA RECAST SCHEDULE\n\n${scheduleLines.join("\n")}\n`,
+  );
+
+  reportMarkdown = reportMarkdown.replace(
+    /## PRELIMINARY VALUATION RANGE[\s\S]*?(?=\n## SUMMARY FOR CRAIG|$)/i,
+    `${valuationLines.join("\n")}\n`,
+  );
+
+  reportMarkdown = reportMarkdown.replace(
+    /## SUMMARY FOR CRAIG[\s\S]*$/i,
+    [
+      "## SUMMARY FOR CRAIG",
+      "",
+      `Normalized TTM EBITDA of ${formatCurrencyForReport(correction.correctedNormalizedTtm)} (${formatPeriodMargin(correction.correctedTtmMargin)} margin) represents ${formatCurrencyForReport(correction.ttmAddbacks)} in total add-backs, primarily driven by owner compensation normalization and verified personal expenses within the TTM period.`,
+      `Preliminary valuation range of ${formatCurrencyForReport(correction.valuationLow)}-${formatCurrencyForReport(correction.valuationHigh)} is based on your multiple guidance.`,
+      correction.hasOutOfPeriodItems
+        ? "Out-of-period one-off and TI items were excluded from the TTM recast schedule and kept in their actual fiscal years per the WS2-2 architecture."
+        : "No out-of-period one-off or TI items were detected in the TTM recast schedule.",
+      "",
+    ].join("\n"),
+  );
+
+  const extraFlags = correction.hasOutOfPeriodItems
+    ? [
+        {
+          title: "Out-of-period add-backs were reassigned from TTM to their source fiscal years",
+          description:
+            "One-off and TI items dated outside the TTM window were excluded from the TTM recast schedule and retained only in their actual fiscal years, per WS2-2 architecture requirements.",
+          severity: "HIGH" as const,
+          payload: {
+            source: "WS2_2_PERIOD_ASSIGNMENT_CORRECTION",
+            correctedNormalizedEbitda: correction.correctedNormalizedTtm,
+            correctedTotalAddbacks: correction.ttmAddbacks,
+          },
+        },
+      ]
+    : [];
+
+  return {
+    reportMarkdown,
+    metrics: {
+      startingEbitda: args.analysis.ttmSummary?.ebitdaPreRecast ?? null,
+      normalizedEbitda: correction.correctedNormalizedTtm,
+      valuationLow: correction.valuationLow,
+      valuationMid: correction.valuationMid,
+      valuationHigh: correction.valuationHigh,
+    },
+    extraFlags,
+  };
+}
+
 export function extractWs2RecastMetrics(reportMarkdown: string) {
   const startingEbitdaMatch =
     reportMarkdown.match(/Starting TTM 4-Wall EBITDA \(Pre-Recast\):\s*\$([0-9,().-]+)/i) ??
@@ -105,35 +527,6 @@ export function extractWs2RecastFlagPayloads(reportMarkdown: string) {
         } as Record<string, unknown>,
       };
     });
-}
-
-function parseYearMonthReference(value: string) {
-  const monthMatch = value.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i);
-  if (monthMatch) {
-    const months = {
-      january: "01",
-      february: "02",
-      march: "03",
-      april: "04",
-      may: "05",
-      june: "06",
-      july: "07",
-      august: "08",
-      september: "09",
-      october: "10",
-      november: "11",
-      december: "12",
-    } as const;
-    return `${monthMatch[2]}-${months[monthMatch[1].toLowerCase() as keyof typeof months]}`;
-  }
-
-  const yearMatch = value.match(/\b(20\d{2})\b/);
-  if (yearMatch) return `${yearMatch[1]}-01`;
-  return null;
-}
-
-function compareMonthKey(a: string, b: string) {
-  return a.localeCompare(b);
 }
 
 export function extractWs2RecastControlFlags(
@@ -214,7 +607,7 @@ export function extractWs2RecastControlFlags(
     for (const match of outOfPeriodMatches) {
       const category = match.category;
       const description = match.description;
-      const dateHint = parseYearMonthReference(match.period);
+      const dateHint = parsePeriodReference(match.period);
       if (!dateHint || compareMonthKey(dateHint, ttmStartMonth) >= 0) continue;
 
       flags.push({

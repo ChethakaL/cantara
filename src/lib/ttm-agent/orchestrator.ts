@@ -26,6 +26,7 @@ import { generateWs22Report, generateWs23Report, generateWs24Report, generateWs2
 import { buildWorkingCapitalSummary } from "@/lib/ttm-agent/wc-calculator";
 import { TTM_AGENT_MAX_TOKENS, TTM_AGENT_MODEL, TTM_AGENT_TEMPERATURE, WS2_RECAST_MAX_TOKENS } from "@/lib/ttm-agent/prompt";
 import {
+  applyWs22SpecCorrections,
   buildWs2WorkbookBuffer,
   extractWs2RecastFlagPayloads,
   extractWs2RecastMetrics,
@@ -878,6 +879,107 @@ function buildWs22PromptContent(args: {
 }
 
 function buildWs2DerivedPromptPayload(analysis: TtmAnalysisView, recast: Ws2RecastView | null) {
+  const getCategoryValue = (
+    rows: Array<{ code?: string; value?: number }> | undefined | null,
+    codes: string[],
+  ) => rows?.reduce((sum, row) => sum + (codes.includes(row.code ?? "") ? row.value ?? 0 : 0), 0) ?? 0;
+
+  const benchmarkGroups = [
+    { key: "cogs", label: "COGS", codes: ["COGS-SUPPLY", "COGS-RETAIL", "COGS-OTHER"], low: 0, high: 5 },
+    { key: "marketing", label: "Marketing", codes: ["OPX-MKTG"], low: 3, high: 5 },
+    { key: "directLabor", label: "Direct Labor", codes: ["OPX-LABOR-STAFF", "OPX-LABOR-MGMT"], low: 35, high: 45 },
+    { key: "payrollTaxesBenefits", label: "Payroll Taxes & Benefits", codes: ["OPX-LABOR-TAX"], low: 2, high: 5 },
+    { key: "buildingRent", label: "Building Rent", codes: ["OPX-RENT", "OPX-RENT-NNN"], low: 10, high: 15 },
+    { key: "otherBuilding", label: "Other Building", codes: ["OPX-UTIL", "OPX-REPAIR"], low: 3, high: 5 },
+    { key: "businessOperations", label: "Business Operations", codes: ["OPX-SOFT", "OPX-INSUR", "OPX-BANK", "OPX-PROF"], low: 7, high: 12 },
+    { key: "other", label: "Other", codes: ["OPX-MEALS", "OPX-TRAVEL", "OPX-DONAT", "OPX-GIFTS", "OPX-VET", "OPX-OTHER"], low: null, high: null },
+  ] as const;
+
+  const buildPeriodBenchmark = (
+    periodLabel: string,
+    revenue: number,
+    cogsRows: Array<{ code?: string; value?: number }> | undefined | null,
+    opExRows: Array<{ code?: string; value?: number }> | undefined | null,
+  ) => ({
+    periodLabel,
+    revenue,
+    categories: benchmarkGroups.map((group) => {
+      const sourceRows = group.codes.some((code) => code.startsWith("COGS-")) ? cogsRows : opExRows;
+      const amount = getCategoryValue(sourceRows, group.codes as unknown as string[]);
+      return {
+        key: group.key,
+        label: group.label,
+        benchmarkLowPct: group.low,
+        benchmarkHighPct: group.high,
+        amount,
+        pctOfRevenue: revenue > 0 ? (amount / revenue) * 100 : null,
+      };
+    }),
+  });
+
+  const benchmarkComparison = {
+    categorizationRules: {
+      cogs: ["COGS-SUPPLY", "COGS-RETAIL", "COGS-OTHER"],
+      marketing: ["OPX-MKTG"],
+      directLabor: ["OPX-LABOR-STAFF", "OPX-LABOR-MGMT"],
+      payrollTaxesBenefits: ["OPX-LABOR-TAX"],
+      buildingRent: ["OPX-RENT", "OPX-RENT-NNN"],
+      otherBuilding: ["OPX-UTIL", "OPX-REPAIR"],
+      businessOperations: ["OPX-SOFT", "OPX-INSUR", "OPX-BANK", "OPX-PROF"],
+      other: ["OPX-MEALS", "OPX-TRAVEL", "OPX-DONAT", "OPX-GIFTS", "OPX-VET", "OPX-OTHER"],
+    },
+    excludedCodes: ["OPX-LABOR-OWN", "OPX-DEPR", "OPX-INT"],
+    periods: [
+      ...(analysis.annualModel?.years ?? []).map((year) =>
+        buildPeriodBenchmark(year.fiscalYear, year.totalRevenue, year.cogsByCategory, year.opExByCategory),
+      ),
+      buildPeriodBenchmark(
+        "TTM",
+        analysis.ttmSummary?.totalRevenue ?? 0,
+        analysis.ttmSummary?.cogsByCategory,
+        analysis.ttmSummary?.opExByCategory,
+      ),
+    ],
+  };
+
+  const buildLaborPeriod = (periodLabel: string, revenue: number, opExRows: Array<{ code?: string; value?: number }> | undefined | null) => {
+    const staffLabor = getCategoryValue(opExRows, ["OPX-LABOR-STAFF"]);
+    const managementLabor = getCategoryValue(opExRows, ["OPX-LABOR-MGMT"]);
+    const ownerComp = getCategoryValue(opExRows, ["OPX-LABOR-OWN"]);
+    const payrollTaxesBenefits = getCategoryValue(opExRows, ["OPX-LABOR-TAX"]);
+    const tipsPaidOut = getCategoryValue(opExRows, ["OPX-TIPS-OUT"]);
+    const allInLabor = staffLabor + managementLabor + ownerComp + payrollTaxesBenefits + tipsPaidOut;
+    const buyerAdjustedLabor =
+      staffLabor + managementLabor + (periodLabel === "TTM" ? recast?.assumptions?.replacementSalary ?? 0 : recast?.assumptions?.replacementSalary ?? 0) + payrollTaxesBenefits;
+
+    return {
+      periodLabel,
+      revenue,
+      staffLabor,
+      managementLabor,
+      ownerComp,
+      payrollTaxesBenefits,
+      tipsPaidOut,
+      directLaborExcludingOwner: staffLabor + managementLabor,
+      allInLabor,
+      buyerAdjustedLabor,
+      directLaborPct: revenue > 0 ? ((staffLabor + managementLabor) / revenue) * 100 : null,
+      allInLaborPct: revenue > 0 ? (allInLabor / revenue) * 100 : null,
+      buyerAdjustedLaborPct: revenue > 0 ? (buyerAdjustedLabor / revenue) * 100 : null,
+    };
+  };
+
+  const laborAnalysis = {
+    benchmarkRangePct: { low: 35, high: 45 },
+    ownerCompMustBeSeparate: true,
+    periods: [
+      ...(analysis.annualModel?.years ?? []).map((year) =>
+        buildLaborPeriod(year.fiscalYear, year.totalRevenue, year.opExByCategory),
+      ),
+      buildLaborPeriod("TTM", analysis.ttmSummary?.totalRevenue ?? 0, analysis.ttmSummary?.opExByCategory),
+    ],
+  };
+
   return {
     structuredModel: analysis.structuredModel,
     normalizedData: analysis.normalizedData,
@@ -886,6 +988,8 @@ function buildWs2DerivedPromptPayload(analysis: TtmAnalysisView, recast: Ws2Reca
     workingCapital: analysis.workingCapital,
     dataQualityReport: analysis.dataQualityReport,
     reportMarkdown: analysis.reportMarkdown,
+    benchmarkComparison,
+    laborAnalysis,
     recast: recast
       ? {
           assumptions: recast.assumptions,
@@ -987,9 +1091,17 @@ export async function runWs2RecastAnalysis(args: {
         preparedDocuments: args.preparedDocuments,
       }),
     );
-    const reportMarkdown = rawReportMarkdown;
-    const metrics = extractWs2RecastMetrics(reportMarkdown);
-    const flagPayloads = extractWs2RecastFlagPayloads(reportMarkdown);
+    const corrected = applyWs22SpecCorrections({
+      reportMarkdown: rawReportMarkdown,
+      analysis,
+      assumptions: normalizedAssumptions,
+    });
+    const reportMarkdown = corrected.reportMarkdown;
+    const metrics = corrected.metrics;
+    const flagPayloads = [
+      ...extractWs2RecastFlagPayloads(reportMarkdown),
+      ...corrected.extraFlags,
+    ];
 
     // V3 Section 10: Default salary flag
     if (usedDefaultSalary) {

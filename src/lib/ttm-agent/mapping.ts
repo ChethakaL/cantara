@@ -103,6 +103,33 @@ function getCandidateEntries(row: NormalizedLedgerRow, statementKind: "pl" | "bs
   return allowedEntries.filter((entry) => prefixTypes.has(entry.type));
 }
 
+function getExplicitMappingOverride(row: NormalizedLedgerRow, statementKind: "pl" | "bs"): MappingProjection | null {
+  if (statementKind !== "pl") return null;
+
+  const normalizedAccount = normalizeText(`${row.accountCode ?? ""} ${row.accountName}`);
+  if (!normalizedAccount) return null;
+
+  const maxAbsMonthlyValue = Math.max(...Object.values(row.valuesByMonth).map((value) => Math.abs(value)), 0);
+  const isMajor = maxAbsMonthlyValue >= 1000 || Math.abs(row.total) >= 12000;
+
+  // WS2 architecture requires any owner/officer/family compensation to map to OPX-LABOR-OWN.
+  const ownerCompPattern =
+    /\b(officer|owner|member distributions?|shareholder|share holder|partner draw|owner draw|s corp|s-corp|family member)\b/;
+  if (ownerCompPattern.test(normalizedAccount)) {
+    return {
+      cantaraCode: "OPX-LABOR-OWN",
+      category: "Owner Compensation",
+      categoryType: "opex",
+      mappingMethod: "alias",
+      mappingConfidence: 0.99,
+      candidateCodes: ["OPX-LABOR-OWN", "OPX-LABOR-MGMT", "OPX-LABOR-TAX"],
+      isMajor,
+    };
+  }
+
+  return null;
+}
+
 function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs"): MappingProjection {
   if (shouldExcludeFromMapping(row, statementKind)) {
     const maxAbsMonthlyValue = Math.max(...Object.values(row.valuesByMonth).map((value) => Math.abs(value)), 0);
@@ -116,6 +143,11 @@ function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs
       candidateCodes: [],
       isMajor,
     };
+  }
+
+  const explicitOverride = getExplicitMappingOverride(row, statementKind);
+  if (explicitOverride) {
+    return explicitOverride;
   }
 
   const candidateEntries = getCandidateEntries(row, statementKind);

@@ -1086,6 +1086,12 @@ Group the Cantara-coded expenses into these benchmark categories:
 DO NOT include OPX-LABOR-OWN (owner compensation) in the benchmark comparison — it will be addressed separately in the recast.
 DO NOT include OPX-DEPR or OPX-INT — these are excluded from EBITDA and benchmarking.
 
+IMPORTANT SOURCE-OF-TRUTH RULE:
+- If the input payload includes a precomputed `benchmarkComparison` object, use that object as the source of truth for all benchmark table amounts and percentages.
+- Do NOT re-bucket raw GL lines into different benchmark categories when `benchmarkComparison` is provided.
+- Direct Labor must always equal OPX-LABOR-STAFF + OPX-LABOR-MGMT only.
+- Owner compensation must remain excluded from WS2-4 benchmark calculations even if owner wages appear in labor-related GL lines.
+
 FLAG THRESHOLDS:
 - More than 3 percentage points above the HIGH benchmark: RED FLAG
 - 1–3 percentage points above HIGH: YELLOW FLAG  
@@ -1149,6 +1155,12 @@ ALL-IN LABOR = OPX-LABOR-STAFF + OPX-LABOR-MGMT + OPX-LABOR-OWN + OPX-LABOR-TAX 
 
 BUYER-ADJUSTED LABOR = OPX-LABOR-STAFF + OPX-LABOR-MGMT + Replacement Manager Salary + OPX-LABOR-TAX
 (This is what labor will cost after the sale: no owner compensation, but add back the replacement manager salary)
+
+IMPORTANT SOURCE-OF-TRUTH RULE:
+- If the input payload includes a precomputed `laborAnalysis` object, use that object as the source of truth for labor category amounts and percentages.
+- Owner compensation must be shown separately from management labor whenever owner/officer compensation exists.
+- Do NOT merge owner compensation into management labor in the WS2-5 output.
+- Direct Labor benchmark comparison must use staff + management only, excluding owner compensation.
 
 CALCULATIONS:
 1. All-in labor as % of TTM revenue
