@@ -79,29 +79,6 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
     }
   }
 
-  const waitForDocument = async (attempts = 6, delayMs = 1500) => {
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      try {
-        logDebug('Polling for uploaded insurance document', { attempt, attempts })
-        const res = await fetch(`/api/insurance-review?clientId=${clientId}`, { cache: 'no-store' })
-        if (!res.ok) continue
-        const data = await res.json()
-        if (data.document) {
-          logDebug('Found uploaded insurance document after polling', data)
-          setDocument(data.document)
-          setSummary(data.summary)
-          return true
-        }
-      } catch (pollError) {
-        console.error('[InsuranceReviewTab] Polling failed', pollError)
-      }
-
-      await new Promise(resolve => setTimeout(resolve, delayMs))
-    }
-
-    return false
-  }
-
   const resetInsuranceReview = async () => {
     logDebug('Resetting insurance review', { clientId })
     setDeleting(true)
@@ -142,8 +119,6 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
       })
       setUploading(true)
       setError(null)
-      const controller = new AbortController()
-      const timeout = window.setTimeout(() => controller.abort('upload-timeout'), 45000)
       try {
         const form = new FormData()
         form.append('file', file)
@@ -153,7 +128,6 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
         const res = await fetch('/api/client-documents/upload', {
           method: 'POST',
           body: form,
-          signal: controller.signal,
         })
         if (!res.ok) {
           const text = await res.text().catch(() => '')
@@ -163,21 +137,9 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
         logDebug('Insurance PDF upload request completed', data)
         await load()
       } catch (err: any) {
-        const aborted = err?.name === 'AbortError' || err === 'upload-timeout' || err?.message === 'upload-timeout'
-        if (aborted) {
-          logDebug('Upload request timed out locally, checking whether server completed upload')
-          const found = await waitForDocument()
-          if (found) {
-            setError('Upload took too long to return, but the document was saved. The view has been refreshed.')
-          } else {
-            setError('Upload timed out before the server responded. Check the network tab and server logs.')
-          }
-        } else {
-          console.error('[InsuranceReviewTab] Upload failed', err)
-          setError(err?.message ?? 'Failed to upload insurance claim PDF')
-        }
+        console.error('[InsuranceReviewTab] Upload failed', err)
+        setError(err?.message ?? 'Failed to upload insurance claim PDF')
       } finally {
-        window.clearTimeout(timeout)
         logDebug('Insurance PDF upload flow finished')
         setUploading(false)
       }
@@ -235,7 +197,13 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
               <input {...getInputProps()} />
               {uploading ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" /> : document ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <Upload className="w-3.5 h-3.5 shrink-0" />}
               <span className="truncate">
-                {uploading ? 'Uploading...' : document ? 'Replace PDF' : isDragActive ? 'Drop PDF here' : 'Upload PDF'}
+                {uploading
+                  ? 'Uploading & analyzing...'
+                  : document
+                  ? 'Replace PDF'
+                  : isDragActive
+                  ? 'Drop PDF here'
+                  : 'Upload PDF'}
               </span>
             </div>
             {document && (
@@ -246,7 +214,7 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
                 disabled={running || uploading || deleting}
               >
                 {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                {deleting ? 'Deleting...' : 'Start Over'}
+                {deleting ? 'Deleting...' : 'Delete'}
               </Button>
             )}
             <Button size="sm" onClick={() => void runAgent()} disabled={!document || running || uploading || deleting}>
