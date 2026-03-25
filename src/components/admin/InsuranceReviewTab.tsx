@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Bot, CheckCircle, FileText, Loader2, RefreshCw, Upload } from 'lucide-react'
+import { Bot, CheckCircle, FileText, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { Badge, Button } from '@/components/ui'
 import { getAdminEmail } from '@/lib/store'
 
@@ -24,21 +24,29 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [document, setDocument] = useState<{ id: string; fileName: string; createdAt?: string } | null>(null)
   const [summary, setSummary] = useState<InsuranceSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
   const adminEmail = getAdminEmail()
 
+  const logDebug = (...args: unknown[]) => {
+    console.debug('[InsuranceReviewTab]', ...args)
+  }
+
   const load = async () => {
+    logDebug('Loading insurance review state', { clientId })
     setLoading(true)
     setError(null)
     try {
       const res = await fetch(`/api/insurance-review?clientId=${clientId}`)
       if (!res.ok) throw new Error('Failed to load insurance review')
       const data = await res.json()
+      logDebug('Loaded insurance review state', data)
       setDocument(data.document)
       setSummary(data.summary)
     } catch (err: any) {
+      console.error('[InsuranceReviewTab] Load failed', err)
       setError(err?.message ?? 'Failed to load insurance review')
     } finally {
       setLoading(false)
@@ -46,6 +54,7 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
   }
 
   const runAgent = async () => {
+    logDebug('Running insurance review agent', { clientId })
     setRunning(true)
     setError(null)
     try {
@@ -59,12 +68,61 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
         throw new Error(text || 'Insurance Review Agent failed')
       }
       const data = await res.json()
+      logDebug('Insurance review agent completed', data)
       setDocument(data.document)
       setSummary(data.summary)
     } catch (err: any) {
+      console.error('[InsuranceReviewTab] Agent run failed', err)
       setError(err?.message ?? 'Insurance Review Agent failed')
     } finally {
       setRunning(false)
+    }
+  }
+
+  const waitForDocument = async (attempts = 6, delayMs = 1500) => {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        logDebug('Polling for uploaded insurance document', { attempt, attempts })
+        const res = await fetch(`/api/insurance-review?clientId=${clientId}`, { cache: 'no-store' })
+        if (!res.ok) continue
+        const data = await res.json()
+        if (data.document) {
+          logDebug('Found uploaded insurance document after polling', data)
+          setDocument(data.document)
+          setSummary(data.summary)
+          return true
+        }
+      } catch (pollError) {
+        console.error('[InsuranceReviewTab] Polling failed', pollError)
+      }
+
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+
+    return false
+  }
+
+  const resetInsuranceReview = async () => {
+    logDebug('Resetting insurance review', { clientId })
+    setDeleting(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/insurance-review?clientId=${clientId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Failed to reset insurance review')
+      }
+
+      setDocument(null)
+      setSummary(null)
+      logDebug('Insurance review reset complete', { clientId })
+    } catch (err: any) {
+      console.error('[InsuranceReviewTab] Reset failed', err)
+      setError(err?.message ?? 'Failed to reset insurance review')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -75,26 +133,52 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: async (files) => {
       if (!files[0] || !adminEmail) return
+      const file = files[0]
+      logDebug('Starting insurance PDF upload', {
+        clientId,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+      })
       setUploading(true)
       setError(null)
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort('upload-timeout'), 45000)
       try {
         const form = new FormData()
-        form.append('file', files[0])
+        form.append('file', file)
         form.append('clientId', clientId)
         form.append('documentId', 'insurance_claims_12m')
         form.append('uploaderEmail', adminEmail)
         const res = await fetch('/api/client-documents/upload', {
           method: 'POST',
           body: form,
+          signal: controller.signal,
         })
         if (!res.ok) {
           const text = await res.text().catch(() => '')
           throw new Error(text || 'Failed to upload insurance claim PDF')
         }
+        const data = await res.json()
+        logDebug('Insurance PDF upload request completed', data)
         await load()
       } catch (err: any) {
-        setError(err?.message ?? 'Failed to upload insurance claim PDF')
+        const aborted = err?.name === 'AbortError' || err === 'upload-timeout' || err?.message === 'upload-timeout'
+        if (aborted) {
+          logDebug('Upload request timed out locally, checking whether server completed upload')
+          const found = await waitForDocument()
+          if (found) {
+            setError('Upload took too long to return, but the document was saved. The view has been refreshed.')
+          } else {
+            setError('Upload timed out before the server responded. Check the network tab and server logs.')
+          }
+        } else {
+          console.error('[InsuranceReviewTab] Upload failed', err)
+          setError(err?.message ?? 'Failed to upload insurance claim PDF')
+        }
       } finally {
+        window.clearTimeout(timeout)
+        logDebug('Insurance PDF upload flow finished')
         setUploading(false)
       }
     },
@@ -154,7 +238,18 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
                 {uploading ? 'Uploading...' : document ? 'Replace PDF' : isDragActive ? 'Drop PDF here' : 'Upload PDF'}
               </span>
             </div>
-            <Button size="sm" onClick={() => void runAgent()} disabled={!document || running || uploading}>
+            {document && (
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => void resetInsuranceReview()}
+                disabled={running || uploading || deleting}
+              >
+                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                {deleting ? 'Deleting...' : 'Start Over'}
+              </Button>
+            )}
+            <Button size="sm" onClick={() => void runAgent()} disabled={!document || running || uploading || deleting}>
               {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
               {running ? 'Running...' : 'Run Agent'}
             </Button>

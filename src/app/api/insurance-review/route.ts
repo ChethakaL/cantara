@@ -1,5 +1,6 @@
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseStoredInsuranceReview, serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 import { assertS3Configured, s3BucketName, s3Client } from "@/lib/s3";
@@ -131,6 +132,78 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Insurance review run error:", error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    assertS3Configured();
+    const clientId = req.nextUrl.searchParams.get("clientId");
+
+    if (!clientId) {
+      return new Response("Missing clientId", { status: 400 });
+    }
+
+    const documents = await (prisma as any).clientDocument.findMany({
+      where: {
+        clientId,
+        documentId: "insurance_claims_12m",
+      },
+      select: {
+        id: true,
+        localPath: true,
+        storageBucket: true,
+      },
+    });
+
+    console.info("[insurance-review] Reset requested", {
+      clientId,
+      documentCount: documents.length,
+    });
+
+    for (const document of documents) {
+      if (!document.localPath) continue;
+      try {
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: document.storageBucket || s3BucketName,
+          Key: document.localPath,
+        }));
+      } catch (storageError) {
+        console.error("[insurance-review] Failed to delete S3 object", {
+          clientId,
+          documentId: document.id,
+          key: document.localPath,
+          storageError,
+        });
+      }
+    }
+
+    await (prisma as any).clientDocument.deleteMany({
+      where: {
+        clientId,
+        documentId: "insurance_claims_12m",
+      },
+    });
+
+    try {
+      await (prisma as any).clientDocumentStatus.delete({
+        where: {
+          clientId_documentId: {
+            clientId,
+            documentId: "insurance_claims_12m",
+          },
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025")) {
+        throw error;
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Insurance review reset error:", error);
     return new Response("Internal Server Error", { status: 500 });
   }
 }

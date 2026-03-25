@@ -5,6 +5,7 @@ import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "
 import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   try {
     assertS3Configured();
     const form = await req.formData();
@@ -16,6 +17,15 @@ export async function POST(req: NextRequest) {
     if (!(file instanceof File) || !clientId || !documentId || !uploaderEmail) {
       return new Response("Missing upload fields", { status: 400 });
     }
+
+    console.info("[client-documents/upload] Start", {
+      clientId,
+      documentId,
+      uploaderEmail,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+    });
 
     const user = await prisma.user.findUnique({ where: { email: uploaderEmail } });
     if (!user) {
@@ -34,6 +44,12 @@ export async function POST(req: NextRequest) {
         ContentType: file.type || "application/octet-stream",
       }),
     );
+    console.info("[client-documents/upload] Stored in S3", {
+      clientId,
+      documentId,
+      key,
+      elapsedMs: Date.now() - startedAt,
+    });
     const publicUrl = buildPublicFileUrl(key);
 
     const document = await (prisma as any).clientDocument.create({
@@ -50,9 +66,21 @@ export async function POST(req: NextRequest) {
         googleDriveFileId: publicUrl,
       },
     });
+    console.info("[client-documents/upload] Document row created", {
+      clientId,
+      documentId,
+      documentRecordId: document.id,
+      elapsedMs: Date.now() - startedAt,
+    });
 
     if (documentId === "insurance_claims_12m" && (file.type || "").includes("pdf")) {
       try {
+        const reviewStartedAt = Date.now();
+        console.info("[client-documents/upload] Starting insurance auto-review", {
+          clientId,
+          documentId,
+          documentRecordId: document.id,
+        });
         const review = await summarizeInsuranceClaimPdf({
           fileName: file.name,
           base64: bytes.toString("base64"),
@@ -70,6 +98,13 @@ export async function POST(req: NextRequest) {
             aiReviewedAt: new Date(),
           },
         });
+        console.info("[client-documents/upload] Insurance auto-review complete", {
+          clientId,
+          documentId,
+          documentRecordId: document.id,
+          reviewElapsedMs: Date.now() - reviewStartedAt,
+          totalElapsedMs: Date.now() - startedAt,
+        });
       } catch (reviewError) {
         console.error("Insurance review error:", reviewError);
         await (prisma as any).clientDocument.update({
@@ -81,6 +116,12 @@ export async function POST(req: NextRequest) {
             aiReviewFlags: ["Automatic insurance review failed."],
             aiReviewedAt: new Date(),
           },
+        });
+        console.error("[client-documents/upload] Insurance auto-review failed", {
+          clientId,
+          documentId,
+          documentRecordId: document.id,
+          totalElapsedMs: Date.now() - startedAt,
         });
       }
     }
@@ -108,6 +149,13 @@ export async function POST(req: NextRequest) {
         uploadedAt: new Date(),
         notApplicable: false,
       },
+    });
+
+    console.info("[client-documents/upload] Completed", {
+      clientId,
+      documentId,
+      documentRecordId: document.id,
+      totalElapsedMs: Date.now() - startedAt,
     });
 
     return NextResponse.json({
