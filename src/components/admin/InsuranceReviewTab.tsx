@@ -67,6 +67,16 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
     const intervalMs = 2000
     const pollStarted = Date.now()
     let attempt = 0
+    const refreshState = async () => {
+      const res = await fetch(`/api/insurance-review?clientId=${encodeURIComponent(clientId)}`, {
+        cache: 'no-store',
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (!mountedRef.current) return
+      setDocument(data.document)
+      setSummary(data.summary)
+    }
 
     while (Date.now() - pollStarted < maxMs && mountedRef.current) {
       attempt += 1
@@ -98,11 +108,11 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
           })
 
           if (rs !== 'processing') {
-            console.info('[InsuranceReviewTab] poll done — review no longer processing, reloading page', {
+            console.info('[InsuranceReviewTab] poll done — review no longer processing, refreshing component', {
               reviewStatus: rs,
               totalPollSec: elapsedSec,
             })
-            window.location.reload()
+            await refreshState()
             return
           }
         }
@@ -114,8 +124,11 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
     }
 
     if (mountedRef.current) {
-      console.warn('[InsuranceReviewTab] poll timed out — reloading to sync with server', { clientId })
-      window.location.reload()
+      console.warn('[InsuranceReviewTab] poll timed out — refreshing component to sync with server', { clientId })
+      await refreshState()
+      if (mountedRef.current) {
+        setError('Still processing. Please wait a bit more or click Run Agent.')
+      }
     }
   }, [clientId])
 
@@ -162,8 +175,8 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
         throw new Error(text || 'Insurance Review Agent failed')
       }
       await res.json()
-      logDebug('Insurance review agent completed — reloading page')
-      window.location.reload()
+      logDebug('Insurance review agent completed — refreshing component')
+      await load({ silent: true })
     } catch (err: any) {
       console.error('[InsuranceReviewTab] Agent run failed', err)
       setError(err?.message ?? 'Insurance Review Agent failed')
@@ -197,8 +210,8 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
       }
 
       await res.json().catch(() => ({}))
-      logDebug('Insurance review reset complete — reloading page', { clientId })
-      window.location.reload()
+      logDebug('Insurance review reset complete — refreshing component', { clientId })
+      await load({ silent: true })
     } catch (err: any) {
       console.error('[InsuranceReviewTab] Reset failed — re-fetching from server', err)
       await load({ silent: true })
@@ -282,8 +295,7 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
           await pollUntilInsuranceReady()
         } else {
           await load({ silent: true })
-          console.info('[InsuranceReviewTab] upload done — reloading page')
-          window.location.reload()
+          console.info('[InsuranceReviewTab] upload done — component refreshed')
         }
       } catch (err: any) {
         console.error('[InsuranceReviewTab] Upload failed', err)

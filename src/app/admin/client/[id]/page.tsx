@@ -216,11 +216,33 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
   useEffect(() => {
     if (!client) return
-    const interval = setInterval(async () => {
-      const refreshed = await getClient(id)
-      if (refreshed) setClient(refreshed)
-    }, 3000)
-    return () => clearInterval(interval)
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const poll = async () => {
+      const startedAt = Date.now()
+      try {
+        const refreshed = await getClient(id)
+        if (!cancelled && refreshed) setClient(refreshed)
+      } finally {
+        if (cancelled) return
+        // Avoid overlapping polls: schedule next run only after this one completes.
+        const elapsed = Date.now() - startedAt
+        const delay = Math.max(4000, 8000 - elapsed)
+        timer = setTimeout(() => {
+          void poll()
+        }, delay)
+      }
+    }
+
+    timer = setTimeout(() => {
+      void poll()
+    }, 4000)
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   }, [id, client])
 
   if (!client) {
