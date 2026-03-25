@@ -1,6 +1,5 @@
 import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseStoredInsuranceReview, serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 import { assertS3Configured, s3BucketName, s3Client } from "@/lib/s3";
@@ -46,6 +45,7 @@ export async function GET(req: NextRequest) {
         id: document.id,
         fileName: document.fileName,
         createdAt: document.createdAt.toISOString(),
+        reviewStatus: document.aiReviewStatus ?? null,
       },
       summary: parsedReview
         ? {
@@ -137,6 +137,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const startedAt = Date.now();
   try {
     assertS3Configured();
     const clientId = req.nextUrl.searchParams.get("clientId");
@@ -160,6 +161,7 @@ export async function DELETE(req: NextRequest) {
     console.info("[insurance-review] Reset requested", {
       clientId,
       documentCount: documents.length,
+      elapsedMs: Date.now() - startedAt,
     });
 
     for (const document of documents) {
@@ -169,6 +171,12 @@ export async function DELETE(req: NextRequest) {
           Bucket: document.storageBucket || s3BucketName,
           Key: document.localPath,
         }));
+        console.info("[insurance-review] Deleted S3 object", {
+          clientId,
+          documentId: document.id,
+          key: document.localPath,
+          elapsedMs: Date.now() - startedAt,
+        });
       } catch (storageError) {
         console.error("[insurance-review] Failed to delete S3 object", {
           clientId,
@@ -179,27 +187,34 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    await (prisma as any).clientDocument.deleteMany({
+    const deletedDocuments = await (prisma as any).clientDocument.deleteMany({
       where: {
         clientId,
         documentId: "insurance_claims_12m",
       },
     });
+    console.info("[insurance-review] Deleted document rows", {
+      clientId,
+      count: deletedDocuments.count,
+      elapsedMs: Date.now() - startedAt,
+    });
 
-    try {
-      await (prisma as any).clientDocumentStatus.delete({
-        where: {
-          clientId_documentId: {
-            clientId,
-            documentId: "insurance_claims_12m",
-          },
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025")) {
-        throw error;
-      }
-    }
+    const deletedStatuses = await (prisma as any).clientDocumentStatus.deleteMany({
+      where: {
+        clientId,
+        documentId: "insurance_claims_12m",
+      },
+    });
+    console.info("[insurance-review] Deleted document status rows", {
+      clientId,
+      count: deletedStatuses.count,
+      elapsedMs: Date.now() - startedAt,
+    });
+
+    console.info("[insurance-review] Reset complete", {
+      clientId,
+      elapsedMs: Date.now() - startedAt,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
