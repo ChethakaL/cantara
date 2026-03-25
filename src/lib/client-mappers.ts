@@ -26,6 +26,10 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
           fileName: doc.fileName,
           fileUrl: doc.googleDriveFileId ?? null,
           uploadedAt: doc.createdAt.toISOString(),
+          aiReviewSummary: doc.aiReviewSummary ?? null,
+          aiReviewStatus: doc.aiReviewStatus ?? null,
+          aiDetectedType: doc.aiDetectedType ?? null,
+          aiReviewFlags: doc.aiReviewFlags ?? [],
         },
       ]),
   );

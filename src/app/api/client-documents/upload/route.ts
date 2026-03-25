@@ -2,6 +2,7 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
+import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,6 +50,40 @@ export async function POST(req: NextRequest) {
         googleDriveFileId: publicUrl,
       },
     });
+
+    if (documentId === "insurance_claims_12m" && (file.type || "").includes("pdf")) {
+      try {
+        const review = await summarizeInsuranceClaimPdf({
+          fileName: file.name,
+          base64: bytes.toString("base64"),
+        });
+
+        await (prisma as any).clientDocument.update({
+          where: { id: document.id },
+          data: {
+            aiDetectedType: review.claimType || "insurance_claim",
+            aiReviewStatus: review.status || "complete",
+            aiReviewSummary: serializeInsuranceReview(review),
+            aiReviewFlags: review.withinLast12Months === false
+              ? [`Claim is older than 12 months${review.incidentDate && review.incidentDate !== "Unknown" ? ` (incident date: ${review.incidentDate})` : ""}.`]
+              : [],
+            aiReviewedAt: new Date(),
+          },
+        });
+      } catch (reviewError) {
+        console.error("Insurance review error:", reviewError);
+        await (prisma as any).clientDocument.update({
+          where: { id: document.id },
+          data: {
+            aiDetectedType: "insurance_claim",
+            aiReviewStatus: "failed",
+            aiReviewSummary: "Insurance Review Agent could not summarize this file automatically.",
+            aiReviewFlags: ["Automatic insurance review failed."],
+            aiReviewedAt: new Date(),
+          },
+        });
+      }
+    }
 
     await (prisma as any).clientDocumentStatus.upsert({
       where: {

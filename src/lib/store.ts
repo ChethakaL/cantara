@@ -44,6 +44,10 @@ export interface UploadedDocument {
   fileName: string
   fileUrl?: string | null
   uploadedAt: string
+  aiReviewSummary?: string | null
+  aiReviewStatus?: string | null
+  aiDetectedType?: string | null
+  aiReviewFlags?: string[]
 }
 
 export interface ChatMessage {
@@ -369,6 +373,16 @@ export function getAdminName(): string {
     if (raw) return JSON.parse(raw)
   } catch {}
   return 'Craig Pollack'
+}
+
+export function getAdminEmail(): string {
+  if (!isBrowser) return ''
+  try {
+    const cookies = document.cookie.split('; ')
+    const cookie = cookies.find(c => c.startsWith('cantara_admin_email='))
+    if (cookie) return decodeURIComponent(cookie.split('=')[1] || '')
+  } catch {}
+  return ''
 }
 
 export function logout() {

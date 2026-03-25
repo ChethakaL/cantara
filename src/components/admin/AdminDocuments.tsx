@@ -1,10 +1,64 @@
 'use client'
 import { useState } from 'react'
-import { CheckCircle, Clock, AlertTriangle, FileText, MessageSquareMore } from 'lucide-react'
+import { useDropzone } from 'react-dropzone'
+import { CheckCircle, Clock, AlertTriangle, FileText, Loader2, MessageSquareMore, Upload } from 'lucide-react'
 import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
 import { VALUATION_DOCS, getDocsForWorkstream } from '@/lib/documentData'
-import { saveRequirement } from '@/lib/store'
+import { parseStoredInsuranceReview } from '@/lib/insurance-review'
+import { getAdminEmail, saveRequirement } from '@/lib/store'
 import type { Client } from '@/lib/store'
+
+function AdminDocumentUpload({ clientId, documentId, currentFileName, onUploaded }: {
+  clientId: string
+  documentId: string
+  currentFileName?: string | null
+  onUploaded: () => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const adminEmail = getAdminEmail()
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: async (files) => {
+      if (!files[0] || !adminEmail) return
+      setUploading(true)
+      try {
+        const form = new FormData()
+        form.append('file', files[0])
+        form.append('clientId', clientId)
+        form.append('documentId', documentId)
+        form.append('uploaderEmail', adminEmail)
+        const res = await fetch('/api/client-documents/upload', {
+          method: 'POST',
+          body: form,
+        })
+        if (res.ok) onUploaded()
+      } finally {
+        setUploading(false)
+      }
+    },
+    multiple: false,
+  })
+
+  return (
+    <div
+      {...getRootProps()}
+      className={`border border-dashed rounded-lg px-3 py-2 cursor-pointer text-xs transition-all flex items-center gap-2 min-w-[140px] ${
+        uploading
+          ? 'border-amber-300 bg-amber-50 text-amber-700'
+          : currentFileName
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : isDragActive
+          ? 'border-amber-400 bg-amber-50 text-amber-600'
+          : 'border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'
+      }`}
+    >
+      <input {...getInputProps()} />
+      {uploading ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" /> : currentFileName ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <Upload className="w-3.5 h-3.5 shrink-0" />}
+      <span className="truncate">
+        {uploading ? 'Uploading...' : currentFileName ? 'Replace file' : isDragActive ? 'Drop file here' : 'Admin upload'}
+      </span>
+    </div>
+  )
+}
 
 const EMPTY_FOLLOW_UP = {
   title: '',
@@ -23,8 +77,10 @@ export default function AdminDocumentsView({ client }: { client: Client }) {
   const [followUpOpen, setFollowUpOpen] = useState(false)
   const [savingFollowUp, setSavingFollowUp] = useState(false)
   const [followUpForm, setFollowUpForm] = useState(EMPTY_FOLLOW_UP)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const getStatus = (docId: string) => documentStatuses[docId]
+  const refreshClientView = () => setRefreshKey(prev => prev + 1)
 
   const openFollowUp = (docId: string, docName: string) => {
     const status = getStatus(docId)
@@ -138,20 +194,48 @@ export default function AdminDocumentsView({ client }: { client: Client }) {
     )
   }
 
+  const renderInsuranceSummary = (docId: string) => {
+    const uploaded = uploadedDocuments[docId]
+    if (!uploaded?.aiReviewSummary && (!uploaded?.aiReviewFlags || uploaded.aiReviewFlags.length === 0)) return null
+    const parsedReview = parseStoredInsuranceReview(uploaded?.aiReviewSummary)
+    return (
+      <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Insurance Review Agent</p>
+        {parsedReview?.summary && <p className="text-xs text-slate-700 mt-1 leading-relaxed">{parsedReview.summary}</p>}
+        {parsedReview?.withinLast12Months === false && uploaded.aiReviewFlags && uploaded.aiReviewFlags.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {uploaded.aiReviewFlags.map((flag, index) => (
+              <p key={`${flag}-${index}`} className="text-xs text-amber-700">{flag}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const renderRow = (doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string }) => (
-    <div key={doc.id} className={`flex items-center gap-3 px-4 py-3 ${doc.flagged ? 'bg-amber-50' : ''}`}>
+    <div key={`${doc.id}-${refreshKey}`} className={`flex items-start gap-3 px-4 py-3 ${doc.flagged ? 'bg-amber-50' : ''}`}>
       {doc.flagged ? <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" /> : <FileText className="w-3.5 h-3.5 text-slate-300 shrink-0" />}
       <div className="flex-1 min-w-0">
         <p className="text-sm text-slate-800">{doc.name}</p>
         {'description' in doc && doc.description && <p className="text-xs text-slate-400 mt-0.5">{doc.description}</p>}
         {doc.flagged && doc.flagNote && <p className="text-xs text-amber-600 mt-0.5">{doc.flagNote}</p>}
+        {doc.id === 'insurance_claims_12m' && renderInsuranceSummary(doc.id)}
       </div>
-      <div className="shrink-0 flex items-center gap-2">
-        {renderStatus(doc.id)}
-        <Button size="sm" variant="outline" onClick={() => openFollowUp(doc.id, doc.name)}>
-          <MessageSquareMore className="w-3.5 h-3.5" />
-          Follow-up Question
-        </Button>
+      <div className="shrink-0 flex flex-col items-end gap-2">
+        <div className="flex items-center gap-2">
+          {renderStatus(doc.id)}
+          <AdminDocumentUpload
+            clientId={client.id}
+            documentId={doc.id}
+            currentFileName={uploadedDocuments[doc.id]?.fileName || getStatus(doc.id)?.fileName}
+            onUploaded={refreshClientView}
+          />
+          <Button size="sm" variant="outline" onClick={() => openFollowUp(doc.id, doc.name)}>
+            <MessageSquareMore className="w-3.5 h-3.5" />
+            Follow-up Question
+          </Button>
+        </div>
       </div>
     </div>
   )

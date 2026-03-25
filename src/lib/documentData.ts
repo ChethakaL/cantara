@@ -115,6 +115,7 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
       { id: 'accounts_payable', name: 'Accounts Payable Aging', description: 'Current A/P aging report.', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'bank_statements', name: 'Bank Statements (12 months)', description: 'Last 12 months of business bank statements.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'loan_docs', name: 'Loan Documents / Line of Credit', description: 'Any outstanding loans or lines of credit.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
+      { id: 'insurance_claims_12m', name: 'Insurance Claims (last 12 months)', description: 'In the last 12 months have you claimed any insurance claims? If yes, upload the insurance claim document.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
     ],
   },
   {

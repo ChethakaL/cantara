@@ -1,0 +1,258 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useDropzone } from 'react-dropzone'
+import { Bot, CheckCircle, FileText, Loader2, RefreshCw, Upload } from 'lucide-react'
+import { Badge, Button } from '@/components/ui'
+import { getAdminEmail } from '@/lib/store'
+
+interface InsuranceSummary {
+  summary: string
+  claimType?: string | null
+  incidentDate?: string | null
+  withinLast12Months?: boolean | null
+  status?: string | null
+  amountClaimed?: string | null
+  amountRequested?: string | null
+  incidentCause?: string | null
+  flags?: string[]
+  keyFacts?: string[]
+  cached?: boolean
+}
+
+export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
+  const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [document, setDocument] = useState<{ id: string; fileName: string; createdAt?: string } | null>(null)
+  const [summary, setSummary] = useState<InsuranceSummary | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const adminEmail = getAdminEmail()
+
+  const load = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/insurance-review?clientId=${clientId}`)
+      if (!res.ok) throw new Error('Failed to load insurance review')
+      const data = await res.json()
+      setDocument(data.document)
+      setSummary(data.summary)
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to load insurance review')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runAgent = async () => {
+    setRunning(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/insurance-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId }),
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Insurance Review Agent failed')
+      }
+      const data = await res.json()
+      setDocument(data.document)
+      setSummary(data.summary)
+    } catch (err: any) {
+      setError(err?.message ?? 'Insurance Review Agent failed')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [clientId])
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: async (files) => {
+      if (!files[0] || !adminEmail) return
+      setUploading(true)
+      setError(null)
+      try {
+        const form = new FormData()
+        form.append('file', files[0])
+        form.append('clientId', clientId)
+        form.append('documentId', 'insurance_claims_12m')
+        form.append('uploaderEmail', adminEmail)
+        const res = await fetch('/api/client-documents/upload', {
+          method: 'POST',
+          body: form,
+        })
+        if (!res.ok) {
+          const text = await res.text().catch(() => '')
+          throw new Error(text || 'Failed to upload insurance claim PDF')
+        }
+        await load()
+      } catch (err: any) {
+        setError(err?.message ?? 'Failed to upload insurance claim PDF')
+      } finally {
+        setUploading(false)
+      }
+    },
+    multiple: false,
+  })
+
+  if (loading) {
+    return (
+      <div className="py-12 flex justify-center">
+        <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+      </div>
+    )
+  }
+
+  const hasStructuredFields = Boolean(
+    summary && (
+      summary.incidentDate && summary.incidentDate !== 'Unknown' ||
+      summary.withinLast12Months !== null && summary.withinLast12Months !== undefined ||
+      summary.incidentCause && summary.incidentCause !== 'Unknown' ||
+      summary.amountRequested && summary.amountRequested !== 'Unknown' ||
+      summary.amountClaimed && summary.amountClaimed !== 'Unknown' ||
+      summary.keyFacts && summary.keyFacts.length > 0
+    )
+  )
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-amber-50 border border-amber-200">
+                <Bot className="w-4 h-4 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Insurance Review Agent</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Summarizes uploaded insurance claim PDFs for advisor review.</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div
+              {...getRootProps()}
+              className={`border border-dashed rounded-lg px-3 py-2 cursor-pointer text-xs transition-all flex items-center gap-2 min-w-[148px] ${
+                uploading
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : document
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : isDragActive
+                  ? 'border-amber-400 bg-amber-50 text-amber-600'
+                  : 'border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'
+              }`}
+            >
+              <input {...getInputProps()} />
+              {uploading ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" /> : document ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <Upload className="w-3.5 h-3.5 shrink-0" />}
+              <span className="truncate">
+                {uploading ? 'Uploading...' : document ? 'Replace PDF' : isDragActive ? 'Drop PDF here' : 'Upload PDF'}
+              </span>
+            </div>
+            <Button size="sm" onClick={() => void runAgent()} disabled={!document || running || uploading}>
+              {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {running ? 'Running...' : 'Run Agent'}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </div>
+      )}
+
+      {!document && (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center text-sm text-slate-400">
+          No insurance claim PDF uploaded yet. The admin can upload it directly here, then run the Insurance Review Agent.
+        </div>
+      )}
+
+      {document && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+          <div className="flex items-center gap-2 text-sm text-slate-700">
+            <FileText className="w-4 h-4 text-slate-400" />
+            <span>{document.fileName}</span>
+            {summary?.status && <Badge color="blue">{summary.status}</Badge>}
+          </div>
+          {summary ? (
+            <div className="space-y-4">
+              {summary.withinLast12Months === false && summary.flags && summary.flags.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Flag</p>
+                  <div className="space-y-1">
+                    {summary.flags.map((flag, index) => (
+                      <p key={`${flag}-${index}`} className="text-sm text-amber-800">{flag}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium mb-1">
+                  <CheckCircle className="w-4 h-4" />
+                  Insurance claim summary
+                </div>
+                <p className="text-sm text-slate-700 leading-relaxed">{summary.summary}</p>
+              </div>
+
+              {hasStructuredFields ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Incident Date</p>
+                      <p className="text-sm text-slate-700 mt-1">{summary.incidentDate || 'Unknown'}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Claim Type</p>
+                      <p className="text-sm text-slate-700 mt-1">{summary.claimType || 'Unknown'}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Cause</p>
+                      <p className="text-sm text-slate-700 mt-1">{summary.incidentCause || 'Unknown'}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Amount Requested</p>
+                      <p className="text-sm text-slate-700 mt-1">{summary.amountRequested || 'Unknown'}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Amount Claimed</p>
+                      <p className="text-sm text-slate-700 mt-1">{summary.amountClaimed || 'Unknown'}</p>
+                    </div>
+                  </div>
+
+                  {summary.keyFacts && summary.keyFacts.length > 0 && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Key Facts</p>
+                      <div className="space-y-2">
+                        {summary.keyFacts.map((fact, index) => (
+                          <p key={`${fact}-${index}`} className="text-sm text-slate-700">{fact}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-sm text-slate-600">
+                    Structured fields have not been extracted for this cached review yet. Run the Insurance Review Agent to populate incident date, cause, and claim amounts.
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              No summary cached yet. Run the Insurance Review Agent to generate one.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
