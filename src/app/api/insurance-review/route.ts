@@ -199,11 +199,14 @@ export async function DELETE(req: NextRequest) {
       elapsedMs: Date.now() - startedAt,
     });
 
-    const deletedStatuses = await (prisma as any).clientDocumentStatus.deleteMany({
-      where: {
-        clientId,
-        documentId: "insurance_claims_12m",
-      },
+    const deletedStatuses = await (prisma as any).$transaction(async (tx: any) => {
+      await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '5s'`);
+      return tx.clientDocumentStatus.deleteMany({
+        where: {
+          clientId,
+          documentId: "insurance_claims_12m",
+        },
+      });
     });
     console.info("[insurance-review] Deleted document status rows", {
       clientId,

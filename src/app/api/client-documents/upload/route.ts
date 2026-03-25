@@ -1,6 +1,5 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
@@ -164,31 +163,23 @@ export async function POST(req: NextRequest) {
       notApplicable: false,
     };
 
-    const updatedStatus = await (prisma as any).clientDocumentStatus.updateMany({
-      where: { clientId, documentId },
-      data: statusUpdate,
-    });
-
-    if (updatedStatus.count === 0) {
-      try {
-        await (prisma as any).clientDocumentStatus.create({
-          data: {
+    await (prisma as any).$transaction(async (tx: any) => {
+      await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '5s'`);
+      await tx.clientDocumentStatus.upsert({
+        where: {
+          clientId_documentId: {
             clientId,
             documentId,
-            ...statusUpdate,
           },
-        });
-      } catch (error) {
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) {
-          throw error;
-        }
-
-        await (prisma as any).clientDocumentStatus.updateMany({
-          where: { clientId, documentId },
-          data: statusUpdate,
-        });
-      }
-    }
+        },
+        update: statusUpdate,
+        create: {
+          clientId,
+          documentId,
+          ...statusUpdate,
+        },
+      });
+    });
 
     console.info("[client-documents/upload] Document status written", {
       clientId,
