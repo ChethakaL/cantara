@@ -35,23 +35,38 @@ function findHeaderIndex(rows: SheetRows, firstCell: string) {
   return rows.findIndex((row) => asString(row[0]).toLowerCase() === firstCell.toLowerCase())
 }
 
-function parseSeriesFromPl(rows: SheetRows) {
+function normalizePlLabel(value: unknown) {
+  return asString(value).replace(/^\s+/, '').trim()
+}
+
+function parsePlSection(rows: SheetRows, startLabel: string, endLabels: string[]) {
   const byLabel: Record<string, { fy1?: number; fy2?: number; fy3?: number; ttm?: number }> = {}
-  const start = findHeaderIndex(rows, 'REVENUE')
+  const start = findHeaderIndex(rows, startLabel)
   if (start < 0) return byLabel
 
   for (let i = start + 1; i < rows.length; i += 1) {
     const row = rows[i] ?? []
-    const label = asString(row[0]).replace(/^TOTAL\s+/i, 'Total ').replace(/^  /, '').trim()
+    const label = normalizePlLabel(row[0])
     if (!label) continue
-    if (/^COGS$/i.test(label) || /^OPERATING EXPENSES$/i.test(label) || /^BELOW EBITDA/i.test(label)) continue
+    if (endLabels.some((endLabel) => label.toLowerCase() === endLabel.toLowerCase())) break
+    if (/^Total /i.test(label) || /^Gross Profit$/i.test(label) || /^Gross Margin %$/i.test(label) || /^4-Wall EBITDA/i.test(label) || /^EBITDA Margin %$/i.test(label) || /^Net Income$/i.test(label)) {
+      continue
+    }
+
     const fy1 = asNumber(row[1])
     const fy2 = asNumber(row[3])
     const fy3 = asNumber(row[5])
     const ttm = asNumber(row[6])
     if (fy1 == null && fy2 == null && fy3 == null && ttm == null) continue
-    byLabel[label] = { fy1: fy1 ?? undefined, fy2: fy2 ?? undefined, fy3: fy3 ?? undefined, ttm: ttm ?? undefined }
+
+    byLabel[label] = {
+      fy1: fy1 ?? undefined,
+      fy2: fy2 ?? undefined,
+      fy3: fy3 ?? undefined,
+      ttm: ttm ?? undefined,
+    }
   }
+
   return byLabel
 }
 
@@ -71,8 +86,23 @@ function parseRecastItems(rows: SheetRows) {
   return items
 }
 
+function readSummarySeries(rows: SheetRows, label: string) {
+  const row = rows.find((entry) => asString(entry[0]).toLowerCase() === label.toLowerCase())
+  if (!row) return undefined
+  const fy1 = asNumber(row[1])
+  const fy2 = asNumber(row[2])
+  const ttm = asNumber(row[3])
+  if (fy1 == null && fy2 == null && ttm == null) return undefined
+  return {
+    fy1: fy1 ?? undefined,
+    fy2: fy2 ?? undefined,
+    ttm: ttm ?? undefined,
+  }
+}
+
 export function parseWorkbookOverrideSnapshotFromXlsx(buffer: Buffer): WorkbookOverrideSnapshot {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true, raw: true })
+  const summaryRows = toRows(wb.Sheets['Summary'] ?? wb.Sheets['Export Summary'])
   const plRows = toRows(wb.Sheets['TTM & 3-Year P&L'])
   const recastRows = toRows(wb.Sheets['Normalization Items'])
   const valuationRows = toRows(wb.Sheets['Valuation'])
@@ -81,13 +111,23 @@ export function parseWorkbookOverrideSnapshotFromXlsx(buffer: Buffer): WorkbookO
   const laborRows = toRows(wb.Sheets['Labor Analysis'])
   const wcRows = toRows(wb.Sheets['Working Capital'])
 
-  const plSeries = parseSeriesFromPl(plRows)
+  const revenueLines = parsePlSection(plRows, 'REVENUE', ['COST OF GOODS SOLD'])
+  const cogsLines = parsePlSection(plRows, 'COST OF GOODS SOLD', ['Gross Profit'])
+  const expenseLines = parsePlSection(plRows, 'OPERATING EXPENSES', ['4-Wall EBITDA (Pre-Recast)'])
 
   const totals: Record<string, { fy1?: number; fy2?: number; fy3?: number; ttm?: number }> = {}
-  for (const key of ['Total Revenue', 'Total COGS', 'Gross Profit', 'Total Operating Expenses', '4-Wall EBITDA (Pre-Recast)', 'EBITDA Margin']) {
-    const row = plRows.find((r) => asString(r[0]).toLowerCase() === key.toLowerCase())
+  for (const [sheetLabel, snapshotLabel] of [
+    ['Total Revenue', 'Total Revenue'],
+    ['Total COGS', 'Total COGS'],
+    ['Gross Profit', 'Gross Profit'],
+    ['Gross Margin %', 'Gross Margin'],
+    ['Total Operating Expenses', 'Total Operating Expenses'],
+    ['4-Wall EBITDA (Pre-Recast)', '4-Wall EBITDA (Pre-Recast)'],
+    ['EBITDA Margin %', 'EBITDA Margin'],
+  ] as const) {
+    const row = plRows.find((r) => normalizePlLabel(r[0]).toLowerCase() === sheetLabel.toLowerCase())
     if (!row) continue
-    totals[key] = {
+    totals[snapshotLabel] = {
       fy1: asNumber(row[1]) ?? undefined,
       fy2: asNumber(row[3]) ?? undefined,
       fy3: asNumber(row[5]) ?? undefined,
@@ -166,12 +206,33 @@ export function parseWorkbookOverrideSnapshotFromXlsx(buffer: Buffer): WorkbookO
   }
 
   const wcLookup = (label: string) => asNumber(wcRows.find((row) => asString(row[0]).toLowerCase() === label.toLowerCase())?.[1]) ?? undefined
+  const wcLookupIndented = (label: string) => {
+    const match = wcRows.find((row) => normalizePlLabel(row[0]).toLowerCase() === label.toLowerCase())
+    return asNumber(match?.[1]) ?? undefined
+  }
+  const directLaborRow = laborRows.find((row) => /Direct Labor \(ex-owner\)/i.test(asString(row[0])))
+  const benchmarkSectionIndex = findHeaderIndex(laborRows, 'BENCHMARK COMPARISON')
+  const benchmarkNote = benchmarkSectionIndex >= 0 ? asString(laborRows[benchmarkSectionIndex + 2]?.[0]) || undefined : undefined
+  const trendSectionIndex = findHeaderIndex(laborRows, '3-YEAR LABOR TREND')
+  const trendNote = trendSectionIndex >= 0 ? asString(laborRows[trendSectionIndex + 1]?.[0]) || undefined : undefined
   const overallHealth = asString(benchmarkRows.find((row) => /^Overall Expense Health:/i.test(asString(row[0])))?.[0]).split(':')[1]?.trim()
+  const summaryTotalRevenue = readSummarySeries(summaryRows, 'Total Revenue')
+  const summaryGrossProfit = readSummarySeries(summaryRows, 'Gross Profit')
+  const summaryTotalOpex = readSummarySeries(summaryRows, 'Total Operating Expenses')
+  const summaryEbitda = readSummarySeries(summaryRows, '4-Wall EBITDA (Pre-Recast)')
 
   return {
     annualPL: {
-      revenueLines: plSeries,
-      totals,
+      revenueLines,
+      cogsLines,
+      expenseLines,
+      totals: {
+        ...totals,
+        ...(summaryTotalRevenue ? { 'Total Revenue': { ...totals['Total Revenue'], ...summaryTotalRevenue } } : {}),
+        ...(summaryGrossProfit ? { 'Gross Profit': { ...totals['Gross Profit'], ...summaryGrossProfit } } : {}),
+        ...(summaryTotalOpex ? { 'Total Operating Expenses': { ...totals['Total Operating Expenses'], ...summaryTotalOpex } } : {}),
+        ...(summaryEbitda ? { '4-Wall EBITDA (Pre-Recast)': { ...totals['4-Wall EBITDA (Pre-Recast)'], ...summaryEbitda } } : {}),
+      },
     },
     recast: {
       items: recastItems,
@@ -189,25 +250,37 @@ export function parseWorkbookOverrideSnapshotFromXlsx(buffer: Buffer): WorkbookO
     },
     ws23: { verticals },
     ws24: { benchmarks, overallHealth: overallHealth || undefined },
-    ws25: { laborRows: labor },
+    ws25: {
+      laborRows: labor,
+      directLaborPct: asNumber(directLaborRow?.[1]) ?? undefined,
+      benchmarkStatus: benchmarkNote && /below benchmark/i.test(benchmarkNote)
+        ? 'RED'
+        : benchmarkNote && /within benchmark/i.test(benchmarkNote)
+          ? 'GREEN'
+          : benchmarkNote && /slightly above|above benchmark/i.test(benchmarkNote)
+            ? 'YELLOW'
+            : undefined,
+      benchmarkNote,
+      trendNote,
+    },
     workingCapital: {
-      cash: wcLookup('Cash & Equivalents'),
-      accountsReceivable: wcLookup('Accounts Receivable'),
-      inventory: wcLookup('Inventory'),
-      prepaidExpenses: wcLookup('Prepaid Expenses'),
+      cash: wcLookupIndented('Cash & Equivalents'),
+      accountsReceivable: wcLookupIndented('Accounts Receivable'),
+      inventory: wcLookupIndented('Inventory'),
+      prepaidExpenses: wcLookupIndented('Prepaid Expenses'),
       totalCurrentAssets: wcLookup('Total Current Assets'),
-      accountsPayable: wcLookup('Accounts Payable'),
-      accruedLiabilities: wcLookup('Accrued Liabilities'),
-      deferredRevenue: wcLookup('Deferred Revenue'),
+      accountsPayable: wcLookupIndented('Accounts Payable'),
+      accruedLiabilities: wcLookupIndented('Accrued Liabilities'),
+      deferredRevenue: wcLookupIndented('Deferred Revenue'),
       totalCurrentLiabilities: wcLookup('Total Current Liabilities'),
       netWorkingCapital: wcLookup('Net Working Capital (Point-in-time)'),
       trailingThreeMonthAvgNWC: wcLookup('3-Month Trailing Average NWC'),
       arAgingBuckets: {
-        current: wcLookup('Current'),
-        days1to30: wcLookup('1–30 Days'),
-        days31to60: wcLookup('31–60 Days'),
-        days61to90: wcLookup('61–90 Days'),
-        days90plus: wcLookup('90+ Days'),
+        current: wcLookupIndented('Current'),
+        days1to30: wcLookupIndented('1–30 Days'),
+        days31to60: wcLookupIndented('31–60 Days'),
+        days61to90: wcLookupIndented('61–90 Days'),
+        days90plus: wcLookupIndented('90+ Days'),
         total: wcLookup('Total AR'),
       },
     },

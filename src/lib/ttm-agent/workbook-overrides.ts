@@ -112,9 +112,25 @@ function cloneReport<T>(value: T): T {
 }
 
 function formatChangeValue(value: number | string | null | undefined) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value.toString()
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const abs = Math.abs(value)
+    const isPctField = abs > 0 && abs <= 1
+    if (isPctField) return `${(value * 100).toFixed(1)}%`
+    return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value)
+  }
   if (value == null || value === '') return '—'
   return String(value)
+}
+
+function numbersDiffer(before: number | null | undefined, after: number | null | undefined) {
+  if (typeof after !== 'number' || !Number.isFinite(after)) return false
+  if (typeof before !== 'number' || !Number.isFinite(before)) return true
+
+  const absDelta = Math.abs(before - after)
+  if (absDelta < 1e-9) return false
+
+  const scale = Math.max(Math.abs(before), Math.abs(after), 1)
+  return absDelta / scale > 1e-9
 }
 
 function mapSeriesRows<T extends { label?: string; category?: string; fy1?: number; fy2?: number; fy3?: number; ttm?: number }>(
@@ -364,8 +380,7 @@ export function applyWorkbookOverrideSnapshot(report: WS2Report, snapshot: Workb
 export function diffWorkbookOverrideSnapshots(current: WorkbookOverrideSnapshot, next: WorkbookOverrideSnapshot) {
   const changes: WorkbookChange[] = []
   const pushNumber = (section: string, label: string, field: string, before: number | null | undefined, after: number | null | undefined) => {
-    if (typeof after !== 'number' || !Number.isFinite(after)) return
-    if (before === after) return
+    if (!numbersDiffer(before, after)) return
     changes.push({
       section,
       label,
@@ -398,7 +413,14 @@ export function diffWorkbookOverrideSnapshots(current: WorkbookOverrideSnapshot,
   compareSeries('3-Year P&L', current.annualPL?.revenueLines, next.annualPL?.revenueLines)
   compareSeries('3-Year P&L', current.annualPL?.cogsLines, next.annualPL?.cogsLines)
   compareSeries('3-Year P&L', current.annualPL?.expenseLines, next.annualPL?.expenseLines)
-  compareSeries('3-Year P&L Totals', current.annualPL?.totals, next.annualPL?.totals)
+
+  const currentTotals = { ...(current.annualPL?.totals ?? {}) }
+  const nextTotals = { ...(next.annualPL?.totals ?? {}) }
+  delete currentTotals['Gross Margin']
+  delete currentTotals['EBITDA Margin']
+  delete nextTotals['Gross Margin']
+  delete nextTotals['EBITDA Margin']
+  compareSeries('3-Year P&L Totals', currentTotals, nextTotals)
 
   for (const [id, item] of Object.entries(next.recast?.items ?? {})) {
     const previous = current.recast?.items?.[id] ?? {}
