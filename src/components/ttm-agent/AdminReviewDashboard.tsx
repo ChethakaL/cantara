@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Clock3, Send } from 'lucide-react'
-import { Badge, Button, Card, Select, Textarea, cn } from '@/components/ui'
+import { CheckCircle2, ChevronDown, ChevronRight, Clock3, Send } from 'lucide-react'
+import { Badge, Button, Card, Textarea, cn } from '@/components/ui'
 import { logWs2ClientEvent, logWs2Error, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import type { FlagResolutionAction, TtmAnalysisView, TtmFlagView } from '@/lib/ttm-agent/types'
 import { CANTARA_TAXONOMY } from '@/lib/ttm-agent/taxonomy'
@@ -42,19 +42,6 @@ function describeCantaraCodeMeaning(code: string | null | undefined) {
   if (!match) return null
   const aliasPreview = match.aliases.slice(0, 3).join(', ')
   return aliasPreview ? `${match.category}. Typical matches: ${aliasPreview}.` : match.category
-}
-
-function getDispatchLabel(agentId: string) {
-  const labels: Record<string, string> = {
-    ws2_2_recast_v1: 'WS2-2 EBITDA Recast',
-    ws2_3_rev_vertical_v1: 'WS2-3 Revenue by Vertical',
-    ws2_4_benchmark_v1: 'WS2-4 P&L Expense Benchmark',
-    ws2_5_labor_v1: 'WS2-5 Labor Expense Analysis',
-    ws2_8_seller_net_proceeds_v1: 'WS2-8 Seller Net Proceeds',
-    ws2_10_report_generator_v1: 'WS2-10 Report Generator',
-  }
-
-  return labels[agentId] ?? labelize(agentId)
 }
 
 function renderPayloadSummary(section: string, payload: Record<string, unknown>) {
@@ -248,7 +235,8 @@ export function AdminReviewDashboard({
   const [approving, setApproving] = useState(false)
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [detailsOpenByKey, setDetailsOpenByKey] = useState<Record<string, boolean>>({})
-  const [dispatchOpen, setDispatchOpen] = useState(false)
+  const [categorySearchByFlagId, setCategorySearchByFlagId] = useState<Record<string, string>>({})
+  const [categoryOpenByFlagId, setCategoryOpenByFlagId] = useState<Record<string, boolean>>({})
   const unresolvedCount = analysis.flags.filter((flag) => flag.resolutionStatus !== 'ACTIONED').length
   const sectionOrder = analysis.dataQualityReport?.sectionOrder ?? []
   const cantaraOptions = useMemo(
@@ -261,6 +249,7 @@ export function AdminReviewDashboard({
     ],
     [],
   )
+  const validCantaraCodes = useMemo(() => new Set(CANTARA_TAXONOMY.map((entry) => entry.code)), [])
 
   const sectionEntries = useMemo(() => {
     const report = analysis.dataQualityReport
@@ -539,6 +528,16 @@ export function AdminReviewDashboard({
                     const itemKey = flag?.id ?? `${currentSection.section}-${itemIndex}-${item.title}`
                     const showDetails = detailsOpenByKey[itemKey] ?? false
                     const assignedCode = assignedCodesByFlagId[flag?.id ?? ''] ?? String(flag?.payload.assignedCantaraCode ?? '')
+                    const isAssignedCodeValid = assignedCode ? validCantaraCodes.has(assignedCode) : false
+                    const categorySearch = categorySearchByFlagId[flag?.id ?? ''] ?? ''
+                    const isCategoryOpen = Boolean(categoryOpenByFlagId[flag?.id ?? ''])
+                    const filteredCantaraOptions = cantaraOptions
+                      .filter((option) => option.value)
+                      .filter((option) => {
+                        const q = categorySearch.trim().toLowerCase()
+                        if (!q) return true
+                        return option.label.toLowerCase().includes(q) || option.value.toLowerCase().includes(q)
+                      })
 
                     return (
                       <div key={itemKey} className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -568,7 +567,7 @@ export function AdminReviewDashboard({
 
                         {currentSection.section === 'A' && flag?.resolutionStatus !== 'ACTIONED' && (
                           <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                            Choose the best Cantara category for this GL account. The code meaning is shown in plain language below before you confirm it.
+                            Choose the best Cantara category for this GL account, or use Ignore/Exclude when this line should not be classified.
                           </div>
                         )}
 
@@ -602,17 +601,73 @@ export function AdminReviewDashboard({
                         {flag && flag.resolutionStatus !== 'ACTIONED' && (
                           <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
                             {currentSection.section === 'A' && (
-                              <Select
-                                label="Cantara category"
-                                options={cantaraOptions}
-                                value={assignedCode}
-                                onChange={(event) =>
-                                  setAssignedCodesByFlagId((current) => ({
-                                    ...current,
-                                    [flag.id]: event.target.value,
-                                  }))
-                                }
-                              />
+                              <div className="space-y-1.5">
+                                <label className="block text-xs font-medium text-slate-600">Cantara category</label>
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-900 transition-all hover:border-slate-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                                    onClick={() =>
+                                      setCategoryOpenByFlagId((current) => ({
+                                        ...current,
+                                        [flag.id]: !current[flag.id],
+                                      }))
+                                    }
+                                  >
+                                    <span>
+                                      {assignedCode
+                                        ? cantaraOptions.find((option) => option.value === assignedCode)?.label ?? assignedCode
+                                        : 'Select Cantara code'}
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                                  </button>
+                                  {isCategoryOpen && (
+                                    <div className="absolute z-20 mt-2 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                                      <div className="border-b border-slate-100 p-2">
+                                        <input
+                                          value={categorySearch}
+                                          onChange={(event) =>
+                                            setCategorySearchByFlagId((current) => ({
+                                              ...current,
+                                              [flag.id]: event.target.value,
+                                            }))
+                                          }
+                                          placeholder="Search code or category..."
+                                          className="w-full rounded-md border border-slate-200 px-2.5 py-2 text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                                        />
+                                      </div>
+                                      <div className="max-h-52 overflow-auto p-1.5">
+                                        {filteredCantaraOptions.length === 0 ? (
+                                          <div className="px-2 py-2 text-sm text-slate-500">No matching categories</div>
+                                        ) : (
+                                          filteredCantaraOptions.map((option) => (
+                                            <button
+                                              key={option.value}
+                                              type="button"
+                                              className={cn(
+                                                'w-full rounded-md px-2 py-2 text-left text-sm text-slate-900 hover:bg-slate-100',
+                                                assignedCode === option.value && 'bg-amber-50',
+                                              )}
+                                              onClick={() => {
+                                                setAssignedCodesByFlagId((current) => ({
+                                                  ...current,
+                                                  [flag.id]: option.value,
+                                                }))
+                                                setCategoryOpenByFlagId((current) => ({
+                                                  ...current,
+                                                  [flag.id]: false,
+                                                }))
+                                              }}
+                                            >
+                                              {option.label}
+                                            </button>
+                                          ))
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             )}
                             <Textarea
                               rows={2}
@@ -632,7 +687,7 @@ export function AdminReviewDashboard({
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    disabled={savingFlagId === flag.id || !assignedCode}
+                                    disabled={savingFlagId === flag.id || !isAssignedCodeValid}
                                     onClick={() =>
                                       void submitFlagAction(flag.id, 'RESOLVE', {
                                         assignedCantaraCode: assignedCode,
@@ -640,6 +695,19 @@ export function AdminReviewDashboard({
                                     }
                                   >
                                     Confirm Mapping
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={savingFlagId === flag.id}
+                                    onClick={() =>
+                                      void submitFlagAction(flag.id, 'OVERRIDE', {
+                                        assignedCantaraCode: null,
+                                        excludedFromMapping: true,
+                                      })
+                                    }
+                                  >
+                                    Ignore / Exclude
                                   </Button>
                                   <Button
                                     size="sm"
@@ -702,39 +770,6 @@ export function AdminReviewDashboard({
             </Card>
           )}
 
-          <Card className="p-5">
-            <button
-              type="button"
-              onClick={() => setDispatchOpen((current) => !current)}
-              className="flex w-full items-center justify-between gap-3 text-left"
-            >
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                <AlertTriangle className="w-4 h-4 text-amber-500" />
-                What Unlocks After Approval
-              </div>
-              <div className="inline-flex items-center gap-2 text-xs text-slate-500">
-                {dispatchOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                {dispatchOpen ? 'Hide' : 'Show'}
-              </div>
-            </button>
-            {dispatchOpen && (
-              <div className="mt-4 space-y-2">
-                {analysis.dispatchTasks.map((task) => (
-                  <div key={task.id} className="rounded-xl border border-slate-200 p-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-700">{getDispatchLabel(task.agentId)}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {task.releasedAt ? `Released ${new Date(task.releasedAt).toLocaleString()}` : 'This stage stays locked until WS2-1 is approved.'}
-                      </p>
-                    </div>
-                    <Badge color={task.status === 'RELEASED' ? 'green' : task.status === 'READY' ? 'blue' : 'gold'}>
-                      {task.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
         </>
       )}
     </div>

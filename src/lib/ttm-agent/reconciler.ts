@@ -72,6 +72,30 @@ function sumRowsForMonths(rows: MappedLedgerRow[], months: string[], codes: stri
     }, 0);
 }
 
+function normalizeLabel(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9\s/&]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sumWorkbookRowByMatchers(
+  workbook: ParsedMonthlyWorkbook,
+  months: string[],
+  matchers: RegExp[],
+) {
+  const candidates = [...(workbook.summaryRows ?? []), ...workbook.rows];
+  for (const row of candidates) {
+    const label = normalizeLabel(row.accountName);
+    if (!label) continue;
+    if (!matchers.some((matcher) => matcher.test(label))) continue;
+    return months.reduce((acc, month) => acc + (row.valuesByMonth[month] ?? 0), 0);
+  }
+  return null;
+}
+
 function isCorporateOverheadRow(row: Pick<MappedLedgerRow, "accountName" | "categoryType">) {
   if (row.categoryType !== "opex") return false;
   return CORPORATE_OVERHEAD_PATTERNS.some((pattern) => pattern.test(row.accountName));
@@ -258,17 +282,36 @@ function buildStructuredModel(rows: MappedLedgerRow[], monthKeys: string[]): Str
     };
   });
 
-  const confidence = monthKeys.length < 24 ? "LOW" : monthKeys.length < 36 ? "MEDIUM" : "HIGH";
+  const confidence = monthKeys.length < 24 ? "LOW" : monthKeys.length === 36 ? "HIGH" : "MEDIUM";
   return { months, confidence };
 }
 
-function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[]): TtmSummary {
+function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl: ParsedMonthlyWorkbook): TtmSummary {
   const ttmMonths = monthKeys.slice(-12);
-  const totalRevenue = sumRowsForMonths(rows, ttmMonths, REVENUE_CODES);
-  const totalCogs = sumRowsForMonths(rows, ttmMonths, COGS_CODES);
-  const grossProfit = totalRevenue - totalCogs;
-  const totalOpEx = sumRowsForMonths(rows, ttmMonths, EBITDA_OPERATING_EXPENSE_CODES);
-  const ebitdaPreRecast = grossProfit - totalOpEx;
+  const mappedRevenue = sumRowsForMonths(rows, ttmMonths, REVENUE_CODES);
+  const mappedCogs = sumRowsForMonths(rows, ttmMonths, COGS_CODES);
+  const mappedOpEx = sumRowsForMonths(rows, ttmMonths, EBITDA_OPERATING_EXPENSE_CODES);
+
+  // Prefer explicit workbook totals when they exist; they are more stable across varied XLSX layouts.
+  const totalIncome = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^total income$/, /^income total$/]);
+  const totalCogsFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [
+    /^total cost of goods sold$/,
+    /^total cogs$/,
+    /^cost of goods sold total$/,
+  ]);
+  const grossProfitFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^gross profit$/, /^gross margin$/]);
+  const totalExpensesFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^total expenses$/]);
+  const depreciationFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^depreciation/, /^amortization/]) ?? 0;
+  const interestFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^interest expense$/, /^interest/]) ?? 0;
+
+  const totalRevenue = totalIncome ?? mappedRevenue;
+  const totalCogs = totalCogsFromWorkbook ?? mappedCogs;
+  const grossProfit = grossProfitFromWorkbook ?? (totalRevenue - totalCogs);
+  const totalOpEx = totalExpensesFromWorkbook ?? mappedOpEx;
+  const ebitdaPreRecast =
+    totalExpensesFromWorkbook !== null && grossProfitFromWorkbook !== null
+      ? grossProfitFromWorkbook - totalExpensesFromWorkbook + depreciationFromWorkbook + interestFromWorkbook
+      : grossProfit - totalOpEx;
 
   return {
     startMonth: ttmMonths[0],
@@ -286,16 +329,30 @@ function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[]): TtmSumma
   };
 }
 
-function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[]): AnnualModel {
+function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl: ParsedMonthlyWorkbook): AnnualModel {
   const groupedYears = groupMonthsByFiscalYear(monthKeys).slice(-3);
   const fourWallRows = filterFourWallRows(rows);
   const years: AnnualModelYear[] = groupedYears.map(({ fiscalYear, months, periodStart, periodEnd, accountantYearKey }) => {
-    const totalRevenue = sumRowsForMonths(rows, months, REVENUE_CODES);
-    const totalCogs = sumRowsForMonths(rows, months, COGS_CODES);
-    const grossProfit = totalRevenue - totalCogs;
-    const totalOpEx = sumRowsForMonths(fourWallRows, months, EBITDA_OPERATING_EXPENSE_CODES);
-    const ebitdaPreRecast = grossProfit - totalOpEx;
-    const netIncome = grossProfit - sumRowsForMonths(fourWallRows, months, OPEX_CODES);
+    const mappedRevenue = sumRowsForMonths(rows, months, REVENUE_CODES);
+    const mappedCogs = sumRowsForMonths(rows, months, COGS_CODES);
+    const mappedOpEx = sumRowsForMonths(fourWallRows, months, EBITDA_OPERATING_EXPENSE_CODES);
+
+    const totalRevenue = sumWorkbookRowByMatchers(monthlyPl, months, [/^total income$/, /^income total$/]) ?? mappedRevenue;
+    const totalCogs =
+      sumWorkbookRowByMatchers(monthlyPl, months, [/^total cost of goods sold$/, /^total cogs$/, /^cost of goods sold total$/]) ??
+      mappedCogs;
+    const grossProfit = sumWorkbookRowByMatchers(monthlyPl, months, [/^gross profit$/, /^gross margin$/]) ?? (totalRevenue - totalCogs);
+    const totalOpEx = sumWorkbookRowByMatchers(monthlyPl, months, [/^total expenses$/]) ?? mappedOpEx;
+    const depreciationFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, months, [/^depreciation/, /^amortization/]) ?? 0;
+    const interestFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, months, [/^interest expense$/, /^interest/]) ?? 0;
+    const ebitdaPreRecast =
+      sumWorkbookRowByMatchers(monthlyPl, months, [/^gross profit$/, /^gross margin$/]) !== null &&
+      sumWorkbookRowByMatchers(monthlyPl, months, [/^total expenses$/]) !== null
+        ? grossProfit - totalOpEx + depreciationFromWorkbook + interestFromWorkbook
+        : grossProfit - totalOpEx;
+    const netIncome =
+      sumWorkbookRowByMatchers(monthlyPl, months, [/^net income$/, /^net profit$/, /^net ordinary income$/]) ??
+      (grossProfit - sumRowsForMonths(fourWallRows, months, OPEX_CODES));
 
     return {
       fiscalYear,
@@ -515,9 +572,9 @@ export function reconcileFinancials(args: {
   console.log(`[TTM] Reconciling: ${monthKeys.length} months, ${args.mappedPlRows.length} P&L rows, ${args.mappedBsRows.length} BS rows`);
   const structuredModel = buildStructuredModel(fourWallPlRows, monthKeys);
   console.log(`[TTM] Structured model: ${structuredModel.months.length} months, confidence=${structuredModel.confidence}`);
-  const ttmSummary = buildTtmSummary(fourWallPlRows, monthKeys);
+  const ttmSummary = buildTtmSummary(fourWallPlRows, monthKeys, args.monthlyPl);
   console.log(`[TTM] TTM summary: revenue=$${ttmSummary.totalRevenue.toLocaleString()}, GM=${ttmSummary.grossMarginPct?.toFixed(1) ?? "n/a"}%, EBITDA=$${ttmSummary.ebitdaPreRecast.toLocaleString()}`);
-  const annualModel = buildAnnualModel(args.mappedPlRows, monthKeys);
+  const annualModel = buildAnnualModel(args.mappedPlRows, monthKeys, args.monthlyPl);
   console.log(`[TTM] Annual model: ${annualModel.years.length} years, ${annualModel.anomalies.length} anomalies`);
 
   const sections: Record<DataQualitySection, SectionReportItem[]> = {

@@ -609,7 +609,6 @@ export function WS2Report({ report }: { report: WS2ReportType }) {
         </div>
         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textAlign: "right" }}>
           Generated {report.reportGeneratedAt}<br />
-          Run #{ws21.runId}
         </div>
       </div>
     </div>

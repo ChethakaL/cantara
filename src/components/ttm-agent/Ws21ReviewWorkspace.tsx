@@ -90,16 +90,11 @@ export function Ws21ReviewWorkspace({
   })
 
   const unresolvedCount = analysis.flags.filter((flag) => flag.resolutionStatus !== 'ACTIONED').length
+  const monthCount = Array.isArray(analysis.normalizedData?.monthKeys) ? analysis.normalizedData.monthKeys.length : null
+  const coverageLabel = monthCount === null ? 'Not available' : `${monthCount} months`
+  const coverageNote = monthCount === null ? 'Coverage unavailable' : monthCount >= 36 ? 'Complete coverage' : 'Partial coverage'
   const sectionCounts = analysis.dataQualityReport?.counts ?? { A: 0, B: 0, C: 0, D: 0, E: 0 }
   const primaryAreas = useMemo(() => summarizePrimaryAreas(analysis), [analysis])
-
-  const focusSections = Object.entries(sectionCounts)
-    .filter(([, count]) => count > 0)
-    .map(([section, count]) => ({
-      section,
-      count,
-      title: cleanSectionTitle(analysis.dataQualityReport?.sections[section as keyof typeof sectionCounts]?.title ?? `Section ${section}`),
-    }))
 
   return (
     <div className="space-y-6">
@@ -111,7 +106,7 @@ export function Ws21ReviewWorkspace({
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">WS2-1 Financial Review</p>
                 <h3 className="mt-2 text-2xl font-semibold text-slate-900">Review what needs attention</h3>
                 <p className="mt-2 text-sm text-slate-500">
-                  Run #{analysis.version} · {new Date(analysis.createdAt).toLocaleString()} · {actorName}
+                  {new Date(analysis.createdAt).toLocaleString()} · {actorName}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -171,32 +166,14 @@ export function Ws21ReviewWorkspace({
                     <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(analysis.ttmSummary?.ebitdaPreRecast)}</p>
                   </div>
                   <div className="rounded-2xl border border-slate-200 p-4">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Model confidence</p>
-                    <p className="mt-2 text-2xl font-semibold text-slate-900">{analysis.structuredModel?.confidence ?? 'Not available'}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Data coverage</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-900">{coverageLabel}</p>
+                    <p className="mt-1 text-xs text-slate-500">{coverageNote}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {focusSections.length > 0 && (
-              <div className="mt-5">
-                <div className="flex items-center gap-2">
-                  <ClipboardCheck className="h-4 w-4 text-slate-500" />
-                  <h4 className="text-sm font-semibold text-slate-800">Sections in focus</h4>
-                </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  {focusSections.map(({ section, count, title }) => (
-                    <div key={section} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <Badge color="slate">Section {section}</Badge>
-                        <Badge color="gold">{count} {count === 1 ? 'item' : 'items'}</Badge>
-                      </div>
-                      <p className="mt-3 text-sm font-semibold leading-6 text-slate-900">{title}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </Card>
       </section>

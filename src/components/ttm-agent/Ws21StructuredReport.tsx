@@ -81,6 +81,7 @@ function qualityStatusLabel(status: 'clear' | 'issues' | 'skipped', count: numbe
 
 export function Ws21StructuredReport({ analysis }: { analysis: TtmAnalysisView }) {
   const years = analysis.annualModel?.years ?? []
+  const monthCount = Array.isArray(analysis.normalizedData?.monthKeys) ? analysis.normalizedData.monthKeys.length : null
   const firstYear = years[0] ?? null
   const lastYear = years[years.length - 1] ?? null
   const hasAnnualCoverage = isMonthKey(firstYear?.periodStart) && isMonthKey(lastYear?.periodEnd)
@@ -150,9 +151,9 @@ export function Ws21StructuredReport({ analysis }: { analysis: TtmAnalysisView }
               <p className="mt-1 text-xs text-slate-500">Most recent 12 months</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Model confidence</p>
-              <p className="mt-2 text-lg font-semibold text-slate-900">{titleCase(analysis.structuredModel?.confidence)}</p>
-              <p className="mt-1 text-xs text-slate-500">Structured output quality</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Data coverage</p>
+              <p className="mt-2 text-lg font-semibold text-slate-900">{monthCount === null ? 'n/a' : `${monthCount} months`}</p>
+              <p className="mt-1 text-xs text-slate-500">{monthCount !== null && monthCount >= 36 ? 'Complete coverage' : 'Partial coverage'}</p>
             </div>
           </div>
         </div>

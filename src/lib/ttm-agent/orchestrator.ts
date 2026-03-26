@@ -1,10 +1,12 @@
 import { createHash } from "crypto";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { readFile as readFileBuffer } from "fs/promises";
+import path from "path";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "@/lib/prisma";
 import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { mapLedgerRows } from "@/lib/ttm-agent/mapping";
-import { parseAccountantStatementsPreparedDocument } from "@/lib/ttm-agent/parsers/accountant-statements";
-import { parseArAgingWorkbookFromPrepared, parseMonthlyWorkbookFromPrepared } from "@/lib/ttm-agent/parsers/excel";
+import { parseAccountantStatementsDocument, parseAccountantStatementsPreparedDocument } from "@/lib/ttm-agent/parsers/accountant-statements";
+import { parseArAgingWorkbook, parseArAgingWorkbookFromPrepared, parseMonthlyWorkbook, parseMonthlyWorkbookFromPrepared } from "@/lib/ttm-agent/parsers/excel";
 import { buildDataQualityReport, flattenFlagsForPersistence } from "@/lib/ttm-agent/report-builder";
 import { reconcileFinancials } from "@/lib/ttm-agent/reconciler";
 import { REVENUE_CODES } from "@/lib/ttm-agent/taxonomy";
@@ -303,6 +305,36 @@ function ensurePreparedDocument(
   } satisfies PreparedDocumentInput;
 }
 
+async function safeReadDocumentBuffer(localPath: string | null | undefined) {
+  if (!localPath) return null;
+  const resolvedPath = path.isAbsolute(localPath) ? localPath : path.resolve(process.cwd(), localPath);
+  try {
+    return await readFileBuffer(resolvedPath);
+  } catch {
+    // fall through to S3 fetch
+  }
+
+  try {
+    assertS3Configured();
+    const result = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: s3BucketName,
+        Key: localPath,
+      }),
+    );
+
+    if (!result.Body) return null;
+    if (typeof (result.Body as any).transformToByteArray === "function") {
+      const bytes = await (result.Body as any).transformToByteArray();
+      return Buffer.from(bytes);
+    }
+    const response = new Response(result.Body as any);
+    return Buffer.from(await response.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
 function formatAccountantPreparedText(preparedAccountant: PreparedDocumentInput, accountantStatements: Awaited<ReturnType<typeof parseAccountantStatementsPreparedDocument>>) {
   if (preparedAccountant.textBlocks?.length) {
     return preparedAccountant.textBlocks
@@ -456,14 +488,34 @@ export async function runTtmAgent(args: {
     const preparedAccountant = ensurePreparedDocument(preparedMap, "accountant_statements", accountantDocument);
     const preparedArAging = ensurePreparedDocument(preparedMap, "ar_aging_detail", arAgingDocument);
 
-    const monthlyPl = parseMonthlyWorkbookFromPrepared(preparedMonthlyPl, "monthly_pl_excel");
-    console.log(`[TTM] Parsed monthly P&L from prepared CSV: format=${monthlyPl.format}, ${monthlyPl.rows.length} rows, ${monthlyPl.monthKeys.length} months`);
-    const monthlyBs = parseMonthlyWorkbookFromPrepared(preparedMonthlyBs, "monthly_bs_excel");
-    console.log(`[TTM] Parsed monthly BS from prepared CSV: format=${monthlyBs.format}, ${monthlyBs.rows.length} rows, ${monthlyBs.monthKeys.length} months`);
-    const accountantStatements = await parseAccountantStatementsPreparedDocument(preparedAccountant);
-    console.log(`[TTM] Parsed accountant statements: ${accountantStatements.years.length} fiscal years, source=${accountantStatements.sourceType}`);
-    const arAging = parseArAgingWorkbookFromPrepared(preparedArAging);
-    console.log(`[TTM] Parsed AR aging: ${arAging.entries.length} customer entries`);
+    const monthlyPlBuffer = await safeReadDocumentBuffer(monthlyPlDocument.localPath);
+    const monthlyBsBuffer = await safeReadDocumentBuffer(monthlyBsDocument.localPath);
+    const accountantBuffer = await safeReadDocumentBuffer(accountantDocument.localPath);
+    const arAgingBuffer = await safeReadDocumentBuffer(arAgingDocument.localPath);
+
+    const monthlyPl = monthlyPlBuffer
+      ? parseMonthlyWorkbook(monthlyPlBuffer, "monthly_pl_excel")
+      : parseMonthlyWorkbookFromPrepared(preparedMonthlyPl, "monthly_pl_excel");
+    console.log(`[TTM] Parsed monthly P&L: format=${monthlyPl.format}, ${monthlyPl.rows.length} rows, ${monthlyPl.monthKeys.length} months, source=${monthlyPlBuffer ? "xlsx-direct" : "prepared-csv"}`);
+
+    const monthlyBs = monthlyBsBuffer
+      ? parseMonthlyWorkbook(monthlyBsBuffer, "monthly_bs_excel")
+      : parseMonthlyWorkbookFromPrepared(preparedMonthlyBs, "monthly_bs_excel");
+    console.log(`[TTM] Parsed monthly BS: format=${monthlyBs.format}, ${monthlyBs.rows.length} rows, ${monthlyBs.monthKeys.length} months, source=${monthlyBsBuffer ? "xlsx-direct" : "prepared-csv"}`);
+
+    const accountantStatements = accountantBuffer
+      ? await parseAccountantStatementsDocument({
+          fileName: accountantDocument.fileName,
+          mimeType: accountantDocument.mimeType,
+          buffer: accountantBuffer,
+        })
+      : await parseAccountantStatementsPreparedDocument(preparedAccountant);
+    console.log(`[TTM] Parsed accountant statements: ${accountantStatements.years.length} fiscal years, source=${accountantStatements.sourceType}${accountantBuffer ? " (xlsx/pdf direct)" : " (prepared)"}`);
+
+    const arAging = arAgingBuffer
+      ? parseArAgingWorkbook(arAgingBuffer)
+      : parseArAgingWorkbookFromPrepared(preparedArAging);
+    console.log(`[TTM] Parsed AR aging: ${arAging.entries.length} customer entries, source=${arAgingBuffer ? "xlsx-direct" : "prepared-csv"}`);
 
     // V3 Section 10: Fewer than 24 months → proceed but flag PARTIAL DATA
     const isPartialData = monthlyPl.monthKeys.length < 24;

@@ -502,7 +502,7 @@ export function Ws2RecastPanel({
               <div>
                 <h4 className="text-sm font-semibold text-slate-800">WS2-2 review report</h4>
                 <p className="text-xs text-slate-400 mt-1">
-                  Run #{latestRecast.version} · {new Date(latestRecast.createdAt).toLocaleString()}
+                  {new Date(latestRecast.createdAt).toLocaleString()}
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">

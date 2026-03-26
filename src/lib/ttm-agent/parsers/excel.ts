@@ -268,6 +268,15 @@ function shouldSkipLedgerRow(accountName: string, accountCode: string | null, va
   return false;
 }
 
+function shouldCaptureSummaryRow(accountName: string) {
+  const normalizedName = normalizeText(accountName);
+  if (!normalizedName) return false;
+  if (/^total\b/.test(normalizedName)) return true;
+  return /(gross profit|net income|net ordinary income|ordinary income|ebitda|pre recast|subtotal|interest|depreciation|amortization)/.test(
+    normalizedName,
+  );
+}
+
 function deriveFormat(headerRow: WorksheetRows[number], codeColumnIndex: number | null) {
   if (codeColumnIndex !== null) return "qb" as const;
   const headerText = normalizeText(headerRow.join(" "));
@@ -405,6 +414,7 @@ function parsePreparedMonthlySection(section: ParsedMonthlySection) {
   });
 
   const rows = [];
+  const summaryRows = [];
 
   for (let rowIndex = section.headerRowIndex + 1; rowIndex < section.rows.length; rowIndex += 1) {
     const row = section.rows[rowIndex] ?? [];
@@ -412,7 +422,25 @@ function parsePreparedMonthlySection(section: ParsedMonthlySection) {
     const accountCode = codeColumnIndex === null ? null : String(row[codeColumnIndex] ?? "").trim() || null;
 
     const values = Array.from(monthIndexMap.entries()).map(([columnIndex]) => parseNumber(row[columnIndex]));
-    if (shouldSkipLedgerRow(accountName, accountCode, values)) continue;
+    if (shouldSkipLedgerRow(accountName, accountCode, values)) {
+      if (shouldCaptureSummaryRow(accountName)) {
+        const valuesByMonth = Object.fromEntries(
+          Array.from(monthIndexMap.entries()).map(([columnIndex, monthKey]) => [
+            monthKey,
+            Number.isFinite(parseNumber(row[columnIndex])) ? parseNumber(row[columnIndex]) : 0,
+          ]),
+        );
+        summaryRows.push({
+          accountName,
+          accountCode,
+          valuesByMonth,
+          total: Object.values(valuesByMonth).reduce((sum, value) => sum + value, 0),
+          sourceSheet: section.sheetName,
+          rowIndex,
+        });
+      }
+      continue;
+    }
 
     const valuesByMonth = Object.fromEntries(
       Array.from(monthIndexMap.entries()).map(([columnIndex, monthKey]) => [
@@ -437,6 +465,7 @@ function parsePreparedMonthlySection(section: ParsedMonthlySection) {
     codeColumnIndex,
     monthKeys,
     rows,
+    summaryRows,
   };
 }
 
@@ -451,6 +480,17 @@ function mergePreparedMonthlySections(
 ): ParsedMonthlyWorkbook {
   const allMonthKeys = sortMonthKeys(parsedSections.flatMap((section) => section.monthKeys));
   const mergedRows = new Map<
+    string,
+    {
+      accountName: string;
+      accountCode: string | null;
+      valuesByMonth: Record<string, number>;
+      total: number;
+      sourceSheet: string;
+      rowIndex: number;
+    }
+  >();
+  const mergedSummaryRows = new Map<
     string,
     {
       accountName: string;
@@ -484,6 +524,27 @@ function mergePreparedMonthlySections(
         existing.sourceSheet = `${existing.sourceSheet}, ${row.sourceSheet}`;
       }
     }
+    for (const row of section.summaryRows) {
+      const rowKey = `${row.accountCode ?? ""}::${normalizeText(row.accountName)}`;
+      const existing = mergedSummaryRows.get(rowKey);
+
+      if (!existing) {
+        mergedSummaryRows.set(rowKey, {
+          ...row,
+          valuesByMonth: { ...row.valuesByMonth },
+          sourceSheet: row.sourceSheet,
+        });
+        continue;
+      }
+
+      for (const [monthKey, value] of Object.entries(row.valuesByMonth) as Array<[string, number]>) {
+        existing.valuesByMonth[monthKey] = value;
+      }
+      existing.total = Object.values(existing.valuesByMonth).reduce((sum, value) => sum + value, 0);
+      if (!existing.sourceSheet.includes(row.sourceSheet)) {
+        existing.sourceSheet = `${existing.sourceSheet}, ${row.sourceSheet}`;
+      }
+    }
   }
 
   const firstSection = parsedSections[0];
@@ -499,6 +560,7 @@ function mergePreparedMonthlySections(
     accountColumnIndex: firstSection?.accountColumnIndex ?? 0,
     codeColumnIndex: firstSection?.codeColumnIndex ?? null,
     rows: Array.from(mergedRows.values()),
+    summaryRows: Array.from(mergedSummaryRows.values()),
     notes: [
       `Parsed ${parsedSections.length} fiscal-year sections from prepared input.`,
       `Month coverage spans ${allMonthKeys[0] ?? "n/a"} through ${allMonthKeys[allMonthKeys.length - 1] ?? "n/a"}.`,
@@ -528,6 +590,7 @@ export function parseMonthlyWorkbook(
   });
 
   const rows = [];
+  const summaryRows = [];
 
   for (let rowIndex = selected.headerRowIndex + 1; rowIndex < selected.rows.length; rowIndex += 1) {
     const row = selected.rows[rowIndex] ?? [];
@@ -535,7 +598,25 @@ export function parseMonthlyWorkbook(
     const accountCode = codeColumnIndex === null ? null : String(row[codeColumnIndex] ?? "").trim() || null;
 
     const values = Array.from(monthIndexMap.entries()).map(([columnIndex]) => parseNumber(row[columnIndex]));
-    if (shouldSkipLedgerRow(accountName, accountCode, values)) continue;
+    if (shouldSkipLedgerRow(accountName, accountCode, values)) {
+      if (shouldCaptureSummaryRow(accountName)) {
+        const valuesByMonth = Object.fromEntries(
+          Array.from(monthIndexMap.entries()).map(([columnIndex, monthKey]) => [
+            monthKey,
+            Number.isFinite(parseNumber(row[columnIndex])) ? parseNumber(row[columnIndex]) : 0,
+          ]),
+        );
+        summaryRows.push({
+          accountName,
+          accountCode,
+          valuesByMonth,
+          total: Object.values(valuesByMonth).reduce((sum, value) => sum + value, 0),
+          sourceSheet: selected.sheetName,
+          rowIndex,
+        });
+      }
+      continue;
+    }
 
     const valuesByMonth = Object.fromEntries(
       Array.from(monthIndexMap.entries()).map(([columnIndex, monthKey]) => [
@@ -562,6 +643,7 @@ export function parseMonthlyWorkbook(
     accountColumnIndex,
     codeColumnIndex,
     rows,
+    summaryRows,
     notes: [
       `Detected ${deriveFormat(headerRow, codeColumnIndex)} format in sheet "${selected.sheetName}".`,
       `Header row located at Excel row ${selected.headerRowIndex + 1}.`,
@@ -600,6 +682,7 @@ export function parseMonthlyWorkbookFromPrepared(
   });
 
   const rows = [];
+  const summaryRows = [];
 
   for (let rowIndex = selected.headerRowIndex + 1; rowIndex < selected.rows.length; rowIndex += 1) {
     const row = selected.rows[rowIndex] ?? [];
@@ -607,7 +690,25 @@ export function parseMonthlyWorkbookFromPrepared(
     const accountCode = codeColumnIndex === null ? null : String(row[codeColumnIndex] ?? "").trim() || null;
 
     const values = Array.from(monthIndexMap.entries()).map(([columnIndex]) => parseNumber(row[columnIndex]));
-    if (shouldSkipLedgerRow(accountName, accountCode, values)) continue;
+    if (shouldSkipLedgerRow(accountName, accountCode, values)) {
+      if (shouldCaptureSummaryRow(accountName)) {
+        const valuesByMonth = Object.fromEntries(
+          Array.from(monthIndexMap.entries()).map(([columnIndex, monthKey]) => [
+            monthKey,
+            Number.isFinite(parseNumber(row[columnIndex])) ? parseNumber(row[columnIndex]) : 0,
+          ]),
+        );
+        summaryRows.push({
+          accountName,
+          accountCode,
+          valuesByMonth,
+          total: Object.values(valuesByMonth).reduce((sum, value) => sum + value, 0),
+          sourceSheet: selected.sheetName,
+          rowIndex,
+        });
+      }
+      continue;
+    }
 
     const valuesByMonth = Object.fromEntries(
       Array.from(monthIndexMap.entries()).map(([columnIndex, monthKey]) => [
@@ -634,6 +735,7 @@ export function parseMonthlyWorkbookFromPrepared(
     accountColumnIndex,
     codeColumnIndex,
     rows,
+    summaryRows,
     notes: [
       `Detected ${deriveFormat(headerRow, codeColumnIndex)} format in sheet "${selected.sheetName}".`,
       `Header row located at CSV row ${selected.headerRowIndex + 1}.`,

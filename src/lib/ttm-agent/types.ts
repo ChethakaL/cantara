@@ -82,6 +82,7 @@ export interface ParsedMonthlyWorkbook {
   accountColumnIndex: number;
   codeColumnIndex: number | null;
   rows: NormalizedLedgerRow[];
+  summaryRows: NormalizedLedgerRow[];
   notes: string[];
 }
 
