@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Download } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import type { AnnualModelYear, TtmAnalysisView, TtmFlagView, Ws2DerivedReportView, Ws2RecastView } from '@/lib/ttm-agent/types'
+import type { WorkbookChange } from '@/lib/ttm-agent/workbook-overrides'
 import type { AddBackItem, BenchmarkRow, LaborRow, TrafficLight, VerticalRow } from '@/lib/ws2/ws2-types'
 import { PremiumMarkdown } from '@/components/ttm-agent/PremiumMarkdown'
 import { Badge, Button, Card, Modal, cn } from '@/components/ui'
@@ -207,19 +208,16 @@ function buildRevenueSummaryRows(verticals: VerticalRow[]) {
   return rows
 }
 
-function buildProfitabilityRows(years: AnnualModelYear[], analysis: TtmAnalysisView): PnlSummaryRow[] {
-  const fy1 = years[0]
-  const fy2 = years[1]
-  const fy3 = years[2]
-  const ttm = analysis.ttmSummary
+function buildProfitabilityRows(report: ReturnType<typeof buildWS2ReportAdapter>): PnlSummaryRow[] {
+  const annualPL = report.ws21.annualPL
 
   return [
     { label: 'Profitability', fy1: null, fy2: null, fy3: null, ttm: null, kind: 'section' },
-    { label: 'Gross Profit', fy1: fy1?.grossProfit ?? null, fy2: fy2?.grossProfit ?? null, fy3: fy3?.grossProfit ?? null, ttm: ttm?.grossProfit ?? null, kind: 'currency' },
-    { label: 'Gross Margin', fy1: fy1?.grossMarginPct ?? null, fy2: fy2?.grossMarginPct ?? null, fy3: fy3?.grossMarginPct ?? null, ttm: ttm?.grossMarginPct ?? null, kind: 'percent' },
-    { label: 'Total OpEx', fy1: fy1?.totalOpEx ?? null, fy2: fy2?.totalOpEx ?? null, fy3: fy3?.totalOpEx ?? null, ttm: ttm?.totalOpEx ?? null, kind: 'currency' },
-    { label: '4-Wall EBITDA (Pre-Recast)', fy1: fy1?.ebitdaPreRecast ?? null, fy2: fy2?.ebitdaPreRecast ?? null, fy3: fy3?.ebitdaPreRecast ?? null, ttm: ttm?.ebitdaPreRecast ?? null, kind: 'currency' },
-    { label: 'EBITDA Margin', fy1: safeDiv(fy1?.ebitdaPreRecast ?? null, fy1?.totalRevenue ?? null), fy2: safeDiv(fy2?.ebitdaPreRecast ?? null, fy2?.totalRevenue ?? null), fy3: safeDiv(fy3?.ebitdaPreRecast ?? null, fy3?.totalRevenue ?? null), ttm: ttm?.ebitdaMarginPct ?? null, kind: 'percent' },
+    { label: 'Gross Profit', fy1: annualPL.grossProfit.fy1 ?? null, fy2: annualPL.grossProfit.fy2 ?? null, fy3: annualPL.grossProfit.fy3 ?? null, ttm: annualPL.grossProfit.ttm ?? null, kind: 'currency' },
+    { label: 'Gross Margin', fy1: annualPL.grossMargin.fy1 ?? null, fy2: annualPL.grossMargin.fy2 ?? null, fy3: annualPL.grossMargin.fy3 ?? null, ttm: annualPL.grossMargin.ttm ?? null, kind: 'percent' },
+    { label: 'Total OpEx', fy1: annualPL.totalOpex.fy1 ?? null, fy2: annualPL.totalOpex.fy2 ?? null, fy3: annualPL.totalOpex.fy3 ?? null, ttm: annualPL.totalOpex.ttm ?? null, kind: 'currency' },
+    { label: '4-Wall EBITDA (Pre-Recast)', fy1: annualPL.ebitdaPreRecast.fy1 ?? null, fy2: annualPL.ebitdaPreRecast.fy2 ?? null, fy3: annualPL.ebitdaPreRecast.fy3 ?? null, ttm: annualPL.ebitdaPreRecast.ttm ?? null, kind: 'currency' },
+    { label: 'EBITDA Margin', fy1: annualPL.ebitdaMargin.fy1 ?? null, fy2: annualPL.ebitdaMargin.fy2 ?? null, fy3: annualPL.ebitdaMargin.fy3 ?? null, ttm: annualPL.ebitdaMargin.ttm ?? null, kind: 'percent' },
   ]
 }
 
@@ -348,12 +346,14 @@ export function ValuationDashboard({
   clientName,
   report,
   onExportXlsx,
+  recentWorkbookChanges = [],
 }: {
   analysis: TtmAnalysisView
   recast: Ws2RecastView
   clientName: string
   report: Ws2DerivedReportView | null
   onExportXlsx?: () => void
+  recentWorkbookChanges?: WorkbookChange[]
 }) {
   const [expandedReportId, setExpandedReportId] = useState<'ws23' | 'ws24' | 'ws25' | null>(null)
   const ws2Report = buildWS2ReportAdapter(clientName, analysis, recast, analysis.derivedReports ?? [])
@@ -393,12 +393,12 @@ export function ValuationDashboard({
   const addBackItems = ws2Report.ws22?.recastSchedule.addBackItems ?? []
   const addBackGroups = groupAddBackItems(addBackItems)
   const revenueRows = buildRevenueSummaryRows(ws23?.verticals ?? [])
-  const profitabilityRows = buildProfitabilityRows(years, analysis)
+  const profitabilityRows = buildProfitabilityRows(ws2Report)
   const dataQualityGroups = groupFlags(analysis.flags)
 
-  const ttmRevenue = analysis.ttmSummary?.totalRevenue ?? null
-  const grossMargin = analysis.ttmSummary?.grossMarginPct ?? null
-  const preRecastEbitda = analysis.ttmSummary?.ebitdaPreRecast ?? null
+  const ttmRevenue = ws2Report.ws21.annualPL.totalRevenue.ttm ?? null
+  const grossMargin = ws2Report.ws21.annualPL.grossMargin.ttm ?? null
+  const preRecastEbitda = ws2Report.ws21.annualPL.ebitdaPreRecast.ttm ?? null
   const normalizedEbitda = recast.normalizedEbitda ?? null
   const normalizedMargin = safeDiv(normalizedEbitda, ttmRevenue)
   const totalAddBacks = addBackItems.reduce((sum, item) => sum + item.ttmAmount, 0)
@@ -415,9 +415,22 @@ export function ValuationDashboard({
   const laborTrendSummary = allInLaborRow
     ? `${formatPct(allInLaborRow.fy1Pct)} → ${formatPct(allInLaborRow.fy2Pct)} → ${formatPct(allInLaborRow.fy3Pct)}`
     : null
+  const recentChangeLabels = new Set(recentWorkbookChanges.map((change) => change.label))
+  const recentChangeSummary = recentWorkbookChanges.length
+    ? recentWorkbookChanges.map((change) => `${change.label} ${change.field}: ${change.after}`).join(' · ')
+    : null
+  const revenueTouched = recentWorkbookChanges.some((change) => change.label === 'Total Revenue')
+  const grossMarginTouched = recentWorkbookChanges.some((change) => change.label === 'Gross Margin')
+  const ebitdaTouched = recentWorkbookChanges.some((change) => change.label === '4-Wall EBITDA (Pre-Recast)' || change.label === 'EBITDA Margin')
 
   return (
     <div className="space-y-6">
+      {recentWorkbookChanges.length > 0 && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900">
+          <p className="font-semibold">Workbook changes applied to the web report.</p>
+          <p className="mt-1 text-emerald-800">{recentChangeSummary}</p>
+        </div>
+      )}
       <section id="ws210-report-detail" className="scroll-mt-24">
         <div className="overflow-hidden rounded-[28px] border border-slate-700 bg-[#1a2332] text-white">
           <div className="flex flex-wrap items-start justify-between gap-6 px-6 py-6 md:px-8">
@@ -462,20 +475,20 @@ export function ValuationDashboard({
           </div>
 
           <div className="grid divide-y divide-slate-700 bg-white text-slate-900 md:grid-cols-4 md:divide-x md:divide-y-0">
-            <div className="p-5">
+            <div className={cn('p-5', revenueTouched && 'bg-emerald-50 ring-1 ring-inset ring-emerald-300')}>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">TTM Revenue</p>
               <p className="mt-2 text-2xl font-semibold">{formatCurrencyCompact(ttmRevenue)}</p>
               <p className="mt-1 text-sm text-slate-500">{latestTrend?.revenueYoYPct != null ? `${formatSignedPct(latestTrend.revenueYoYPct)} YoY` : 'Trend unavailable'}</p>
             </div>
-            <div className="p-5">
+            <div className={cn('p-5', grossMarginTouched && 'bg-emerald-50 ring-1 ring-inset ring-emerald-300')}>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Gross Margin</p>
               <p className="mt-2 text-2xl font-semibold">{formatPct(grossMargin)}</p>
               <p className="mt-1 text-sm text-slate-500">Stable 3-year</p>
             </div>
-            <div className="p-5">
+            <div className={cn('p-5', ebitdaTouched && 'bg-emerald-50 ring-1 ring-inset ring-emerald-300')}>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">4-Wall EBITDA (Pre-Recast)</p>
               <p className="mt-2 text-2xl font-semibold">{formatCurrency(preRecastEbitda)}</p>
-              <p className="mt-1 text-sm text-slate-500">{formatPct(analysis.ttmSummary?.ebitdaMarginPct)} margin</p>
+              <p className="mt-1 text-sm text-slate-500">{formatPct(ws2Report.ws21.annualPL.ebitdaMargin.ttm ?? null)} margin</p>
             </div>
             <div className="p-5">
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">WS2-1 Clearance</p>
@@ -520,12 +533,12 @@ export function ValuationDashboard({
                     <TableCell value={row.ttm} emphasize />
                   </tr>
                 ))}
-                <tr className="bg-[#1a2332] text-white">
+                <tr className={cn('bg-[#1a2332] text-white', revenueTouched && 'ring-2 ring-inset ring-emerald-300')}>
                   <td className="px-4 py-3 font-semibold">Total Revenue</td>
-                  <td className="px-4 py-3 text-right font-semibold">{formatCurrency(years[0]?.totalRevenue ?? null)}</td>
-                  <YoYCell previous={years[0]?.totalRevenue ?? null} current={years[1]?.totalRevenue ?? null} />
-                  <td className="px-4 py-3 text-right font-semibold">{formatCurrency(years[1]?.totalRevenue ?? null)}</td>
-                  <YoYCell previous={years[1]?.totalRevenue ?? null} current={years[2]?.totalRevenue ?? null} />
+                  <td className="px-4 py-3 text-right font-semibold">{formatCurrency(ws2Report.ws21.annualPL.totalRevenue.fy1 ?? null)}</td>
+                  <YoYCell previous={ws2Report.ws21.annualPL.totalRevenue.fy1 ?? null} current={ws2Report.ws21.annualPL.totalRevenue.fy2 ?? null} />
+                  <td className="px-4 py-3 text-right font-semibold">{formatCurrency(ws2Report.ws21.annualPL.totalRevenue.fy2 ?? null)}</td>
+                  <YoYCell previous={ws2Report.ws21.annualPL.totalRevenue.fy2 ?? null} current={ws2Report.ws21.annualPL.totalRevenue.fy3 ?? null} />
                   <td className="px-4 py-3 text-right font-semibold">{formatCurrency(ttmRevenue)}</td>
                 </tr>
                 {profitabilityRows.map((row) =>
@@ -534,7 +547,7 @@ export function ValuationDashboard({
                       <td colSpan={6} className="px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">{row.label}</td>
                     </tr>
                   ) : (
-                    <tr key={row.label}>
+                    <tr key={row.label} className={cn(recentChangeLabels.has(row.label) && 'bg-emerald-50')}>
                       <td className="px-4 py-3 text-slate-800">{row.label}</td>
                       <TableCell value={row.fy1} kind={row.kind === 'percent' ? 'percent' : 'currency'} negativeAccent={row.label.includes('EBITDA')} />
                       <YoYCell previous={row.fy1} current={row.fy2} kind={row.kind === 'percent' ? 'percent' : 'currency'} />
@@ -580,7 +593,7 @@ export function ValuationDashboard({
           </div>
 
           <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">
-            Based on TTM Normalized EBITDA of <span className="font-semibold text-slate-900">{formatCurrency(normalizedEbitda)}</span>. Revenue changing {latestTrend?.revenueYoYPct != null ? formatSignedPct(latestTrend.revenueYoYPct) : 'n/a'} YoY. Pre-recast EBITDA was {formatCurrency(preRecastEbitda)} ({formatPct(analysis.ttmSummary?.ebitdaMarginPct)}); total add-backs of {formatCurrency(totalAddBacks)}.
+            Based on TTM Normalized EBITDA of <span className="font-semibold text-slate-900">{formatCurrency(normalizedEbitda)}</span>. Revenue changing {latestTrend?.revenueYoYPct != null ? formatSignedPct(latestTrend.revenueYoYPct) : 'n/a'} YoY. Pre-recast EBITDA was {formatCurrency(preRecastEbitda)} ({formatPct(ws2Report.ws21.annualPL.ebitdaMargin.ttm ?? null)}); total add-backs of {formatCurrency(totalAddBacks)}.
           </div>
         </div>
 

@@ -41,6 +41,7 @@ export function BaselineValuationReportPanel({
   const [pendingWorkbookChanges, setPendingWorkbookChanges] = useState<WorkbookChange[]>([])
   const [pendingSnapshot, setPendingSnapshot] = useState<WorkbookOverrideSnapshot | null>(null)
   const [applyingWorkbookChanges, setApplyingWorkbookChanges] = useState(false)
+  const [recentWorkbookChanges, setRecentWorkbookChanges] = useState<WorkbookChange[]>([])
   const workbookInputRef = useRef<HTMLInputElement | null>(null)
 
   const report = analysis.derivedReports?.find((item) => item.agentId === 'ws2_10_report_generator_v1') ?? null
@@ -128,6 +129,7 @@ export function BaselineValuationReportPanel({
     setApplyingWorkbookChanges(true)
     setError(null)
     try {
+      const appliedChanges = [...pendingWorkbookChanges]
       const res = await fetch(`/api/ttm-agent/reports/${analysis.id}/workbook-overrides`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -139,8 +141,15 @@ export function BaselineValuationReportPanel({
         throw new Error(text || 'Failed to apply workbook changes')
       }
       onUpdated((await res.json()) as TtmAnalysisView)
+      setRecentWorkbookChanges(appliedChanges)
       setPendingWorkbookChanges([])
       setPendingSnapshot(null)
+      window.setTimeout(() => {
+        document.getElementById('ws210-pl-summary')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+      window.setTimeout(() => {
+        setRecentWorkbookChanges([])
+      }, 12000)
     } catch (applyError) {
       logWs2Error('WS2 workbook override apply', applyError, { analysisId: analysis.id })
       setError(applyError instanceof Error ? applyError.message : 'Failed to apply workbook changes')
@@ -309,6 +318,7 @@ export function BaselineValuationReportPanel({
             clientName={clientName}
             report={report}
             onExportXlsx={onExportXlsx}
+            recentWorkbookChanges={recentWorkbookChanges}
           />
 
           {controls}
