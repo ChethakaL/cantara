@@ -6,6 +6,9 @@ type RevenueCategoryRow = { code?: string; category?: string; value?: number };
 type OpExCategoryRow = { code?: string; category?: string; value?: number };
 type PeriodModel = {
   label: string;
+  fiscalYearLabel?: string;
+  periodStart?: string;
+  periodEnd?: string;
   revenue: number;
   revenueRows: RevenueCategoryRow[];
   cogsRows?: RevenueCategoryRow[];
@@ -19,18 +22,18 @@ const REVENUE_VERTICALS = [
   { name: "Training", codes: ["REV-TRAIN"] },
   { name: "Retail", codes: ["REV-RETAIL"] },
   { name: "Membership", codes: ["REV-MEM"] },
-  { name: "Other", codes: ["REV-TIPS", "REV-OTHER", "REV-DISC"] },
+  { name: "Other (Tips)", codes: ["REV-TIPS", "REV-OTHER"] },
 ] as const;
 
 const BENCHMARK_GROUPS = [
-  { category: "COGS", codes: ["COGS-SUPPLY", "COGS-RETAIL", "COGS-OTHER"], low: 0, high: 0.05 },
-  { category: "Marketing", codes: ["OPX-MKTG"], low: 0.03, high: 0.05 },
-  { category: "Direct Labor", codes: ["OPX-LABOR-STAFF", "OPX-LABOR-MGMT"], low: 0.35, high: 0.45 },
-  { category: "Payroll Taxes & Benefits", codes: ["OPX-LABOR-TAX"], low: 0.02, high: 0.05 },
-  { category: "Building Rent", codes: ["OPX-RENT", "OPX-RENT-NNN"], low: 0.1, high: 0.15 },
-  { category: "Other Building", codes: ["OPX-UTIL", "OPX-REPAIR"], low: 0.03, high: 0.05 },
-  { category: "Business Operations", codes: ["OPX-SOFT", "OPX-INSUR", "OPX-BANK", "OPX-PROF"], low: 0.07, high: 0.12 },
-  { category: "Other", codes: ["OPX-MEALS", "OPX-TRAVEL", "OPX-DONAT", "OPX-GIFTS", "OPX-VET", "OPX-OTHER"], low: null, high: null },
+  { category: "COGS", glCodes: ["5000"], benchmarkLow: 0, benchmarkHigh: 0.05, flagLow: 0, flagHigh: 0.05, includeInOverall: true },
+  { category: "Marketing", glCodes: ["6300", "6301", "6302"], benchmarkLow: 0.03, benchmarkHigh: 0.05, flagLow: 0.03, flagHigh: 0.05, includeInOverall: true },
+  { category: "Direct Labor", glCodes: ["6000", "6010", "6011", "6030", "6031"], benchmarkLow: 0.35, benchmarkHigh: 0.45, flagLow: 0.35, flagHigh: 0.45, includeInOverall: true },
+  { category: "Payroll Tax", glCodes: ["6040", "6041"], benchmarkLow: 0.02, benchmarkHigh: 0.05, flagLow: 0.02, flagHigh: 0.05, includeInOverall: true },
+  { category: "Building Rent", glCodes: ["6100", "6101", "6102"], benchmarkLow: 0.1, benchmarkHigh: 0.15, flagLow: 0.1, flagHigh: 0.15, includeInOverall: true },
+  { category: "Other Building", glCodes: ["6200", "6201", "6202", "6203", "6500", "6501", "6502", "6503"], benchmarkLow: 0.03, benchmarkHigh: 0.05, flagLow: 0.03, flagHigh: 0.05, includeInOverall: true },
+  { category: "Business Operations", glCodes: ["6700", "6701", "6400", "6900", "6901", "6800", "6801", "6802"], benchmarkLow: 0.07, benchmarkHigh: 0.12, flagLow: 0.04, flagHigh: 0.12, includeInOverall: true },
+  { category: "Supplies (ref)", glCodes: ["6600", "6601", "6602"], benchmarkLow: null, benchmarkHigh: null, flagLow: null, flagHigh: null, includeInOverall: false },
 ] as const;
 
 const LABOR_BENCHMARK_LOW = 0.35;
@@ -50,14 +53,41 @@ function yoy(prev: number, next: number) {
 
 function benchmarkFlag(value: number, low: number | null, high: number | null): TrafficLight {
   if (low == null || high == null) return "GREEN";
-  if (value < low * 0.85 || value > high * 1.15) return "RED";
+  if (value < low - 0.03 || value > high + 0.03) return "RED";
   if (value < low || value > high) return "YELLOW";
   return "GREEN";
 }
 
+function monthsBetween(start: string | undefined, end: string | undefined) {
+  if (!start || !end) return [] as string[];
+  const startMatch = start.match(/^(\d{4})-(\d{2})$/);
+  const endMatch = end.match(/^(\d{4})-(\d{2})$/);
+  if (!startMatch || !endMatch) return [] as string[];
+
+  const result: string[] = [];
+  let year = Number(startMatch[1]);
+  let month = Number(startMatch[2]);
+  const endYear = Number(endMatch[1]);
+  const endMonth = Number(endMatch[2]);
+
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    result.push(`${year}-${String(month).padStart(2, "0")}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+
+  return result;
+}
+
 function buildPeriods(analysis: TtmAnalysisView) {
   const annual = (analysis.annualModel?.years ?? []).slice(0, 3).map<PeriodModel>((year) => ({
-    label: year.fiscalYear,
+    label: year.periodStart?.slice(0, 4) ?? year.fiscalYear,
+    fiscalYearLabel: year.fiscalYear,
+    periodStart: year.periodStart,
+    periodEnd: year.periodEnd,
     revenue: year.totalRevenue ?? 0,
     revenueRows: year.revenueByCategory ?? [],
     cogsRows: year.cogsByCategory ?? [],
@@ -87,9 +117,11 @@ function mappedPlRows(analysis: TtmAnalysisView) {
 }
 
 function periodMonths(year: PeriodModel | undefined, fallback: string[]) {
+  const explicitMonths = monthsBetween(year?.periodStart, year?.periodEnd);
+  if (explicitMonths.length > 0) return explicitMonths;
   return year?.label && /^\d{4}$/.test(year.label)
     ? fallback.filter((month) => month.startsWith(`${year.label}-`))
-    : fallback.slice(-12)
+    : fallback.slice(-12);
 }
 
 function revenueLabel(code: string) {
@@ -187,10 +219,7 @@ export function buildWs24StructuredOutput(analysis: TtmAnalysisView): WS24Output
   const benchmarks = BENCHMARK_GROUPS.map((group) => {
     const rowAmount = (months: string[]) =>
       mappedRows
-        .filter((row) => {
-          if (group.category === "Building Rent" && row.accountCode === "6102") return true;
-          return (group.codes as readonly string[]).includes(row.cantaraCode ?? "");
-        })
+        .filter((row) => (group.glCodes as readonly string[]).includes(row.accountCode ?? ""))
         .reduce((sum, row) => sum + months.reduce((monthSum, month) => monthSum + Number(row.valuesByMonth?.[month] ?? 0), 0), 0);
     const fy1Dollar = rowAmount(yearMonths[0]);
     const fy2Dollar = rowAmount(yearMonths[1]);
@@ -200,12 +229,12 @@ export function buildWs24StructuredOutput(analysis: TtmAnalysisView): WS24Output
     const fy2Pct = pct(fy2Dollar, fy2?.revenue ?? 0);
     const fy3Pct = pct(fy3Dollar, fy3?.revenue ?? 0);
     const ttmPct = pct(ttmDollar, ttm.revenue);
-    const flag = benchmarkFlag(ttmPct, group.low, group.high);
+    const flag = benchmarkFlag(ttmPct, group.flagLow, group.flagHigh);
 
     return {
       category: group.category,
-      benchmarkLow: group.low ?? 0,
-      benchmarkHigh: group.high ?? 0,
+      benchmarkLow: group.benchmarkLow ?? 0,
+      benchmarkHigh: group.benchmarkHigh ?? 0,
       fy1Dollar,
       fy1Pct,
       fy2Dollar,
@@ -216,10 +245,12 @@ export function buildWs24StructuredOutput(analysis: TtmAnalysisView): WS24Output
       ttmPct,
       flag,
       flagNote:
-        group.low == null || group.high == null
-          ? "No benchmark range defined."
+        group.benchmarkLow == null || group.benchmarkHigh == null
+          ? "Reference-only category."
           : flag === "GREEN"
-            ? "Within benchmark range."
+            ? group.category === "Business Operations" && ttmPct < group.benchmarkLow
+              ? "Below the benchmark range, but not enough to trigger a flag."
+              : "Within benchmark range."
             : flag === "YELLOW"
               ? "Near or modestly outside benchmark range."
               : "Materially outside benchmark range.",
@@ -228,8 +259,11 @@ export function buildWs24StructuredOutput(analysis: TtmAnalysisView): WS24Output
     };
   });
 
-  const redCount = benchmarks.filter((item) => item.flag === "RED").length;
-  const yellowCount = benchmarks.filter((item) => item.flag === "YELLOW").length;
+  const overallBenchmarks = benchmarks.filter((item) =>
+    BENCHMARK_GROUPS.find((group) => group.category === item.category)?.includeInOverall !== false,
+  );
+  const redCount = overallBenchmarks.filter((item) => item.flag === "RED").length;
+  const yellowCount = overallBenchmarks.filter((item) => item.flag === "YELLOW").length;
   const overallHealth: TrafficLight = redCount > 0 ? "RED" : yellowCount > 1 ? "YELLOW" : "GREEN";
 
   return {
@@ -244,7 +278,10 @@ export function buildWs24StructuredOutput(analysis: TtmAnalysisView): WS24Output
           ? "A few categories need review against benchmark ranges."
           : "One or more categories are materially outside benchmark ranges.",
     improvementOpportunities: benchmarks
-      .filter((item) => item.flag !== "GREEN")
+      .filter((item) =>
+        item.flag !== "GREEN" &&
+        BENCHMARK_GROUPS.find((group) => group.category === item.category)?.includeInOverall !== false,
+      )
       .map((item) => `${item.category} is ${(item.ttmPct * 100).toFixed(1)}% of revenue versus ${(item.benchmarkLow * 100).toFixed(1)}%–${(item.benchmarkHigh * 100).toFixed(1)}% benchmark.`),
   };
 }
@@ -262,9 +299,9 @@ export function buildWs25StructuredOutput(analysis: TtmAnalysisView, recast: Ws2
     const owner = sumByCodes(opExRows, ["OPX-LABOR-OWN"]);
     const payrollTaxesBenefits = sumByCodes(opExRows, ["OPX-LABOR-TAX"]);
     const tipsPaidOut = sumByCodes(opExRows, ["OPX-TIPS-OUT"]);
-    const directLabor = staff + management;
-    const allInLabor = directLabor + owner + payrollTaxesBenefits + tipsPaidOut;
-    const buyerAdjustedLabor = directLabor + payrollTaxesBenefits + replacementSalary;
+    const laborExcludingOwner = staff + management + payrollTaxesBenefits;
+    const allInLabor = laborExcludingOwner + owner + tipsPaidOut;
+    const buyerAdjustedLabor = staff + management + payrollTaxesBenefits + replacementSalary;
 
     return {
       revenue,
@@ -273,7 +310,7 @@ export function buildWs25StructuredOutput(analysis: TtmAnalysisView, recast: Ws2
       owner,
       payrollTaxesBenefits,
       tipsPaidOut,
-      directLabor,
+      laborExcludingOwner,
       allInLabor,
       buyerAdjustedLabor,
     };
@@ -291,7 +328,7 @@ export function buildWs25StructuredOutput(analysis: TtmAnalysisView, recast: Ws2
     ["Payroll Taxes & Benefits", fy1Labor.payrollTaxesBenefits, fy2Labor.payrollTaxesBenefits, fy3Labor.payrollTaxesBenefits, ttmLabor.payrollTaxesBenefits],
     ["Tips Paid Out", fy1Labor.tipsPaidOut, fy2Labor.tipsPaidOut, fy3Labor.tipsPaidOut, ttmLabor.tipsPaidOut],
     ["Total All-In Labor", fy1Labor.allInLabor, fy2Labor.allInLabor, fy3Labor.allInLabor, ttmLabor.allInLabor],
-    ["Buyer-Adjusted Labor", fy1Labor.directLabor + fy1Labor.payrollTaxesBenefits + replacementSalary, fy2Labor.directLabor + fy2Labor.payrollTaxesBenefits + replacementSalary, fy3Labor.directLabor + fy3Labor.payrollTaxesBenefits + replacementSalary, ttmLabor.buyerAdjustedLabor],
+    ["Buyer-Adjusted Labor", fy1Labor.laborExcludingOwner + replacementSalary, fy2Labor.laborExcludingOwner + replacementSalary, fy3Labor.laborExcludingOwner + replacementSalary, ttmLabor.buyerAdjustedLabor],
   ] as Array<[string, number, number, number, number]>).map(([category, fy1Amount, fy2Amount, fy3Amount, ttmAmount]) => ({
     category,
     ttmAmount,
@@ -302,15 +339,18 @@ export function buildWs25StructuredOutput(analysis: TtmAnalysisView, recast: Ws2
     fy1Pct: pct(fy1Amount, fy1?.revenue ?? 0),
   }));
 
-  const directLaborPct = pct(ttmLabor.directLabor, ttm.revenue);
+  const directLaborPct = pct(ttmLabor.laborExcludingOwner, ttm.revenue);
   const buyerAdjustedLaborPct = pct(ttmLabor.buyerAdjustedLabor, ttm.revenue);
   const benchmarkStatus =
     directLaborPct > LABOR_BENCHMARK_HIGH ? "RED" :
     directLaborPct < LABOR_BENCHMARK_LOW ? "YELLOW" :
     "GREEN";
+  const fy1TrendPct = pct(fy1Labor.laborExcludingOwner, fy1?.revenue ?? 0);
+  const fy2TrendPct = pct(fy2Labor.laborExcludingOwner, fy2?.revenue ?? 0);
+  const fy3TrendPct = pct(fy3Labor.laborExcludingOwner, fy3?.revenue ?? 0);
   const trendAssessment: TrafficLight =
-    directLaborPct <= pct(fy3Labor.directLabor, fy3?.revenue ?? 0) + 0.01 ? "GREEN" :
-    directLaborPct <= pct(fy3Labor.directLabor, fy3?.revenue ?? 0) + 0.03 ? "YELLOW" :
+    fy3TrendPct <= fy2TrendPct && fy2TrendPct <= fy1TrendPct ? "GREEN" :
+    fy3TrendPct <= fy2TrendPct + 0.01 ? "YELLOW" :
     "RED";
 
   const flags: string[] = [];
@@ -330,17 +370,17 @@ export function buildWs25StructuredOutput(analysis: TtmAnalysisView, recast: Ws2
     benchmarkStatus,
     benchmarkNote:
       benchmarkStatus === "GREEN"
-        ? "Direct labor is within Cantara's expected benchmark range."
+        ? "Labor excluding owner compensation is within Cantara's expected benchmark range."
         : benchmarkStatus === "YELLOW"
-          ? "Direct labor is close to the edge of Cantara's benchmark range."
-          : "Direct labor is above Cantara's benchmark range and needs review.",
+          ? "Labor excluding owner compensation is close to Cantara's benchmark limit."
+          : "Labor excluding owner compensation is above Cantara's benchmark range and needs review.",
     trendAssessment,
     trendNote:
       trendAssessment === "GREEN"
-        ? "Labor costs are moving in a favorable direction compared with prior years."
+        ? `Labor excluding owner compensation is improving over time: ${(fy1TrendPct * 100).toFixed(1)}% → ${(fy2TrendPct * 100).toFixed(1)}% → ${(fy3TrendPct * 100).toFixed(1)}%.`
         : trendAssessment === "YELLOW"
-          ? "Labor costs are slightly less favorable than the prior-year pattern."
-          : "Labor costs have worsened versus prior years and should be reviewed.",
+          ? `Labor excluding owner compensation is mixed over time: ${(fy1TrendPct * 100).toFixed(1)}% → ${(fy2TrendPct * 100).toFixed(1)}% → ${(fy3TrendPct * 100).toFixed(1)}%.`
+          : `Labor excluding owner compensation has worsened over time: ${(fy1TrendPct * 100).toFixed(1)}% → ${(fy2TrendPct * 100).toFixed(1)}% → ${(fy3TrendPct * 100).toFixed(1)}%.`,
     flags,
   };
 }

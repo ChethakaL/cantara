@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { PremiumMarkdown } from '@/components/ttm-agent/PremiumMarkdown'
-import { Badge, Button, Card } from '@/components/ui'
+import { Badge, Button, Card, Modal } from '@/components/ui'
 import { logWs2ClientEvent, logWs2Error, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import type { TtmAnalysisView } from '@/lib/ttm-agent/types'
 import { ValuationDashboard } from './ValuationDashboard'
+import type { WorkbookChange, WorkbookOverrideSnapshot } from '@/lib/ttm-agent/workbook-overrides'
 
 function formatCurrency(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? `$${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'Not available'
@@ -36,6 +37,11 @@ export function BaselineValuationReportPanel({
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showRawOutput, setShowRawOutput] = useState(false)
+  const [uploadingWorkbook, setUploadingWorkbook] = useState(false)
+  const [pendingWorkbookChanges, setPendingWorkbookChanges] = useState<WorkbookChange[]>([])
+  const [pendingSnapshot, setPendingSnapshot] = useState<WorkbookOverrideSnapshot | null>(null)
+  const [applyingWorkbookChanges, setApplyingWorkbookChanges] = useState(false)
+  const workbookInputRef = useRef<HTMLInputElement | null>(null)
 
   const report = analysis.derivedReports?.find((item) => item.agentId === 'ws2_10_report_generator_v1') ?? null
   const approvedRecast = analysis.recastAnalyses?.find((recast) => recast.status === 'APPROVED') ?? null
@@ -88,6 +94,61 @@ export function BaselineValuationReportPanel({
     }
   }
 
+  const handleWorkbookPicked = async (file: File) => {
+    setError(null)
+    setUploadingWorkbook(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(`/api/ttm-agent/reports/${analysis.id}/workbook-overrides`, {
+        method: 'POST',
+        body: formData,
+      })
+      await logWs2Response('WS2 workbook override preview', res)
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Failed to parse uploaded workbook')
+      }
+      const data = (await res.json()) as { changes: WorkbookChange[]; snapshot: WorkbookOverrideSnapshot }
+      setPendingWorkbookChanges(data.changes)
+      setPendingSnapshot(data.snapshot)
+    } catch (uploadError) {
+      logWs2Error('WS2 workbook override preview', uploadError, { analysisId: analysis.id })
+      setError(uploadError instanceof Error ? uploadError.message : 'Failed to parse uploaded workbook')
+      setPendingWorkbookChanges([])
+      setPendingSnapshot(null)
+    } finally {
+      setUploadingWorkbook(false)
+      if (workbookInputRef.current) workbookInputRef.current.value = ''
+    }
+  }
+
+  const applyWorkbookChanges = async () => {
+    if (!pendingSnapshot) return
+    setApplyingWorkbookChanges(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/ttm-agent/reports/${analysis.id}/workbook-overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshot: pendingSnapshot }),
+      })
+      await logWs2Response('WS2 workbook override apply', res)
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Failed to apply workbook changes')
+      }
+      onUpdated((await res.json()) as TtmAnalysisView)
+      setPendingWorkbookChanges([])
+      setPendingSnapshot(null)
+    } catch (applyError) {
+      logWs2Error('WS2 workbook override apply', applyError, { analysisId: analysis.id })
+      setError(applyError instanceof Error ? applyError.message : 'Failed to apply workbook changes')
+    } finally {
+      setApplyingWorkbookChanges(false)
+    }
+  }
+
   const controls = (
     <Card className="p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -111,6 +172,19 @@ export function BaselineValuationReportPanel({
             <Button size="sm" onClick={() => void runReport()} disabled={disabled || running}>
               {running ? 'Running...' : report ? 'Refresh Report' : 'Run Report'}
             </Button>
+            <Button size="sm" variant="outline" onClick={() => workbookInputRef.current?.click()} disabled={!report || uploadingWorkbook}>
+              {uploadingWorkbook ? 'Reading XLSX...' : 'Upload Edited XLSX'}
+            </Button>
+            <input
+              ref={workbookInputRef}
+              type="file"
+              accept=".xlsx"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) void handleWorkbookPicked(file)
+              }}
+            />
           </div>
         </div>
 
@@ -237,10 +311,10 @@ export function BaselineValuationReportPanel({
             onExportXlsx={onExportXlsx}
           />
 
+          {controls}
+
           {!hideWorkflowChrome && (
             <>
-              {controls}
-
               <Card className="p-5 bg-slate-50 border-slate-200">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div>
@@ -270,6 +344,66 @@ export function BaselineValuationReportPanel({
           {controls}
         </>
       )}
+      <Modal
+        open={Boolean(pendingSnapshot)}
+        onClose={() => {
+          if (applyingWorkbookChanges) return
+          setPendingWorkbookChanges([])
+          setPendingSnapshot(null)
+        }}
+        title="Confirm XLSX Changes"
+        sizeClassName="max-w-4xl"
+      >
+        {pendingWorkbookChanges.length === 0 ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">No meaningful changes were detected in the uploaded workbook.</p>
+            <div className="flex justify-end">
+              <Button size="sm" variant="outline" onClick={() => setPendingSnapshot(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">
+              Detected <span className="font-semibold">{pendingWorkbookChanges.length}</span> edited values.
+              Approving will save them and update the baseline web report.
+            </p>
+            <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-200">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="px-3 py-2">Section</th>
+                    <th className="px-3 py-2">Label</th>
+                    <th className="px-3 py-2">Field</th>
+                    <th className="px-3 py-2 text-right">Before</th>
+                    <th className="px-3 py-2 text-right">After</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingWorkbookChanges.map((change, index) => (
+                    <tr key={`${change.section}-${change.label}-${change.field}-${index}`} className="border-t border-slate-100">
+                      <td className="px-3 py-2">{change.section}</td>
+                      <td className="px-3 py-2">{change.label}</td>
+                      <td className="px-3 py-2">{change.field}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-500">{change.before}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{change.after}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setPendingSnapshot(null)} disabled={applyingWorkbookChanges}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => void applyWorkbookChanges()} disabled={applyingWorkbookChanges}>
+                {applyingWorkbookChanges ? 'Applying...' : 'Apply to Database'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

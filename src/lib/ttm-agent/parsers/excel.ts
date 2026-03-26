@@ -47,7 +47,7 @@ const AR_BUCKET_ALIASES: Array<{ key: keyof Omit<ParsedArAging["entries"][number
   { key: "current", matches: ["current"] },
   { key: "days1To30", matches: ["1-30", "1 - 30", "1 to 30", "1 30", "30 days", "0-30", "0 30"] },
   { key: "days31To60", matches: ["31-60", "31 - 60", "31 to 60", "31 60", "60 days"] },
-  { key: "days61To90", matches: ["61-90", "61 - 90", "61 to 90", "61 90", "90 days"] },
+  { key: "days61To90", matches: ["61-90", "61 - 90", "61 to 90", "61 90"] },
   { key: "days90Plus", matches: ["90+", ">90", "over 90", "91+", "91 and over", "91 days", "91 days overdue", "over 90 days"] },
 ];
 

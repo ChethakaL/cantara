@@ -2,6 +2,26 @@ import { getCategoryLabel, TAXONOMY_BY_CODE } from '@/lib/ttm-agent/taxonomy'
 import type { AnnualModelYear, DataQualitySection, TtmAnalysisView, TtmFlagView, Ws2DerivedReportView, Ws2RecastView } from '@/lib/ttm-agent/types'
 import { WS2Report, AddBackItem, DQFlag, GLMappingRow, PeriodCoverage, PLLine } from '@/lib/ws2/ws2-types'
 import { buildStructuredWs2DerivedReport } from '@/lib/ws2/derived-report-structure'
+import { applyWorkbookOverrideSnapshot, WorkbookOverrideSnapshot } from '@/lib/ttm-agent/workbook-overrides'
+
+type MappedPlRow = {
+  accountName: string
+  accountCode: string | null
+  cantaraCode: string | null
+  valuesByMonth: Record<string, number>
+  mappingMethod?: string
+}
+
+type ParsedScheduleItem = {
+  index: string
+  category: string
+  description: string
+  glReference: string
+  ttmAmount: number
+  status: string
+  sourcePeriod: string | null
+  sourceAmount: number | null
+}
 
 function toPctDecimal(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? value / 100 : 0
@@ -12,13 +32,7 @@ function yoy(prev: number, next: number) {
 }
 
 function asMappedRows(value: unknown) {
-  return Array.isArray(value) ? value as Array<{
-    accountName: string
-    accountCode: string | null
-    cantaraCode: string | null
-    valuesByMonth: Record<string, number>
-    mappingMethod?: string
-  }> : []
+  return Array.isArray(value) ? value as MappedPlRow[] : []
 }
 
 function monthKeysFromRows(rows: Array<{ valuesByMonth: Record<string, number> }>) {
@@ -64,12 +78,14 @@ function sumRowMonths(valuesByMonth: Record<string, number>, months: string[]) {
 function buildCoverage(analysis: TtmAnalysisView): PeriodCoverage {
   const years = analysis.annualModel?.years ?? []
   const [fy1, fy2, fy3] = years
+  const yearLabel = (year: AnnualModelYear | undefined, fallback: string) =>
+    year?.periodStart?.slice(0, 4) ? `FY ${year.periodStart.slice(0, 4)}` : fallback
   return {
-    fy1Label: fy1?.fiscalYear ? `FY ${fy1.fiscalYear}` : 'FY 1',
+    fy1Label: yearLabel(fy1, 'FY 1'),
     fy1Range: fy1 ? `${fy1.periodStart} — ${fy1.periodEnd}` : '—',
-    fy2Label: fy2?.fiscalYear ? `FY ${fy2.fiscalYear}` : 'FY 2',
+    fy2Label: yearLabel(fy2, 'FY 2'),
     fy2Range: fy2 ? `${fy2.periodStart} — ${fy2.periodEnd}` : '—',
-    fy3Label: fy3?.fiscalYear ? `FY ${fy3.fiscalYear}` : 'FY 3',
+    fy3Label: yearLabel(fy3, 'FY 3'),
     fy3Range: fy3 ? `${fy3.periodStart} — ${fy3.periodEnd}` : '—',
     ttmLabel: analysis.ttmSummary?.startMonth && analysis.ttmSummary?.endMonth ? `${analysis.ttmSummary.startMonth} — ${analysis.ttmSummary.endMonth}` : 'TTM',
     confidence: analysis.structuredModel?.confidence ?? 'MEDIUM',
@@ -107,24 +123,67 @@ function buildCategoryLines(args: {
     .filter((line) => line.fy1 !== 0 || line.fy2 !== 0 || line.fy3 !== 0 || line.ttm !== 0)
 }
 
-function parseRecastSchedule(reportMarkdown: string | null | undefined): AddBackItem[] {
-  if (!reportMarkdown) return []
+function parseCurrency(raw: string | null | undefined) {
+  if (!raw) return null
+  const normalized = raw.replace(/\$/g, '').replace(/,/g, '').replace(/^\((.*)\)$/, '-$1')
+  const value = Number(normalized)
+  return Number.isFinite(value) ? value : null
+}
 
+function normalizeDescriptionKey(value: string | null | undefined) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function parsePeriodReference(value: string | null | undefined) {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed
+  const monthYear = trimmed.match(/([A-Za-z]{3,9})[\s-]+(\d{4})/)
+  if (monthYear) {
+    const parsed = new Date(`${monthYear[1]} 1, ${monthYear[2]}`)
+    if (!Number.isNaN(parsed.getTime())) {
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`
+    }
+  }
+  const yearOnly = trimmed.match(/\b(20\d{2})\b/)
+  return yearOnly ? `${yearOnly[1]}-01` : null
+}
+
+function parseCategoryPeriodItems(reportMarkdown: string, heading: string) {
+  const sectionMatch = reportMarkdown.match(new RegExp(`## ${heading}([\\s\\S]*?)(?=\\n## |$)`, 'i'))
+  if (!sectionMatch) return [] as Array<{ description: string; sourcePeriod: string | null; amount: number | null; glReference: string | null }>
+
+  return Array.from(sectionMatch[1].matchAll(/\*\*Item\s+\d+:[^\n]*\*\*[\s\S]*?(?=(?:\n\*\*Item\s+\d+:)|$)/g)).map((match) => {
+    const block = match[0]
+    const description = (block.match(/- Description:\s*([^\n]+)/i)?.[1] ?? '').trim()
+    const sourcePeriod = parsePeriodReference(block.match(/- Year:\s*([^\n]+)/i)?.[1] ?? null)
+    const amount = parseCurrency(block.match(/- Amount:\s*(\$[0-9,().-]+)/i)?.[1] ?? null)
+    const glReference = (block.match(/- GL Account:\s*.*?\(([^)]+)\)/i)?.[1] ?? block.match(/- GL Account:\s*([^\n]+)/i)?.[1] ?? '').trim()
+    return {
+      description,
+      sourcePeriod,
+      amount,
+      glReference: glReference || null,
+    }
+  })
+}
+
+function parseRecastScheduleRows(reportMarkdown: string | null | undefined): ParsedScheduleItem[] {
+  if (!reportMarkdown) return []
   const match = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i)
   if (!match) return []
 
-  const categoryMap: Record<string, AddBackItem['category']> = {
-    'Owner / Officer Compensation': 1,
-    'Personal Expenses': 2,
-    'One-Off Expenses': 3,
-    'TI Add-Backs': 4,
-    'Fair Market Rent': 5,
-  }
+  const category3Items = parseCategoryPeriodItems(reportMarkdown, 'CATEGORY 3: ONE-OFF NON-RECURRING EXPENSES')
+  const category4Items = parseCategoryPeriodItems(reportMarkdown, 'CATEGORY 4: TENANT IMPROVEMENT ADD-BACKS')
+  const periodByDescription = new Map<string, string | null>()
+  const amountByDescription = new Map<string, number | null>()
 
-  const parseAmount = (raw: string) => {
-    const normalized = raw.replace(/\$/g, '').replace(/,/g, '').replace(/^\((.*)\)$/, '-$1')
-    const value = Number(normalized)
-    return Number.isFinite(value) ? value : 0
+  for (const item of [...category3Items, ...category4Items]) {
+    periodByDescription.set(normalizeDescriptionKey(item.description), item.sourcePeriod)
+    amountByDescription.set(normalizeDescriptionKey(item.description), item.amount)
   }
 
   return match[1]
@@ -134,16 +193,86 @@ function parseRecastSchedule(reportMarkdown: string | null | undefined): AddBack
     .filter((line) => !/^\|\s*-+/.test(line))
     .map((line) => line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim().replace(/\*\*/g, '')))
     .filter((cells) => cells.length >= 6 && cells[0] !== '#' && cells[1] !== 'Category')
-    .filter((cells) => !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN/i.test(cells[2]))
-    .map<AddBackItem>((cells) => ({
-      id: cells[0],
-      category: categoryMap[cells[1]] ?? 3,
+    .map((cells) => ({
+      index: cells[0],
+      category: cells[1],
       description: cells[2],
-      glCode: cells[3] === '—' ? undefined : cells[3],
-      glAccount: cells[3] === '—' ? undefined : cells[3],
-      ttmAmount: parseAmount(cells[4]),
-      status: (cells[5] || 'CALCULATED') as AddBackItem['status'],
+      glReference: cells[3],
+      ttmAmount: parseCurrency(cells[4]) ?? 0,
+      status: cells[5] || 'CALCULATED',
+      sourcePeriod: periodByDescription.get(normalizeDescriptionKey(cells[2])) ?? null,
+      sourceAmount: amountByDescription.get(normalizeDescriptionKey(cells[2])) ?? null,
     }))
+    .filter((item) =>
+      item.index !== '—' &&
+      !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN/i.test(item.description) &&
+      !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN/i.test(item.category),
+    )
+}
+
+function sumGlForMonths(rows: MappedPlRow[], glCode: string, months: string[]) {
+  return rows
+    .filter((row) => row.accountCode === glCode)
+    .reduce((sum, row) => sum + sumRowMonths(row.valuesByMonth, months), 0)
+}
+
+function toAddBackCategory(category: string): AddBackItem['category'] {
+  if (/Owner Compensation/i.test(category)) return 1
+  if (/Personal Expenses/i.test(category)) return 2
+  if (/One-Off Expenses/i.test(category)) return 3
+  if (/TI Add-Backs/i.test(category)) return 4
+  return 5
+}
+
+function buildRecastSchedule(
+  reportMarkdown: string | null | undefined,
+  mappedPlRows: MappedPlRow[],
+  annualYears: AnnualModelYear[],
+  ttmMonths: string[],
+  replacementSalary: number,
+) {
+  const parsedItems = parseRecastScheduleRows(reportMarkdown)
+  if (parsedItems.length === 0) return []
+
+  const fyMonths = annualYears.map((year) => monthsBetween(year.periodStart, year.periodEnd))
+
+  const periodAmount = (item: ParsedScheduleItem, months: string[]) => {
+    if (/Replacement Manager Salary/i.test(item.description)) {
+      return -((replacementSalary * months.length) / 12)
+    }
+    if (/Employer FICA on owner wages/i.test(item.description)) {
+      return sumGlForMonths(mappedPlRows, '6020', months) * 0.0765
+    }
+    if (/One-Off Expenses|TI Add-Backs/i.test(item.category)) {
+      if (!item.sourcePeriod) return item.ttmAmount
+      return months.includes(item.sourcePeriod) ? (item.sourceAmount ?? item.ttmAmount) : 0
+    }
+    if (/^\d+$/.test(item.glReference)) {
+      return sumGlForMonths(mappedPlRows, item.glReference, months)
+    }
+    return item.ttmAmount
+  }
+
+  return parsedItems.map<AddBackItem>((item) => {
+    const ttmAmount = periodAmount(item, ttmMonths)
+    const fy1Amount = periodAmount(item, fyMonths[0] ?? [])
+    const fy2Amount = periodAmount(item, fyMonths[1] ?? [])
+    const fy3Amount = periodAmount(item, fyMonths[2] ?? [])
+    const outOfPeriod = (/One-Off Expenses|TI Add-Backs/i.test(item.category) && item.sourcePeriod && !ttmMonths.includes(item.sourcePeriod) && ttmAmount === 0)
+    const status = outOfPeriod && !/OUT-OF-PERIOD FOR TTM/i.test(item.status) ? `${item.status} · OUT-OF-PERIOD FOR TTM` : item.status
+    return {
+      id: item.index,
+      category: toAddBackCategory(item.category),
+      description: item.description,
+      glCode: item.glReference === '—' ? undefined : item.glReference,
+      glAccount: item.glReference === '—' ? undefined : item.glReference,
+      ttmAmount,
+      fy1Amount,
+      fy2Amount,
+      fy3Amount,
+      status: (status || 'CALCULATED') as AddBackItem['status'],
+    }
+  })
 }
 
 function mapFlags(flags: TtmFlagView[]): DQFlag[] {
@@ -160,17 +289,19 @@ function mapFlags(flags: TtmFlagView[]): DQFlag[] {
 function mapGlClassificationRequests(analysis: TtmAnalysisView): GLMappingRow[] {
   const mappedPlRows = asMappedRows(analysis.normalizedData?.mappedPlRows)
   const mappedBsRows = asMappedRows(analysis.normalizedData?.mappedBsRows)
-  return [...mappedPlRows, ...mappedBsRows].map((row) => ({
-    accountName: row.accountName,
-    glCode: row.accountCode ?? '—',
-    cantaraCode: row.cantaraCode ?? 'UNMAPPED',
-    status:
-      row.cantaraCode
-        ? row.mappingMethod === 'claude' || row.mappingMethod === 'fuzzy'
-          ? 'FLAGGED-AMBIGUOUS'
-          : 'AUTO-MAPPED'
-        : 'UNMAPPED',
-  }))
+  return [...mappedPlRows, ...mappedBsRows]
+    .filter((row) => row.accountCode)
+    .map((row) => ({
+      accountName: row.accountName,
+      glCode: row.accountCode ?? '—',
+      cantaraCode: row.cantaraCode ?? 'UNMAPPED',
+      status:
+        row.cantaraCode
+          ? row.mappingMethod === 'claude' || row.mappingMethod === 'fuzzy'
+            ? 'FLAGGED-AMBIGUOUS'
+            : 'AUTO-MAPPED'
+          : 'UNMAPPED',
+    }))
 }
 
 function mapAccountantDiscrepancies(analysis: TtmAnalysisView) {
@@ -188,28 +319,33 @@ function mapAccountantDiscrepancies(analysis: TtmAnalysisView) {
 function mapWorkingCapital(analysis: TtmAnalysisView) {
   const wc = analysis.workingCapital
   const byCode = Object.fromEntries((wc?.currentAssets ?? []).concat(wc?.currentLiabilities ?? []).map((row) => [row.code, row.value])) as Record<string, number>
+  const rounded61To90 = Math.round(wc?.arAging.days61To90 ?? 0)
+  const rounded90Plus = Math.round(wc?.arAging.days90Plus ?? 0)
+  const looksLikeLegacyBucketShift = rounded90Plus === 0 && (wc?.arAging.days61To90 ?? 0) % 1 !== 0 && rounded61To90 > 0
+  const ar61To90 = looksLikeLegacyBucketShift ? 0 : rounded61To90
+  const ar90Plus = looksLikeLegacyBucketShift ? rounded61To90 : rounded90Plus
   return {
     asOfDate: wc?.month ?? 'Current',
-    cash: byCode['WC-CASH'] ?? 0,
-    accountsReceivable: byCode['WC-AR'] ?? 0,
-    inventory: byCode['WC-INV'] ?? 0,
-    prepaidExpenses: byCode['WC-PREPAID'] ?? 0,
-    totalCurrentAssets: wc?.totalCurrentAssets ?? 0,
-    accountsPayable: byCode['WC-AP'] ?? 0,
-    accruedLiabilities: byCode['WC-ACCR'] ?? 0,
-    deferredRevenue: byCode['WC-DREV'] ?? 0,
-    totalCurrentLiabilities: wc?.totalCurrentLiabilities ?? 0,
-    netWorkingCapital: wc?.netWorkingCapital ?? 0,
-    trailingThreeMonthAvgNWC: wc?.trailingThreeMonthAverageNwc ?? 0,
+    cash: Math.round(byCode['WC-CASH'] ?? 0),
+    accountsReceivable: Math.round(byCode['WC-AR'] ?? 0),
+    inventory: Math.round(byCode['WC-INV'] ?? 0),
+    prepaidExpenses: Math.round(byCode['WC-PREPAID'] ?? 0),
+    totalCurrentAssets: Math.round(wc?.totalCurrentAssets ?? 0),
+    accountsPayable: Math.round(byCode['WC-AP'] ?? 0),
+    accruedLiabilities: Math.round(byCode['WC-ACCR'] ?? 0),
+    deferredRevenue: Math.round(byCode['WC-DREV'] ?? 0),
+    totalCurrentLiabilities: Math.round(wc?.totalCurrentLiabilities ?? 0),
+    netWorkingCapital: Math.round(wc?.netWorkingCapital ?? 0),
+    trailingThreeMonthAvgNWC: Math.round(wc?.trailingThreeMonthAverageNwc ?? 0),
     arAgingBuckets: {
-      current: wc?.arAging.current ?? 0,
-      days1to30: wc?.arAging.days1To30 ?? 0,
-      days31to60: wc?.arAging.days31To60 ?? 0,
-      days61to90: wc?.arAging.days61To90 ?? 0,
-      days90plus: wc?.arAging.days90Plus ?? 0,
-      total: wc?.arAging.totalAr ?? 0,
+      current: Math.round(wc?.arAging.current ?? 0),
+      days1to30: Math.round(wc?.arAging.days1To30 ?? 0),
+      days31to60: Math.round(wc?.arAging.days31To60 ?? 0),
+      days61to90: ar61To90,
+      days90plus: ar90Plus,
+      total: Math.round(wc?.arAging.totalAr ?? 0),
     },
-    arVarianceToBalanceSheet: wc?.arAging.varianceToBalanceSheetAr ?? 0,
+    arVarianceToBalanceSheet: Math.round(wc?.arAging.varianceToBalanceSheetAr ?? 0),
   }
 }
 
@@ -223,9 +359,9 @@ export function buildWS2ReportAdapter(
   const sum = analysis.ttmSummary
   const mappedPlRows = asMappedRows(analysis.normalizedData?.mappedPlRows)
   const plMonthKeys = monthKeysFromRows(mappedPlRows)
-  const fyMonths = years.map((year) => monthsBetween(year.periodStart, year.periodEnd))
+  const ttmMonths = plMonthKeys.slice(-12)
 
-  const revenueCodes = Object.values(TAXONOMY_BY_CODE).filter((row) => row.type === 'revenue' && row.code !== 'REV-DISC').map((row) => row.code)
+  const revenueCodes = Object.values(TAXONOMY_BY_CODE).filter((row) => row.type === 'revenue').map((row) => row.code)
   const cogsCodes = Object.values(TAXONOMY_BY_CODE).filter((row) => row.type === 'cogs').map((row) => row.code)
   const opexCodes = Object.values(TAXONOMY_BY_CODE).filter((row) => row.type === 'opex').map((row) => row.code)
 
@@ -313,7 +449,8 @@ export function buildWS2ReportAdapter(
     summaryText: analysis.summary?.overview ?? 'Summary Generated',
   }
 
-  const addBackItems = parseRecastSchedule(recast?.reportMarkdown)
+  const replacementSalary = recast?.assumptions?.replacementSalary ?? 65000
+  const addBackItems = buildRecastSchedule(recast?.reportMarkdown, mappedPlRows, years, ttmMonths, replacementSalary)
   const ttmRevenue = sum?.totalRevenue ?? 0
   const ws22 = recast ? {
     status: recast.status as any,
@@ -370,7 +507,7 @@ export function buildWS2ReportAdapter(
   const ws24Data = (derived24?.parsedReport ?? buildStructuredWs2DerivedReport({ agentId: 'ws2_4_benchmark_v1', analysis, recast }) ?? {}) as any
   const ws25Data = (derived25?.parsedReport ?? buildStructuredWs2DerivedReport({ agentId: 'ws2_5_labor_v1', analysis, recast }) ?? {}) as any
 
-  return {
+  const report: WS2Report = {
     clientName,
     clientId: analysis.clientId,
     engagementId: analysis.id,
@@ -412,4 +549,11 @@ export function buildWS2ReportAdapter(
     rawRecast: recast,
     rawDerivedReports: derivedReports,
   }
+
+  const baseline = derivedReports.find((row) => String(row.agentId).includes('ws2_10_report_generator_v1'))
+  const workbookOverrideSnapshot = (baseline?.parsedReport as Record<string, unknown> | null | undefined)?.workbookOverrideSnapshot as
+    | WorkbookOverrideSnapshot
+    | undefined
+
+  return applyWorkbookOverrideSnapshot(report, workbookOverrideSnapshot)
 }

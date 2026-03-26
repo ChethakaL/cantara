@@ -35,6 +35,13 @@ import {
 import { buildBaselineValuationReport } from "@/lib/ws2/baseline-report";
 import { buildStructuredWs2DerivedReport } from "@/lib/ws2/derived-report-structure";
 import { buildWs21DeterministicReport } from "@/lib/ws2/ws21-report";
+import { buildWS2ReportAdapter } from "@/lib/ttm-agent/export-adapter";
+import {
+  buildWorkbookOverrideSnapshot,
+  diffWorkbookOverrideSnapshots,
+  WorkbookOverrideSnapshot,
+} from "@/lib/ttm-agent/workbook-overrides";
+import { parseWorkbookOverrideSnapshotFromXlsx } from "@/lib/ttm-agent/workbook-overrides-xlsx";
 
 const WS2_BASELINE_SOURCE_AGENT_IDS = [
   "ws2_3_rev_vertical_v1",
@@ -1516,6 +1523,55 @@ export async function runWs2DerivedAgent(args: {
   if (!updated) {
     throw new TtmOrchestratorError("WS2-1 analysis not found after downstream agent run.", 404);
   }
+  return updated;
+}
+
+export async function previewWorkbookOverrides(args: {
+  analysisId: string;
+  workbookBuffer: Buffer;
+}) {
+  const analysis = await getTtmAnalysis(args.analysisId);
+  if (!analysis) throw new TtmOrchestratorError("WS2-1 analysis not found.", 404);
+  const approvedRecast = await getLatestApprovedRecast(args.analysisId);
+  if (!approvedRecast) throw new TtmOrchestratorError("Approved WS2-2 recast is required.", 400);
+
+  const clientName = await getClientDisplayName(analysis.clientId);
+  const currentReport = buildWS2ReportAdapter(clientName, analysis, approvedRecast, analysis.derivedReports ?? []);
+  const currentSnapshot = buildWorkbookOverrideSnapshot(currentReport);
+  const uploadedSnapshot = parseWorkbookOverrideSnapshotFromXlsx(args.workbookBuffer);
+  const changes = diffWorkbookOverrideSnapshots(currentSnapshot, uploadedSnapshot);
+
+  return {
+    changes,
+    snapshot: uploadedSnapshot,
+  };
+}
+
+export async function applyWorkbookOverrides(args: {
+  analysisId: string;
+  snapshot: WorkbookOverrideSnapshot;
+}) {
+  const analysis = await getTtmAnalysis(args.analysisId);
+  if (!analysis) throw new TtmOrchestratorError("WS2-1 analysis not found.", 404);
+
+  const existingWs210 = analysis.derivedReports?.find((report) => report.agentId === "ws2_10_report_generator_v1");
+  if (!existingWs210) {
+    throw new TtmOrchestratorError("Baseline valuation report must exist before applying workbook overrides.", 400);
+  }
+
+  await (prisma as any).ws2DerivedReport.update({
+    where: { id: existingWs210.id },
+    data: {
+      parsedReport: {
+        ...((existingWs210.parsedReport ?? {}) as Record<string, unknown>),
+        workbookOverrideSnapshot: args.snapshot,
+        workbookOverrideAppliedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  const updated = await getTtmAnalysis(args.analysisId);
+  if (!updated) throw new TtmOrchestratorError("WS2-1 analysis not found after workbook override apply.", 404);
   return updated;
 }
 

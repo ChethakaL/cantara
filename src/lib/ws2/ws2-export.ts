@@ -12,6 +12,7 @@
 
 import * as XLSX from "xlsx-js-style";
 import type { WS2Report, AddBackItem } from "./ws2-types";
+import { getCategoryLabel } from "@/lib/ttm-agent/taxonomy";
 
 // ── Color constants (ARGB format for xlsx) ────────────────────────────────────
 const C = {
@@ -437,7 +438,7 @@ function buildPLSheet(report: WS2Report): XLSX.WorkSheet {
     [cell(`Data: ${pc.fy1Range} — ${pc.fy3Range} | TTM: ${pc.ttmLabel}`, { italic: true, color: C.MUTED, size: 9 }), null, null, null, null, null, null],
     [cell("Note: PRE-RECAST. Add-backs have NOT been applied. See Normalization Items tab.", { italic: true, color: C.RED_FG, size: 9 }), null, null, null, null, null, null],
     [null],
-    [hdrCell("Line Item", true), hdrCell(pc.fy1Label), hdrCell("YoY"), hdrCell(pc.fy2Label), hdrCell("YoY"), hdrCell(pc.fy3Label + " / TTM"), null],
+    [hdrCell("Line Item", true), hdrCell(pc.fy1Label), hdrCell("YoY"), hdrCell(pc.fy2Label), hdrCell("YoY"), hdrCell(pc.fy3Label), hdrCell("TTM"), null],
 
     // Revenue
     [sectionCell("REVENUE"), null, null, null, null, null, null],
@@ -447,47 +448,48 @@ function buildPLSheet(report: WS2Report): XLSX.WorkSheet {
       cell(yoy(l.fy1, l.fy2), { fmt: PCT_FMT, color: yoy(l.fy1, l.fy2) >= 0 ? C.GREEN_FG : C.RED_FG }),
       inputCell(l.fy2),
       cell(yoy(l.fy2, l.fy3), { fmt: PCT_FMT, color: yoy(l.fy2, l.fy3) >= 0 ? C.GREEN_FG : C.RED_FG }),
+      inputCell(l.fy3),
       inputCell(l.ttm),
       null,
     ] as (XLSX.CellObject | null)[]),
-    [totalCell("Total Revenue"), totalCell(pl.totalRevenue.fy1), totalCell(`${pl.yoyRevenueGrowth.fy1toFy2 >= 0 ? '+' : ''}${(pl.yoyRevenueGrowth.fy1toFy2 * 100).toFixed(1)}%`), totalCell(pl.totalRevenue.fy2), totalCell(`${pl.yoyRevenueGrowth.fy2toFy3 >= 0 ? '+' : ''}${(pl.yoyRevenueGrowth.fy2toFy3 * 100).toFixed(1)}%`), totalCell(pl.totalRevenue.ttm, true), null],
+    [totalCell("Total Revenue"), totalCell(pl.totalRevenue.fy1), totalCell(`${pl.yoyRevenueGrowth.fy1toFy2 >= 0 ? '+' : ''}${(pl.yoyRevenueGrowth.fy1toFy2 * 100).toFixed(1)}%`), totalCell(pl.totalRevenue.fy2), totalCell(`${pl.yoyRevenueGrowth.fy2toFy3 >= 0 ? '+' : ''}${(pl.yoyRevenueGrowth.fy2toFy3 * 100).toFixed(1)}%`), totalCell(pl.totalRevenue.fy3), totalCell(pl.totalRevenue.ttm, true), null],
     [null],
 
     // COGS
     [sectionCell("COST OF GOODS SOLD"), null, null, null, null, null, null],
     ...pl.cogsLines.map((l) => [
-      cell(`  ${l.label}`), inputCell(l.fy1), null, inputCell(l.fy2), null, inputCell(l.ttm), null,
+      cell(`  ${l.label}`), inputCell(l.fy1), null, inputCell(l.fy2), null, inputCell(l.fy3), inputCell(l.ttm), null,
     ] as (XLSX.CellObject | null)[]),
-    [totalCell("Total COGS"), totalCell(pl.totalCogs.fy1), null, totalCell(pl.totalCogs.fy2), null, totalCell(pl.totalCogs.ttm, true), null],
+    [totalCell("Total COGS"), totalCell(pl.totalCogs.fy1), null, totalCell(pl.totalCogs.fy2), null, totalCell(pl.totalCogs.fy3), totalCell(pl.totalCogs.ttm, true), null],
     [null],
 
     // Gross profit
-    [cell("Gross Profit", { bold: true }), inputCell(pl.grossProfit.fy1), null, inputCell(pl.grossProfit.fy2), null, inputCell(pl.grossProfit.ttm), null],
-    [cell("Gross Margin %"), cell(pl.grossMargin.fy1, { fmt: PCT_FMT }), null, cell(pl.grossMargin.fy2, { fmt: PCT_FMT }), null, cell(pl.grossMargin.ttm, { fmt: PCT_FMT }), null],
+    [cell("Gross Profit", { bold: true }), inputCell(pl.grossProfit.fy1), null, inputCell(pl.grossProfit.fy2), null, inputCell(pl.grossProfit.fy3), inputCell(pl.grossProfit.ttm), null],
+    [cell("Gross Margin %"), cell(pl.grossMargin.fy1, { fmt: PCT_FMT }), null, cell(pl.grossMargin.fy2, { fmt: PCT_FMT }), null, cell(pl.grossMargin.fy3, { fmt: PCT_FMT }), cell(pl.grossMargin.ttm, { fmt: PCT_FMT }), null],
     [null],
 
     // OpEx
     [sectionCell("OPERATING EXPENSES"), null, null, null, null, null, null],
     ...pl.expenseLines.filter((l) => !l.excludedFromEbitda).map((l) => [
-      cell(`  ${l.label}`), inputCell(l.fy1), null, inputCell(l.fy2), null, inputCell(l.ttm), null,
+      cell(`  ${l.label}`), inputCell(l.fy1), null, inputCell(l.fy2), null, inputCell(l.fy3), inputCell(l.ttm), null,
     ] as (XLSX.CellObject | null)[]),
-    [totalCell("Total Operating Expenses"), totalCell(pl.totalOpex.fy1), null, totalCell(pl.totalOpex.fy2), null, totalCell(pl.totalOpex.ttm, true), null],
+    [totalCell("Total Operating Expenses"), totalCell(pl.totalOpex.fy1), null, totalCell(pl.totalOpex.fy2), null, totalCell(pl.totalOpex.fy3), totalCell(pl.totalOpex.ttm, true), null],
     [null],
 
     // EBITDA
-    [cell("4-Wall EBITDA (Pre-Recast)", { bold: true }), ebitdaCell(pl.ebitdaPreRecast.fy1), null, ebitdaCell(pl.ebitdaPreRecast.fy2), null, ebitdaCell(pl.ebitdaPreRecast.ttm), null],
-    [cell("EBITDA Margin %"), cell(pl.ebitdaMargin.fy1, { fmt: PCT_FMT }), null, cell(pl.ebitdaMargin.fy2, { fmt: PCT_FMT }), null, cell(pl.ebitdaMargin.ttm, { fmt: PCT_FMT }), null],
+    [cell("4-Wall EBITDA (Pre-Recast)", { bold: true }), ebitdaCell(pl.ebitdaPreRecast.fy1), null, ebitdaCell(pl.ebitdaPreRecast.fy2), null, ebitdaCell(pl.ebitdaPreRecast.fy3), ebitdaCell(pl.ebitdaPreRecast.ttm), null],
+    [cell("EBITDA Margin %"), cell(pl.ebitdaMargin.fy1, { fmt: PCT_FMT }), null, cell(pl.ebitdaMargin.fy2, { fmt: PCT_FMT }), null, cell(pl.ebitdaMargin.fy3, { fmt: PCT_FMT }), cell(pl.ebitdaMargin.ttm, { fmt: PCT_FMT }), null],
     [null],
 
     // D&A and Interest (excluded)
     [sectionCell("BELOW EBITDA (excluded from calculations above)"), null, null, null, null, null, null],
     ...pl.expenseLines.filter((l) => l.excludedFromEbitda).map((l) => [
-      cell(`  ${l.label}`, { color: C.MUTED }), cell(l.fy1, { fmt: NUM_FMT, color: C.MUTED }), null, cell(l.fy2, { fmt: NUM_FMT, color: C.MUTED }), null, cell(l.ttm, { fmt: NUM_FMT, color: C.MUTED }), null,
+      cell(`  ${l.label}`, { color: C.MUTED }), cell(l.fy1, { fmt: NUM_FMT, color: C.MUTED }), null, cell(l.fy2, { fmt: NUM_FMT, color: C.MUTED }), null, cell(l.fy3, { fmt: NUM_FMT, color: C.MUTED }), cell(l.ttm, { fmt: NUM_FMT, color: C.MUTED }), null,
     ] as (XLSX.CellObject | null)[]),
-    [cell("Net Income"), inputCell(pl.netIncome.fy1), null, inputCell(pl.netIncome.fy2), null, inputCell(pl.netIncome.ttm), null],
+    [cell("Net Income"), inputCell(pl.netIncome.fy1), null, inputCell(pl.netIncome.fy2), null, inputCell(pl.netIncome.fy3), inputCell(pl.netIncome.ttm), null],
   ];
 
-  return buildSheet(rows, [36, 16, 12, 16, 12, 16, 4]);
+  return buildSheet(rows, [36, 16, 12, 16, 12, 16, 16, 4]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -729,37 +731,79 @@ function buildDataQualitySheet(report: WS2Report): XLSX.WorkSheet {
 
 function buildPnlNonAdjSheet(report: WS2Report): XLSX.WorkSheet {
   const analysis = report.rawAnalysis as any
-  const ttm = analysis?.ttmSummary
+  const mappedRows = Array.isArray(analysis?.normalizedData?.mappedPlRows) ? analysis.normalizedData.mappedPlRows as Array<{
+    accountName?: string | null
+    accountCode?: string | null
+    cantaraCode?: string | null
+    valuesByMonth?: Record<string, number>
+  }> : []
+  const monthKeys = mappedRows[0] ? Object.keys(mappedRows[0].valuesByMonth ?? {}).sort() : []
   const rows: (XLSX.CellObject | string | number | null)[][] = [
     [titleCell(`${report.clientName} — P&L - Non Adj`), null],
-    [cell("Raw input data — unadjusted audit view.", { italic: true, color: C.MUTED, size: 9 }), null],
+    [cell("Full raw mapped P&L rows. This is the audit trail for all monthly values received from the seller workbook.", { italic: true, color: C.MUTED, size: 9 }), null],
     [null],
-    [hdrCell("Metric", true), hdrCell("Amount")],
-    [cell("Revenue"), inputCell(ttm?.totalRevenue ?? 0)],
-    [cell("COGS"), inputCell(ttm?.totalCogs ?? 0)],
-    [cell("Gross Profit"), inputCell(ttm?.grossProfit ?? 0)],
-    [cell("Operating Expenses"), inputCell(ttm?.totalOpEx ?? 0)],
-    [cell("EBITDA (Pre-Recast)"), ebitdaCell(ttm?.ebitdaPreRecast ?? 0)],
+    [
+      hdrCell("Account Name", true),
+      hdrCell("GL Code"),
+      hdrCell("Cantara Code"),
+      hdrCell("Category"),
+      ...monthKeys.map((month) => hdrCell(month)),
+      hdrCell("TTM"),
+    ],
+    ...mappedRows.map((row) => {
+      const monthValues = monthKeys.map((month) => Number(row.valuesByMonth?.[month] ?? 0))
+      const ttmAmount = monthValues.slice(-12).reduce((sum, value) => sum + value, 0)
+      return [
+        cell(row.accountName ?? "—"),
+        cell(row.accountCode ?? "—"),
+        cell(row.cantaraCode ?? "UNMAPPED"),
+        cell(row.cantaraCode ? getCategoryLabel(row.cantaraCode) : "Unmapped", { color: C.MUTED }),
+        ...monthValues.map((value) => cell(value, { fmt: NUM_FMT })),
+        cell(ttmAmount, { fmt: NUM_FMT, bold: true }),
+      ] as (XLSX.CellObject | null)[]
+    }),
   ]
-  return buildSheet(rows, [40, 18])
+  return buildSheet(rows, [32, 12, 16, 24, ...monthKeys.map(() => 11), 14])
 }
 
 function buildGlMappingSheet(report: WS2Report): XLSX.WorkSheet {
+  const analysis = report.rawAnalysis as any
+  const mappedPlRows = Array.isArray(analysis?.normalizedData?.mappedPlRows) ? analysis.normalizedData.mappedPlRows : []
+  const mappedBsRows = Array.isArray(analysis?.normalizedData?.mappedBsRows) ? analysis.normalizedData.mappedBsRows : []
+  const rowsForSheet = [...mappedPlRows, ...mappedBsRows]
+    .filter((row: any) => row?.accountCode)
+    .map((row: any) => {
+      const status =
+        row.cantaraCode
+          ? row.mappingMethod === 'claude' || row.mappingMethod === 'fuzzy'
+            ? 'FLAGGED-AMBIGUOUS'
+            : 'AUTO-MAPPED'
+          : 'UNMAPPED'
+      return {
+        accountName: row.accountName ?? '—',
+        glCode: row.accountCode ?? '—',
+        cantaraCode: row.cantaraCode ?? 'UNMAPPED',
+        category: row.cantaraCode ? getCategoryLabel(row.cantaraCode) : 'Unmapped',
+        status,
+      }
+    })
+
   const rows: (XLSX.CellObject | string | number | null)[][] = [
-    [titleCell(`${report.clientName} — GL Mapping`), null, null, null],
+    [titleCell(`${report.clientName} — GL Mapping`), null, null, null, null],
     [cell("Read-only GL mapping audit trail.", { italic: true, color: C.MUTED, size: 9 }), null, null, null],
     [null],
-    [hdrCell("Account Name", true), hdrCell("GL Code"), hdrCell("Cantara Code"), hdrCell("Status")],
-    ...(report.ws21.glMapping.length
-      ? report.ws21.glMapping.map((row) => [
+    [hdrCell("Account Name", true), hdrCell("GL Code"), hdrCell("Cantara Code"), hdrCell("Meaning"), hdrCell("Status")],
+    ...(rowsForSheet.length
+      ? rowsForSheet.map((row) => [
           cell(row.accountName),
           cell(row.glCode),
           cell(row.cantaraCode),
+          cell(row.category, { color: C.MUTED }),
           cell(row.status, { color: row.status === 'UNMAPPED' ? C.RED_FG : row.status.includes('FLAGGED') ? C.YELLOW_FG : C.GREEN_FG }),
         ] as (XLSX.CellObject | null)[])
-      : [[cell("No GL mapping rows available."), null, null, null]]),
+      : [[cell("No GL mapping rows available."), null, null, null, null]]),
   ]
-  return buildSheet(rows, [38, 14, 18, 18])
+  return buildSheet(rows, [34, 14, 18, 28, 18])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
