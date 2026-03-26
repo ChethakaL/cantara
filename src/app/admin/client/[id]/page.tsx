@@ -364,7 +364,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             className="p-6"
           >
             {activeTab === 'manage' && <ClientManager client={client} onSaved={setClient} />}
-            {activeTab === 'documents' && <AdminDocumentsView client={client} />}
+            {activeTab === 'documents' && <AdminDocumentsView client={client} onClientUpdated={setClient} />}
             {activeTab === 'meetings' && <MeetingsTab clientName={client.name} />}
             {activeTab === 'ttm' && (
               <TtmAnalysisTab

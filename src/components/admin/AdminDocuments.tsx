@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { CheckCircle, Clock, AlertTriangle, FileText, Loader2, MessageSquareMore, Upload } from 'lucide-react'
+import { CheckCircle, Clock, AlertTriangle, FileText, Loader2, MessageSquareMore, Trash2, Upload } from 'lucide-react'
 import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
 import { VALUATION_DOCS, getDocsForWorkstream } from '@/lib/documentData'
 import { parseStoredInsuranceReview } from '@/lib/insurance-review'
@@ -12,7 +12,7 @@ function AdminDocumentUpload({ clientId, documentId, currentFileName, onUploaded
   clientId: string
   documentId: string
   currentFileName?: string | null
-  onUploaded: () => void
+  onUploaded: () => Promise<void> | void
 }) {
   const [uploading, setUploading] = useState(false)
   const adminEmail = getAdminEmail()
@@ -30,7 +30,7 @@ function AdminDocumentUpload({ clientId, documentId, currentFileName, onUploaded
           method: 'POST',
           body: form,
         })
-        if (res.ok) onUploaded()
+        if (res.ok) await onUploaded()
       } finally {
         setUploading(false)
       }
@@ -60,6 +60,48 @@ function AdminDocumentUpload({ clientId, documentId, currentFileName, onUploaded
   )
 }
 
+function AdminDocumentDelete({ clientId, documentId, fileName, onDeleted }: {
+  clientId: string
+  documentId: string
+  fileName?: string | null
+  onDeleted: () => Promise<void> | void
+}) {
+  const [deleting, setDeleting] = useState(false)
+
+  const removeDocument = async () => {
+    if (!fileName || deleting) return
+    const confirmed = window.confirm(`Delete "${fileName}" from this admin checklist item?`)
+    if (!confirmed) return
+
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/client-documents', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, documentId }),
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Failed to delete document')
+      }
+      await onDeleted()
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to delete document')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  if (!fileName) return null
+
+  return (
+    <Button size="sm" variant="outline" onClick={() => void removeDocument()} disabled={deleting}>
+      {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+      {deleting ? 'Deleting...' : 'Delete'}
+    </Button>
+  )
+}
+
 const EMPTY_FOLLOW_UP = {
   title: '',
   description: '',
@@ -71,7 +113,7 @@ const EMPTY_FOLLOW_UP = {
   sourceUploadedFileName: '',
 }
 
-export default function AdminDocumentsView({ client }: { client: Client }) {
+export default function AdminDocumentsView({ client, onClientUpdated }: { client: Client; onClientUpdated?: (client: Client) => void }) {
   const { workstream, businessType, documentStatuses, uploadedDocuments } = client
   const categories = getDocsForWorkstream(workstream, businessType)
   const [followUpOpen, setFollowUpOpen] = useState(false)
@@ -80,7 +122,16 @@ export default function AdminDocumentsView({ client }: { client: Client }) {
   const [refreshKey, setRefreshKey] = useState(0)
 
   const getStatus = (docId: string) => documentStatuses[docId]
-  const refreshClientView = () => setRefreshKey(prev => prev + 1)
+  const refreshClientView = async () => {
+    const res = await fetch(`/api/clients/${client.id}`, { cache: 'no-store' })
+    if (!res.ok) {
+      setRefreshKey(prev => prev + 1)
+      return
+    }
+    const refreshed = (await res.json()) as Client
+    onClientUpdated?.(refreshed)
+    setRefreshKey(prev => prev + 1)
+  }
 
   const openFollowUp = (docId: string, docName: string) => {
     const status = getStatus(docId)
@@ -230,6 +281,12 @@ export default function AdminDocumentsView({ client }: { client: Client }) {
             documentId={doc.id}
             currentFileName={uploadedDocuments[doc.id]?.fileName || getStatus(doc.id)?.fileName}
             onUploaded={refreshClientView}
+          />
+          <AdminDocumentDelete
+            clientId={client.id}
+            documentId={doc.id}
+            fileName={uploadedDocuments[doc.id]?.fileName || getStatus(doc.id)?.fileName}
+            onDeleted={refreshClientView}
           />
           <Button size="sm" variant="outline" onClick={() => openFollowUp(doc.id, doc.name)}>
             <MessageSquareMore className="w-3.5 h-3.5" />
