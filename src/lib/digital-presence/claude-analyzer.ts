@@ -41,7 +41,7 @@ ${resultSummaries || '  (No results found)'}`;
 
 ## Business Being Assessed
 - Business Name: ${formData.businessName}
-- Industry: ${formData.industry || 'Not specified'}
+
 
 ## Web Research Data
 The following data was gathered via web search for each digital channel provided by the seller. Note: this data is sourced from public web search and may be incomplete or imprecise. Only report metrics you can reasonably infer from the search results. If data is absent or unclear, mark the channel as low confidence.

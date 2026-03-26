@@ -94,8 +94,8 @@ export async function researchAllChannels(
   apiKey: string,
   onProgress?: ProgressCallback
 ): Promise<ChannelResearchData[]> {
-  const { businessName, industry = '' } = formData;
-  const ctx = industry ? ` ${industry}` : '';
+  const { businessName } = formData;
+  const ctx = '';
 
   type ChannelTask = {
     channelType: ChannelType;

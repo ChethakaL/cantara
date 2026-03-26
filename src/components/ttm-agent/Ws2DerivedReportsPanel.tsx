@@ -2,8 +2,7 @@
 
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { PremiumMarkdown } from '@/components/ttm-agent/PremiumMarkdown'
 import { Badge, Button, Card } from '@/components/ui'
 import { logWs2ClientEvent, logWs2Error, logWs2PreparedDocuments, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import { prepareWs2DocumentFromServer } from '@/lib/ttm-agent/browser-documents'
@@ -124,7 +123,7 @@ export function Ws2DerivedReportsPanel({
           <div>
             <h4 className="text-sm font-semibold text-slate-800">WS2 Derived Reports</h4>
             <p className="text-xs text-slate-400 mt-1">
-              WS2-3 and WS2-4 release after Craig approves WS2-1. WS2-5 releases after WS2-2 completes because it depends on the recast output.
+              WS2-3 and WS2-4 release after Admin approves WS2-1. WS2-5 releases after WS2-2 completes because it depends on the recast output.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -220,8 +219,8 @@ export function Ws2DerivedReportsPanel({
               </Badge>
             </div>
 
-            <div className="prose prose-slate max-w-none mt-4 text-sm">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.reportMarkdown || 'No report output available yet.'}</ReactMarkdown>
+            <div className="mt-4 text-sm">
+              <PremiumMarkdown>{report.reportMarkdown || 'No report output available yet.'}</PremiumMarkdown>
             </div>
           </Card>
           </section>

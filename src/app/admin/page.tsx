@@ -23,7 +23,7 @@ export default function AdminDashboard() {
   const [search, setSearch] = useState('')
   const [adding, setAdding] = useState(false)
   const [newClient, setNewClient] = useState({ name: '', email: '', company: '' })
-  const [adminName, setAdminName] = useState('Craig Pollack')
+  const [adminName, setAdminName] = useState('Admin Pollack')
 
   useEffect(() => {
     if (getCurrentRole() !== 'admin') { router.push('/login/admin'); return }

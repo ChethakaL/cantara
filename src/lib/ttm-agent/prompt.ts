@@ -80,7 +80,7 @@ Rules:
 }
 
 export function buildSummaryPrompt(payload: Record<string, unknown>) {
-  return `Create a concise Craig-facing summary of this completed TTM analysis.
+  return `Create a concise Admin-facing summary of this completed TTM analysis.
 
 Return JSON in this exact shape:
 {

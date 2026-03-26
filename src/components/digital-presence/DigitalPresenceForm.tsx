@@ -61,7 +61,7 @@ function FieldGroup({ icon, label, color, children, defaultOpen = true }: FieldG
 export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
   const [form, setForm] = useState<DigitalAssetFormData>({
     businessName: '',
-    industry: '',
+
     websiteUrl: '',
     googleBusinessProfileUrl: '',
     facebookHandle: '',
@@ -113,19 +113,13 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
       {/* Business Info */}
       <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
         <p className="text-xs font-semibold text-amber-700 uppercase tracking-widest">Business Details</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3">
           <Input
             label="Business Name *"
             placeholder="e.g. Bliss Day Spa"
             value={form.businessName}
             onChange={e => set('businessName', e.target.value)}
             error={errors.businessName}
-          />
-          <Input
-            label="Industry / Category"
-            placeholder="e.g. Beauty & Wellness"
-            value={form.industry}
-            onChange={e => set('industry', e.target.value)}
           />
         </div>
       </div>

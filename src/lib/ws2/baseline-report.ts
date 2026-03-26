@@ -198,8 +198,8 @@ export function buildBaselineValuationReport(args: {
     `# ${args.clientName} - Baseline Valuation Range Report`,
     "",
     `Prepared by Cantara Pet Advisors | Generated ${new Date().toISOString().slice(0, 10)}`,
-    `Craig HITL approval: ${formatReportDate(recast.approvedAt)}${recast.approvedByName ? ` | ${recast.approvedByName}` : ""}`,
-    "Seller delivery status: BLOCKED - internal use only until Craig approves client release.",
+    `Admin HITL approval: ${formatReportDate(recast.approvedAt)}${recast.approvedByName ? ` | ${recast.approvedByName}` : ""}`,
+    "Seller delivery status: BLOCKED - internal use only until Admin approves client release.",
     "",
     "## Executive Snapshot",
     "",
@@ -270,13 +270,13 @@ export function buildBaselineValuationReport(args: {
     `- WS2-1 data-quality items resolved: ${ws21Resolved} of ${analysis.flags.length}`,
     `- WS2-2 add-back review items resolved: ${ws22Resolved} of ${recast.flags.length}`,
     `- All WS2-1 / WS2-2 flags actioned: ${allFlagsResolved ? "YES" : "NO"}`,
-    `- Craig recast approval timestamp: ${formatReportDate(recast.approvedAt)}`,
+    `- Admin recast approval timestamp: ${formatReportDate(recast.approvedAt)}`,
     "",
     "## Required Disclaimer",
     "",
     "This Baseline Valuation Range Report is preliminary and for internal Cantara planning only.",
     "It has not been reviewed by legal or tax counsel and must not be shared",
-    "with the seller until Craig approves it for client release.",
+    "with the seller until Admin approves it for client release.",
   ].join("\n");
 
   return {
@@ -285,7 +285,7 @@ export function buildBaselineValuationReport(args: {
       generatedAt: new Date().toISOString(),
       clientName: args.clientName,
       sellerDeliveryBlocked: true,
-      craigHitlApproved: Boolean(recast.approvedAt),
+      adminHitlApproved: Boolean(recast.approvedAt),
       prerequisites: {
         ws21Approved: analysis.status === "APPROVED",
         ws22Approved: recast.status === "APPROVED",

@@ -1,20 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, FileSpreadsheet, Loader2, Play, RefreshCw, ShieldAlert } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileSpreadsheet, Loader2, Play, RefreshCw, ShieldAlert, Download } from 'lucide-react'
+import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
+import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
 import { Badge, Button, Card } from '@/components/ui'
-import { CraigReviewDashboard } from '@/components/ttm-agent/CraigReviewDashboard'
-import { TrendCharts } from '@/components/ttm-agent/TrendCharts'
-import { WCSummary } from '@/components/ttm-agent/WCSummary'
 import { Ws2RecastPanel } from '@/components/ttm-agent/Ws2RecastPanel'
 import { Ws2DerivedReportsPanel } from '@/components/ttm-agent/Ws2DerivedReportsPanel'
 import { BaselineValuationReportPanel } from '@/components/ttm-agent/BaselineValuationReportPanel'
+import { Ws21ReviewWorkspace } from '@/components/ttm-agent/Ws21ReviewWorkspace'
 import { logWs2ClientEvent, logWs2Error, logWs2PreparedDocuments, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import { prepareWs2DocumentFromServer } from '@/lib/ttm-agent/browser-documents'
 import type { DocumentStatus } from '@/lib/store'
 import type { TtmAnalysisView, TtmRequiredDocumentId } from '@/lib/ttm-agent/types'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 
 const REQUIRED_DOCS: Array<{ id: TtmRequiredDocumentId; label: string }> = [
   { id: 'monthly_pl_excel', label: 'Monthly P&L Excel' },
@@ -22,14 +20,6 @@ const REQUIRED_DOCS: Array<{ id: TtmRequiredDocumentId; label: string }> = [
   { id: 'accountant_statements', label: 'Accountant Statements' },
   { id: 'ar_aging_detail', label: 'AR Aging Detail' },
 ]
-
-function formatCurrency(value: number | null | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) ? `$${value.toLocaleString()}` : 'n/a'
-}
-
-function formatPct(value: number | null | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}%` : 'n/a'
-}
 
 type Ws2SectionKey =
   | 'ws21-pack'
@@ -43,6 +33,14 @@ type Ws2SectionKey =
   | 'ws25-report'
   | 'ws210-report'
 
+type TimelineNavItem = {
+  key: Ws2SectionKey
+  openKey: Ws2SectionKey
+  href: string
+  label: string
+  meta: string
+}
+
 const DEFAULT_SECTION_STATE: Record<Ws2SectionKey, boolean> = {
   'ws21-pack': false,
   'ws21-report': false,
@@ -54,40 +52,6 @@ const DEFAULT_SECTION_STATE: Record<Ws2SectionKey, boolean> = {
   'ws24-report': false,
   'ws25-report': false,
   'ws210-report': false,
-}
-
-function SectionShell({
-  id,
-  title,
-  description,
-  collapsed,
-  onToggle,
-  children,
-}: {
-  id: string
-  title: string
-  description?: string
-  collapsed: boolean
-  onToggle: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <section id={id} className="scroll-mt-24">
-      <Card className="p-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h4 className="text-sm font-semibold text-slate-800">{title}</h4>
-            {description && <p className="text-xs text-slate-400 mt-1">{description}</p>}
-          </div>
-          <Button size="sm" variant="outline" onClick={onToggle}>
-            {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            {collapsed ? 'Expand' : 'Collapse'}
-          </Button>
-        </div>
-        {!collapsed && children}
-      </Card>
-    </section>
-  )
 }
 
 export function TtmAnalysisTab({
@@ -107,6 +71,17 @@ export function TtmAnalysisTab({
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [collapsedSections, setCollapsedSections] = useState<Record<Ws2SectionKey, boolean>>(DEFAULT_SECTION_STATE)
+  const [baselineBuildState, setBaselineBuildState] = useState<{
+    analysisId: string | null
+    running: boolean
+    step: string | null
+    error: string | null
+  }>({
+    analysisId: null,
+    running: false,
+    step: null,
+    error: null,
+  })
 
   const readiness = useMemo(
     () =>
@@ -147,18 +122,19 @@ export function TtmAnalysisTab({
   }, [loadAnalyses])
 
   useEffect(() => {
-    if (!running) return
+    if (!running && !baselineBuildState.running) return
     const interval = setInterval(() => {
       loadAnalyses().catch(() => {})
     }, 5000)
     return () => clearInterval(interval)
-  }, [loadAnalyses, running])
+  }, [baselineBuildState.running, loadAnalyses, running])
 
   const activeAnalysis = analyses.find((analysis) => analysis.id === activeAnalysisId) ?? analyses[0] ?? null
 
   useEffect(() => {
     setCollapsedSections((current) => {
       const next = { ...DEFAULT_SECTION_STATE, ...current }
+      const latestBaselineReport = activeAnalysis?.derivedReports?.find((item) => item.agentId === 'ws2_10_report_generator_v1')
       if (activeAnalysis?.status === 'APPROVED') {
         next['ws21-pack'] = true
         next['ws21-report'] = true
@@ -170,9 +146,15 @@ export function TtmAnalysisTab({
       if (latestRecast?.status === 'APPROVED') {
         next['ws22-recast'] = true
       }
+      if (latestBaselineReport?.status === 'COMPLETE') {
+        next['ws210-report'] = false
+        next['ws23-report'] = true
+        next['ws24-report'] = true
+        next['ws25-report'] = true
+      }
       return next
     })
-  }, [activeAnalysisId, activeAnalysis?.status, activeAnalysis?.recastAnalyses])
+  }, [activeAnalysisId, activeAnalysis?.status, activeAnalysis?.recastAnalyses, activeAnalysis?.derivedReports])
 
   const toggleSection = (section: Ws2SectionKey) => {
     setCollapsedSections((current) => ({
@@ -196,7 +178,7 @@ export function TtmAnalysisTab({
     })
   }
 
-  const navigateToSection = (item: { key: Ws2SectionKey; href: string }) => {
+  const navigateToSection = (item: TimelineNavItem) => {
     const targetId = item.href.replace(/^#/, '')
 
     setCollapsedSections({
@@ -210,7 +192,7 @@ export function TtmAnalysisTab({
       'ws24-report': true,
       'ws25-report': true,
       'ws210-report': true,
-      [item.key]: false,
+      [item.openKey]: false,
     })
 
     window.setTimeout(() => {
@@ -272,7 +254,7 @@ export function TtmAnalysisTab({
     }
   }
 
-  const handleUpdatedAnalysis = (updated: TtmAnalysisView) => {
+  const handleUpdatedAnalysis = useCallback((updated: TtmAnalysisView) => {
     logWs2ClientEvent('WS2 analysis updated in UI', {
       id: updated.id,
       version: updated.version,
@@ -283,48 +265,77 @@ export function TtmAnalysisTab({
     })
     setAnalyses((current) => current.map((analysis) => (analysis.id === updated.id ? updated : analysis)))
     setActiveAnalysisId(updated.id)
+  }, [])
+
+  const exportToExcel = () => {
+    if (!activeAnalysis) return
+    const latestRecast1 = activeAnalysis.recastAnalyses?.[0] ?? null
+    // Build the adapter
+    const ws2Report = buildWS2ReportAdapter(clientName, activeAnalysis, latestRecast1, activeAnalysis.derivedReports || [])
+    exportWS2Workbook(ws2Report)
   }
 
   const latestRecast = activeAnalysis?.recastAnalyses?.[0] ?? null
   const derivedByAgent = new Map((activeAnalysis?.derivedReports ?? []).map((report) => [report.agentId, report]))
-  const ws23Href = derivedByAgent.get('ws2_3_rev_vertical_v1') ? '#ws23-report-detail' : '#ws23-report'
-  const ws24Href = derivedByAgent.get('ws2_4_benchmark_v1') ? '#ws24-report-detail' : '#ws24-report'
-  const ws25Href = derivedByAgent.get('ws2_5_labor_v1') ? '#ws25-report-detail' : '#ws25-report'
+  const baselineReport = derivedByAgent.get('ws2_10_report_generator_v1') ?? null
+  const hasStyledBaselineReport = Boolean(baselineReport && latestRecast?.status === 'APPROVED')
+  const ws21Approved = activeAnalysis?.status === 'APPROVED'
+  const shouldAutoBuildBaseline = Boolean(
+    activeAnalysis &&
+      ws21Approved &&
+      latestRecast?.status === 'APPROVED' &&
+      !hasStyledBaselineReport,
+  )
+  const showWs21Workspace = Boolean(activeAnalysis && !ws21Approved && !hasStyledBaselineReport)
+  const ws22Href = hasStyledBaselineReport ? '#ws210-ebitda' : '#ws22-recast'
+  const ws23Href = hasStyledBaselineReport ? '#ws210-revenue' : derivedByAgent.get('ws2_3_rev_vertical_v1') ? '#ws23-report-detail' : '#ws23-report'
+  const ws24Href = hasStyledBaselineReport ? '#ws210-benchmarks' : derivedByAgent.get('ws2_4_benchmark_v1') ? '#ws24-report-detail' : '#ws24-report'
+  const ws25Href = hasStyledBaselineReport ? '#ws210-labor' : derivedByAgent.get('ws2_5_labor_v1') ? '#ws25-report-detail' : '#ws25-report'
   const ws210Href = derivedByAgent.get('ws2_10_report_generator_v1') ? '#ws210-report-detail' : '#ws210-report'
-  const navItems = activeAnalysis
+  const navItems: TimelineNavItem[] = activeAnalysis
     ? [
         {
           key: 'ws21-pack' as const,
-          href: '#ws21-pack',
+          openKey: hasStyledBaselineReport || ws21Approved ? 'ws210-report' as const : 'ws21-pack' as const,
+          href: hasStyledBaselineReport ? '#ws210-pl-summary' : ws21Approved ? '#ws210-report' : '#ws21-pack',
           label: 'WS2-1 Analysis',
-          meta: `${activeAnalysis.flags.filter((flag) => flag.resolutionStatus !== 'ACTIONED').length} open`,
+          meta: hasStyledBaselineReport
+            ? 'P&L + data quality'
+            : ws21Approved
+              ? 'Approved'
+            : `${activeAnalysis.flags.filter((flag) => flag.resolutionStatus !== 'ACTIONED').length} open`,
         },
         {
           key: 'ws22-recast' as const,
-          href: '#ws22-recast',
+          openKey: hasStyledBaselineReport ? 'ws210-report' : 'ws22-recast',
+          href: ws22Href,
           label: 'WS2-2 EBITDA',
           meta: latestRecast?.status ?? 'Not Run',
         },
         {
           key: 'ws23-report' as const,
+          openKey: hasStyledBaselineReport ? 'ws210-report' : 'ws23-report',
           href: ws23Href,
           label: 'WS2-3 Revenue',
           meta: derivedByAgent.get('ws2_3_rev_vertical_v1')?.status ?? 'Not Run',
         },
         {
           key: 'ws24-report' as const,
+          openKey: hasStyledBaselineReport ? 'ws210-report' : 'ws24-report',
           href: ws24Href,
           label: 'WS2-4 Benchmarks',
           meta: derivedByAgent.get('ws2_4_benchmark_v1')?.status ?? 'Not Run',
         },
         {
           key: 'ws25-report' as const,
+          openKey: hasStyledBaselineReport ? 'ws210-report' : 'ws25-report',
           href: ws25Href,
           label: 'WS2-5 Labor',
           meta: derivedByAgent.get('ws2_5_labor_v1')?.status ?? 'Not Run',
         },
         {
           key: 'ws210-report' as const,
+          openKey: 'ws210-report' as const,
           href: ws210Href,
           label: 'Baseline Valuation Report',
           meta: derivedByAgent.get('ws2_10_report_generator_v1')?.status ?? 'Not Run',
@@ -332,19 +343,180 @@ export function TtmAnalysisTab({
       ]
     : []
 
+  useEffect(() => {
+    if (!activeAnalysis || !shouldAutoBuildBaseline) return
+
+    const requiredAgents = [
+      'ws2_3_rev_vertical_v1',
+      'ws2_4_benchmark_v1',
+      'ws2_5_labor_v1',
+      'ws2_10_report_generator_v1',
+    ] as const
+    const initialDerivedStatus = new Map((activeAnalysis.derivedReports ?? []).map((report) => [report.agentId, report.status]))
+    const alreadyComplete = requiredAgents.every((agentId) => initialDerivedStatus.get(agentId) === 'COMPLETE')
+    if (alreadyComplete) return
+
+    if (baselineBuildState.running && baselineBuildState.analysisId === activeAnalysis.id) return
+
+    let cancelled = false
+
+    const runDerivedAgent = async (
+      agentId: (typeof requiredAgents)[number],
+      stepLabel: string,
+      currentAnalysis: TtmAnalysisView,
+    ) => {
+      const currentDerivedStatus = new Map((currentAnalysis.derivedReports ?? []).map((report) => [report.agentId, report.status]))
+      if (currentDerivedStatus.get(agentId) === 'COMPLETE') return currentAnalysis
+
+      const preparedDocuments =
+        agentId === 'ws2_5_labor_v1' && documentStatuses.owner_gm_assessment?.fileName
+          ? await Promise.all([
+              prepareWs2DocumentFromServer({
+                clientId,
+                documentId: 'owner_gm_assessment',
+                fileName: documentStatuses.owner_gm_assessment.fileName,
+              }),
+            ])
+          : []
+
+      setBaselineBuildState({
+        analysisId: currentAnalysis.id,
+        running: true,
+        step: stepLabel,
+        error: null,
+      })
+      logWs2ClientEvent('WS2 auto baseline step', {
+        analysisId: currentAnalysis.id,
+        agentId,
+        stepLabel,
+        preparedDocumentIds: preparedDocuments.map((doc) => doc.documentId),
+      })
+
+      const res = await fetch('/api/ttm-agent/derived', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          analysisId: currentAnalysis.id,
+          agentId,
+          preparedDocuments,
+        }),
+      })
+      await logWs2Response(`WS2 auto baseline ${agentId}`, res)
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || `Failed while running ${stepLabel}`)
+      }
+
+      const updated = (await res.json()) as TtmAnalysisView
+      if (cancelled) return currentAnalysis
+      handleUpdatedAnalysis(updated)
+      return updated
+    }
+
+    void (async () => {
+      try {
+        let currentAnalysis = activeAnalysis
+
+        currentAnalysis =
+          (await runDerivedAgent('ws2_3_rev_vertical_v1', 'Running WS2-3 Revenue by Vertical', currentAnalysis)) ?? currentAnalysis
+        currentAnalysis =
+          (await runDerivedAgent('ws2_4_benchmark_v1', 'Running WS2-4 Expense Benchmarks', currentAnalysis)) ?? currentAnalysis
+        currentAnalysis =
+          (await runDerivedAgent('ws2_5_labor_v1', 'Running WS2-5 Labor Analysis', currentAnalysis)) ?? currentAnalysis
+
+        const baselineAfterLabor = currentAnalysis.derivedReports?.find((report) => report.agentId === 'ws2_10_report_generator_v1')
+        if (baselineAfterLabor?.status !== 'COMPLETE') {
+          currentAnalysis =
+            (await runDerivedAgent('ws2_10_report_generator_v1', 'Assembling the full baseline valuation report', currentAnalysis)) ?? currentAnalysis
+        } else {
+          logWs2ClientEvent('WS2 auto baseline step', {
+            analysisId: currentAnalysis.id,
+            agentId: 'ws2_10_report_generator_v1',
+            stepLabel: 'Baseline report already assembled after WS2-5 completed',
+          })
+        }
+        if (cancelled) return
+        setBaselineBuildState({
+          analysisId: currentAnalysis.id,
+          running: false,
+          step: null,
+          error: null,
+        })
+        await loadAnalyses().catch(() => {})
+      } catch (buildError) {
+        if (cancelled) return
+        logWs2Error('WS2 auto baseline build', buildError, {
+          analysisId: activeAnalysis.id,
+        })
+        setBaselineBuildState({
+          analysisId: activeAnalysis.id,
+          running: false,
+          step: null,
+          error: buildError instanceof Error ? buildError.message : 'Failed to finish the baseline build sequence',
+        })
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeAnalysis,
+    baselineBuildState.analysisId,
+    baselineBuildState.running,
+    clientId,
+    documentStatuses.owner_gm_assessment?.fileName,
+    handleUpdatedAnalysis,
+    hasStyledBaselineReport,
+    latestRecast?.status,
+    loadAnalyses,
+    shouldAutoBuildBaseline,
+    ws21Approved,
+  ])
+
+  useEffect(() => {
+    if (!activeAnalysis) return
+    if ((derivedByAgent.get('ws2_10_report_generator_v1')?.status ?? null) !== 'COMPLETE') return
+    if (!baselineBuildState.running && !baselineBuildState.error) return
+
+    setBaselineBuildState((current) => ({
+      analysisId: activeAnalysis.id,
+      running: false,
+      step: null,
+      error: current.error,
+    }))
+  }, [activeAnalysis, baselineBuildState.error, baselineBuildState.running, derivedByAgent])
+
+  useEffect(() => {
+    if (!activeAnalysis || !hasStyledBaselineReport) return
+    if (!baselineBuildState.running && !baselineBuildState.error && baselineBuildState.analysisId !== activeAnalysis.id) return
+
+    setBaselineBuildState((current) => ({
+      analysisId: activeAnalysis.id,
+      running: false,
+      step: null,
+      error: current.error,
+    }))
+  }, [activeAnalysis, baselineBuildState.analysisId, baselineBuildState.error, baselineBuildState.running, hasStyledBaselineReport])
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">WS2 Financial Analysis</h3>
+          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">WS2 Analysis Workspace</h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            WS2-1 dashboard for client-side CSV ingestion, exact-architecture reporting, reconciliation, working capital, and Craig HITL clearance.
+            Upload the core financial files, run WS2-1, review only the flagged items, then approve to unlock EBITDA and the baseline valuation report.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => void loadAnalyses()}>
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportToExcel} disabled={!activeAnalysis}>
+            <Download className="w-3.5 h-3.5" />
+            Export XLSX
           </Button>
           <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
             <Play className="w-3.5 h-3.5" />
@@ -363,7 +535,7 @@ export function TtmAnalysisTab({
         <Card className="p-5">
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4 text-amber-600" />
-            <h4 className="text-sm font-semibold text-slate-800">Source Readiness</h4>
+            <h4 className="text-sm font-semibold text-slate-800">Before You Run</h4>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {readiness.map((item) => (
@@ -388,16 +560,18 @@ export function TtmAnalysisTab({
         <Card className="p-5">
           <div className="flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-slate-500" />
-            <h4 className="text-sm font-semibold text-slate-800">Optional Sources</h4>
+            <h4 className="text-sm font-semibold text-slate-800">How This Flows</h4>
           </div>
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-slate-700">QuickBooks API</p>
-              <Badge color="slate">Not Connected</Badge>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Section B remains in the report and is marked skipped until QuickBooks integration is added.
-            </p>
+          <div className="mt-4 space-y-3">
+            {[
+              'Run WS2-1 to build the TTM model and identify only the sections that need review.',
+              'Resolve the review queue. Supporting detail stays collapsed until you open it.',
+              'Approve WS2-1 to unlock WS2-2 EBITDA recast and the full valuation report.',
+            ].map((step) => (
+              <div key={step} className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                {step}
+              </div>
+            ))}
           </div>
 
           <div className="mt-4 rounded-xl border border-slate-200 p-4">
@@ -405,11 +579,15 @@ export function TtmAnalysisTab({
             <p className="mt-2 text-sm text-slate-700">
               {readyToRun ? 'All required WS2-1 source documents are present.' : 'Upload all four WS2-1 source documents before running the agent.'}
             </p>
+            <p className="mt-2 text-xs text-slate-500">
+              QuickBooks remains optional. Section B will stay marked as skipped until that connection exists.
+            </p>
           </div>
         </Card>
       </div>
 
-      {analyses.length > 1 && (
+      
+      {/* {analyses.length > 1 && (
         <div className="flex gap-2 flex-wrap">
           {analyses.map((analysis) => (
             <button
@@ -425,6 +603,7 @@ export function TtmAnalysisTab({
           ))}
         </div>
       )}
+       */}
 
       {activeAnalysis ? (
         <div className="grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
@@ -466,106 +645,46 @@ export function TtmAnalysisTab({
           </aside>
 
           <div className="space-y-6">
-          <section id="ws21-pack" className="scroll-mt-24">
-          <Card className="p-5">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div>
-                <h4 className="text-sm font-semibold text-slate-800">WS2-1 Review Pack</h4>
-                <p className="text-xs text-slate-400 mt-1">
-                  {clientName} · Run #{activeAnalysis.version} · {new Date(activeAnalysis.createdAt).toLocaleString()}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge color={activeAnalysis.status === 'APPROVED' ? 'green' : activeAnalysis.status === 'FAILED' ? 'red' : 'gold'}>
-                  {activeAnalysis.status}
-                </Badge>
-                <Button size="sm" variant="outline" onClick={() => toggleSection('ws21-pack')}>
-                  {collapsedSections['ws21-pack'] ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  {collapsedSections['ws21-pack'] ? 'Expand Section' : 'Collapse Section'}
-                </Button>
-              </div>
-            </div>
-
-            {collapsedSections['ws21-pack'] ? (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                WS2-1 overview is collapsed. Use the timeline to jump back here when needed.
-              </div>
-            ) : (
-              <>
-                {activeAnalysis.summary && (
-                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-sm text-slate-700">{activeAnalysis.summary.overview}</p>
-                    {activeAnalysis.summary.qualitySummary && (
-                      <p className="text-xs text-slate-500 mt-2">{activeAnalysis.summary.qualitySummary}</p>
-                    )}
-                  </div>
-                )}
-
-                {activeAnalysis.ttmSummary && (
-                  <div className="grid gap-3 md:grid-cols-4 mt-4">
-                    {[
-                      { label: 'TTM Revenue', value: formatCurrency(activeAnalysis.ttmSummary.totalRevenue) },
-                      { label: 'Gross Margin', value: formatPct(activeAnalysis.ttmSummary.grossMarginPct) },
-                      { label: 'TTM EBITDA (pre-recast)', value: formatCurrency(activeAnalysis.ttmSummary.ebitdaPreRecast) },
-                      { label: '36-Month Confidence', value: activeAnalysis.structuredModel?.confidence ?? 'n/a' },
-                    ].map((metric) => (
-                      <div key={metric.label} className="rounded-xl border border-slate-200 p-4">
-                        <p className="text-[11px] uppercase tracking-wide text-slate-400">{metric.label}</p>
-                        <p className="mt-2 text-lg font-semibold text-slate-800">{metric.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </Card>
+          <section id="ws210-report" className="scroll-mt-24">
+          <BaselineValuationReportPanel
+            clientName={clientName}
+            analysis={activeAnalysis}
+            onUpdated={handleUpdatedAnalysis}
+            onExportXlsx={exportToExcel}
+            hideWorkflowChrome={hasStyledBaselineReport}
+            collapsed={collapsedSections['ws210-report']}
+            onToggleCollapse={() => toggleSection('ws210-report')}
+          />
           </section>
-
-          {activeAnalysis.reportMarkdown && (
-            <SectionShell
-              id="ws21-report"
-              title="WS2-1 Report"
-              description="Produced by WS2-1 TTM Financial Analysis Agent."
-              collapsed={collapsedSections['ws21-report']}
-              onToggle={() => toggleSection('ws21-report')}
-            >
-              <div className="prose prose-slate max-w-none mt-4 text-sm">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{activeAnalysis.reportMarkdown}</ReactMarkdown>
+          {baselineBuildState.running && baselineBuildState.analysisId === activeAnalysis.id && !hasStyledBaselineReport && (
+            <Card className="border-amber-200 bg-amber-50/70 p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
+                  <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Building the baseline valuation report</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {baselineBuildState.step ?? 'Running downstream WS2 reports...'}
+                  </p>
+                </div>
               </div>
-            </SectionShell>
+            </Card>
           )}
-
-          <SectionShell
-            id="ws21-trends"
-            title="Trend Charts"
-            description="Revenue, margin, and EBITDA trends from the structured model."
-            collapsed={collapsedSections['ws21-trends']}
-            onToggle={() => toggleSection('ws21-trends')}
-          >
-            <div className="mt-4">
-              <TrendCharts annualModel={activeAnalysis.annualModel} />
+          {baselineBuildState.error && baselineBuildState.analysisId === activeAnalysis.id && !hasStyledBaselineReport && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {baselineBuildState.error}
             </div>
-          </SectionShell>
-          <SectionShell
-            id="ws21-working-capital"
-            title="Working Capital"
-            description="Net working capital summary and review support."
-            collapsed={collapsedSections['ws21-working-capital']}
-            onToggle={() => toggleSection('ws21-working-capital')}
-          >
-            <div className="mt-4">
-              <WCSummary summary={activeAnalysis.workingCapital} />
-            </div>
-          </SectionShell>
-          <section id="ws21-review" className="scroll-mt-24">
-            <CraigReviewDashboard
+          )}
+          {!hasStyledBaselineReport && (
+          <>
+          {showWs21Workspace && (
+            <Ws21ReviewWorkspace
               analysis={activeAnalysis}
               actorName={adminName}
               onUpdated={handleUpdatedAnalysis}
-              collapsed={collapsedSections['ws21-review']}
-              onToggleCollapse={() => toggleSection('ws21-review')}
             />
-          </section>
+          )}
           <section id="ws22-recast" className="scroll-mt-24">
           <Ws2RecastPanel
             analysis={activeAnalysis}
@@ -604,14 +723,8 @@ export function TtmAnalysisTab({
             }}
           />
           </section>
-          <section id="ws210-report" className="scroll-mt-24">
-          <BaselineValuationReportPanel
-            analysis={activeAnalysis}
-            onUpdated={handleUpdatedAnalysis}
-            collapsed={collapsedSections['ws210-report']}
-            onToggleCollapse={() => toggleSection('ws210-report')}
-          />
-          </section>
+          </>
+          )}
           </div>
         </div>
       ) : loadingAnalyses ? (

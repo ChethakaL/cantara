@@ -14,7 +14,7 @@ export type ChannelType =
 
 export interface DigitalAssetFormData {
   businessName: string;
-  industry?: string;
+
   websiteUrl?: string;
   googleBusinessProfileUrl?: string;
   facebookHandle?: string;

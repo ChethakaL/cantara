@@ -355,7 +355,7 @@ export function buildWs21DeterministicReport(args: {
   lines.push("### DATA QUALITY REPORT");
   lines.push(...dataQualityLines);
 
-  lines.push("### SUMMARY FOR CRAIG");
+  lines.push("### SUMMARY FOR ADMIN");
   lines.push(args.summary.overview);
   if (args.summary.qualitySummary) lines.push(args.summary.qualitySummary);
   for (const note of [...args.summary.mappingNotes, ...args.summary.anomalyNotes].slice(0, 4)) {

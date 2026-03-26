@@ -60,6 +60,11 @@ function normalizeDescriptionKey(value: string) {
 function parsePeriodReference(value: string | null | undefined) {
   if (!value) return null;
 
+  const isoMonthMatch = value.match(/\b(20\d{2})-(0[1-9]|1[0-2])\b/);
+  if (isoMonthMatch) {
+    return `${isoMonthMatch[1]}-${isoMonthMatch[2]}`;
+  }
+
   const monthMatch = value.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i);
   if (monthMatch) {
     const months = {
@@ -89,9 +94,14 @@ function compareMonthKey(a: string, b: string) {
 }
 
 function monthsBetween(start: string, end: string) {
+  if (!start || !end) return [];
   const result: string[] = [];
   let [year, month] = start.split("-").map(Number);
   const [endYear, endMonth] = end.split("-").map(Number);
+
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(endYear) || !Number.isFinite(endMonth)) {
+    return [];
+  }
 
   while (year < endYear || (year === endYear && month <= endMonth)) {
     result.push(`${year}-${String(month).padStart(2, "0")}`);
@@ -123,7 +133,17 @@ function formatMultipleForReport(value: number | null | undefined) {
 }
 
 function periodMonths(year: AnnualModelYear) {
-  return monthsBetween(year.periodStart, year.periodEnd);
+  const start = parsePeriodReference(year.periodStart);
+  const end = parsePeriodReference(year.periodEnd);
+  return start && end ? monthsBetween(start, end) : [];
+}
+
+function periodYearLabel(year: AnnualModelYear | undefined, fallbackFiscalYear: string) {
+  if (!year) return fallbackFiscalYear;
+  const parsedStart = parsePeriodReference(year.periodStart);
+  if (parsedStart) return parsedStart.slice(0, 4);
+  const fiscalYearMatch = year.fiscalYear.match(/\b(20\d{2})\b/);
+  return fiscalYearMatch?.[1] ?? fallbackFiscalYear;
 }
 
 function sumGlForMonths(
@@ -155,7 +175,7 @@ type Ws22PeriodMappedItem = Ws22ScheduleItem & {
 };
 
 function parseScheduleTable(reportMarkdown: string) {
-  const match = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR CRAIG REVIEW|$)/i);
+  const match = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i);
   if (!match) return [] as Ws22ScheduleItem[];
 
   return match[1]
@@ -394,7 +414,7 @@ export function applyWs22SpecCorrections(args: {
     "",
     "**3-Year Normalized EBITDA Summary:**",
     ...correction.normalizedByYear.map(
-      (year, index) => `- ${year.fiscalYear} (${args.analysis.annualModel?.years?.[index]?.periodStart.slice(0, 4)}) Normalized EBITDA: ${formatCurrencyForReport(year.normalizedEbitda)} (${formatPeriodMargin(year.margin)} margin)`,
+      (year, index) => `- ${year.fiscalYear} (${periodYearLabel(args.analysis.annualModel?.years?.[index], year.fiscalYear)}) Normalized EBITDA: ${formatCurrencyForReport(year.normalizedEbitda)} (${formatPeriodMargin(year.margin)} margin)`,
     ),
     `- TTM Normalized EBITDA: ${formatCurrencyForReport(correction.correctedNormalizedTtm)} (${formatPeriodMargin(correction.correctedTtmMargin)} margin)`,
   ];
@@ -415,23 +435,23 @@ export function applyWs22SpecCorrections(args: {
     "**Revenue Trend Adjustment Flag:**",
     "FLAT REVENUE — TTM revenue equals FY3 annual revenue on this comparison basis.",
     "",
-    "**This is a PRELIMINARY valuation range for Craig's internal planning. It has not been reviewed or approved. It must not be shared with the seller until Craig approves it.**",
+    "**This is a PRELIMINARY valuation range for Admin's internal planning. It has not been reviewed or approved. It must not be shared with the seller until Admin approves it.**",
   ];
 
   let reportMarkdown = args.reportMarkdown.replace(
-    /## EBITDA RECAST SCHEDULE[\s\S]*?(?=\n## FLAG LIST FOR CRAIG REVIEW|\n## PRELIMINARY VALUATION RANGE|$)/i,
+    /## EBITDA RECAST SCHEDULE[\s\S]*?(?=\n## FLAG LIST FOR ADMIN REVIEW|\n## PRELIMINARY VALUATION RANGE|$)/i,
     `## EBITDA RECAST SCHEDULE\n\n${scheduleLines.join("\n")}\n`,
   );
 
   reportMarkdown = reportMarkdown.replace(
-    /## PRELIMINARY VALUATION RANGE[\s\S]*?(?=\n## SUMMARY FOR CRAIG|$)/i,
+    /## PRELIMINARY VALUATION RANGE[\s\S]*?(?=\n## SUMMARY FOR ADMIN|$)/i,
     `${valuationLines.join("\n")}\n`,
   );
 
   reportMarkdown = reportMarkdown.replace(
-    /## SUMMARY FOR CRAIG[\s\S]*$/i,
+    /## SUMMARY FOR ADMIN[\s\S]*$/i,
     [
-      "## SUMMARY FOR CRAIG",
+      "## SUMMARY FOR ADMIN",
       "",
       `Normalized TTM EBITDA of ${formatCurrencyForReport(correction.correctedNormalizedTtm)} (${formatPeriodMargin(correction.correctedTtmMargin)} margin) represents ${formatCurrencyForReport(correction.ttmAddbacks)} in total add-backs, primarily driven by owner compensation normalization and verified personal expenses within the TTM period.`,
       `Preliminary valuation range of ${formatCurrencyForReport(correction.valuationLow)}-${formatCurrencyForReport(correction.valuationHigh)} is based on your multiple guidance.`,
@@ -501,7 +521,7 @@ function severityFromText(value: string): Ws2RecastFlagView["severity"] {
 
 export function extractWs2RecastFlagPayloads(reportMarkdown: string) {
   const sectionMatch = reportMarkdown.match(
-    /### FLAG LIST FOR CRAIG REVIEW\s*([\s\S]*?)(?:\n### |\n## |$)/i,
+    /### FLAG LIST FOR ADMIN REVIEW\s*([\s\S]*?)(?:\n### |\n## |$)/i,
   );
 
   if (!sectionMatch) return [];
@@ -521,7 +541,7 @@ export function extractWs2RecastFlagPayloads(reportMarkdown: string) {
         description: cleaned,
         severity: severityFromText(cleaned),
         payload: {
-          source: "FLAG_LIST_FOR_CRAIG_REVIEW",
+          source: "FLAG_LIST_FOR_ADMIN_REVIEW",
           sequence: index + 1,
           dollarImpact,
         } as Record<string, unknown>,
@@ -550,11 +570,11 @@ export function extractWs2RecastControlFlags(
     } as Record<string, unknown>,
   }));
 
-  if (flags.length > 0 && /No items require Craig'?s review/i.test(reportMarkdown)) {
+  if (flags.length > 0 && /No items require Admin'?s review/i.test(reportMarkdown)) {
     flags.push({
-      title: "WS2-2 report says no Craig review is required despite suspicious items",
+      title: "WS2-2 report says no Admin review is required despite suspicious items",
       description:
-        "The report contains suspicious or flagged add-back language elsewhere, but the FLAG LIST FOR CRAIG REVIEW says no items require review. Craig should verify those items before approval.",
+        "The report contains suspicious or flagged add-back language elsewhere, but the FLAG LIST FOR ADMIN REVIEW says no items require review. Admin should verify those items before approval.",
       severity: "HIGH" as const,
       payload: {
         source: "CONTROL_CONTRADICTION",
@@ -572,7 +592,7 @@ export function extractWs2RecastControlFlags(
   ) {
     flags.push({
       title: "WS2-2 starting EBITDA does not match WS2-1",
-      description: `WS2-2 starts from ${fmtCurrencyStr(reportMetrics.startingEbitda) ?? "n/a"}, but WS2-1 structured output shows ${fmtCurrencyStr(ws21StartingEbitda) ?? "n/a"}. Craig should verify the handoff before approval.`,
+      description: `WS2-2 starts from ${fmtCurrencyStr(reportMetrics.startingEbitda) ?? "n/a"}, but WS2-1 structured output shows ${fmtCurrencyStr(ws21StartingEbitda) ?? "n/a"}. Admin should verify the handoff before approval.`,
       severity: "HIGH" as const,
       payload: {
         source: "CONTROL_MISMATCH",
@@ -588,11 +608,11 @@ export function extractWs2RecastControlFlags(
     const sections = [
       {
         category: "One-Off Expenses",
-        body: reportMarkdown.match(/## CATEGORY 3: ONE-OFF NON-RECURRING EXPENSES([\s\S]*?)(?=\n## CATEGORY 4:|\n## FLAG LIST FOR CRAIG REVIEW|$)/i)?.[1] ?? "",
+        body: reportMarkdown.match(/## CATEGORY 3: ONE-OFF NON-RECURRING EXPENSES([\s\S]*?)(?=\n## CATEGORY 4:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i)?.[1] ?? "",
       },
       {
         category: "TI Add-Backs",
-        body: reportMarkdown.match(/## CATEGORY 4: TENANT IMPROVEMENT ADD-BACKS([\s\S]*?)(?=\n## CATEGORY 5:|\n## FLAG LIST FOR CRAIG REVIEW|$)/i)?.[1] ?? "",
+        body: reportMarkdown.match(/## CATEGORY 4: TENANT IMPROVEMENT ADD-BACKS([\s\S]*?)(?=\n## CATEGORY 5:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i)?.[1] ?? "",
       },
     ];
 
@@ -612,7 +632,7 @@ export function extractWs2RecastControlFlags(
 
       flags.push({
         title: `${category} item appears outside the TTM period`,
-        description: `${description} is tagged to ${match.period}, which pre-dates the TTM window starting ${ttmStartMonth}. Craig should verify it is not being added back to TTM EBITDA unless it is actually present in the TTM period.`,
+        description: `${description} is tagged to ${match.period}, which pre-dates the TTM window starting ${ttmStartMonth}. Admin should verify it is not being added back to TTM EBITDA unless it is actually present in the TTM period.`,
         severity: "HIGH" as const,
         payload: {
           source: "CONTROL_OUT_OF_PERIOD",
@@ -647,9 +667,9 @@ export function sanitizeWs2RecastReportNarrative(
   const controlFlags = extractWs2RecastControlFlags(sanitized, analysis as Pick<TtmAnalysisView, "ttmSummary">);
   if (controlFlags.length > 0) {
     sanitized = sanitized.replace(
-      /## FLAG LIST FOR CRAIG REVIEW[\s\S]*?(?=\n## PRELIMINARY VALUATION RANGE|\n### PRELIMINARY VALUATION RANGE|$)/i,
+      /## FLAG LIST FOR ADMIN REVIEW[\s\S]*?(?=\n## PRELIMINARY VALUATION RANGE|\n### PRELIMINARY VALUATION RANGE|$)/i,
       [
-        "## FLAG LIST FOR CRAIG REVIEW",
+        "## FLAG LIST FOR ADMIN REVIEW",
         "",
         ...controlFlags.map((flag) => `- ${flag.description.replace(/^[-*]\s*/, "")}`),
         "",
@@ -658,7 +678,7 @@ export function sanitizeWs2RecastReportNarrative(
 
     sanitized = sanitized.replace(
       /recast is ready for client presentation/gi,
-      "recast requires Craig review before any client presentation",
+      "recast requires Admin review before any client presentation",
     );
     sanitized = sanitized.replace(
       /no items require your review before proceeding/gi,
@@ -948,7 +968,7 @@ function buildSummaryTab(args: {
   const rows: Array<Array<string | number | null>> = [
     [`${args.clientName} — WS2 Financial Analysis Summary`],
     [`Prepared by Cantara Pet Advisors | ${new Date().toISOString().slice(0, 10)}`],
-    [`Craig HITL Approval: ${recast.approvedAt ?? "Pending"}`],
+    [`Admin HITL Approval: ${recast.approvedAt ?? "Pending"}`],
     [],
     ["SECTION A — FINANCIAL SNAPSHOT"],
     ["", ...years.map(yearLabel), "TTM"],
@@ -987,7 +1007,7 @@ function buildSummaryTab(args: {
 
 function buildAssumptionsTab(recast: Ws2RecastView) {
   const rows: Array<Array<string | number | null>> = [
-    ["CRAIG'S INPUTS — WS2-2 EBITDA RECAST"],
+    ["ADMIN'S INPUTS — WS2-2 EBITDA RECAST"],
     [`Date entered: ${recast.createdAt}`],
     [],
     ["VALUATION MULTIPLES"],
@@ -997,14 +1017,14 @@ function buildAssumptionsTab(recast: Ws2RecastView) {
     [],
     ["OWNER REPLACEMENT SALARY"],
     ["Annual Replacement Salary", recast.assumptions.replacementSalary ?? 65000],
-    recast.assumptions.replacementSalary ? ["Basis", "Craig-provided"] : ["Basis", "DEFAULT $65,000"],
+    recast.assumptions.replacementSalary ? ["Basis", "Admin-provided"] : ["Basis", "DEFAULT $65,000"],
     [],
     ["FAIR MARKET RENT"],
     ["Related-Party Ownership", recast.assumptions.relatedPartyOwnership ? "Yes" : "No"],
     ["FMR Estimate (annual)", recast.assumptions.fmrEstimate],
     [],
-    ["CRAIG OVERRIDE LOG"],
-    ["Flag Description", "Craig's Override Amount", "Craig's Stated Reason", "Timestamp"],
+    ["ADMIN OVERRIDE LOG"],
+    ["Flag Description", "Admin's Override Amount", "Admin's Stated Reason", "Timestamp"],
     ...recast.flags
       .filter((f) => f.resolutionAction === "OVERRIDE")
       .map((f) => [f.title, f.overrideAmount, f.resolutionNotes ?? "", f.resolvedAt ?? ""]),
@@ -1061,28 +1081,28 @@ function buildPnlNonAdjTab(ttm: TtmAnalysisView) {
 function buildGlMappingTab(ttm: TtmAnalysisView) {
   const sectionAFlags = ttm.flags.filter((f) => f.section === "A");
   const autoMapped = ttm.flags.filter((f) => f.section === "A" && (f.payload as any)?.mappingMethod === "exact");
-  const craigClassified = sectionAFlags.filter((f) => f.resolutionAction != null);
+  const adminClassified = sectionAFlags.filter((f) => f.resolutionAction != null);
 
   const rows: Array<Array<string | number | null>> = [
     ["GL MAPPING TABLE"],
     [`WS2-1 Auto-mapping completed: ${ttm.createdAt}`],
-    [`Craig classification of unmapped codes: ${ttm.approvedAt ?? "Pending"}`],
+    [`Admin classification of unmapped codes: ${ttm.approvedAt ?? "Pending"}`],
     [],
-    ["#", "Original Account Name", "Original GL Code", "Cantara Code", "Category Name", "Status", "Craig Override"],
+    ["#", "Original Account Name", "Original GL Code", "Cantara Code", "Category Name", "Status", "Admin Override"],
     ...sectionAFlags.map((flag, idx) => [
       idx + 1,
       flag.title,
       String((flag.payload as any)?.accountCode ?? "—"),
       String((flag.payload as any)?.assignedCantaraCode ?? (flag.payload as any)?.cantaraCode ?? "—"),
       String((flag.payload as any)?.category ?? "—"),
-      flag.resolutionAction ? "CRAIG-CLASSIFIED" : "AUTO-MAPPED ✓",
-      flag.resolutionAction ? `Craig: ${flag.resolvedAt?.slice(0, 10) ?? ""}` : "—",
+      flag.resolutionAction ? "ADMIN-CLASSIFIED" : "AUTO-MAPPED ✓",
+      flag.resolutionAction ? `Admin: ${flag.resolvedAt?.slice(0, 10) ?? ""}` : "—",
     ]),
     [],
     ["SUMMARY"],
     ["Total accounts", sectionAFlags.length],
     ["Auto-mapped", autoMapped.length],
-    ["Craig-classified", craigClassified.length],
+    ["Admin-classified", adminClassified.length],
     ["Ambiguous (flagged)", sectionAFlags.filter((f) => f.resolutionStatus !== "ACTIONED").length],
   ];
   return rows;
@@ -1172,7 +1192,7 @@ function buildTtm3YearPnlTab(ttm: TtmAnalysisView, recast: Ws2RecastView) {
 function buildNormalizationItemsTab(recast: Ws2RecastView) {
   const rows: Array<Array<string | number | null>> = [
     ["EBITDA Normalization / Add-Back Schedule"],
-    [`Craig approved: ${recast.approvedAt ?? "Pending"}`],
+    [`Admin approved: ${recast.approvedAt ?? "Pending"}`],
     [],
   ];
 
@@ -1208,7 +1228,7 @@ function buildValuationTab(ttm: TtmAnalysisView, recast: Ws2RecastView) {
 
   const rows: Array<Array<string | number | null>> = [
     ["Valuation Summary"],
-    [`Craig approved: ${recast.approvedAt ?? "Pending"}`],
+    [`Admin approved: ${recast.approvedAt ?? "Pending"}`],
     ["PRELIMINARY — FOR INTERNAL USE ONLY"],
     [],
     ["VALUATION INPUTS"],
@@ -1235,9 +1255,9 @@ function buildValuationTab(ttm: TtmAnalysisView, recast: Ws2RecastView) {
 
   rows.push(
     [],
-    ["NOTE: This is a PRELIMINARY valuation range for Craig's internal planning."],
+    ["NOTE: This is a PRELIMINARY valuation range for Admin's internal planning."],
     ["It has not been reviewed by legal or tax counsel and must not be shared"],
-    ["with the seller until Craig approves it for client release."],
+    ["with the seller until Admin approves it for client release."],
   );
 
   return rows;
@@ -1358,7 +1378,7 @@ function buildWorkingCapitalTab(ttm: TtmAnalysisView) {
 
 /* ────────────────────────────────────────────────────────────────────────────
    TAB 12: Data Quality Report (V3 Section 13.3)
-   Read-only audit trail of every DQR item and Craig's resolutions.
+   Read-only audit trail of every DQR item and Admin's resolutions.
    ──────────────────────────────────────────────────────────────────────────── */
 
 function buildDataQualityReportTab(ttm: TtmAnalysisView) {
@@ -1369,7 +1389,7 @@ function buildDataQualityReportTab(ttm: TtmAnalysisView) {
   const rows: Array<Array<string | number | null>> = [
     ["Data Quality Report"],
     [`WS2-1 generated: ${ttm.createdAt}`],
-    [`Craig review completed: ${ttm.approvedAt ?? "Pending"}`],
+    [`Admin review completed: ${ttm.approvedAt ?? "Pending"}`],
     [`All items resolved: ${ttm.flags.every((f) => f.resolutionStatus === "ACTIONED") ? "YES" : "NO"}`],
     [],
   ];
@@ -1408,7 +1428,7 @@ function buildDataQualityReportTab(ttm: TtmAnalysisView) {
     ["RESOLUTION SUMMARY"],
     ["Total flags raised", ttm.flags.length],
     ["Resolved — no change", resolved.filter((f) => f.resolutionAction === "RESOLVE").length],
-    ["Resolved — Craig override", overrides.length],
+    ["Resolved — Admin override", overrides.length],
     ["Resolved — sent back to seller for clarification", escalated.length],
     ["Outstanding (should be 0 at workbook assembly)", ttm.flags.filter((f) => f.resolutionStatus !== "ACTIONED").length],
   );

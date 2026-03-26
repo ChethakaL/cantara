@@ -5,7 +5,7 @@ import { Bell, LogOut, Settings, Users, Globe2 } from 'lucide-react'
 import { logout } from '@/lib/store'
 import { GoldLine, cn } from '@/components/ui'
 
-export default function AdminNav({ name = 'Craig Pollack' }: { name?: string }) {
+export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) {
   const router = useRouter()
   const pathname = usePathname()
   const handleLogout = () => { logout(); router.push('/') }

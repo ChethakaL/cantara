@@ -367,12 +367,12 @@ export function getCurrentRole(): 'admin' | 'client' | null {
 }
 
 export function getAdminName(): string {
-  if (!isBrowser) return 'Craig Pollack'
+  if (!isBrowser) return 'Admin Pollack'
   try {
     const raw = localStorage.getItem('cantara_admin_name')
     if (raw) return JSON.parse(raw)
   } catch {}
-  return 'Craig Pollack'
+  return 'Admin Pollack'
 }
 
 export function getAdminEmail(): string {

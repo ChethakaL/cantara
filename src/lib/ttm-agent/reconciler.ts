@@ -214,7 +214,7 @@ function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: Parse
     items.push({
       title: "Potential corporate overhead allocations identified",
       severity: "MEDIUM",
-      description: `Detected potential parent-company / corporate overhead allocations in the monthly P&L. These rows are excluded from 4-wall EBITDA and Craig should confirm the exclusion basis.`,
+      description: `Detected potential parent-company / corporate overhead allocations in the monthly P&L. These rows are excluded from 4-wall EBITDA and Admin should confirm the exclusion basis.`,
       payload: {
         accountNames: corporateOverheadRows.map((row) => row.accountName),
         rowCount: corporateOverheadRows.length,
@@ -224,7 +224,7 @@ function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: Parse
     items.push({
       title: "Corporate overhead not separately identifiable",
       severity: "MEDIUM",
-      description: "No explicit parent-company or corporate overhead allocation lines were identified in the monthly P&L. Craig should confirm whether above-the-line corporate allocations are absent or embedded in other accounts.",
+      description: "No explicit parent-company or corporate overhead allocation lines were identified in the monthly P&L. Admin should confirm whether above-the-line corporate allocations are absent or embedded in other accounts.",
       payload: {
         reason: "No explicit corporate overhead allocation lines matched WS2-1 heuristics",
       },
@@ -406,7 +406,7 @@ function buildMappingSection(
           ? ("HIGH" as const)
           : row.isMajor ? ("HIGH" as const) : ("MEDIUM" as const),
         description: (row.mappingConfidence < 0.6 && row.isMajor)
-          ? `HIGH: Confidence ${confidencePct}% for major account ${row.accountName}${row.accountCode ? ` (${row.accountCode})` : ""}. Do not auto-assign — Craig must classify manually.`
+          ? `HIGH: Confidence ${confidencePct}% for major account ${row.accountName}${row.accountCode ? ` (${row.accountCode})` : ""}. Do not auto-assign — Admin must classify manually.`
           : `Assign a Cantara code for ${row.accountName}${row.accountCode ? ` (${row.accountCode})` : ""}.`,
         payload: {
           accountName: row.accountName,

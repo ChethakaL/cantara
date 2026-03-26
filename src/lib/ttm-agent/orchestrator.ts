@@ -33,6 +33,7 @@ import {
   resolveWs2RecastMetrics,
 } from "@/lib/ws2/report-utils";
 import { buildBaselineValuationReport } from "@/lib/ws2/baseline-report";
+import { buildStructuredWs2DerivedReport } from "@/lib/ws2/derived-report-structure";
 import { buildWs21DeterministicReport } from "@/lib/ws2/ws21-report";
 
 const WS2_BASELINE_SOURCE_AGENT_IDS = [
@@ -475,7 +476,7 @@ export async function runTtmAgent(args: {
     const ttmRevenue = calculateTtmRevenueFromMappedRows(mappedPlRows, monthlyPl.monthKeys);
     if (ttmRevenue === 0 && monthlyPl.rows.length > 0) {
       throw new TtmOrchestratorError(
-        "Critical data error: TTM period has zero revenue across all revenue lines. Cannot proceed without Craig input. Please verify the uploaded P&L file contains the correct 36-month data.",
+        "Critical data error: TTM period has zero revenue across all revenue lines. Cannot proceed without Admin input. Please verify the uploaded P&L file contains the correct 36-month data.",
         400,
       );
     }
@@ -497,7 +498,7 @@ export async function runTtmAgent(args: {
     reconciled.dataQualitySections.E.push(...wcResult.qualityItems);
     const dataQualityReport = buildDataQualityReport(reconciled.dataQualitySections);
 
-    console.log(`[TTM] Generating Craig summary`);
+    console.log(`[TTM] Generating Admin summary`);
     const summary = await summarizeTtmAnalysis({
       ttmSummary: reconciled.ttmSummary,
       annualTrends: reconciled.annualModel.trends,
@@ -580,21 +581,21 @@ export async function runTtmAgent(args: {
             clientId: args.clientId,
             agentId: "ws2_2_recast_v1",
             status: "BLOCKED_HITL",
-            payload: { reason: "Awaiting Craig WS2-1 approval" },
+            payload: { reason: "Awaiting Admin WS2-1 approval" },
           },
           {
             analysisId: created.id,
             clientId: args.clientId,
             agentId: "ws2_3_rev_vertical_v1",
             status: "BLOCKED_HITL",
-            payload: { reason: "Awaiting Craig WS2-1 approval" },
+            payload: { reason: "Awaiting Admin WS2-1 approval" },
           },
           {
             analysisId: created.id,
             clientId: args.clientId,
             agentId: "ws2_4_benchmark_v1",
             status: "BLOCKED_HITL",
-            payload: { reason: "Awaiting Craig WS2-1 approval" },
+            payload: { reason: "Awaiting Admin WS2-1 approval" },
           },
           // V3 Section 9: WS2-5 runs in parallel after WS2-1 (uses WS2-2 if available)
           {
@@ -602,7 +603,7 @@ export async function runTtmAgent(args: {
             clientId: args.clientId,
             agentId: "ws2_5_labor_v1",
             status: "BLOCKED_HITL",
-            payload: { reason: "Awaiting Craig WS2-1 approval and completed WS2-2 recast" },
+            payload: { reason: "Awaiting Admin WS2-1 approval and completed WS2-2 recast" },
           },
           {
             analysisId: created.id,
@@ -669,7 +670,7 @@ export async function actionTtmFlag(args: {
     throw new TtmOrchestratorError("TTM flag not found.", 404);
   }
 
-  const actorName = args.actorName || "Craig Pollack";
+  const actorName = args.actorName || "Admin Pollack";
   let escalatedRequirementId: string | null = flag.escalatedRequirementId ?? null;
 
   if (args.action === "ESCALATE_CLIENT" && !escalatedRequirementId) {
@@ -678,7 +679,7 @@ export async function actionTtmFlag(args: {
       data: {
         clientId: flag.analysis.clientId,
         title: `TTM Follow-up: ${flag.title}`,
-        description: args.notes || flag.description || "Craig requested client follow-up on a TTM data-quality item.",
+        description: args.notes || flag.description || "Admin requested client follow-up on a TTM data-quality item.",
         question: flag.description || flag.title,
         requestUpload: true,
         sourceDocumentId: "ttm_agent",
@@ -739,7 +740,7 @@ export async function approveTtmAnalysis(args: { analysisId: string; actorName?:
     throw new TtmOrchestratorError("All TTM flags must have a resolution action before approval.", 400);
   }
 
-  const actorName = args.actorName || "Craig Pollack";
+  const actorName = args.actorName || "Admin Pollack";
   await (prisma as any).$transaction([
     (prisma as any).ttmAnalysis.update({
       where: { id: args.analysisId },
@@ -751,7 +752,7 @@ export async function approveTtmAnalysis(args: { analysisId: string; actorName?:
       },
     }),
     // V3 Section 9: WS2-3 and WS2-4 release after WS2-1 approval.
-    // WS2-2 also releases here so Craig can enter the valuation inputs and run it.
+    // WS2-2 also releases here so Admin can enter the valuation inputs and run it.
     // WS2-5 releases when WS2-2 completes because it depends on the recast output.
     (prisma as any).agentDispatchTask.updateMany({
       where: {
@@ -842,7 +843,7 @@ function buildWs22PromptContent(args: {
 
   content.push({
     type: "text",
-    text: `=== CRAIG INPUTS ===\n${JSON.stringify(args.assumptions, null, 2)}`,
+    text: `=== ADMIN INPUTS ===\n${JSON.stringify(args.assumptions, null, 2)}`,
   });
 
   content.push({
@@ -1026,7 +1027,7 @@ export async function runWs2RecastAnalysis(args: {
     throw new TtmOrchestratorError("WS2-1 analysis not found.", 404);
   }
   if (analysis.status !== "APPROVED") {
-    throw new TtmOrchestratorError("Craig must approve WS2-1 before WS2-2 can run.", 400);
+    throw new TtmOrchestratorError("Admin must approve WS2-1 before WS2-2 can run.", 400);
   }
 
   const dispatchTask = analysis.dispatchTasks.find((task) => task.agentId === "ws2_2_recast_v1");
@@ -1051,13 +1052,13 @@ export async function runWs2RecastAnalysis(args: {
   });
 
   if (!isFiniteNumber(args.assumptions.multipleLow) || !isFiniteNumber(args.assumptions.multipleMid) || !isFiniteNumber(args.assumptions.multipleHigh)) {
-    throw new TtmOrchestratorError("Craig must provide low, mid, and high valuation multiples before WS2-2 can run.", 400);
+    throw new TtmOrchestratorError("Admin must provide low, mid, and high valuation multiples before WS2-2 can run.", 400);
   }
   if (args.assumptions.multipleLow <= 0 || args.assumptions.multipleMid <= 0 || args.assumptions.multipleHigh <= 0) {
     throw new TtmOrchestratorError("Valuation multiples must be positive numbers.", 400);
   }
   if (!(args.assumptions.multipleLow <= args.assumptions.multipleMid && args.assumptions.multipleMid <= args.assumptions.multipleHigh)) {
-    throw new TtmOrchestratorError("Craig's valuation multiples must be ordered low ≤ mid ≤ high.", 400);
+    throw new TtmOrchestratorError("Admin's valuation multiples must be ordered low ≤ mid ≤ high.", 400);
   }
 
   // V3 Section 10: Owner replacement salary not provided → default to $65,000
@@ -1107,7 +1108,7 @@ export async function runWs2RecastAnalysis(args: {
     if (usedDefaultSalary) {
       flagPayloads.push({
         title: "Owner replacement salary defaulted to $65,000",
-        description: "No replacement salary was provided by Craig. The system used the V3 default of $65,000/year. All outputs are labeled DEFAULT. Craig should verify this amount.",
+        description: "No replacement salary was provided by Admin. The system used the V3 default of $65,000/year. All outputs are labeled DEFAULT. Admin should verify this amount.",
         severity: "MEDIUM" as const,
         payload: { source: "SYSTEM_DEFAULT", defaultAmount: 65000 },
       });
@@ -1208,7 +1209,7 @@ export async function actionWs2RecastFlag(args: {
   }
 
   if (args.action === "OVERRIDE" && !isFiniteNumber(args.overrideAmount)) {
-    throw new TtmOrchestratorError("Craig must enter an override amount to use Override Amount.", 400);
+    throw new TtmOrchestratorError("Admin must enter an override amount to use Override Amount.", 400);
   }
 
   await (prisma as any).$transaction(async (tx: any) => {
@@ -1224,7 +1225,7 @@ export async function actionWs2RecastFlag(args: {
           ...(args.payloadPatch ?? {}),
         },
         resolvedAt: new Date(),
-        resolvedByName: args.actorName || "Craig Pollack",
+        resolvedByName: args.actorName || "Admin Pollack",
       },
     });
 
@@ -1331,7 +1332,7 @@ export async function approveWs2RecastAnalysis(args: { recastAnalysisId: string;
         status: "APPROVED",
         hitlStatus: "APPROVED",
         approvedAt: new Date(),
-        approvedByName: args.actorName || "Craig Pollack",
+        approvedByName: args.actorName || "Admin Pollack",
         normalizedEbitda: frontendRecast.normalizedEbitda,
         valuationLow: frontendRecast.valuationLow,
         valuationMid: frontendRecast.valuationMid,
@@ -1400,7 +1401,7 @@ export async function runWs2DerivedAgent(args: {
     throw new TtmOrchestratorError("WS2-1 analysis not found.", 404);
   }
   if (analysis.status !== "APPROVED") {
-    throw new TtmOrchestratorError("Craig must approve WS2-1 before downstream WS2 agents can run.", 400);
+    throw new TtmOrchestratorError("Admin must approve WS2-1 before downstream WS2 agents can run.", 400);
   }
 
   const dispatchTask = analysis.dispatchTasks.find((task) => task.agentId === args.agentId);
@@ -1457,6 +1458,11 @@ export async function runWs2DerivedAgent(args: {
       : args.agentId === "ws2_4_benchmark_v1"
         ? await generateWs24Report(content)
         : await generateWs25Report(content);
+  const parsedReport = buildStructuredWs2DerivedReport({
+    agentId: args.agentId,
+    analysis,
+    recast,
+  });
 
   await (prisma as any).ws2DerivedReport.upsert({
     where: {
@@ -1468,7 +1474,7 @@ export async function runWs2DerivedAgent(args: {
     update: {
       status: "COMPLETE",
       reportMarkdown,
-      parsedReport: null,
+      parsedReport,
       recastAnalysisId: recast?.id ?? null,
       errorMessage: null,
     },
@@ -1479,7 +1485,7 @@ export async function runWs2DerivedAgent(args: {
       agentId: args.agentId,
       status: "COMPLETE",
       reportMarkdown,
-      parsedReport: null,
+      parsedReport,
     },
   });
 

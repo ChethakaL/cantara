@@ -1,7 +1,8 @@
 'use client'
 import { useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { Flag, FlagReviewStatus, LeaseReport as LeaseReportData } from '../../../lib/lease-analysis/types'
-import { Badge, Button, Textarea } from '@/components/ui'
+import { Badge, Button, Textarea, cn } from '@/components/ui'
 import { getVisibleFlags, isVisibleFlag, reevaluateFlagInReport, setFlagReviewNotes, setFlagReviewStatus } from '@/lib/lease-analysis/report-utils'
 
 interface Props {
@@ -198,7 +199,7 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
               }}
             />
             <div className="mt-2 flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-[11px] text-slate-400">Notes save when the field loses focus.</p>
+              {/* <p className="text-[11px] text-slate-400">Notes save when the field loses focus.</p> */}
               <Button
                 type="button"
                 size="sm"
@@ -229,10 +230,26 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
           </div>
           <div className="space-y-3">
             {red.map((f, i) => (adminMode || isVisibleFlag(f)) && (
-              <div key={i} className={`p-4 rounded-xl border ${f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-rose-50 border-rose-100'}`}>
-                <p className="font-semibold text-rose-800 text-sm mb-1">{f.issue}</p>
-                {f.whyItMatters && <p className="text-sm text-rose-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
-                {f.sourceSection && <p className="text-xs text-rose-600 font-mono mb-2">Source: {f.sourceSection}</p>}
+              <div key={i} className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-[#fef2f2] border-rose-200')}>
+                <div className="flex justify-between items-start flex-wrap gap-4">
+                  <div className="max-w-4xl">
+                    <div className="flex items-start gap-4">
+                      <AlertTriangle className="mt-1 h-[18px] w-[18px] shrink-0 text-[#8a2f2c]" strokeWidth={2.5} />
+                      <div>
+                        <h4 className="text-[17px] font-bold leading-tight tracking-tight text-[#8a2f2c]">
+                          {f.issue}
+                        </h4>
+                        <p className="mt-2 text-[15px] leading-relaxed text-slate-700/90 font-medium">
+                          {f.whyItMatters || 'Requires immediate attention.'}
+                        </p>
+                        {f.sourceSection && <p className="mt-2 text-[11px] text-rose-600/70 font-bold uppercase tracking-wider">Source: {f.sourceSection}</p>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-[#8a2f2c] text-white rounded-sm px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] shrink-0">
+                     HIGH • SECTION {f.sourceSection || 'F'}
+                  </div>
+                </div>
                 {renderReviewControls(f, 'red', i)}
               </div>
             ))}
@@ -248,10 +265,26 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
           </div>
           <div className="space-y-3">
             {orange.map((f, i) => (adminMode || isVisibleFlag(f)) && (
-              <div key={i} className={`p-4 rounded-xl border ${f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-amber-50 border-amber-100'}`}>
-                <p className="font-semibold text-amber-800 text-sm mb-1">{f.issue}</p>
-                {f.whyItMatters && <p className="text-sm text-amber-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
-                {f.sourceSection && <p className="text-xs text-amber-600 font-mono mb-2">Source: {f.sourceSection}</p>}
+              <div key={i} className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-[#fffbeb] border-amber-200')}>
+                <div className="flex justify-between items-start flex-wrap gap-4">
+                  <div className="max-w-4xl">
+                    <div className="flex items-start gap-4">
+                      <div className="mt-[11px] h-2 w-2 shrink-0 rounded-full bg-[#a6542f]" />
+                      <div>
+                        <h4 className="text-[17px] font-bold leading-tight tracking-tight text-[#a6542f]">
+                          {f.issue}
+                        </h4>
+                        <p className="mt-2 text-[15px] leading-relaxed text-slate-700/90 font-medium">
+                          {f.whyItMatters || 'Requires clarification.'}
+                        </p>
+                        {f.sourceSection && <p className="mt-2 text-[11px] text-amber-600/70 font-bold uppercase tracking-wider">Source: {f.sourceSection}</p>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-[#a6542f] text-white rounded-sm px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] shrink-0">
+                     MED • SECTION {f.sourceSection || 'C'}
+                  </div>
+                </div>
                 {renderReviewControls(f, 'orange', i)}
               </div>
             ))}
@@ -267,10 +300,26 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
           </div>
           <div className="grid grid-cols-1 gap-3">
             {green.map((f, i) => (adminMode || isVisibleFlag(f)) && (
-              <div key={i} className={`p-4 rounded-xl border ${f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-emerald-50 border-emerald-100'}`}>
-                <p className="font-semibold text-emerald-800 text-sm mb-1">{f.issue}</p>
-                {f.whyItMatters && <p className="text-sm text-emerald-700 mb-2"><strong>Impact:</strong> {f.whyItMatters}</p>}
-                {f.sourceSection && <p className="text-xs text-emerald-600 font-mono italic">Source: {f.sourceSection}</p>}
+              <div key={i} className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-emerald-50 border-emerald-100')}>
+                <div className="flex justify-between items-start flex-wrap gap-4">
+                  <div className="max-w-4xl">
+                    <div className="flex items-start gap-4">
+                      <div className="mt-[11px] h-2 w-2 shrink-0 rounded-full bg-emerald-700" />
+                      <div>
+                        <h4 className="text-[17px] font-bold leading-tight tracking-tight text-emerald-800">
+                          {f.issue}
+                        </h4>
+                        <p className="mt-2 text-[15px] leading-relaxed text-slate-700/90 font-medium">
+                          {f.whyItMatters || 'Favorable provision.'}
+                        </p>
+                        {f.sourceSection && <p className="mt-2 text-[11px] text-emerald-600/70 font-bold uppercase tracking-wider">Source: {f.sourceSection}</p>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-emerald-700 text-white rounded-sm px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] shrink-0">
+                     LOW • SECTION {f.sourceSection || 'G'}
+                  </div>
+                </div>
                 {renderReviewControls(f, 'green', i)}
               </div>
             ))}
