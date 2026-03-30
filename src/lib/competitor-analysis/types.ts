@@ -73,6 +73,11 @@ export interface CompetitorReportItem extends BusinessPlaceProfile {
   websiteConfidence: ConfidenceLevel;
 }
 
+export interface DiscoveredCompetitorItem extends BusinessPlaceProfile {
+  distanceMiles: number;
+  isResearched: boolean;
+}
+
 export interface MarketStats {
   discoveredCompetitors: number;
   analyzedCompetitors: number;
@@ -99,5 +104,6 @@ export interface CompetitorAnalysisReport {
   recommendations: string[];
   marketStats: MarketStats;
   clientProfile: SubjectBusinessProfile;
+  discoveredCompetitors: DiscoveredCompetitorItem[];
   competitors: CompetitorReportItem[];
 }

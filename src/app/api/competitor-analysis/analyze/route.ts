@@ -1,10 +1,21 @@
 import { NextRequest } from 'next/server';
 import { buildCompetitorAnalysisReport } from '@/lib/competitor-analysis/claude-analyzer';
-import { findNearbyCompetitors, lookupSubjectBusiness } from '@/lib/competitor-analysis/google-places';
+import { findNearbyCompetitors, inferPetBusinessCategory, lookupSubjectBusiness } from '@/lib/competitor-analysis/google-places';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
 import { CompetitorAnalysisFormData } from '@/lib/competitor-analysis/types';
 
 export const maxDuration = 180;
+const DEFAULT_PET_CATEGORY = 'pet store';
+
+function isGenericPetCategory(category: string | undefined): boolean {
+  const normalized = (category ?? '').trim().toLowerCase();
+  return !normalized
+    || normalized === DEFAULT_PET_CATEGORY
+    || normalized === 'pet-related business'
+    || normalized === 'pet related business'
+    || normalized === 'pet business'
+    || normalized === 'pets';
+}
 
 export async function POST(req: NextRequest) {
   let formData: CompetitorAnalysisFormData;
@@ -15,12 +26,17 @@ export async function POST(req: NextRequest) {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
-  if (!formData?.businessName?.trim() || !formData?.businessAddress?.trim() || !formData?.businessCategory?.trim()) {
+  if (!formData?.businessName?.trim() || !formData?.businessAddress?.trim()) {
     return new Response(
-      JSON.stringify({ error: 'Business name, address, and category are required.' }),
+      JSON.stringify({ error: 'Business name and address are required.' }),
       { status: 400 }
     );
   }
+
+  formData = {
+    ...formData,
+    businessCategory: isGenericPetCategory(formData.businessCategory) ? DEFAULT_PET_CATEGORY : formData.businessCategory.trim(),
+  };
 
   const googleApiKey = process.env.GOOGLE_SERVICES_API;
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
@@ -53,16 +69,19 @@ export async function POST(req: NextRequest) {
         });
 
         const subjectLookup = await lookupSubjectBusiness(formData, googleApiKey);
+        const resolvedCategory = isGenericPetCategory(formData.businessCategory)
+          ? inferPetBusinessCategory(subjectLookup.subject)
+          : formData.businessCategory.trim();
 
         send({
           type: 'progress',
           phase: 'research',
-          message: `Searching for nearby ${formData.businessCategory} competitors within ${formData.radiusMiles ?? 5} miles…`,
+          message: `Searching for nearby ${resolvedCategory} competitors within ${formData.radiusMiles ?? 5} miles…`,
         });
 
         const nearby = await findNearbyCompetitors({
           center: subjectLookup.center,
-          businessCategory: formData.businessCategory,
+          businessCategory: resolvedCategory,
           apiKey: googleApiKey,
           subjectPlaceId: subjectLookup.subject.placeId,
           subjectName: subjectLookup.subject.name,
@@ -81,7 +100,7 @@ export async function POST(req: NextRequest) {
         const subjectWebsiteResearch = await researchWebsite({
           websiteUrl: subjectLookup.subject.websiteUrl ?? formData.websiteUrl ?? null,
           businessName: formData.businessName,
-          businessCategory: formData.businessCategory,
+          businessCategory: resolvedCategory,
           tavilyApiKey,
         });
 
@@ -91,7 +110,7 @@ export async function POST(req: NextRequest) {
             await researchWebsite({
               websiteUrl: competitor.websiteUrl,
               businessName: competitor.name,
-              businessCategory: formData.businessCategory,
+              businessCategory: resolvedCategory,
               tavilyApiKey,
             }),
           ] as const)
@@ -107,6 +126,7 @@ export async function POST(req: NextRequest) {
         const report = await buildCompetitorAnalysisReport({
           formData: {
             ...formData,
+            businessCategory: resolvedCategory,
             radiusMiles: formData.radiusMiles ?? 5,
           },
           subject: subjectLookup.subject,
@@ -115,6 +135,29 @@ export async function POST(req: NextRequest) {
           competitorWebsiteResearch,
           discoveredCompetitors: nearby.discoveredCompetitors,
           anthropicApiKey,
+        });
+
+        report.discoveredCompetitors = nearby.discoveredItems.map((item) => {
+          const researched = report.competitors.find((competitor) => competitor.placeId === item.placeId);
+          if (!researched) return item;
+          return {
+            placeId: researched.placeId,
+            name: researched.name,
+            address: researched.address,
+            location: researched.location,
+            rating: researched.rating,
+            reviewCount: researched.reviewCount,
+            priceLevel: researched.priceLevel,
+            websiteUrl: researched.websiteUrl,
+            mapsUrl: researched.mapsUrl,
+            phoneNumber: researched.phoneNumber,
+            businessStatus: researched.businessStatus,
+            openNow: researched.openNow,
+            weekdayText: researched.weekdayText,
+            primaryTypes: researched.primaryTypes,
+            distanceMiles: researched.distanceMiles,
+            isResearched: true,
+          };
         });
 
         send({ type: 'complete', report });

@@ -4,6 +4,7 @@ import {
   CompetitorAnalysisFormData,
   CompetitorAnalysisReport,
   CompetitorReportItem,
+  DiscoveredCompetitorItem,
   SubjectBusinessProfile,
   WebsiteResearchData,
 } from './types';
@@ -131,7 +132,7 @@ ${competitorsBlock || 'No competitors were found.'}
 
 Task:
 1. Compare the subject business against the nearby competitors using public data only.
-2. Infer service overlap, pricing transparency, pricing level signals, operating-hour overlap, and reputation positioning.
+2. Infer service overlap, pricing transparency, operating-hour overlap, and reputation positioning.
 3. If a website does not clearly publish prices, say so directly. Do not invent prices.
 4. Keep the tone professional, precise, and suitable for an advisor-facing report.
 5. Keep all string fields compact. Prefer one sentence per field.
@@ -178,6 +179,7 @@ Rules:
 - Use short, concrete bullet-style strings inside arrays.
 - "similarityScore" must be 1 to 5, where 5 means very direct substitute.
 - If pricing is not visible, say "No public pricing located" or similar rather than guessing.
+- Do not treat Google or listing price-level symbols such as $, $$, $$$ as published pricing. Only describe pricing as published when exact public website pricing was actually found.
 - Keep the total response short enough to fit comfortably inside a small JSON payload.
   `.trim();
 }
@@ -214,6 +216,20 @@ function average(values: Array<number | null | undefined>): number | null {
   const valid = values.filter((value): value is number => typeof value === 'number');
   if (!valid.length) return null;
   return Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(1));
+}
+
+function normalizePricingComparison(text: string | undefined, hasPricePoints: boolean): string {
+  const normalized = (text ?? '').trim();
+  if (hasPricePoints) {
+    return normalized || 'Public pricing details were located on the website.';
+  }
+
+  if (!normalized) return 'No public pricing located.';
+  if (/\$\$?|\$\$\$/i.test(normalized)) return 'No public pricing located.';
+  if (/limited|not fully|could not be verified|visibility was limited/i.test(normalized)) {
+    return 'No public pricing located.';
+  }
+  return normalized;
 }
 
 export async function buildCompetitorAnalysisReport(args: {
@@ -279,17 +295,18 @@ export async function buildCompetitorAnalysisReport(args: {
 
   const competitors: CompetitorReportItem[] = args.competitors.map((competitor) => {
     const overlay = overlayByPlaceId.get(competitor.placeId ?? '');
+    const pricePoints = overlay?.pricePoints ?? [];
     return {
       ...competitor,
       similarityLevel: overlay?.similarityLevel ?? 'medium',
       similarityScore: Math.max(1, Math.min(5, Math.round(overlay?.similarityScore ?? 3))),
       similaritySummary: overlay?.similaritySummary ?? 'This business operates in a related local market, but public evidence was limited.',
       serviceComparison: overlay?.serviceComparison ?? 'Service overlap could not be fully verified from public sources.',
-      pricingComparison: overlay?.pricingComparison ?? 'Pricing visibility was limited across public sources.',
+      pricingComparison: normalizePricingComparison(overlay?.pricingComparison, pricePoints.length > 0),
       hoursComparison: overlay?.hoursComparison ?? 'Hours overlap could not be fully verified from public sources.',
       reputationComparison: overlay?.reputationComparison ?? 'Reputation comparison is based on public rating and review signals.',
       services: overlay?.services ?? [],
-      pricePoints: overlay?.pricePoints ?? [],
+      pricePoints,
       strengths: overlay?.strengths ?? [],
       gaps: overlay?.gaps ?? [],
       websiteConfidence: overlay?.websiteConfidence ?? args.competitorWebsiteResearch[competitor.placeId ?? '']?.confidence ?? 'low',
@@ -322,6 +339,81 @@ export async function buildCompetitorAnalysisReport(args: {
       competitorsWithPriceSignals: competitors.filter((item) => item.pricePoints.length > 0).length,
     },
     clientProfile,
+    discoveredCompetitors: competitors.map((item) => ({
+      placeId: item.placeId,
+      name: item.name,
+      address: item.address,
+      location: item.location,
+      rating: item.rating,
+      reviewCount: item.reviewCount,
+      priceLevel: item.priceLevel,
+      websiteUrl: item.websiteUrl,
+      mapsUrl: item.mapsUrl,
+      phoneNumber: item.phoneNumber,
+      businessStatus: item.businessStatus,
+      openNow: item.openNow,
+      weekdayText: item.weekdayText,
+      primaryTypes: item.primaryTypes,
+      distanceMiles: item.distanceMiles,
+      isResearched: true,
+    })),
     competitors,
+  };
+}
+
+export async function buildSingleCompetitorReport(args: {
+  formData: CompetitorAnalysisFormData;
+  subject: BusinessPlaceProfile;
+  subjectWebsiteResearch: WebsiteResearchData | null;
+  competitor: BusinessPlaceProfile & { distanceMiles: number };
+  competitorWebsiteResearch: WebsiteResearchData | null;
+  anthropicApiKey: string;
+}): Promise<CompetitorReportItem> {
+  const client = new Anthropic({ apiKey: args.anthropicApiKey });
+  const prompt = buildPrompt({
+    formData: args.formData,
+    subject: args.subject,
+    subjectWebsiteResearch: args.subjectWebsiteResearch,
+    competitors: [args.competitor],
+    competitorWebsiteResearch: {
+      [args.competitor.placeId ?? '']: args.competitorWebsiteResearch,
+    },
+    compact: true,
+  });
+
+  let rawText = '';
+  let parsed: ClaudeOverlayResponse;
+  try {
+    rawText = await requestOverlay({
+      client,
+      prompt,
+      maxTokens: 1000,
+    });
+    parsed = parseClaudeJson(rawText);
+  } catch {
+    rawText = await requestOverlay({
+      client,
+      prompt: `${prompt}\n\nReturn only one competitor object in valid JSON and keep all strings short.`,
+      maxTokens: 800,
+    });
+    parsed = parseClaudeJson(rawText);
+  }
+
+  const overlay = parsed.competitors?.[0];
+  const pricePoints = overlay?.pricePoints ?? [];
+  return {
+    ...args.competitor,
+    similarityLevel: overlay?.similarityLevel ?? 'medium',
+    similarityScore: Math.max(1, Math.min(5, Math.round(overlay?.similarityScore ?? 3))),
+    similaritySummary: overlay?.similaritySummary ?? 'This business operates in a related local market, but public evidence was limited.',
+    serviceComparison: overlay?.serviceComparison ?? 'Service overlap could not be fully verified from public sources.',
+    pricingComparison: normalizePricingComparison(overlay?.pricingComparison, pricePoints.length > 0),
+    hoursComparison: overlay?.hoursComparison ?? 'Hours overlap could not be fully verified from public sources.',
+    reputationComparison: overlay?.reputationComparison ?? 'Reputation comparison is based on public rating and review signals.',
+    services: overlay?.services ?? [],
+    pricePoints,
+    strengths: overlay?.strengths ?? [],
+    gaps: overlay?.gaps ?? [],
+    websiteConfidence: overlay?.websiteConfidence ?? args.competitorWebsiteResearch?.confidence ?? 'low',
   };
 }

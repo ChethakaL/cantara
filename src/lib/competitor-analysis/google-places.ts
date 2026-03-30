@@ -1,6 +1,7 @@
 import {
   BusinessPlaceProfile,
   CompetitorAnalysisFormData,
+  DiscoveredCompetitorItem,
   PlaceLocation,
 } from './types';
 
@@ -152,6 +153,33 @@ export function inferGooglePlaceType(category: string): string | null {
   if (/gym|fitness/.test(normalized)) return 'gym';
   if (/pet store|pet shop/.test(normalized)) return 'pet_store';
   return null;
+}
+
+export function inferPetBusinessCategory(subject: Pick<BusinessPlaceProfile, 'name' | 'primaryTypes'>): string {
+  const normalizedName = subject.name.toLowerCase();
+  const types = subject.primaryTypes.map((type) => type.toLowerCase());
+
+  if (types.includes('veterinary_care') || /vet|veterinary|animal hospital|pet hospital/.test(normalizedName)) {
+    return 'veterinary clinic';
+  }
+
+  if (/groom|grooming|wash|spa/.test(normalizedName)) {
+    return 'pet grooming';
+  }
+
+  if (/boarding|daycare|day care|kennel/.test(normalizedName)) {
+    return 'pet boarding';
+  }
+
+  if (/training|trainer/.test(normalizedName)) {
+    return 'dog training';
+  }
+
+  if (/food|treat|nutrition|supply|supplies|pet care|petcare|pet shop|pet store/.test(normalizedName) || types.includes('pet_store')) {
+    return 'pet store';
+  }
+
+  return 'pet store';
 }
 
 export function priceLevelLabel(priceLevel: number | null | undefined): string {
@@ -366,7 +394,11 @@ export async function findNearbyCompetitors(args: {
   subjectName: string;
   subjectAddress: string;
   limit?: number;
-}): Promise<{ competitors: Array<BusinessPlaceProfile & { distanceMiles: number }>; discoveredCompetitors: number }> {
+}): Promise<{
+  competitors: Array<BusinessPlaceProfile & { distanceMiles: number }>;
+  discoveredCompetitors: number;
+  discoveredItems: DiscoveredCompetitorItem[];
+}> {
   const placeType = inferGooglePlaceType(args.businessCategory);
 
   const searches = await Promise.all([
@@ -442,8 +474,29 @@ export async function findNearbyCompetitors(args: {
     })
   );
 
+  const researchedIds = new Set(detailed.map((item) => item.placeId).filter(Boolean));
+  const discoveredItems: DiscoveredCompetitorItem[] = discovered.map((item) => ({
+    placeId: item.placeId,
+    name: item.name,
+    address: item.address,
+    location: item.location,
+    rating: item.rating,
+    reviewCount: item.reviewCount,
+    priceLevel: item.priceLevel,
+    websiteUrl: null,
+    mapsUrl: null,
+    phoneNumber: null,
+    businessStatus: item.businessStatus,
+    openNow: item.openNow,
+    weekdayText: [],
+    primaryTypes: item.primaryTypes,
+    distanceMiles: item.distanceMiles,
+    isResearched: researchedIds.has(item.placeId),
+  }));
+
   return {
     competitors: detailed,
     discoveredCompetitors: discovered.length,
+    discoveredItems,
   };
 }

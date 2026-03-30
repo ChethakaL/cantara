@@ -413,6 +413,28 @@ export async function deleteCompetitorAnalysis(id: string) {
   }
 }
 
+export async function updateCompetitorAnalysis(id: string, update: {
+  fileName?: string;
+  report?: string;
+  parsed?: any;
+}) {
+  try {
+    const res = await fetch(`/api/competitor-analysis/reports?id=${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(update),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(text || 'Failed to update competitor analysis');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error(error);
+    throw error
+  }
+}
+
 // ── Auth Helpers (Still using LocalStorage/Cookies for session) ───────────────
 
 export function getCurrentRole(): 'admin' | 'client' | null {

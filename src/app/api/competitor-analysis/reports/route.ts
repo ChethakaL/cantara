@@ -75,3 +75,31 @@ export async function DELETE(req: NextRequest) {
     return new Response("Internal Server Error", { status: 500 });
   }
 }
+
+export async function PATCH(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return new Response("id is required", { status: 400 });
+  }
+
+  try {
+    const body = await req.json();
+    const { fileName, report, parsed } = body ?? {};
+
+    const updated = await prisma.competitorAnalysis.update({
+      where: { id },
+      data: {
+        ...(fileName ? { fileName } : {}),
+        ...(typeof report === "string" ? { report } : {}),
+        ...(parsed !== undefined ? { parsed } : {}),
+      },
+    });
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error("Failed to update competitor report:", error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+}
