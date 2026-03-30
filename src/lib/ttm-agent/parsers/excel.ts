@@ -225,20 +225,39 @@ function findAccountColumn(headerRow: WorksheetRows[number], monthColumns: numbe
   let accountColumnIndex = -1;
   let codeColumnIndex: number | null = null;
 
+  // First pass: look for explicit code column headers
+  // "Cantara GL Code", "GL Code", "Acct #", "Account Number"
   for (let index = 0; index < firstMonthColumn; index += 1) {
     const normalized = normalizeText(headerRow[index]);
     if (!normalized) continue;
-    if (/(gl|acct|account no|account number|code)/.test(normalized) && codeColumnIndex === null) {
+    // Code column: must contain "code" or "acct" but NOT be a general "account" label
+    // e.g. "Cantara GL Code" → yes, "GL Code" → yes, "QB GL Account" → no (that's account name)
+    if (/\bcode\b/.test(normalized) || /\bacct\s*#?\b/.test(normalized) || /\baccount\s*(no|number|#)\b/.test(normalized)) {
       codeColumnIndex = index;
-      continue;
     }
+  }
+
+  // Second pass: look for account name column
+  // "QB GL Account", "Account", "Description", "Line Item", "Name"
+  for (let index = 0; index < firstMonthColumn; index += 1) {
+    if (index === codeColumnIndex) continue; // Skip the code column
+    const normalized = normalizeText(headerRow[index]);
+    if (!normalized) continue;
     if (/(account|description|line item|name)/.test(normalized)) {
       accountColumnIndex = index;
+      break; // Take the first match
     }
   }
 
   if (accountColumnIndex === -1) {
-    accountColumnIndex = Math.max(0, firstMonthColumn - 1);
+    // Fallback: use the column just before the first month column, excluding code column
+    for (let index = firstMonthColumn - 1; index >= 0; index -= 1) {
+      if (index !== codeColumnIndex) {
+        accountColumnIndex = index;
+        break;
+      }
+    }
+    if (accountColumnIndex === -1) accountColumnIndex = 0;
   }
 
   if (codeColumnIndex === accountColumnIndex) {
@@ -248,12 +267,56 @@ function findAccountColumn(headerRow: WorksheetRows[number], monthColumns: numbe
   return { accountColumnIndex, codeColumnIndex };
 }
 
+// Cantara GL codes assigned to rollup/subtotal rows in F1 and F2.
+// These codes are for human readability — only leaf-level accounts should be ingested.
+// Every Cantara GL code that represents a computed subtotal, rollup, or out-of-scope line.
+// Only leaf-level transaction accounts should pass through to the mapper.
+const ROLLUP_ACCOUNT_CODES = new Set([
+  // P&L rollup lines (computed from leaf accounts)
+  "REV-TOTAL",   // Total Income / Total Revenue
+  "REV-SVC",     // Total Services (subtotal of boarding+daycare+grooming)
+  "COGS-TOTAL",  // Total COGS
+  "GP",          // Gross Profit = Revenue - COGS
+  "PAY-TOTAL",   // Total Payroll Expenses
+  "OPX-TOTAL",   // Total Expenses / Total OpEx
+  "NOI",         // Net Operating Income
+  "NET-INC",     // Net Income
+  "OTH-INC",     // Other Income (below-the-line)
+  "OTH-EXP",     // Other Expenses (below-the-line)
+  "OTH-NET",     // Net Other Income
+
+  // BS structural totals
+  "CA-OTHER", "CA-TOTAL", "FA-TOTAL", "OA-TOTAL", "ASSET-TOTAL",
+  "CL-OTHER", "CL-TOTAL", "LIAB-TOTAL", "EQ-TOTAL",
+
+  // Equity accounts (outside P&L scope)
+  "EQ-DRAWS", "EQ-NETINC",
+
+  // Fixed asset lines (BS only, not P&L)
+  "FA-LHI",
+]);
+
 function shouldSkipLedgerRow(accountName: string, accountCode: string | null, values: number[]) {
   const normalizedName = normalizeText(accountName);
   const hasNumbers = values.some((value) => Number.isFinite(value));
   if (!normalizedName || !hasNumbers) return true;
 
-  if (!accountCode && PL_SECTION_HEADERS.includes(normalizedName)) {
+  // Skip rollup rows by Cantara GL code — this is the primary filter.
+  // These codes exist in F1/F2 for readability but are computed subtotals.
+  if (accountCode) {
+    const code = accountCode.trim().toUpperCase();
+    if (ROLLUP_ACCOUNT_CODES.has(code)) {
+      console.log(`[TTM Parser] SKIPPING rollup row: code=${code} name=${accountName}`);
+      return true;
+    }
+    // Catch any code ending in -TOTAL (future-proof)
+    if (/-TOTAL$/.test(code)) return true;
+    // Equity accounts outside P&L scope
+    if (/^EQ-/.test(code)) return true;
+  }
+
+  // Skip section headers (with or without account code)
+  if (PL_SECTION_HEADERS.includes(normalizedName)) {
     return true;
   }
 
@@ -261,7 +324,7 @@ function shouldSkipLedgerRow(accountName: string, accountCode: string | null, va
     return true;
   }
 
-  if (/(gross profit|net income|net ordinary income|ordinary income|ebitda|pre recast|subtotal)/.test(normalizedName)) {
+  if (/(gross profit|net income|net ordinary income|ordinary income|ebitda|pre recast|subtotal|total assets|total liabilities|total equity|owner.?s? equity|retained earnings)/.test(normalizedName)) {
     return true;
   }
 
@@ -574,7 +637,29 @@ export function parseMonthlyWorkbook(
   documentId: Extract<TtmRequiredDocumentId, "monthly_pl_excel" | "monthly_bs_excel">,
 ): ParsedMonthlyWorkbook {
   const workbook = readWorkbook(buffer);
-  const selected = chooseBestMonthlySheet(workbook, documentId);
+
+  // Try multi-sheet merge first (e.g., Year 1, Year 2, Year 3 sheets)
+  const allSections: Array<ParsedMonthlySection & { sheetName: string }> = [];
+  for (const sheetName of workbook.SheetNames) {
+    const rows = sheetToRows(workbook.Sheets[sheetName]);
+    try {
+      const header = pickHeaderRow(rows);
+      allSections.push({ sheetName, rows, headerRowIndex: header.index, monthColumns: header.monthColumns });
+    } catch {
+      continue;
+    }
+  }
+
+  if (allSections.length > 1) {
+    const parsedSections = allSections.map((section) => ({
+      sheetName: section.sheetName,
+      headerRowIndex: section.headerRowIndex,
+      ...parsePreparedMonthlySection(section),
+    }));
+    return mergePreparedMonthlySections(parsedSections, documentId);
+  }
+
+  const selected = allSections[0] ?? chooseBestMonthlySheet(workbook, documentId);
   const headerRow = selected.rows[selected.headerRowIndex] ?? [];
   const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, selected.monthColumns);
   const monthKeys = sortMonthKeys(
@@ -773,9 +858,103 @@ function findArAgingHeader(rows: WorksheetRows) {
   return best;
 }
 
+/**
+ * Parse AR aging from transaction-detail format (e.g., QB A/R Aging Detail).
+ * Columns: Type | Date | Num | Name | Account | Due Date | Aging | Open Balance
+ * Buckets transactions by the Aging (days) column.
+ */
+function parseArAgingFromTransactionDetail(rows: WorksheetRows): ParsedArAging | null {
+  // Find header row with "Aging" and "Open Balance" columns
+  let headerIndex = -1;
+  let agingCol = -1;
+  let balanceCol = -1;
+  let nameCol = -1;
+
+  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+    const row = rows[i] ?? [];
+    let foundAging = -1;
+    let foundBalance = -1;
+    let foundName = -1;
+    row.forEach((cell, col) => {
+      const n = normalizeText(cell);
+      if (n === "aging") foundAging = col;
+      if (/(open balance|balance|amount)/.test(n)) foundBalance = col;
+      if (/(name|customer|client)/.test(n)) foundName = col;
+    });
+    if (foundAging >= 0 && foundBalance >= 0) {
+      headerIndex = i;
+      agingCol = foundAging;
+      balanceCol = foundBalance;
+      nameCol = foundName >= 0 ? foundName : 3; // default to column 3 (Name)
+      break;
+    }
+  }
+
+  if (headerIndex < 0) return null;
+
+  const customerBuckets = new Map<string, { current: number; days1To30: number; days31To60: number; days61To90: number; days90Plus: number; total: number }>();
+  let currentCustomerGroup = "";
+
+  for (let i = headerIndex + 1; i < rows.length; i++) {
+    const row = rows[i] ?? [];
+    const firstCell = normalizeText(row[0]);
+    // Section headers like "Current", "1 - 30", etc. indicate the bucket group
+    if (/^current$/.test(firstCell)) { currentCustomerGroup = ""; continue; }
+    if (/^1\s*-?\s*30|^1 30/.test(firstCell)) { currentCustomerGroup = ""; continue; }
+    if (/^31\s*-?\s*60/.test(firstCell)) { currentCustomerGroup = ""; continue; }
+    if (/^61\s*-?\s*90/.test(firstCell)) { currentCustomerGroup = ""; continue; }
+    if (/^90\s*\+|^over\s*90|^91/.test(firstCell)) { currentCustomerGroup = ""; continue; }
+    if (/^total\b/.test(firstCell)) continue;
+
+    const agingDays = parseNumber(row[agingCol]);
+    const balance = parseNumber(row[balanceCol]);
+    const name = String(row[nameCol] ?? "").trim();
+    if (!Number.isFinite(balance) || balance === 0) continue;
+
+    const customerName = name || "Unknown";
+    if (!customerBuckets.has(customerName)) {
+      customerBuckets.set(customerName, { current: 0, days1To30: 0, days31To60: 0, days61To90: 0, days90Plus: 0, total: 0 });
+    }
+    const entry = customerBuckets.get(customerName)!;
+    entry.total += balance;
+
+    const days = Number.isFinite(agingDays) ? agingDays : 0;
+    if (days <= 0) entry.current += balance;
+    else if (days <= 30) entry.days1To30 += balance;
+    else if (days <= 60) entry.days31To60 += balance;
+    else if (days <= 90) entry.days61To90 += balance;
+    else entry.days90Plus += balance;
+  }
+
+  if (customerBuckets.size === 0) return null;
+
+  const entries = Array.from(customerBuckets.entries()).map(([customerName, buckets]) => ({
+    customerName,
+    ...buckets,
+  }));
+
+  const totalAr = entries.reduce((sum, e) => sum + e.total, 0);
+  console.log(`[TTM Parser] AR aging from transaction detail: ${entries.length} customers, total=$${totalAr.toFixed(0)}`);
+
+  return {
+    headerRowIndex: headerIndex,
+    sourceSheet: "A/R Aging Detail",
+    entries,
+    notes: [`Parsed from transaction-detail format: ${entries.length} customers, total AR $${totalAr.toFixed(0)}`],
+  };
+}
+
 export function parseArAgingWorkbook(buffer: Buffer): ParsedArAging {
   const workbook = readWorkbook(buffer);
 
+  // First try transaction-detail format (Type | Date | Num | Name | ... | Aging | Open Balance)
+  for (const sheetName of workbook.SheetNames) {
+    const rows = sheetToRows(workbook.Sheets[sheetName]);
+    const transactionResult = parseArAgingFromTransactionDetail(rows);
+    if (transactionResult) return transactionResult;
+  }
+
+  // Fall back to bucket-column format (Current | 1-30 | 31-60 | 61-90 | 90+)
   for (const sheetName of workbook.SheetNames) {
     const rows = sheetToRows(workbook.Sheets[sheetName]);
     try {
@@ -799,7 +978,14 @@ export function parseArAgingWorkbook(buffer: Buffer): ParsedArAging {
 
         const total = Object.values(bucketValues).reduce((sum, value) => sum + value, 0);
         if (!normalizedCustomer && total === 0) continue;
+
+        // Skip summary/total/subtotal rows — these are computed rollups, not customer records.
         if (/^total\b/.test(normalizedCustomer)) continue;
+        if (/(subtotal|grand total|total ar|aging summary|summary|total receivables)/i.test(normalizedCustomer)) continue;
+        // Skip aging bucket label rows from summary boxes
+        if (/^(current|0\s*-?\s*30|1\s*-?\s*30|31\s*-?\s*60|61\s*-?\s*90|90\s*\+|over\s*90)\s*(days?)?\s*$/i.test(normalizedCustomer)) continue;
+        // Skip rows with no customer name but have values (likely total/summary rows)
+        if (!normalizedCustomer && total !== 0) continue;
 
         entries.push({
           customerName: customerName || `Row ${rowIndex + 1}`,
@@ -826,6 +1012,14 @@ export function parseArAgingWorkbook(buffer: Buffer): ParsedArAging {
 }
 
 export function parseArAgingWorkbookFromPrepared(preparedDocument: PreparedDocumentInput): ParsedArAging {
+  // First try transaction-detail format
+  for (const block of preparedDocument.textBlocks ?? []) {
+    const rows = csvTextToRows(block.text);
+    const transactionResult = parseArAgingFromTransactionDetail(rows);
+    if (transactionResult) return transactionResult;
+  }
+
+  // Fall back to bucket-column format
   for (const block of preparedDocument.textBlocks ?? []) {
     const rows = csvTextToRows(block.text);
     try {
@@ -849,7 +1043,14 @@ export function parseArAgingWorkbookFromPrepared(preparedDocument: PreparedDocum
 
         const total = Object.values(bucketValues).reduce((sum, value) => sum + value, 0);
         if (!normalizedCustomer && total === 0) continue;
+
+        // Skip summary/total/subtotal rows — these are computed rollups, not customer records.
         if (/^total\b/.test(normalizedCustomer)) continue;
+        if (/(subtotal|grand total|total ar|aging summary|summary|total receivables)/i.test(normalizedCustomer)) continue;
+        // Skip aging bucket label rows from summary boxes
+        if (/^(current|0\s*-?\s*30|1\s*-?\s*30|31\s*-?\s*60|61\s*-?\s*90|90\s*\+|over\s*90)\s*(days?)?\s*$/i.test(normalizedCustomer)) continue;
+        // Skip rows with no customer name but have values (likely total/summary rows)
+        if (!normalizedCustomer && total !== 0) continue;
 
         entries.push({
           customerName: customerName || `Row ${rowIndex + 1}`,

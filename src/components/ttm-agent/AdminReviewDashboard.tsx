@@ -1,221 +1,83 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ChevronDown, ChevronRight, Clock3, Send } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, Clock3, Send, Search } from 'lucide-react'
 import { Badge, Button, Card, Textarea, cn } from '@/components/ui'
 import { logWs2ClientEvent, logWs2Error, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import type { FlagResolutionAction, TtmAnalysisView, TtmFlagView } from '@/lib/ttm-agent/types'
 import { CANTARA_TAXONOMY } from '@/lib/ttm-agent/taxonomy'
 
-function severityColor(severity: TtmFlagView['severity']) {
-  if (severity === 'HIGH') return 'red' as const
-  if (severity === 'MEDIUM') return 'gold' as const
-  if (severity === 'LOW') return 'blue' as const
-  return 'slate' as const
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function severityColor(s: TtmFlagView['severity']) {
+  return s === 'HIGH' ? 'red' as const : s === 'MEDIUM' ? 'gold' as const : s === 'LOW' ? 'blue' as const : 'slate' as const
+}
+function fmt$(v: unknown) { return typeof v === 'number' && Number.isFinite(v) ? `$${v.toLocaleString()}` : '--' }
+function fmtPct(v: unknown) { return typeof v === 'number' && Number.isFinite(v) ? `${(v as number).toFixed(1)}%` : '--' }
+function labelize(v: string) { return v.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+function fmtVal(v: unknown): string {
+  if (v === null || v === undefined) return '--'
+  if (typeof v === 'number') return Number.isFinite(v) ? v.toLocaleString() : '--'
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No'
+  if (Array.isArray(v)) return v.join(', ')
+  if (typeof v === 'object') return 'Detail available'
+  return String(v)
 }
 
-function formatCurrency(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? `$${value.toLocaleString()}` : 'n/a'
-}
-
-function formatPct(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}%` : 'n/a'
-}
-
-function labelize(value: string) {
-  return value
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
-}
-
-function describeCantaraCode(code: string | null | undefined) {
+function cantaraLabel(code: string | null | undefined) {
   if (!code) return 'Not assigned'
-  const match = CANTARA_TAXONOMY.find((entry) => entry.code === code)
-  if (!match) return code
-  return `${match.code} — ${match.category}`
+  const match = CANTARA_TAXONOMY.find(e => e.code === code)
+  return match ? `${match.code} — ${match.category}` : code
 }
 
-function describeCantaraCodeMeaning(code: string | null | undefined) {
-  if (!code) return null
-  const match = CANTARA_TAXONOMY.find((entry) => entry.code === code)
-  if (!match) return null
-  const aliasPreview = match.aliases.slice(0, 3).join(', ')
-  return aliasPreview ? `${match.category}. Typical matches: ${aliasPreview}.` : match.category
-}
+function cleanTitle(t: string) { return t.replace(/^Section [A-E] - /, '') }
 
-function renderPayloadSummary(section: string, payload: Record<string, unknown>) {
-  if (section === 'A') {
-    const candidates = Array.isArray(payload.candidateCodes) ? payload.candidateCodes.filter((value): value is string => typeof value === 'string') : []
-    const monthlyRange = payload.monthlyRange && typeof payload.monthlyRange === 'object' ? (payload.monthlyRange as Record<string, unknown>) : null
-    const confidencePct =
-      typeof payload.mappingConfidencePct === 'number'
-        ? payload.mappingConfidencePct
-        : typeof payload.mappingConfidence === 'number'
-          ? Math.round(payload.mappingConfidence * 1000) / 10
-          : null
-
-    return (
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <PayloadMetric label="Source Account" value={String(payload.accountName ?? 'Unknown account')} />
-        <PayloadMetric label="Account Code" value={String(payload.accountCode ?? 'Not provided')} />
-        {payload.assignedCantaraCode && (
-          <>
-            <PayloadMetric label="Admin Assignment" value={describeCantaraCode(String(payload.assignedCantaraCode))} />
-            <PayloadMetric label="Code Meaning" value={describeCantaraCodeMeaning(String(payload.assignedCantaraCode)) ?? 'Meaning not available'} />
-          </>
-        )}
-        <PayloadMetric label="Mapping Confidence" value={confidencePct === null ? 'n/a' : `${confidencePct}%`} />
-        <PayloadMetric label="Candidate Codes" value={candidates.length ? candidates.map((code) => describeCantaraCode(code)).join(' | ') : 'No candidates suggested'} />
-        {monthlyRange && (
-          <>
-            <PayloadMetric label="Monthly Low" value={formatCurrency(monthlyRange.min)} />
-            <PayloadMetric label="Monthly High" value={formatCurrency(monthlyRange.max)} />
-          </>
-        )}
-        <PayloadMetric label="Source File" value={String(payload.sourceDocument ?? 'n/a')} />
-        <PayloadMetric label="Source Sheet" value={String(payload.sourceSheet ?? 'n/a')} />
-        <PayloadMetric label="Source Row" value={String(payload.sourceRow ?? 'n/a')} />
-        <PayloadMetric label="Source Cell" value={String(payload.sourceCell ?? 'n/a')} />
-        <PayloadMetric label="How to resolve" value={String(payload.reviewerGuidance ?? 'Assign one Cantara code or escalate.')} />
-      </div>
-    )
-  }
-
-  if (section === 'B' || section === 'C') {
-    const metric = payload.lineItem ?? payload.metric ?? payload.accountName ?? 'Variance item'
-    const rollupValue = payload.monthlyRollup ?? payload.actual
-    const accountantValue = payload.accountantStatement ?? payload.expected
-    const period = payload.fiscalYear ?? payload.period
-
-    if (rollupValue === undefined && accountantValue === undefined) {
-      return (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <PayloadMetric label="Line Item" value={String(metric)} />
-          <PayloadMetric label="Fiscal Year" value={String(period ?? 'n/a')} />
-          <PayloadMetric label="Status" value={String(payload.reason ?? 'Not derivable from source data')} />
-        </div>
-      )
-    }
-
-    return (
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <PayloadMetric label="Line Item" value={String(metric)} />
-        <PayloadMetric label={section === 'C' ? 'Monthly Rollup' : 'Observed'} value={formatCurrency(rollupValue)} />
-        <PayloadMetric label={section === 'C' ? 'Accountant Statement' : 'Expected'} value={formatCurrency(accountantValue)} />
-        <PayloadMetric label="Variance" value={formatCurrency(payload.variance)} />
-        <PayloadMetric label="Variance %" value={formatPct(payload.variancePct)} />
-        <PayloadMetric label="Fiscal Year" value={String(period ?? 'n/a')} />
-        {payload.sourceMonthly && <PayloadMetric label="Rollup Source" value={String(payload.sourceMonthly)} />}
-        {payload.sourceAccountant && <PayloadMetric label="Accountant Source" value={String(payload.sourceAccountant)} />}
-      </div>
-    )
-  }
-
-  if (section === 'D') {
-    if (Array.isArray(payload.missingMonths) && payload.missingMonths.length > 0) {
-      const months = payload.missingMonths.filter((v): v is string => typeof v === 'string')
-      return (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <PayloadMetric label="Missing Months" value={months.join(', ')} />
-        </div>
-      )
-    }
-    if (typeof payload.monthCount === 'number') {
-      return (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <PayloadMetric label="Months Present" value={String(payload.monthCount)} />
-          <PayloadMetric label="Expected" value="36" />
-        </div>
-      )
-    }
-    if (Array.isArray(payload.zeroRevenueMonths)) {
-      const months = payload.zeroRevenueMonths.filter((v): v is string => typeof v === 'string')
-      return (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <PayloadMetric label="Zero-Revenue Months" value={months.join(', ')} />
-        </div>
-      )
-    }
-    if (Array.isArray(payload.plYears) || Array.isArray(payload.bsYears)) {
-      return (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <PayloadMetric label="P&L Fiscal Years" value={Array.isArray(payload.plYears) ? payload.plYears.join(', ') : 'n/a'} />
-          <PayloadMetric label="Balance Sheet Fiscal Years" value={Array.isArray(payload.bsYears) ? payload.bsYears.join(', ') : 'n/a'} />
-        </div>
-      )
-    }
-    return null
-  }
-
-  if (section === 'E') {
-    if ('customerName' in payload && 'pctOfTotal' in payload) {
-      return (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <PayloadMetric label="Customer" value={String(payload.customerName)} />
-          <PayloadMetric label="Customer Balance" value={formatCurrency(payload.total)} />
-          <PayloadMetric label="% of Total AR" value={formatPct(payload.pctOfTotal)} />
-          <PayloadMetric label="Total AR Pool" value={formatCurrency(payload.totalAr)} />
-          {payload.source && <PayloadMetric label="Source File" value={String(payload.source)} />}
-        </div>
-      )
-    }
-    if ('balanceSheetAr' in payload) {
-      return (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <PayloadMetric label="AR Aging Total" value={formatCurrency(payload.totalAr)} />
-          <PayloadMetric label="Balance Sheet AR" value={formatCurrency(payload.balanceSheetAr)} />
-          <PayloadMetric label="Variance" value={formatCurrency(payload.varianceToBalanceSheetAr)} />
-          {payload.sourceAging && <PayloadMetric label="Aging Source" value={String(payload.sourceAging)} />}
-          {payload.sourceBalanceSheet && <PayloadMetric label="BS Source" value={String(payload.sourceBalanceSheet)} />}
-        </div>
-      )
-    }
-    if ('pct90Plus' in payload) {
-      return (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <PayloadMetric label="Total AR" value={formatCurrency(payload.totalAr)} />
-          <PayloadMetric label="90+ Days Amount" value={formatCurrency(payload.days90Plus)} />
-          <PayloadMetric label="90+ Days %" value={formatPct(payload.pct90Plus)} />
-          {payload.source && <PayloadMetric label="Source File" value={String(payload.source)} />}
-        </div>
-      )
-    }
-    return null
-  }
-
-  const entries = Object.entries(payload).slice(0, 6)
-  if (entries.length === 0) return null
-
+// ── Payload Summary (compact) ──────────────────────────────────────────────────
+function PayloadGrid({ items }: { items: Array<{ label: string; value: string }> }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {entries.map(([key, value]) => (
-        <PayloadMetric key={key} label={labelize(key)} value={formatPayloadValue(value)} />
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {items.filter(i => i.value && i.value !== '--' && i.value !== 'n/a').map(i => (
+        <div key={i.label} className="rounded-lg bg-slate-50 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-slate-400">{i.label}</p>
+          <p className="mt-0.5 text-xs font-medium text-slate-700 break-words">{i.value}</p>
+        </div>
       ))}
     </div>
   )
 }
 
-function formatPayloadValue(value: unknown) {
-  if (value === null || value === undefined) return 'n/a'
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value.toLocaleString() : 'n/a'
+function renderPayload(section: string, payload: Record<string, unknown>) {
+  if (section === 'A') {
+    const candidates = Array.isArray(payload.candidateCodes) ? payload.candidateCodes.filter((v): v is string => typeof v === 'string') : []
+    const conf = typeof payload.mappingConfidencePct === 'number' ? payload.mappingConfidencePct : typeof payload.mappingConfidence === 'number' ? Math.round(payload.mappingConfidence * 1000) / 10 : null
+    const range = payload.monthlyRange as Record<string, unknown> | null
+    return <PayloadGrid items={[
+      { label: 'Source Account', value: String(payload.accountName ?? '') },
+      { label: 'Account Code', value: String(payload.accountCode ?? '') },
+      { label: 'Confidence', value: conf !== null ? `${conf}%` : '--' },
+      { label: 'Candidates', value: candidates.map(c => cantaraLabel(c)).join(' | ') || 'None' },
+      ...(range ? [{ label: 'Monthly Range', value: `${fmt$(range.min)} – ${fmt$(range.max)}` }] : []),
+      { label: 'Source', value: `${payload.sourceSheet ?? ''} row ${payload.sourceRow ?? ''}` },
+      ...(payload.assignedCantaraCode ? [{ label: 'Admin Assignment', value: cantaraLabel(String(payload.assignedCantaraCode)) }] : []),
+      { label: 'Guidance', value: String(payload.reviewerGuidance ?? '') },
+    ]} />
   }
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  if (Array.isArray(value)) return value.join(', ')
-  if (typeof value === 'object') return 'Structured detail available'
-  return String(value)
+  if (section === 'B' || section === 'C') {
+    return <PayloadGrid items={[
+      { label: 'Line Item', value: String(payload.lineItem ?? payload.metric ?? payload.accountName ?? '') },
+      { label: section === 'C' ? 'Monthly Rollup' : 'Observed', value: fmt$(payload.monthlyRollup ?? payload.actual) },
+      { label: section === 'C' ? 'Accountant Statement' : 'Expected', value: fmt$(payload.accountantStatement ?? payload.expected) },
+      { label: 'Variance', value: fmt$(payload.variance) },
+      { label: 'Variance %', value: fmtPct(payload.variancePct) },
+      { label: 'Period', value: String(payload.fiscalYear ?? payload.period ?? '') },
+    ]} />
+  }
+  // Generic fallback
+  const entries = Object.entries(payload).slice(0, 8)
+  if (!entries.length) return null
+  return <PayloadGrid items={entries.map(([k, v]) => ({ label: labelize(k), value: fmtVal(v) }))} />
 }
 
-function PayloadMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-      <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-medium text-slate-700">{value}</p>
-    </div>
-  )
-}
-
+// ── Main Component ─────────────────────────────────────────────────────────────
 export function AdminReviewDashboard({
   analysis,
   actorName,
@@ -229,549 +91,292 @@ export function AdminReviewDashboard({
   collapsed?: boolean
   onToggleCollapse?: () => void
 }) {
-  const [notesByFlagId, setNotesByFlagId] = useState<Record<string, string>>({})
-  const [assignedCodesByFlagId, setAssignedCodesByFlagId] = useState<Record<string, string>>({})
-  const [savingFlagId, setSavingFlagId] = useState<string | null>(null)
+  const [notesByFlag, setNotesByFlag] = useState<Record<string, string>>({})
+  const [codesByFlag, setCodesByFlag] = useState<Record<string, string>>({})
+  const [savingFlag, setSavingFlag] = useState<string | null>(null)
   const [approving, setApproving] = useState(false)
   const [activeSection, setActiveSection] = useState<string | null>(null)
-  const [detailsOpenByKey, setDetailsOpenByKey] = useState<Record<string, boolean>>({})
-  const [categorySearchByFlagId, setCategorySearchByFlagId] = useState<Record<string, string>>({})
-  const [categoryOpenByFlagId, setCategoryOpenByFlagId] = useState<Record<string, boolean>>({})
-  const unresolvedCount = analysis.flags.filter((flag) => flag.resolutionStatus !== 'ACTIONED').length
-  const sectionOrder = analysis.dataQualityReport?.sectionOrder ?? []
-  const cantaraOptions = useMemo(
-    () => [
-      { value: '', label: 'Select Cantara code' },
-      ...CANTARA_TAXONOMY.map((entry) => ({
-        value: entry.code,
-        label: `${entry.code} — ${entry.category}`,
-      })),
-    ],
-    [],
-  )
-  const validCantaraCodes = useMemo(() => new Set(CANTARA_TAXONOMY.map((entry) => entry.code)), [])
+  const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({})
+  const [catSearch, setCatSearch] = useState<Record<string, string>>({})
+  const [catOpen, setCatOpen] = useState<Record<string, boolean>>({})
 
+  const unresolvedCount = analysis.flags.filter(f => f.resolutionStatus !== 'ACTIONED').length
+  const sectionOrder = analysis.dataQualityReport?.sectionOrder ?? []
+  const validCodes = useMemo(() => new Set(CANTARA_TAXONOMY.map(e => e.code)), [])
+  const cantaraOptions = useMemo(() => CANTARA_TAXONOMY.map(e => ({ value: e.code, label: `${e.code} — ${e.category}` })), [])
+
+  // Build section entries with flags
   const sectionEntries = useMemo(() => {
     const report = analysis.dataQualityReport
-    if (!report) return {} as Record<string, Array<{ item: (typeof report.sections.A.items)[number]; flag: TtmFlagView | null }>>
-
-    return Object.fromEntries(
-      sectionOrder.map((section) => {
-        const reportSection = report.sections[section]
-        const sectionFlags = analysis.flags.filter((flag) => flag.section === section)
-        const unmatchedFlags = [...sectionFlags]
-        const entries = reportSection.items.map((item) => {
-          const matchIndex = unmatchedFlags.findIndex(
-            (flag) =>
-              flag.title === item.title &&
-              (flag.description ?? '') === item.description &&
-              flag.severity === item.severity,
-          )
-
-          const flag = matchIndex >= 0 ? unmatchedFlags.splice(matchIndex, 1)[0] : null
-          return { item, flag }
-        })
-
-        unmatchedFlags.forEach((flag) => {
-          entries.push({
-            item: {
-              title: flag.title,
-              description: flag.description ?? 'Persisted flag detail available.',
-              severity: flag.severity,
-              payload: flag.payload,
-            },
-            flag,
-          })
-        })
-
-        return [section, entries]
-      }),
-    ) as Record<string, Array<{ item: (typeof report.sections.A.items)[number]; flag: TtmFlagView | null }>>
+    if (!report) return {} as Record<string, Array<{ item: any; flag: TtmFlagView | null }>>
+    return Object.fromEntries(sectionOrder.map(section => {
+      const items = report.sections[section]?.items ?? []
+      const flags = [...analysis.flags.filter(f => f.section === section)]
+      const entries = items.map(item => {
+        const idx = flags.findIndex(f => f.title === item.title && (f.description ?? '') === item.description && f.severity === item.severity)
+        const flag = idx >= 0 ? flags.splice(idx, 1)[0] : null
+        return { item, flag }
+      })
+      flags.forEach(f => entries.push({ item: { title: f.title, description: f.description ?? '', severity: f.severity, payload: f.payload }, flag: f }))
+      return [section, entries]
+    }))
   }, [analysis.dataQualityReport, analysis.flags, sectionOrder])
 
-  const reviewSections = useMemo(
-    () =>
-      sectionOrder
-        .map((section) => {
-          const reportSection = analysis.dataQualityReport?.sections[section]
-          const entries = sectionEntries[section] ?? []
-          const openEntries = entries.filter((entry) => entry.flag?.resolutionStatus !== 'ACTIONED')
-          const resolvedEntries = entries.filter((entry) => entry.flag?.resolutionStatus === 'ACTIONED')
-
-          return {
-            section,
-            reportSection,
-            entries,
-            openEntries,
-            resolvedEntries,
-            visibleEntries: openEntries.length > 0 ? openEntries : entries,
-          }
-        })
-        .filter(({ reportSection }) => Boolean(reportSection))
-        .filter(({ reportSection, entries, openEntries }) => {
-          if (!reportSection) return false
-          return openEntries.length > 0 || entries.length > 0 || reportSection.status === 'skipped'
-        }),
-    [analysis.dataQualityReport, sectionEntries, sectionOrder],
-  )
+  const reviewSections = useMemo(() => sectionOrder.map(section => {
+    const report = analysis.dataQualityReport?.sections[section]
+    const entries = sectionEntries[section] ?? []
+    const open = entries.filter(e => e.flag?.resolutionStatus !== 'ACTIONED')
+    const resolved = entries.filter(e => e.flag?.resolutionStatus === 'ACTIONED')
+    return { section, report, entries, open, resolved }
+  }).filter(s => s.report && (s.open.length > 0 || s.entries.length > 0)), [analysis.dataQualityReport, sectionEntries, sectionOrder])
 
   useEffect(() => {
-    const preferredSection = reviewSections.find(({ openEntries }) => openEntries.length > 0)?.section ?? reviewSections[0]?.section ?? null
-    setActiveSection((current) => {
-      if (current && reviewSections.some((section) => section.section === current)) return current
-      return preferredSection
-    })
+    const preferred = reviewSections.find(s => s.open.length > 0)?.section ?? reviewSections[0]?.section ?? null
+    setActiveSection(c => c && reviewSections.some(s => s.section === c) ? c : preferred)
   }, [analysis.id, reviewSections])
 
-  const submitFlagAction = async (flagId: string, resolutionAction: FlagResolutionAction, payloadPatch?: Record<string, unknown>) => {
-    setSavingFlagId(flagId)
+  const submitAction = async (flagId: string, action: FlagResolutionAction, patch?: Record<string, unknown>) => {
+    setSavingFlag(flagId)
     try {
-      logWs2ClientEvent('WS2-1 HITL flag action request', {
-        analysisId: analysis.id,
-        flagId,
-        resolutionAction,
-        resolutionNotes: notesByFlagId[flagId] || '',
-        payloadPatch,
-      })
+      logWs2ClientEvent('HITL flag action', { analysisId: analysis.id, flagId, action })
       const res = await fetch('/api/ttm-agent/hitl', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mode: 'flag',
-          analysisId: analysis.id,
-          flagId,
-          resolutionAction,
-          resolutionNotes: notesByFlagId[flagId] || '',
-          actorName,
-          payloadPatch,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'flag', analysisId: analysis.id, flagId, resolutionAction: action, resolutionNotes: notesByFlag[flagId] || '', actorName, payloadPatch: patch }),
       })
-      await logWs2Response('WS2-1 HITL flag action response', res)
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(text || 'Failed to update flag')
-      }
-
+      await logWs2Response('HITL flag response', res)
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed'))
       onUpdated(await res.json())
-    } catch (error) {
-      logWs2Error('WS2-1 HITL flag action', error, {
-        analysisId: analysis.id,
-        flagId,
-        resolutionAction,
-      })
-      alert(error instanceof Error ? error.message : 'Failed to update flag')
-    } finally {
-      setSavingFlagId(null)
-    }
+    } catch (e) {
+      logWs2Error('HITL flag', e, { analysisId: analysis.id, flagId })
+      alert(e instanceof Error ? e.message : 'Failed')
+    } finally { setSavingFlag(null) }
   }
 
-  const approveAnalysis = async () => {
+  const approve = async () => {
     setApproving(true)
     try {
-      logWs2ClientEvent('WS2-1 approve request', {
-        analysisId: analysis.id,
-        actorName,
-      })
+      logWs2ClientEvent('WS2-1 approve', { analysisId: analysis.id })
       const res = await fetch('/api/ttm-agent/hitl', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mode: 'approve',
-          analysisId: analysis.id,
-          actorName,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'approve', analysisId: analysis.id, actorName }),
       })
-      await logWs2Response('WS2-1 approve response', res)
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(text || 'Failed to approve analysis')
-      }
-
+      await logWs2Response('WS2-1 approve', res)
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed'))
       onUpdated(await res.json())
-    } catch (error) {
-      logWs2Error('WS2-1 approve', error, {
-        analysisId: analysis.id,
-      })
-      alert(error instanceof Error ? error.message : 'Failed to approve analysis')
-    } finally {
-      setApproving(false)
-    }
+    } catch (e) {
+      logWs2Error('WS2-1 approve', e, { analysisId: analysis.id })
+      alert(e instanceof Error ? e.message : 'Failed')
+    } finally { setApproving(false) }
   }
 
-  const currentSection =
-    reviewSections.find((section) => section.section === activeSection) ??
-    reviewSections[0] ??
-    null
+  const current = reviewSections.find(s => s.section === activeSection) ?? reviewSections[0] ?? null
 
   return (
-    <div className="space-y-4">
-      <Card className="p-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h4 className="text-sm font-semibold text-slate-800">Review Queue</h4>
-            <p className="text-xs text-slate-400 mt-1">
-              Work through the active review sections, then approve WS2-1 to unlock WS2-2.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {analysis.status === 'APPROVED' ? (
-              <Badge color="green">Approved</Badge>
-            ) : unresolvedCount === 0 ? (
-              <Badge color="green">Ready for Approval</Badge>
-            ) : (
-              <Badge color="gold">{unresolvedCount} unresolved</Badge>
-            )}
-            {onToggleCollapse && (
-              <Button size="sm" variant="outline" onClick={onToggleCollapse}>
-                {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                {collapsed ? 'Expand Review' : 'Collapse Review'}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              onClick={() => void approveAnalysis()}
-              disabled={analysis.status === 'APPROVED' || unresolvedCount > 0 || approving}
-            >
-              {approving ? 'Approving...' : 'Approve & Release to WS2-2'}
-            </Button>
-          </div>
+    <Card className="overflow-hidden">
+      {/* ── Header bar ──────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap border-b border-slate-200 px-5 py-3">
+        <div className="flex items-center gap-2">
+          <h4 className="text-sm font-semibold text-slate-800">Review Queue</h4>
+          {analysis.status === 'APPROVED' ? (
+            <Badge color="green">Approved</Badge>
+          ) : unresolvedCount > 0 ? (
+            <Badge color="gold">{unresolvedCount} open</Badge>
+          ) : (
+            <Badge color="green">Ready</Badge>
+          )}
         </div>
+        <Button size="sm" onClick={() => void approve()} disabled={analysis.status === 'APPROVED' || unresolvedCount > 0 || approving}>
+          {approving ? 'Approving...' : 'Approve WS2-1'}
+        </Button>
+      </div>
 
-        {collapsed ? (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-            {analysis.status === 'APPROVED'
-              ? 'WS2-1 review is approved and collapsed.'
-              : unresolvedCount > 0
-                ? `${unresolvedCount} review item${unresolvedCount === 1 ? '' : 's'} still need action.`
-                : 'All review items are actioned. Approval is ready.'}
+      {/* ── Compact section tabs ────────────────────────────────────── */}
+      {reviewSections.length > 0 && (
+        <div className="flex gap-1 border-b border-slate-200 px-4 py-2 bg-slate-50/50 overflow-x-auto">
+          {reviewSections.map(({ section, report, open, entries }) => {
+            const isActive = activeSection === section
+            const count = open.length || entries.length
+            return (
+              <button
+                key={section}
+                type="button"
+                onClick={() => setActiveSection(section)}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium whitespace-nowrap transition',
+                  isActive ? 'bg-white border border-slate-200 text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/60',
+                )}
+              >
+                <span className="font-bold">{section}</span>
+                <span className="truncate max-w-[140px]">{cleanTitle(report?.title ?? '')}</span>
+                {count > 0 && (
+                  <span className={cn(
+                    'rounded-full px-1.5 py-0.5 text-[10px] font-bold',
+                    open.length > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700',
+                  )}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Active section content ──────────────────────────────────── */}
+      <div className="px-5 py-4">
+        {!current ? (
+          <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            No review sections active. Ready for approval.
           </div>
         ) : (
-          <>
-            {reviewSections.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {reviewSections.map(({ section, reportSection, openEntries, resolvedEntries, entries }) => (
-                  <button
-                    key={section}
-                    type="button"
-                    onClick={() => setActiveSection(section)}
-                    className={cn(
-                      'min-w-[220px] rounded-2xl border px-4 py-3 text-left transition',
-                      activeSection === section
-                        ? 'border-slate-800 bg-slate-800 text-white'
-                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300',
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className={cn('text-[11px] font-bold uppercase tracking-[0.16em]', activeSection === section ? 'text-slate-300' : 'text-slate-400')}>
-                        Section {section}
-                      </span>
-                      <span className={cn(
-                        'rounded-full px-2 py-1 text-xs font-semibold',
-                        activeSection === section ? 'bg-white/15 text-white' : 'bg-amber-50 text-amber-700',
-                      )}>
-                        {openEntries.length > 0 ? openEntries.length : entries.length} {openEntries.length === 1 || (openEntries.length === 0 && entries.length === 1) ? 'item' : 'items'}
-                      </span>
+          <div className="space-y-3">
+            {/* Section header */}
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900">{cleanTitle(current.report?.title ?? '')}</h4>
+                {current.report?.note && <p className="text-xs text-slate-400 mt-0.5">{current.report.note}</p>}
+              </div>
+              {current.resolved.length > 0 && (
+                <span className="text-xs text-emerald-600">{current.resolved.length} resolved</span>
+              )}
+            </div>
+
+            {/* Items */}
+            {(current.open.length > 0 ? current.open : current.entries).map(({ item, flag }, i) => {
+              const key = flag?.id ?? `${current.section}-${i}`
+              const isOpen = openDetails[key] ?? false
+              const code = codesByFlag[flag?.id ?? ''] ?? String(flag?.payload?.assignedCantaraCode ?? '')
+              const isCodeValid = code ? validCodes.has(code) : false
+              const search = catSearch[flag?.id ?? ''] ?? ''
+              const isDropdownOpen = Boolean(catOpen[flag?.id ?? ''])
+              const filtered = cantaraOptions.filter(o => {
+                const q = search.trim().toLowerCase()
+                return !q || o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q)
+              })
+              const isResolved = flag?.resolutionStatus === 'ACTIONED'
+
+              return (
+                <div key={key} className={cn('rounded-xl border p-4', isResolved ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200')}>
+                  {/* Title row */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge color={severityColor(item.severity)}>{item.severity}</Badge>
+                      <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                      {isResolved && flag?.resolutionAction && <Badge color="green">{flag.resolutionAction.replace('_', ' ')}</Badge>}
                     </div>
-                    <p className={cn('mt-3 text-sm font-semibold leading-6', activeSection === section ? 'text-white' : 'text-slate-900')}>
-                      {reportSection?.title.replace(/^Section [A-E] - /, '')}
-                    </p>
-                    {resolvedEntries.length > 0 && openEntries.length === 0 && (
-                      <p className={cn('mt-1 text-xs', activeSection === section ? 'text-slate-300' : 'text-slate-500')}>
-                        Reviewed
-                      </p>
+                    {isResolved ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                    ) : (
+                      <Clock3 className="w-4 h-4 text-amber-500 flex-shrink-0" />
                     )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </Card>
-
-      {!collapsed && (
-        <>
-          {currentSection ? (
-            <Card className="p-5">
-              <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Section {currentSection.section}</p>
-                  <h4 className="mt-2 text-lg font-semibold text-slate-900">{currentSection.reportSection?.title.replace(/^Section [A-E] - /, '')}</h4>
-                  {currentSection.reportSection?.note && <p className="mt-1 text-sm text-slate-500">{currentSection.reportSection.note}</p>}
-                </div>
-                {currentSection.reportSection?.status === 'issues' ? (
-                  <Badge color="gold">{currentSection.openEntries.length || currentSection.entries.length} to review</Badge>
-                ) : currentSection.reportSection?.status === 'skipped' ? (
-                  <Badge color="slate">Skipped</Badge>
-                ) : (
-                  <Badge color="green">Reviewed</Badge>
-                )}
-              </div>
-
-              <div className="mt-4 space-y-4">
-                {currentSection.resolvedEntries.length > 0 && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    {currentSection.resolvedEntries.length} {currentSection.resolvedEntries.length === 1 ? 'item has' : 'items have'} already been actioned in this section.
-                    {currentSection.openEntries.length > 0 ? ' The remaining item(s) are shown below.' : ' This section is ready.'}
                   </div>
-                )}
 
-                {currentSection.visibleEntries.length === 0 ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                    {currentSection.reportSection?.status === 'skipped'
-                      ? 'This section is present but not active because QuickBooks is not connected.'
-                      : 'No review items are open in this section.'}
-                  </div>
-                ) : (
-                  currentSection.visibleEntries.map(({ item, flag }, itemIndex) => {
-                    const itemKey = flag?.id ?? `${currentSection.section}-${itemIndex}-${item.title}`
-                    const showDetails = detailsOpenByKey[itemKey] ?? false
-                    const assignedCode = assignedCodesByFlagId[flag?.id ?? ''] ?? String(flag?.payload.assignedCantaraCode ?? '')
-                    const isAssignedCodeValid = assignedCode ? validCantaraCodes.has(assignedCode) : false
-                    const categorySearch = categorySearchByFlagId[flag?.id ?? ''] ?? ''
-                    const isCategoryOpen = Boolean(categoryOpenByFlagId[flag?.id ?? ''])
-                    const filteredCantaraOptions = cantaraOptions
-                      .filter((option) => option.value)
-                      .filter((option) => {
-                        const q = categorySearch.trim().toLowerCase()
-                        if (!q) return true
-                        return option.label.toLowerCase().includes(q) || option.value.toLowerCase().includes(q)
-                      })
+                  {/* Description */}
+                  <p className="text-xs text-slate-500 mt-1.5 leading-5">{item.description}</p>
 
-                    return (
-                      <div key={itemKey} className="rounded-2xl border border-slate-200 bg-white p-4">
-                        <div className="flex items-start justify-between gap-3 flex-wrap">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-                              <Badge color={severityColor(item.severity)}>{item.severity}</Badge>
-                              {flag?.resolutionStatus === 'ACTIONED' && flag.resolutionAction && (
-                                <Badge color="green">{flag.resolutionAction.replace('_', ' ')}</Badge>
-                              )}
-                            </div>
-                            <p className="text-sm leading-6 text-slate-600">{item.description}</p>
-                          </div>
-                          {flag?.resolutionStatus === 'ACTIONED' ? (
-                            <div className="inline-flex items-center gap-2 text-xs text-emerald-600">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {flag.resolvedByName || actorName}
-                            </div>
-                          ) : (
-                            <div className="inline-flex items-center gap-2 text-xs text-amber-600">
-                              <Clock3 className="w-3.5 h-3.5" />
-                              Needs decision
+                  {/* Detail toggle */}
+                  {item.payload && Object.keys(item.payload).length > 0 && (
+                    <div className="mt-3">
+                      <button type="button" onClick={() => setOpenDetails(p => ({ ...p, [key]: !p[key] }))}
+                        className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
+                        {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        {isOpen ? 'Hide detail' : 'Show detail'}
+                      </button>
+                      {isOpen && <div className="mt-2">{renderPayload(current.section, item.payload)}</div>}
+                    </div>
+                  )}
+
+                  {/* Resolved note */}
+                  {isResolved && flag?.resolutionNotes && (
+                    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      <span className="font-medium">Note:</span> {flag.resolutionNotes}
+                    </div>
+                  )}
+
+                  {/* Action area */}
+                  {flag && !isResolved && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                      {/* Cantara code selector for Section A */}
+                      {current.section === 'A' && (
+                        <div className="relative">
+                          <label className="block text-[10px] uppercase tracking-wide text-slate-400 mb-1">Cantara category</label>
+                          <button type="button"
+                            className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm hover:border-slate-300"
+                            onClick={() => setCatOpen(p => ({ ...p, [flag.id]: !p[flag.id] }))}>
+                            <span className={code ? 'text-slate-900' : 'text-slate-400'}>{code ? cantaraLabel(code) : 'Select code...'}</span>
+                            <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                          </button>
+                          {isDropdownOpen && (
+                            <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                              <div className="p-2 border-b border-slate-100">
+                                <div className="relative">
+                                  <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                                  <input value={search} onChange={e => setCatSearch(p => ({ ...p, [flag.id]: e.target.value }))}
+                                    placeholder="Search..." className="w-full rounded-md border border-slate-200 pl-8 pr-3 py-2 text-xs outline-none focus:border-amber-400" />
+                                </div>
+                              </div>
+                              <div className="max-h-48 overflow-auto p-1">
+                                {filtered.length === 0 ? (
+                                  <p className="px-3 py-2 text-xs text-slate-400">No matches</p>
+                                ) : filtered.map(o => (
+                                  <button key={o.value} type="button"
+                                    className={cn('w-full rounded px-3 py-1.5 text-left text-xs hover:bg-slate-100', code === o.value && 'bg-amber-50')}
+                                    onClick={() => { setCodesByFlag(p => ({ ...p, [flag.id]: o.value })); setCatOpen(p => ({ ...p, [flag.id]: false })) }}>
+                                    {o.label}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
+                      )}
 
-                        {currentSection.section === 'A' && flag?.resolutionStatus !== 'ACTIONED' && (
-                          <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                            Choose the best Cantara category for this GL account, or use Ignore/Exclude when this line should not be classified.
-                          </div>
-                        )}
+                      {/* Note */}
+                      <Textarea rows={1} label="Note (optional)" value={notesByFlag[flag.id] ?? ''} placeholder="Context, rationale, or follow-up"
+                        onChange={e => setNotesByFlag(p => ({ ...p, [flag.id]: e.target.value }))} />
 
-                        {item.payload && Object.keys(item.payload).length > 0 && (
-                          <div className="mt-4">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() =>
-                                setDetailsOpenByKey((current) => ({
-                                  ...current,
-                                  [itemKey]: !current[itemKey],
-                                }))
-                              }
-                            >
-                              {showDetails ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                              {showDetails ? 'Hide supporting detail' : 'Show supporting detail'}
+                      {/* Action buttons — compact row */}
+                      <div className="flex gap-2 flex-wrap">
+                        {current.section === 'A' ? (
+                          <>
+                            <Button size="sm" variant="outline" disabled={savingFlag === flag.id || !isCodeValid}
+                              onClick={() => void submitAction(flag.id, 'RESOLVE', { assignedCantaraCode: code })}>
+                              Confirm
                             </Button>
-                            {showDetails && (
-                              <div className="mt-3 space-y-3">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Supporting detail</p>
-                                  <Badge color="slate">Section {currentSection.section}</Badge>
-                                </div>
-                                {renderPayloadSummary(currentSection.section, item.payload)}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {flag && flag.resolutionStatus !== 'ACTIONED' && (
-                          <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
-                            {currentSection.section === 'A' && (
-                              <div className="space-y-1.5">
-                                <label className="block text-xs font-medium text-slate-600">Cantara category</label>
-                                <div className="relative">
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-900 transition-all hover:border-slate-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                                    onClick={() =>
-                                      setCategoryOpenByFlagId((current) => ({
-                                        ...current,
-                                        [flag.id]: !current[flag.id],
-                                      }))
-                                    }
-                                  >
-                                    <span>
-                                      {assignedCode
-                                        ? cantaraOptions.find((option) => option.value === assignedCode)?.label ?? assignedCode
-                                        : 'Select Cantara code'}
-                                    </span>
-                                    <ChevronDown className="h-4 w-4 text-slate-500" />
-                                  </button>
-                                  {isCategoryOpen && (
-                                    <div className="absolute z-20 mt-2 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-                                      <div className="border-b border-slate-100 p-2">
-                                        <input
-                                          value={categorySearch}
-                                          onChange={(event) =>
-                                            setCategorySearchByFlagId((current) => ({
-                                              ...current,
-                                              [flag.id]: event.target.value,
-                                            }))
-                                          }
-                                          placeholder="Search code or category..."
-                                          className="w-full rounded-md border border-slate-200 px-2.5 py-2 text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
-                                        />
-                                      </div>
-                                      <div className="max-h-52 overflow-auto p-1.5">
-                                        {filteredCantaraOptions.length === 0 ? (
-                                          <div className="px-2 py-2 text-sm text-slate-500">No matching categories</div>
-                                        ) : (
-                                          filteredCantaraOptions.map((option) => (
-                                            <button
-                                              key={option.value}
-                                              type="button"
-                                              className={cn(
-                                                'w-full rounded-md px-2 py-2 text-left text-sm text-slate-900 hover:bg-slate-100',
-                                                assignedCode === option.value && 'bg-amber-50',
-                                              )}
-                                              onClick={() => {
-                                                setAssignedCodesByFlagId((current) => ({
-                                                  ...current,
-                                                  [flag.id]: option.value,
-                                                }))
-                                                setCategoryOpenByFlagId((current) => ({
-                                                  ...current,
-                                                  [flag.id]: false,
-                                                }))
-                                              }}
-                                            >
-                                              {option.label}
-                                            </button>
-                                          ))
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                            <Textarea
-                              rows={2}
-                              label="Reviewer note"
-                              value={notesByFlagId[flag.id] ?? ''}
-                              onChange={(event) =>
-                                setNotesByFlagId((current) => ({
-                                  ...current,
-                                  [flag.id]: event.target.value,
-                                }))
-                              }
-                              placeholder="Add approval context, override rationale, or client follow-up."
-                            />
-                            <div className="flex gap-2 flex-wrap">
-                              {currentSection.section === 'A' ? (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={savingFlagId === flag.id || !isAssignedCodeValid}
-                                    onClick={() =>
-                                      void submitFlagAction(flag.id, 'RESOLVE', {
-                                        assignedCantaraCode: assignedCode,
-                                      })
-                                    }
-                                  >
-                                    Confirm Mapping
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={savingFlagId === flag.id}
-                                    onClick={() =>
-                                      void submitFlagAction(flag.id, 'OVERRIDE', {
-                                        assignedCantaraCode: null,
-                                        excludedFromMapping: true,
-                                      })
-                                    }
-                                  >
-                                    Ignore / Exclude
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    disabled={savingFlagId === flag.id}
-                                    onClick={() => void submitFlagAction(flag.id, 'ESCALATE_CLIENT')}
-                                  >
-                                    <Send className="w-3.5 h-3.5" />
-                                    Send to Client
-                                  </Button>
-                                </>
-                              ) : (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={savingFlagId === flag.id}
-                                    onClick={() => void submitFlagAction(flag.id, 'RESOLVE')}
-                                  >
-                                    {currentSection.section === 'B' || currentSection.section === 'C' ? 'Mark Reviewed' : 'Resolve'}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={savingFlagId === flag.id}
-                                    onClick={() => void submitFlagAction(flag.id, 'OVERRIDE')}
-                                  >
-                                    Override
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    disabled={savingFlagId === flag.id}
-                                    onClick={() => void submitFlagAction(flag.id, 'ESCALATE_CLIENT')}
-                                  >
-                                    <Send className="w-3.5 h-3.5" />
-                                    Send to Client
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {flag?.resolutionStatus === 'ACTIONED' && flag.resolutionNotes && (
-                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                            <p className="font-medium text-slate-700 mb-1">Reviewer note</p>
-                            {flag.resolutionNotes}
-                          </div>
+                            <Button size="sm" variant="outline" disabled={savingFlag === flag.id}
+                              onClick={() => void submitAction(flag.id, 'OVERRIDE', { assignedCantaraCode: null, excludedFromMapping: true })}>
+                              Exclude
+                            </Button>
+                            <Button size="sm" disabled={savingFlag === flag.id}
+                              onClick={() => void submitAction(flag.id, 'ESCALATE_CLIENT')}>
+                              <Send className="w-3 h-3" /> Escalate
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="outline" disabled={savingFlag === flag.id}
+                              onClick={() => void submitAction(flag.id, 'RESOLVE')}>
+                              {current.section === 'B' || current.section === 'C' ? 'Mark Reviewed' : 'Resolve'}
+                            </Button>
+                            <Button size="sm" variant="outline" disabled={savingFlag === flag.id}
+                              onClick={() => void submitAction(flag.id, 'OVERRIDE')}>
+                              Override
+                            </Button>
+                            <Button size="sm" disabled={savingFlag === flag.id}
+                              onClick={() => void submitAction(flag.id, 'ESCALATE_CLIENT')}>
+                              <Send className="w-3 h-3" /> Escalate
+                            </Button>
+                          </>
                         )}
                       </div>
-                    )
-                  })
-                )}
-              </div>
-            </Card>
-          ) : (
-            <Card className="p-5">
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                No review sections are active. This run is ready for approval.
-              </div>
-            </Card>
-          )}
-
-        </>
-      )}
-    </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </Card>
   )
 }

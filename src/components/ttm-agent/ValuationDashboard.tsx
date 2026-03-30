@@ -320,11 +320,13 @@ function ReportCard({
   id,
   title,
   badge,
+  headerRight,
   children,
 }: {
   id: string
   title: string
   badge?: React.ReactNode
+  headerRight?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -332,7 +334,10 @@ function ReportCard({
       <Card className="border-slate-200 bg-white p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
           <h3 className="text-[13px] font-bold uppercase tracking-[0.2em] text-slate-700">{title}</h3>
-          {badge}
+          <div className="flex items-center gap-2">
+            {headerRight}
+            {badge}
+          </div>
         </div>
         <div className="pt-5">{children}</div>
       </Card>
@@ -392,6 +397,8 @@ export function ValuationDashboard({
           : ''
   const addBackItems = ws2Report.ws22?.recastSchedule.addBackItems ?? []
   const addBackGroups = groupAddBackItems(addBackItems)
+  const hasMultiYearAddBacks = addBackItems.some((item) => item.fy1Amount != null || item.fy2Amount != null || item.fy3Amount != null)
+  const valByYear = ws2Report.ws22?.valuation.byYear ?? []
   const revenueRows = buildRevenueSummaryRows(ws23?.verticals ?? [])
   const profitabilityRows = buildProfitabilityRows(ws2Report)
   const dataQualityGroups = groupFlags(analysis.flags)
@@ -593,18 +600,29 @@ export function ValuationDashboard({
           </div>
 
           <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">
-            Based on TTM Normalized EBITDA of <span className="font-semibold text-slate-900">{formatCurrency(normalizedEbitda)}</span>. Revenue changing {latestTrend?.revenueYoYPct != null ? formatSignedPct(latestTrend.revenueYoYPct) : 'n/a'} YoY. Pre-recast EBITDA was {formatCurrency(preRecastEbitda)} ({formatPct(ws2Report.ws21.annualPL.ebitdaMargin.ttm ?? null)}); total add-backs of {formatCurrency(totalAddBacks)}.
+            Based on LTM Normalized EBITDA of <span className="font-semibold text-slate-900">{formatCurrency(normalizedEbitda)}</span>. Revenue changing {latestTrend?.revenueYoYPct != null ? formatSignedPct(latestTrend.revenueYoYPct) : 'n/a'} YoY. Pre-recast EBITDA was {formatCurrency(preRecastEbitda)} ({formatPct(ws2Report.ws21.annualPL.ebitdaMargin.ttm ?? null)}); total add-backs of {formatCurrency(totalAddBacks)}.
           </div>
         </div>
 
         <div className="mt-6 overflow-hidden rounded-2xl bg-[#1a2332] px-6 py-4 text-white">
           <div className="flex items-center justify-between gap-4">
-            <h3 className="text-2xl font-semibold tracking-tight">Normalized EBITDA (TTM)</h3>
+            <h3 className="text-2xl font-semibold tracking-tight">Normalized EBITDA (LTM)</h3>
             <div className="flex items-center gap-4 text-right">
               <span className="text-3xl font-semibold">{formatCurrency(normalizedEbitda)}</span>
               <span className="text-lg text-slate-300">{formatPct(normalizedMargin)} Margin</span>
             </div>
           </div>
+          {valByYear.length > 0 && (
+            <div className="mt-3 grid grid-cols-3 gap-4 border-t border-white/20 pt-3">
+              {[...valByYear].reverse().map((vy) => (
+                <div key={vy.fiscalYear} className="text-center">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-400">FY {vy.fiscalYear}</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums">{formatCurrency(vy.normalizedEbitda)}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">Val: {formatCurrency(vy.valuationMid)}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-6 overflow-x-auto">
@@ -614,14 +632,25 @@ export function ValuationDashboard({
                 <th className="px-4 py-3">Cat.</th>
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3">GL Account</th>
-                <th className="px-4 py-3 text-right">TTM Amount</th>
+                <th className="px-4 py-3 text-right">LTM</th>
+                {hasMultiYearAddBacks && valByYear.slice().reverse().map((vy) => (
+                  <th key={vy.fiscalYear} className="px-4 py-3 text-right">FY {vy.fiscalYear}</th>
+                ))}
                 <th className="px-4 py-3 text-right">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               <tr>
-                <td className="px-4 py-4 font-semibold text-slate-900" colSpan={4}>4-Wall EBITDA (Pre-Recast)</td>
+                <td className="px-4 py-4 font-semibold text-slate-900" colSpan={3}>EBITDA (Pre-Recast)</td>
                 <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastEbitda)}</td>
+                {hasMultiYearAddBacks && (
+                  <>
+                    <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(ws2Report.ws21.annualPL.ebitdaPreRecast.fy3)}</td>
+                    <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(ws2Report.ws21.annualPL.ebitdaPreRecast.fy2)}</td>
+                    <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(ws2Report.ws21.annualPL.ebitdaPreRecast.fy1)}</td>
+                  </>
+                )}
+                <td className="px-4 py-4" />
               </tr>
             </tbody>
             {Object.entries(addBackGroups)
@@ -629,7 +658,7 @@ export function ValuationDashboard({
               .map(([category, items]) => (
                 <tbody key={category} className="divide-y divide-slate-100">
                   <tr className="bg-slate-50/70">
-                    <td colSpan={5} className="px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                    <td colSpan={hasMultiYearAddBacks ? 8 : 5} className="px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
                       {ADD_BACK_CATEGORY_LABELS[Number(category)]}
                     </td>
                   </tr>
@@ -641,6 +670,19 @@ export function ValuationDashboard({
                       <td className={cn('px-4 py-3 text-right tabular-nums font-medium', item.ttmAmount < 0 ? 'text-rose-700' : 'text-slate-900')}>
                         {formatCurrency(item.ttmAmount)}
                       </td>
+                      {hasMultiYearAddBacks && (
+                        <>
+                          <td className={cn('px-4 py-3 text-right tabular-nums font-medium', (item.fy3Amount ?? 0) < 0 ? 'text-rose-700' : 'text-slate-900')}>
+                            {formatCurrency(item.fy3Amount ?? 0)}
+                          </td>
+                          <td className={cn('px-4 py-3 text-right tabular-nums font-medium', (item.fy2Amount ?? 0) < 0 ? 'text-rose-700' : 'text-slate-900')}>
+                            {formatCurrency(item.fy2Amount ?? 0)}
+                          </td>
+                          <td className={cn('px-4 py-3 text-right tabular-nums font-medium', (item.fy1Amount ?? 0) < 0 ? 'text-rose-700' : 'text-slate-900')}>
+                            {formatCurrency(item.fy1Amount ?? 0)}
+                          </td>
+                        </>
+                      )}
                       <td className={cn('px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em]', getStatusTone(item.status))}>
                         {formatStatusLabel(item.status)}
                       </td>

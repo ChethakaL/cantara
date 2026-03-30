@@ -1,19 +1,24 @@
+/** WS2-1 requires only P&L + BS. Accountant statements and AR aging are optional. */
 export const TTM_REQUIRED_DOCUMENT_IDS = [
   "monthly_pl_excel",
   "monthly_bs_excel",
+] as const;
+
+export const TTM_OPTIONAL_DOCUMENT_IDS = [
   "accountant_statements",
   "ar_aging_detail",
 ] as const;
 
+/** WS2-2 requires personal expenses + one-off expenses */
 export const WS2_RECAST_REQUIRED_DOCUMENT_IDS = [
-  "addback_disclosure",
-] as const;
-
-/** @deprecated V2 used separate doc IDs — kept for migration compatibility */
-export const WS2_RECAST_LEGACY_DOCUMENT_IDS = [
-  "shareholder_remuneration_36m",
   "personal_expenses_36m",
   "non_recurring_expenses_36m",
+] as const;
+
+/** Legacy document IDs — kept for migration compatibility */
+export const WS2_RECAST_LEGACY_DOCUMENT_IDS = [
+  "addback_disclosure",
+  "shareholder_remuneration_36m",
   "tenant_improvements_36m",
 ] as const;
 

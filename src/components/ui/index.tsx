@@ -32,7 +32,7 @@ export function Button({ variant = 'primary', size = 'md', className, children, 
 }
 
 // ── Badge ───────────────────────────────────────────────────────────────────
-interface BadgeProps { children: React.ReactNode; color?: 'gold' | 'green' | 'red' | 'blue' | 'slate'; className?: string }
+interface BadgeProps { children: React.ReactNode; color?: 'gold' | 'green' | 'red' | 'blue' | 'slate' | 'gray'; className?: string }
 export function Badge({ children, color = 'slate', className }: BadgeProps) {
   const colors = {
     gold: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -40,6 +40,7 @@ export function Badge({ children, color = 'slate', className }: BadgeProps) {
     red: 'bg-rose-50 text-rose-700 border-rose-200',
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
     slate: 'bg-slate-100 text-slate-600 border-slate-200',
+    gray: 'bg-slate-50 text-slate-400 border-slate-100',
   }
   return (
     <span className={cn('inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border', colors[color], className)}>

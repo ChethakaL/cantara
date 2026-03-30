@@ -158,11 +158,23 @@ export interface RecastSchedule {
   totalAddBacks: number;
   normalizedEbitdaTTM: number;
   normalizedEbitdaFY3?: number;
+  normalizedEbitdaFY2?: number;
+  normalizedEbitdaFY1?: number;
   normalizedMarginTTM: number;
+  totalAddBacksFY3?: number;
+  totalAddBacksFY2?: number;
+  totalAddBacksFY1?: number;
   flagsForCraig: { itemId: string; issue: string; dollarImpact: number }[];
 }
 
 // ── Valuation ─────────────────────────────────────────────────────────────────
+export interface ValuationByYear {
+  fiscalYear: string;
+  normalizedEbitda: number;
+  margin: number | null;
+  valuationMid: number;
+}
+
 export interface ValuationRange {
   normalizedEbitda: number;
   multipleAssumptions: { low: number; mid: number; high: number };
@@ -177,6 +189,7 @@ export interface ValuationRange {
   replacementSalaryIsDefault: boolean;
   relatedPartyOwnership: boolean;
   fmrAdjustment?: number;
+  byYear?: ValuationByYear[];
 }
 
 // ── WS2-2 Output ─────────────────────────────────────────────────────────────

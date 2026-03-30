@@ -45,18 +45,55 @@ function parseGlPrefix(accountCode: string | null) {
   return Number(digits[0]);
 }
 
+// Cantara GL codes that are computed subtotals/rollups — never map as accounts.
+// These exist in F1/F2 for human readability but are derived, not leaf-level data.
+const ROLLUP_GL_CODES = new Set([
+  // P&L rollup lines (computed from leaf accounts)
+  "REV-TOTAL", "REV-SVC", "COGS-TOTAL", "GP",
+  "PAY-TOTAL", "OPX-TOTAL", "NOI", "NET-INC",
+  "OTH-INC", "OTH-EXP", "OTH-NET",
+
+  // BS structural totals
+  "CA-OTHER", "CA-TOTAL", "FA-TOTAL", "OA-TOTAL", "ASSET-TOTAL",
+  "CL-OTHER", "CL-TOTAL", "LIAB-TOTAL", "EQ-TOTAL",
+
+  // Equity accounts — outside P&L scope
+  "EQ-DRAWS", "EQ-NETINC",
+
+  // Fixed asset line (BS only)
+  "FA-LHI",
+]);
+
 function isCalculatedSummaryRow(row: NormalizedLedgerRow) {
   const normalized = normalizeText(row.accountName);
   if (!normalized) return true;
 
+  // Check Cantara GL code first — this catches rollup rows even if the name looks normal
+  if (row.accountCode) {
+    const code = row.accountCode.trim().toUpperCase();
+    if (ROLLUP_GL_CODES.has(code)) return true;
+    // Also catch any code ending in -TOTAL or -OTHER (future-proofing)
+    if (/-TOTAL$/.test(code) || code === "GP" || code === "NET-INC") return true;
+  }
+
   return (
     /^total\b/.test(normalized) ||
-    /(gross profit|gross margin|net income|net ordinary income|ordinary income|ebitda|subtotal|pre recast|net working capital|working capital|current assets|current liabilities)/.test(normalized)
+    /(gross profit|gross margin|net income|net ordinary income|ordinary income|ebitda|subtotal|pre recast|net working capital|working capital|current assets|current liabilities|total assets|total liabilities|total equity|owner.?s? equity|retained earnings)/.test(normalized)
   );
 }
 
 function shouldExcludeFromMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs") {
   if (isCalculatedSummaryRow(row)) return true;
+
+  // Exclude equity and BS-only accounts from P&L mapping
+  if (statementKind === "pl" && row.accountCode) {
+    const code = row.accountCode.trim().toUpperCase();
+    // Equity accounts have no place in P&L taxonomy
+    if (code.startsWith("EQ-")) return true;
+    // Fixed asset lines belong in BS, not P&L
+    if (code.startsWith("FA-")) return true;
+  }
+
   return false;
 }
 
@@ -132,16 +169,17 @@ function getExplicitMappingOverride(row: NormalizedLedgerRow, statementKind: "pl
 
 function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs"): MappingProjection {
   if (shouldExcludeFromMapping(row, statementKind)) {
-    const maxAbsMonthlyValue = Math.max(...Object.values(row.valuesByMonth).map((value) => Math.abs(value)), 0);
-    const isMajor = maxAbsMonthlyValue >= 1000 || Math.abs(row.total) >= 12000;
+    // Mark as excluded — NOT "unmapped". Excluded rows are computed subtotals,
+    // rollup lines, or out-of-scope accounts that should never appear in the
+    // GL mapping queue or be counted in financial calculations.
     return {
-      cantaraCode: null,
-      category: null,
-      categoryType: statementKind === "pl" ? ("other" as const) : ("working_capital" as const),
-      mappingMethod: "unmapped" as const,
-      mappingConfidence: 0,
+      cantaraCode: "_EXCLUDED",
+      category: "Excluded (computed subtotal or out-of-scope)",
+      categoryType: "other" as const,
+      mappingMethod: "exact" as const,
+      mappingConfidence: 1,
       candidateCodes: [],
-      isMajor,
+      isMajor: false,
     };
   }
 
@@ -202,7 +240,7 @@ export async function mapLedgerRows(rows: NormalizedLedgerRow[], statementKind: 
   }));
 
   const unresolved = initial.filter(
-    (row) => (!row.cantaraCode || row.mappingMethod === "unmapped") && !shouldExcludeFromMapping(row, statementKind),
+    (row) => row.cantaraCode !== "_EXCLUDED" && (!row.cantaraCode || row.mappingMethod === "unmapped"),
   );
   if (!unresolved.length) return initial;
 

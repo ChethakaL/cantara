@@ -3,9 +3,12 @@ export interface TaxonomyEntry {
   category: string;
   type: "revenue" | "cogs" | "opex" | "working_capital";
   aliases: string[];
+  /** If true, the full GL amount for this code is added back in EBITDA recast (WS2-2) */
+  addBack?: boolean;
 }
 
 export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
+  // ── REVENUE ──────────────────────────────────────────────────────────────
   {
     code: "REV-BOARD",
     category: "Boarding Revenue",
@@ -60,6 +63,8 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     type: "revenue",
     aliases: ["uncategorized income", "miscellaneous income", "other revenue", "other income"],
   },
+
+  // ── COST OF GOODS SOLD ───────────────────────────────────────────────────
   {
     code: "COGS-SUPPLY",
     category: "Direct Service Supplies",
@@ -78,6 +83,8 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     type: "cogs",
     aliases: ["other direct cost", "other cogs", "cost of sales"],
   },
+
+  // ── OPERATING EXPENSES — LABOR ───────────────────────────────────────────
   {
     code: "OPX-LABOR-STAFF",
     category: "Staff / Direct Labor",
@@ -94,7 +101,8 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-LABOR-OWN",
     category: "Owner Compensation",
     type: "opex",
-    aliases: ["officer wages", "owner draw", "owner salary", "s corp distributions", "member distributions", "officer compensation"],
+    addBack: true,
+    aliases: ["officer wages", "owner draw", "owner salary", "s corp distributions", "member distributions", "officer compensation", "s-corp health", "owner health insurance", "consulting fees owner"],
   },
   {
     code: "OPX-LABOR-TAX",
@@ -108,6 +116,8 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     type: "opex",
     aliases: ["cash tips paid out", "tips paid out", "tip payout"],
   },
+
+  // ── OPERATING EXPENSES — FACILITY ────────────────────────────────────────
   {
     code: "OPX-RENT",
     category: "Base Rent",
@@ -122,10 +132,19 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
   },
   {
     code: "OPX-UTIL",
-    category: "Utilities",
+    category: "Utilities (Business)",
     type: "opex",
     aliases: ["electric", "gas", "water", "internet", "phone", "telecom", "utilities"],
   },
+  {
+    code: "OPX-UTIL-OWNER",
+    category: "Utilities (Personal/Home)",
+    type: "opex",
+    addBack: true,
+    aliases: ["home utilities", "personal utilities", "owner home phone", "personal internet", "home electric"],
+  },
+
+  // ── OPERATING EXPENSES — BUSINESS OPS ────────────────────────────────────
   {
     code: "OPX-MKTG",
     category: "Marketing & Advertising",
@@ -140,27 +159,48 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
   },
   {
     code: "OPX-REPAIR",
-    category: "Repairs & Maintenance",
+    category: "Repairs & Maintenance (Business)",
     type: "opex",
     aliases: ["repairs", "maintenance", "janitorial", "pest control", "waste removal", "building maintenance"],
   },
   {
-    code: "OPX-SUPPLY",
-    category: "Supplies",
+    code: "OPX-REPAIR-OWNER",
+    category: "Repairs & Maintenance (Personal/Home)",
     type: "opex",
-    aliases: ["supplies", "office supplies"],
+    addBack: true,
+    aliases: ["home repairs", "personal repairs", "owner home maintenance", "landscape owner home", "personal home repair"],
+  },
+  {
+    code: "OPX-SUPPLY",
+    category: "Supplies (Business)",
+    type: "opex",
+    aliases: ["supplies", "caretaking supplies", "cleaning supplies", "office supplies"],
+  },
+  {
+    code: "OPX-SUPPLY-OWNER",
+    category: "Supplies (Personal/Home)",
+    type: "opex",
+    addBack: true,
+    aliases: ["home supplies", "personal supplies", "owner home supplies", "personal caretaking"],
   },
   {
     code: "OPX-SOFT",
     category: "Software & Subscriptions",
     type: "opex",
-    aliases: ["software", "subscriptions", "dues", "pos", "gingr", "kennel booker", "saas"],
+    aliases: ["software", "subscriptions", "pos", "gingr", "kennel booker", "saas"],
   },
   {
     code: "OPX-PROF",
-    category: "Professional Fees",
+    category: "Professional Fees (Business)",
     type: "opex",
-    aliases: ["accounting", "legal", "payroll service", "consulting", "bookkeeping", "professional fees"],
+    aliases: ["accounting", "legal", "payroll service", "bookkeeping", "professional fees", "cpa"],
+  },
+  {
+    code: "OPX-PROF-OWNER",
+    category: "Professional Fees (Personal)",
+    type: "opex",
+    addBack: true,
+    aliases: ["personal legal", "personal accounting", "owner legal fees", "personal professional fees"],
   },
   {
     code: "OPX-BANK",
@@ -170,9 +210,16 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
   },
   {
     code: "OPX-VET",
-    category: "Emergency Vet",
+    category: "Emergency Vet (Business)",
     type: "opex",
-    aliases: ["emergency vet", "veterinary", "vet expense"],
+    aliases: ["emergency vet business", "boarded animal vet", "client pet vet expense"],
+  },
+  {
+    code: "OPX-VET-OWNER",
+    category: "Emergency Vet (Personal)",
+    type: "opex",
+    addBack: true,
+    aliases: ["personal vet", "owner pet vet", "personal emergency vet", "owner vet expense"],
   },
   {
     code: "OPX-DEPR",
@@ -186,29 +233,68 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     type: "opex",
     aliases: ["interest expense", "loan interest", "interest"],
   },
+
+  // ── OPERATING EXPENSES — PERSONAL / OWNER (100% add-back) ───────────────
   {
     code: "OPX-MEALS",
-    category: "Meals & Entertainment",
+    category: "Meals & Entertainment (Business)",
     type: "opex",
-    aliases: ["meals and entertainment", "dining w staff", "dining w clients", "meals"],
+    aliases: ["business meals", "staff meals", "client entertainment"],
+  },
+  {
+    code: "OPX-MEALS-OWNER",
+    category: "Meals & Entertainment (Personal)",
+    type: "opex",
+    addBack: true,
+    aliases: ["personal meals", "owner meals", "personal entertainment", "personal dining"],
   },
   {
     code: "OPX-TRAVEL",
-    category: "Travel",
+    category: "Travel (Business)",
     type: "opex",
-    aliases: ["travel", "airfare", "lodging"],
+    aliases: ["business travel", "conference travel"],
+  },
+  {
+    code: "OPX-TRAVEL-OWNER",
+    category: "Travel (Personal)",
+    type: "opex",
+    addBack: true,
+    aliases: ["personal travel", "owner travel", "personal airfare", "personal lodging", "vacation"],
   },
   {
     code: "OPX-DONAT",
     category: "Donations",
     type: "opex",
-    aliases: ["donations", "church", "non profit"],
+    addBack: true,
+    aliases: ["donations", "church", "non profit", "charitable", "sponsorship"],
   },
   {
     code: "OPX-GIFTS",
-    category: "Gifts",
+    category: "Gifts Given (Personal)",
     type: "opex",
-    aliases: ["gifts", "gifts given"],
+    addBack: true,
+    aliases: ["gifts", "gifts given", "personal gifts"],
+  },
+  {
+    code: "OPX-OFFICE-OWNER",
+    category: "Office Expenses (Personal)",
+    type: "opex",
+    addBack: true,
+    aliases: ["personal office", "owner office supplies", "home office", "personal admin"],
+  },
+  {
+    code: "OPX-POSTAGE-OWNER",
+    category: "Postage & Delivery (Personal)",
+    type: "opex",
+    addBack: true,
+    aliases: ["personal postage", "personal delivery", "personal shipping"],
+  },
+  {
+    code: "OPX-DUES-OWNER",
+    category: "Dues & Subscriptions (Personal)",
+    type: "opex",
+    addBack: true,
+    aliases: ["personal dues", "personal subscriptions", "personal memberships", "owner dues"],
   },
   {
     code: "OPX-TAX",
@@ -217,11 +303,20 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     aliases: ["taxes & licenses", "permits", "licenses"],
   },
   {
+    code: "OPX-ONEOFF",
+    category: "One-Off Non-Recurring Expenses",
+    type: "opex",
+    addBack: true,
+    aliases: ["one-off", "non-recurring", "extraordinary", "leasehold improvement"],
+  },
+  {
     code: "OPX-OTHER",
     category: "Other Operating Expenses",
     type: "opex",
     aliases: ["miscellaneous", "other expenses", "uncategorized expense"],
   },
+
+  // ── WORKING CAPITAL ──────────────────────────────────────────────────────
   {
     code: "WC-CASH",
     category: "Cash & Equivalents",
@@ -277,6 +372,13 @@ export const WORKING_CAPITAL_CODES = CANTARA_TAXONOMY.filter((entry) => entry.ty
 export const EBITDA_EXCLUDED_OPEX_CODES = ["OPX-DEPR", "OPX-INT"];
 export const EBITDA_OPERATING_EXPENSE_CODES = OPEX_CODES.filter((code) => !EBITDA_EXCLUDED_OPEX_CODES.includes(code));
 
+/** Codes where the full GL amount is added back in EBITDA normalization */
+export const ADD_BACK_CODES = CANTARA_TAXONOMY.filter((entry) => entry.addBack).map((entry) => entry.code);
+
 export function getCategoryLabel(code: string) {
   return TAXONOMY_BY_CODE[code]?.category ?? code;
+}
+
+export function isAddBackCode(code: string) {
+  return TAXONOMY_BY_CODE[code]?.addBack === true;
 }

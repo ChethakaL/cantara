@@ -92,7 +92,8 @@ export function buildWorkingCapitalSummary(args: {
     });
   }
 
-  if (Math.abs(varianceToBalanceSheetAr) > 500) {
+  // Only flag AR reconciliation if AR aging data was actually provided
+  if (totalAr > 0 && Math.abs(varianceToBalanceSheetAr) > 500) {
     console.log(`[TTM] Section E: AR aging variance=$${varianceToBalanceSheetAr.toFixed(2)} (aging=$${totalAr.toLocaleString()}, BS=$${balanceSheetAr.toLocaleString()})`);
     qualityItems.push({
       title: "AR aging does not reconcile to balance sheet AR",

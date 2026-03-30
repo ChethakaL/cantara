@@ -7,6 +7,7 @@ import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "
 import { mapLedgerRows } from "@/lib/ttm-agent/mapping";
 import { parseAccountantStatementsDocument, parseAccountantStatementsPreparedDocument } from "@/lib/ttm-agent/parsers/accountant-statements";
 import { parseArAgingWorkbook, parseArAgingWorkbookFromPrepared, parseMonthlyWorkbook, parseMonthlyWorkbookFromPrepared } from "@/lib/ttm-agent/parsers/excel";
+import type { ParsedArAging } from "@/lib/ttm-agent/types";
 import { buildDataQualityReport, flattenFlagsForPersistence } from "@/lib/ttm-agent/report-builder";
 import { reconcileFinancials } from "@/lib/ttm-agent/reconciler";
 import { REVENUE_CODES } from "@/lib/ttm-agent/taxonomy";
@@ -260,6 +261,14 @@ export function mapTtmAnalysisForFrontend(record: any): TtmAnalysisView {
   };
 }
 
+async function loadOptionalDocument(clientId: string, documentId: string) {
+  const row = await (prisma as any).clientDocument.findFirst({
+    where: { clientId, documentId },
+    orderBy: { createdAt: "desc" },
+  });
+  return row ?? null;
+}
+
 async function loadLatestInputDocuments(clientId: string) {
   const rows = await (prisma as any).clientDocument.findMany({
     where: {
@@ -391,10 +400,8 @@ export async function getTtmReadiness(clientId: string): Promise<TtmReadinessIte
 
   const byId = new Map(statuses.map((status: any) => [status.documentId, status]));
   const labels: Record<TtmRequiredDocumentId, string> = {
-    monthly_pl_excel: "Monthly P&L Excel",
-    monthly_bs_excel: "Monthly Balance Sheet Excel",
-    accountant_statements: "Accountant Statements",
-    ar_aging_detail: "AR Aging Detail",
+    monthly_pl_excel: "Monthly P&L (36 months)",
+    monthly_bs_excel: "Monthly Balance Sheet (36 months)",
   };
 
   return TTM_REQUIRED_DOCUMENT_IDS.map((documentId) => {
@@ -481,17 +488,13 @@ export async function runTtmAgent(args: {
 
   try {
     const preparedMap = buildPreparedDocumentMap(args.preparedDocuments ?? []);
-    const [monthlyPlDocument, monthlyBsDocument, accountantDocument, arAgingDocument] = inputDocuments;
+    const [monthlyPlDocument, monthlyBsDocument] = inputDocuments;
 
     const preparedMonthlyPl = ensurePreparedDocument(preparedMap, "monthly_pl_excel", monthlyPlDocument);
     const preparedMonthlyBs = ensurePreparedDocument(preparedMap, "monthly_bs_excel", monthlyBsDocument);
-    const preparedAccountant = ensurePreparedDocument(preparedMap, "accountant_statements", accountantDocument);
-    const preparedArAging = ensurePreparedDocument(preparedMap, "ar_aging_detail", arAgingDocument);
 
     const monthlyPlBuffer = await safeReadDocumentBuffer(monthlyPlDocument.localPath);
     const monthlyBsBuffer = await safeReadDocumentBuffer(monthlyBsDocument.localPath);
-    const accountantBuffer = await safeReadDocumentBuffer(accountantDocument.localPath);
-    const arAgingBuffer = await safeReadDocumentBuffer(arAgingDocument.localPath);
 
     const monthlyPl = monthlyPlBuffer
       ? parseMonthlyWorkbook(monthlyPlBuffer, "monthly_pl_excel")
@@ -503,19 +506,37 @@ export async function runTtmAgent(args: {
       : parseMonthlyWorkbookFromPrepared(preparedMonthlyBs, "monthly_bs_excel");
     console.log(`[TTM] Parsed monthly BS: format=${monthlyBs.format}, ${monthlyBs.rows.length} rows, ${monthlyBs.monthKeys.length} months, source=${monthlyBsBuffer ? "xlsx-direct" : "prepared-csv"}`);
 
-    const accountantStatements = accountantBuffer
-      ? await parseAccountantStatementsDocument({
-          fileName: accountantDocument.fileName,
-          mimeType: accountantDocument.mimeType,
-          buffer: accountantBuffer,
-        })
-      : await parseAccountantStatementsPreparedDocument(preparedAccountant);
-    console.log(`[TTM] Parsed accountant statements: ${accountantStatements.years.length} fiscal years, source=${accountantStatements.sourceType}${accountantBuffer ? " (xlsx/pdf direct)" : " (prepared)"}`);
+    // Optional: Accountant Statements
+    const accountantDocRecord = await loadOptionalDocument(args.clientId, "accountant_statements");
+    let accountantStatements: Awaited<ReturnType<typeof parseAccountantStatementsDocument>> | null = null;
+    if (accountantDocRecord) {
+      try {
+        const accountantBuffer = await safeReadDocumentBuffer(accountantDocRecord.localPath);
+        const preparedAccountant = preparedMap.get("accountant_statements" as any);
+        accountantStatements = accountantBuffer
+          ? await parseAccountantStatementsDocument({ fileName: accountantDocRecord.fileName, mimeType: accountantDocRecord.mimeType, buffer: accountantBuffer })
+          : preparedAccountant ? await parseAccountantStatementsPreparedDocument(preparedAccountant) : null;
+        if (accountantStatements) console.log(`[TTM] Parsed accountant statements: ${accountantStatements.years.length} fiscal years`);
+      } catch (e) { console.log(`[TTM] Accountant statements skipped: ${(e as Error).message}`); }
+    } else {
+      console.log("[TTM] No accountant statements uploaded — skipping cross-reference");
+    }
 
-    const arAging = arAgingBuffer
-      ? parseArAgingWorkbook(arAgingBuffer)
-      : parseArAgingWorkbookFromPrepared(preparedArAging);
-    console.log(`[TTM] Parsed AR aging: ${arAging.entries.length} customer entries, source=${arAgingBuffer ? "xlsx-direct" : "prepared-csv"}`);
+    // Optional: AR Aging
+    const arAgingDocRecord = await loadOptionalDocument(args.clientId, "ar_aging_detail");
+    let arAging: ParsedArAging | null = null;
+    if (arAgingDocRecord) {
+      try {
+        const arAgingBuffer = await safeReadDocumentBuffer(arAgingDocRecord.localPath);
+        const preparedArAging = preparedMap.get("ar_aging_detail" as any);
+        arAging = arAgingBuffer
+          ? parseArAgingWorkbook(arAgingBuffer)
+          : preparedArAging ? parseArAgingWorkbookFromPrepared(preparedArAging) : null;
+        if (arAging) console.log(`[TTM] Parsed AR aging: ${arAging.entries.length} customer entries`);
+      } catch (e) { console.log(`[TTM] AR aging skipped: ${(e as Error).message}`); }
+    } else {
+      console.log("[TTM] No AR aging uploaded — skipping");
+    }
 
     // V3 Section 10: Fewer than 24 months → proceed but flag PARTIAL DATA
     const isPartialData = monthlyPl.monthKeys.length < 24;
@@ -545,13 +566,13 @@ export async function runTtmAgent(args: {
       monthlyBs,
       mappedPlRows,
       mappedBsRows,
-      accountantStatements,
+      accountantStatements: accountantStatements ?? { years: [], sourceType: "xlsx" as const, confidence: "LOW" as const, notes: ["Accountant statements not provided"] },
     });
 
     const wcResult = buildWorkingCapitalSummary({
       mappedBalanceSheetRows: mappedBsRows,
       balanceSheetMonths: monthlyBs.monthKeys,
-      arAging,
+      arAging: arAging ?? { headerRowIndex: 0, sourceSheet: "", entries: [], notes: ["AR aging not provided"] },
     });
 
     reconciled.dataQualitySections.E.push(...wcResult.qualityItems);
@@ -605,8 +626,8 @@ export async function runTtmAgent(args: {
             sourceNotes: {
               monthlyPl: monthlyPl.notes,
               monthlyBs: monthlyBs.notes,
-              accountantStatements: accountantStatements.notes,
-              arAging: arAging.notes,
+              accountantStatements: accountantStatements?.notes ?? [],
+              arAging: arAging?.notes ?? [],
             },
           },
           structuredModel: reconciled.structuredModel,
@@ -843,17 +864,419 @@ function preparedDocumentToText(preparedDocument: PreparedDocumentInput | undefi
   return emptyMessage;
 }
 
-function buildWs22PromptContent(args: {
+// Parse CSV text that may have multi-line quoted headers like "Draws\n(Other Earnings)"
+// Returns array of rows, each row is array of cell strings
+function parseCSVWithQuotes(text: string): string[][] {
+  const rows: string[][] = [];
+  let current: string[] = [];
+  let cell = "";
+  let inQuote = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuote) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') { inQuote = false; }
+      else { cell += ch; }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ",") { current.push(cell.trim()); cell = ""; }
+      else if (ch === "\n" || ch === "\r") {
+        if (ch === "\r" && text[i + 1] === "\n") i++;
+        current.push(cell.trim());
+        cell = "";
+        if (current.some(c => c)) rows.push(current);
+        current = [];
+      } else { cell += ch; }
+    }
+  }
+  current.push(cell.trim());
+  if (current.some(c => c)) rows.push(current);
+  return rows;
+}
+
+// ── Seller File Extraction Helpers ──────────────────────────────────────────
+
+const MONTH_MAP: Record<string, string> = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+
+/** Parse a date cell (MM/DD/YYYY, Mon-YYYY, or YYYY-MM) to month key "YYYY-MM" */
+function parseDateToMonth(value: string): string | null {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  // MM/DD/YYYY
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) return `${slashMatch[3]}-${slashMatch[1].padStart(2, "0")}`;
+  // Mon-YYYY (e.g., Jun-2019)
+  const monMatch = trimmed.match(/^(\w{3})-(\d{4})$/i);
+  if (monMatch) {
+    const mm = MONTH_MAP[monMatch[1].toLowerCase()];
+    if (mm) return `${monMatch[2]}-${mm}`;
+  }
+  // YYYY-MM
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+  return null;
+}
+
+function parseAmount(value: string): number {
+  const cleaned = String(value ?? "").replace(/[$,"]/g, "").replace(/^\((.*)\)$/, "-$1").trim();
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Parse F5 Add-Back Summary: extract per-account 36-month totals grouped by section.
+ * Format: Acct # | Account Name | Type | 36-Month Total | Reference | Notes
+ * Section headers like "A — OWNER / OFFICER COMPENSATION"
+ */
+function extractF5Summary(doc: PreparedDocumentInput | undefined): {
+  ownerComp: Array<{ acctNum: string; name: string; total: number }>;
+  personalExpenses: Array<{ acctNum: string; name: string; total: number }>;
+  nonRecurringExpenses: Array<{ acctNum: string; name: string; total: number }>;
+  nonRecurringIncome: Array<{ acctNum: string; name: string; total: number }>;
+  tenantImprovements: Array<{ acctNum: string; name: string; total: number }>;
+} {
+  const result = { ownerComp: [] as any[], personalExpenses: [] as any[], nonRecurringExpenses: [] as any[], nonRecurringIncome: [] as any[], tenantImprovements: [] as any[] };
+  if (!doc?.textBlocks?.length) return result;
+
+  for (const block of doc.textBlocks) {
+    const rows = parseCSVWithQuotes(block.text);
+    let currentSection = "";
+
+    for (const cells of rows) {
+      const first = String(cells[0] ?? "").trim();
+      // Detect section headers
+      if (/^A\s*—|OWNER.*COMPENSATION/i.test(first)) { currentSection = "A"; continue; }
+      if (/^B\s*—|PERSONAL\s*EXPENSE/i.test(first)) { currentSection = "B"; continue; }
+      if (/^C\s*—|NON.*RECURRING.*INCOME|SECTION\s*1/i.test(first)) { currentSection = "C"; continue; }
+      if (/^D\s*—|NON.*RECURRING.*EXPENSE|SECTION\s*2/i.test(first)) { currentSection = "D"; continue; }
+      if (/^E\s*—|TENANT\s*IMPROVEMENT/i.test(first)) { currentSection = "E"; continue; }
+      // Skip headers, subtotals, blanks
+      if (!first || /^acct|^#|subtotal|^total|^$|^type$/i.test(first)) continue;
+      if (cells.length < 4) continue;
+
+      const acctNum = first;
+      const name = String(cells[1] ?? "").trim();
+      // Find the numeric total — typically column 3 (36-Month Total)
+      let total = 0;
+      for (let i = 2; i < cells.length; i++) {
+        const v = parseAmount(String(cells[i] ?? ""));
+        if (v !== 0 && !name) break; // Skip if no name (probably a header)
+        if (v !== 0) { total = v; break; }
+      }
+      if (!name || total === 0) continue;
+
+      const item = { acctNum, name, total };
+      if (currentSection === "A") result.ownerComp.push(item);
+      else if (currentSection === "B") result.personalExpenses.push(item);
+      else if (currentSection === "C") result.nonRecurringIncome.push(item);
+      else if (currentSection === "D") result.nonRecurringExpenses.push(item);
+      else if (currentSection === "E") result.tenantImprovements.push(item);
+    }
+  }
+
+  console.log(`[WS2-2 Extract] F5 summary: ownerComp=${result.ownerComp.length}, personal=${result.personalExpenses.length}, nonRecurIncome=${result.nonRecurringIncome.length}, nonRecurExpense=${result.nonRecurringExpenses.length}, TI=${result.tenantImprovements.length}`);
+  return result;
+}
+
+/**
+ * Parse F6 Shareholder Remuneration (transaction-level) — sum by account within TTM.
+ * Format: Date | Acct# | Account Name | Description | Amount | Where Recorded
+ */
+function extractF6OwnerComp(doc: PreparedDocumentInput | undefined, ttmMonths: string[]): Record<string, { name: string; ttmAmount: number }> {
+  const result: Record<string, { name: string; ttmAmount: number }> = {};
+  if (!doc?.textBlocks?.length || !ttmMonths.length) return result;
+
+  for (const block of doc.textBlocks) {
+    if (/shareholder list/i.test(block.sheetName)) continue; // Skip the ownership sheet
+    const rows = parseCSVWithQuotes(block.text);
+    for (const cells of rows) {
+      const dateMonth = parseDateToMonth(String(cells[0] ?? ""));
+      if (!dateMonth || !ttmMonths.includes(dateMonth)) continue;
+      const acctName = String(cells[2] ?? "").trim();
+      if (!acctName) continue;
+      const amount = parseAmount(String(cells[4] ?? ""));
+      if (amount === 0) continue;
+
+      if (!result[acctName]) result[acctName] = { name: acctName, ttmAmount: 0 };
+      result[acctName].ttmAmount += amount;
+    }
+  }
+
+  for (const [name, data] of Object.entries(result)) {
+    console.log(`[WS2-2 Extract] F6 owner comp: "${name}" TTM=$${data.ttmAmount.toFixed(0)}`);
+  }
+  return result;
+}
+
+/**
+ * Parse F7 Personal Expenses (transaction-level) — sum by category within TTM.
+ * Format: Date | Transaction Type | Num | Name/Vendor | Memo | Account | Amount
+ * Category headers are standalone rows (e.g., "Church")
+ */
+function extractF7PersonalByCategory(doc: PreparedDocumentInput | undefined, ttmMonths: string[]): Record<string, { category: string; glAccount: string; ttmAmount: number }> {
+  const result: Record<string, { category: string; glAccount: string; ttmAmount: number }> = {};
+  if (!doc?.textBlocks?.length || !ttmMonths.length) return result;
+
+  for (const block of doc.textBlocks) {
+    const rows = parseCSVWithQuotes(block.text);
+    let currentCategory = "";
+    let headerFound = false;
+
+    for (const cells of rows) {
+      const first = String(cells[0] ?? "").trim();
+      // Skip title rows and header
+      if (/^foothills|^transaction detail|^36 months|^cash basis|^date$/i.test(first)) { headerFound = /^date$/i.test(first); continue; }
+      if (!headerFound) continue;
+      if (!first) continue;
+      if (/^total\b|^subtotal/i.test(first)) continue;
+
+      const dateMonth = parseDateToMonth(first);
+      if (!dateMonth) {
+        // Not a date — this is a category header row
+        if (first.length > 1 && !/^#|^acct/i.test(first)) {
+          currentCategory = first;
+        }
+        continue;
+      }
+
+      if (!ttmMonths.includes(dateMonth)) continue;
+      if (!currentCategory) continue;
+
+      // Find amount — last numeric column
+      const amountCol = cells.length - 1;
+      const amount = parseAmount(String(cells[amountCol] ?? ""));
+      if (amount === 0) continue;
+
+      // Find GL account — column with "XXXX · Name" pattern
+      let glAccount = "";
+      for (let i = 1; i < cells.length - 1; i++) {
+        const val = String(cells[i] ?? "");
+        if (/\d+\s*·/.test(val)) { glAccount = val; break; }
+      }
+
+      if (!result[currentCategory]) result[currentCategory] = { category: currentCategory, glAccount, ttmAmount: 0 };
+      result[currentCategory].ttmAmount += amount;
+    }
+  }
+
+  for (const [cat, data] of Object.entries(result)) {
+    console.log(`[WS2-2 Extract] F7 personal: "${cat}" (${data.glAccount}) TTM=$${data.ttmAmount.toFixed(0)}`);
+  }
+  return result;
+}
+
+/**
+ * Parse F8 Non-Recurring Items (transaction-level) — separate income (remove) from expenses (add back).
+ * Format: Date | Acct# | Account Name | Description | Amount | Where Recorded
+ * Section headers: "SECTION 1 — One-Time Income" / "SECTION 2 — One-Time Expenses"
+ */
+function extractF8NonRecurring(doc: PreparedDocumentInput | undefined, ttmMonths: string[]): {
+  incomeToRemove: Array<{ date: string; description: string; amount: number }>;
+  expensesToAddBack: Array<{ date: string; description: string; amount: number }>;
+} {
+  const result = { incomeToRemove: [] as any[], expensesToAddBack: [] as any[] };
+  if (!doc?.textBlocks?.length || !ttmMonths.length) return result;
+
+  for (const block of doc.textBlocks) {
+    const rows = parseCSVWithQuotes(block.text);
+    let currentSection = ""; // "income" or "expense"
+
+    for (const cells of rows) {
+      const first = String(cells[0] ?? "").trim();
+      // Detect section headers
+      if (/SECTION\s*1|one.time\s*income|non.recurring\s*income|income.*to.*remove/i.test(first)) { currentSection = "income"; continue; }
+      if (/SECTION\s*2|one.time\s*expense|non.recurring\s*expense|expense.*add.*back/i.test(first)) { currentSection = "expense"; continue; }
+      if (/^date|^acct|^total|^subtotal|^$|^foothills|^material|^36 months/i.test(first)) continue;
+
+      const dateMonth = parseDateToMonth(first);
+      if (!dateMonth) continue;
+      if (!ttmMonths.includes(dateMonth)) continue;
+
+      const description = String(cells[3] ?? cells[2] ?? "").trim();
+      const amount = parseAmount(String(cells[4] ?? ""));
+      if (amount === 0) continue;
+
+      const item = { date: first, description, amount };
+      if (currentSection === "income") {
+        result.incomeToRemove.push(item);
+        console.log(`[WS2-2 Extract] F8 income to remove: ${first} "${description}" $${amount}`);
+      } else if (currentSection === "expense") {
+        result.expensesToAddBack.push(item);
+        console.log(`[WS2-2 Extract] F8 expense to add back: ${first} "${description}" $${amount}`);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Extract personal expense add-backs grouped by expense category.
+ * Handles TWO formats:
+ *   Format A (row-based): Period | Month | Description | GL | Gross | % | Add-Back | Notes
+ *     with category header rows (e.g., "Church / Religious Donations" on its own row)
+ *   Format B (column-based): # | Description | GL Account | GL Code | Jan-2022 | Feb-2022 | ...
+ */
+function extractPersonalExpensesByCategory(
+  preparedDoc: PreparedDocumentInput | undefined,
+  ttmMonths: string[],
+): Record<string, { description: string; glAccount: string; ttmAmount: number }> {
+  const result: Record<string, { description: string; glAccount: string; ttmAmount: number }> = {};
+  if (!preparedDoc?.textBlocks?.length || !ttmMonths.length) return result;
+
+  const monthMap: Record<string, string> = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+
+  for (const block of preparedDoc.textBlocks) {
+    // Only process personal expense sheets
+    if (/non.recurring|tenant|section c|section d|section e/i.test(block.sheetName)) continue;
+
+    const rows = parseCSVWithQuotes(block.text);
+    if (rows.length < 3) continue;
+
+    // Find header row — look for "Period" + "Add-Back" or "Gross" columns
+    let headerIndex = -1;
+    let headers: string[] = [];
+    for (let i = 0; i < Math.min(rows.length, 10); i++) {
+      const normalized = rows[i].map(c => c.replace(/\n/g, " ").replace(/\s+/g, " ").trim());
+      if (normalized.some(c => /^period$/i.test(c)) && normalized.some(c => /add.back|gross/i.test(c))) {
+        headers = normalized;
+        headerIndex = i;
+        break;
+      }
+    }
+    if (headerIndex < 0) continue;
+
+    const periodCol = headers.findIndex(h => /^period$/i.test(h));
+    const addBackCol = headers.findIndex(h => /add.back/i.test(h));
+    const grossCol = headers.findIndex(h => /^gross/i.test(h));
+    const glDescCol = headers.findIndex(h => /qb gl|gl.*description|description/i.test(h));
+    const amountCol = addBackCol >= 0 ? addBackCol : grossCol;
+
+    if (periodCol < 0 || amountCol < 0) continue;
+
+    console.log(`[WS2-2 Extract] F7 per-category parse: periodCol=${periodCol}, amountCol=${amountCol} (${headers[amountCol]}), ${rows.length - headerIndex - 1} data rows`);
+
+    // Parse rows — category headers are rows where Period column is text (not month pattern)
+    let currentCategory = "Unknown";
+    for (let i = headerIndex + 1; i < rows.length; i++) {
+      const cells = rows[i];
+      if (cells.every(c => !c || String(c).trim() === "")) continue;
+      if (cells.some(c => /\bTOTAL\b|\bSUBTOTAL\b|\bSECTION\b|\bCOMBINED\b/i.test(String(c)))) continue;
+
+      const periodCell = String(cells[periodCol] ?? "").trim();
+      const monthMatch = periodCell.match(/(\w{3})-(\d{4})/i);
+
+      if (!monthMatch) {
+        // This is a category header row (e.g., "Church / Religious Donations")
+        if (periodCell && periodCell.length > 2) {
+          currentCategory = periodCell;
+        }
+        continue;
+      }
+
+      // This is a data row with a month
+      const monthKey = `${monthMatch[2]}-${monthMap[monthMatch[1].toLowerCase()] ?? "00"}`;
+      if (!ttmMonths.includes(monthKey)) continue;
+
+      const rawAmount = String(cells[amountCol] ?? "").replace(/[$,"]/g, "").trim();
+      const amount = Number(rawAmount);
+      if (!Number.isFinite(amount) || amount === 0) continue;
+
+      const glDesc = glDescCol >= 0 ? String(cells[glDescCol] ?? "").replace(/"/g, "").trim() : "";
+
+      if (!result[currentCategory]) {
+        result[currentCategory] = { description: currentCategory, glAccount: glDesc || currentCategory, ttmAmount: 0 };
+      }
+      result[currentCategory].ttmAmount += amount;
+    }
+
+    for (const [cat, data] of Object.entries(result)) {
+      console.log(`[WS2-2 Extract] F7 category: "${cat}" TTM=$${data.ttmAmount.toFixed(0)}`);
+    }
+  }
+
+  return result;
+}
+
+function extractTtmColumnTotals(preparedDoc: PreparedDocumentInput | undefined, ttmMonths: string[], sheetFilter?: string): Record<string, number> {
+  const totals: Record<string, number> = {};
+  if (!preparedDoc?.textBlocks?.length || !ttmMonths.length) return totals;
+
+  for (const block of preparedDoc.textBlocks) {
+    if (sheetFilter && !block.sheetName.toLowerCase().includes(sheetFilter.toLowerCase())) continue;
+
+    const rows = parseCSVWithQuotes(block.text);
+    if (rows.length < 2) continue;
+
+    // Find header row — contains "Period" or "Month" AND has 4+ columns
+    let headerIndex = -1;
+    let headers: string[] = [];
+    for (let i = 0; i < Math.min(rows.length, 10); i++) {
+      const row = rows[i];
+      // Normalize multi-line headers: "Draws\n(Other Earnings)" → "Draws (Other Earnings)"
+      const normalized = row.map(c => c.replace(/\n/g, " ").replace(/\s+/g, " ").trim());
+      if (normalized.some(c => /^period$/i.test(c) || /^month$/i.test(c)) && normalized.length >= 4) {
+        headers = normalized;
+        headerIndex = i;
+        break;
+      }
+    }
+    if (headerIndex < 0) continue;
+
+    // Identify data columns (not period/month/gl/description)
+    const dataColIndices: Array<{ index: number; name: string }> = [];
+    const periodColIndex = headers.findIndex(h => /^period$/i.test(h));
+    for (let col = 0; col < headers.length; col++) {
+      const h = headers[col];
+      if (!/period|month|gl|cantara|description|account/i.test(h) && h.length > 0) {
+        // Clean the header name
+        const cleanName = h.replace(/\(.*\)/g, "").trim() || h;
+        dataColIndices.push({ index: col, name: cleanName });
+      }
+    }
+
+    console.log(`[WS2-2 Extract] Sheet "${block.sheetName}": ${dataColIndices.map(c => c.name).join(", ")} (${rows.length} rows, header at ${headerIndex})`);
+
+    // Sum each data column for TTM months only
+    const monthMap: Record<string, string> = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+
+    for (let i = headerIndex + 1; i < rows.length; i++) {
+      const cells = rows[i];
+      if (cells.some(c => /\bTOTAL\b|\bSUBTOTAL\b|\bCOMBINED\b/i.test(c))) continue;
+      if (cells.some(c => /^FY\b/i.test(c) && !/\d{4}-\d{2}/.test(c) && !/\w{3}-\d{4}/.test(c))) continue; // Skip FY header rows
+
+      // Find month in this row
+      const periodCell = periodColIndex >= 0 ? (cells[periodColIndex] ?? "") : "";
+      const monthMatch = periodCell.match(/(\w{3})-(\d{4})/);
+      if (!monthMatch) continue;
+      const monthKey = `${monthMatch[2]}-${monthMap[monthMatch[1].toLowerCase()] ?? "00"}`;
+      if (!ttmMonths.includes(monthKey)) continue;
+
+      for (const col of dataColIndices) {
+        const raw = (cells[col.index] ?? "").replace(/[$,"]/g, "").trim();
+        const value = Number(raw);
+        if (Number.isFinite(value) && value !== 0) {
+          totals[col.name] = (totals[col.name] ?? 0) + value;
+        }
+      }
+    }
+  }
+
+  return totals;
+}
+
+async function buildWs22PromptContent(args: {
   analysis: TtmAnalysisView;
   assumptions: Ws2RecastAssumptions;
   preparedDocuments: PreparedDocumentInput[];
 }) {
   const preparedMap = buildPreparedDocumentMap(args.preparedDocuments);
+  console.log(`[WS2-2] Documents received: ${Array.from(preparedMap.keys()).join(", ") || "NONE"}`);
+  console.log(`[WS2-2] Document details: ${args.preparedDocuments.map(d => `${d.documentId}=${d.textBlocks?.length ?? 0} blocks`).join(", ")}`);
 
   // V3: Single consolidated File 5 — Add-Back Disclosure
   const addbackDisclosure = preparedMap.get("addback_disclosure");
 
-  // V2 fallback: separate documents
+  // Detail files F6-F9
   const shareholder = preparedMap.get("shareholder_remuneration_36m");
   const personal = preparedMap.get("personal_expenses_36m");
   const nonRecurring = preparedMap.get("non_recurring_expenses_36m");
@@ -868,41 +1291,412 @@ function buildWs22PromptContent(args: {
   > = [
     {
       type: "text",
-      text: `=== WS2-1 STRUCTURED OUTPUT (36-MONTH FINANCIAL MODEL WITH GL MAPPING) ===\n${JSON.stringify(buildWs2FinancialModelPayload(args.analysis), null, 2)}`,
+      text: `=== WS2-1 SUMMARY ===
+TTM Revenue: $${(args.analysis.ttmSummary?.totalRevenue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+TTM Pre-Recast EBITDA: $${(args.analysis.ttmSummary?.ebitdaPreRecast ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+TTM Period: ${args.analysis.ttmSummary?.startMonth ?? "?"} to ${args.analysis.ttmSummary?.endMonth ?? "?"}
+Annual Years: ${(args.analysis.annualModel?.years ?? []).map(y => `${y.fiscalYear} (Rev: $${(y.totalRevenue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}, EBITDA: $${(y.ebitdaPreRecast ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })})`).join(" | ")}`,
     },
   ];
 
-  if (addbackDisclosure) {
-    // V3 path: single consolidated file
-    content.push({
-      type: "text",
-      text: `=== INPUT FILE: Seller Add-Back Disclosure (Items 2.1–2.5 and 3.2) ===\n${preparedDocumentToText(addbackDisclosure, "No add-back disclosure document provided.")}`,
-    });
-  } else {
-    // V2 fallback: separate files
-    content.push(
-      {
-        type: "text",
-        text: `=== SELLER ADD-BACK LIST ITEM 5: SHAREHOLDER REMUNERATION ===\n${preparedDocumentToText(shareholder, "No shareholder remuneration document provided.")}`,
-      },
-      {
-        type: "text",
-        text: `=== SELLER ADD-BACK LIST ITEM 6: PERSONAL EXPENSES ===\n${preparedDocumentToText(personal, "No personal expense document provided.")}`,
-      },
-      {
-        type: "text",
-        text: `=== SELLER ADD-BACK LIST ITEM 7: NON-RECURRING EXPENSES ===\n${preparedDocumentToText(nonRecurring, "No non-recurring expense document provided.")}`,
-      },
-      {
-        type: "text",
-        text: `=== SELLER ADD-BACK LIST ITEM 8: TENANT IMPROVEMENTS ===\n${preparedDocumentToText(tenantImprovements, "No tenant improvement document provided.")}`,
-      },
-    );
+  // Raw file text no longer sent — the deterministic schedule has all the numbers.
+  // The LLM only needs the schedule + summary to write the report.
+
+  // ── SIMPLIFIED DETERMINISTIC EXTRACTION (4 inputs only) ──────────────────
+  const { parsePersonalExpenses } = require("@/lib/ttm-agent/parsers/personal-expenses");
+  const { parseOneOffExpenses } = require("@/lib/ttm-agent/parsers/one-off-expenses");
+
+  const ttmMonths = args.analysis.ttmSummary
+    ? (() => {
+        const months: string[] = [];
+        let [y, m] = args.analysis.ttmSummary.startMonth.split("-").map(Number);
+        const [ey, em] = args.analysis.ttmSummary.endMonth.split("-").map(Number);
+        while (y < ey || (y === ey && m <= em)) {
+          months.push(`${y}-${String(m).padStart(2, "0")}`);
+          m++; if (m > 12) { m = 1; y++; }
+        }
+        return months;
+      })()
+    : [];
+
+  // ── DETERMINISTIC EXTRACTION (clean module) ──────────────────────────────
+  const { buildDeterministicSchedule } = require("@/lib/ttm-agent/ws2-extraction");
+  const schedule = await buildDeterministicSchedule({
+    analysis: args.analysis,
+    assumptions: args.assumptions,
+    personalExpensesDoc: personal ?? addbackDisclosure,
+    oneOffDoc: nonRecurring ?? addbackDisclosure,
+  });
+
+  // Old extraction code removed — all computation now in ws2-extraction.ts
+  if (false) { // dead code block — to be deleted
+  const f5Summary = extractF5Summary(addbackDisclosure);
+  const f6OwnerComp = extractF6OwnerComp(shareholder, ttmMonths);
+  const f7Personal = extractF7PersonalByCategory(personal, ttmMonths);
+  const f8NonRecur = extractF8NonRecurring(nonRecurring, ttmMonths);
+
+  // Legacy extraction (fallback for older file formats)
+  const f5OwnerTotals = extractTtmColumnTotals(addbackDisclosure, ttmMonths, "owner");
+  const f6Totals = extractTtmColumnTotals(shareholder, ttmMonths);
+  const ownerTotals = Object.keys(f6OwnerComp).length > 0
+    ? Object.fromEntries(Object.entries(f6OwnerComp).map(([k, v]) => [v.name, v.ttmAmount]))
+    : { ...f6Totals, ...f5OwnerTotals };
+  const f5PersonalTotals = extractTtmColumnTotals(addbackDisclosure, ttmMonths, "personal");
+  const f7Totals = extractTtmColumnTotals(personal, ttmMonths);
+  const personalTotals = { ...f7Totals, ...f5PersonalTotals };
+  const personalByCategory = Object.keys(f7Personal).length > 0
+    ? Object.fromEntries(Object.entries(f7Personal).map(([k, v]) => [k, { description: v.category, glAccount: v.glAccount, ttmAmount: v.ttmAmount }]))
+    : {} as Record<string, { description: string; glAccount: string; ttmAmount: number }>;
+  // Non-recurring: merge F8 structured extraction with legacy F5 Sheet D extraction
+  const nonRecurTotals: Record<string, number> = {};
+  // From new F8 parser
+  for (const item of f8NonRecur.expensesToAddBack) {
+    nonRecurTotals[`${item.date} ${item.description.slice(0, 60)}`] = item.amount;
   }
+  // Legacy extraction from F5 Sheet D (for older formats)
+  if (Object.keys(nonRecurTotals).length === 0) {
+    for (const doc of [addbackDisclosure, nonRecurring]) {
+      if (!doc?.textBlocks?.length) continue;
+      for (const block of doc.textBlocks) {
+        if (!/non.recurring|repair|section d/i.test(block.sheetName) && !/non.recurring|repair|section d/i.test(block.text.slice(0, 200))) continue;
+        const rows = parseCSVWithQuotes(block.text);
+        for (const cells of rows) {
+          const firstCell = (cells[0] ?? "").trim();
+          if (!firstCell || /^(period|section|net ebitda|date|acct)/i.test(firstCell)) continue;
+          if (/subtotal|total|combined/i.test(firstCell)) continue;
+          const mm = firstCell.match(/(\w{3})-(\d{4})/);
+          if (!mm) continue;
+          const monthKey = `${mm[2]}-${MONTH_MAP[mm[1].toLowerCase()] ?? "00"}`;
+          if (!ttmMonths.includes(monthKey)) continue;
+          const directionCell = cells.find(c => /add back/i.test(c));
+          if (!directionCell) continue;
+          const amountCell = cells.find(c => {
+            const cleaned = c.replace(/[$,"\s]/g, "");
+            const num = Number(cleaned);
+            return Number.isFinite(num) && num > 100 && (num < 2018 || num > 2030);
+          });
+          if (!amountCell) continue;
+          const amount = Number(amountCell.replace(/[$,"\s]/g, ""));
+          if (!Number.isFinite(amount) || amount <= 0) continue;
+          const desc = (cells[2] ?? cells[1] ?? firstCell).replace(/"/g, "").trim().slice(0, 60);
+          nonRecurTotals[`${firstCell} ${desc}`] = amount;
+          console.log(`[WS2-2 Extract] Non-recurring TTM item (legacy): ${firstCell} — $${amount} — ${desc}`);
+        }
+      }
+    }
+  }
+
+  // ── GL-BASED EXTRACTION FROM F1 P&L (via WS2-1 mapped rows) ──────────────
+  // Build per-GL-account TTM amounts so the LLM can apply full normalization.
+  const { ADD_BACK_CODES: addBackCodes, TAXONOMY_BY_CODE: taxByCode } = require("@/lib/ttm-agent/taxonomy");
+  const mappedPlRows = (args.analysis.normalizedData?.mappedPlRows ?? []) as Array<{
+    cantaraCode: string | null;
+    accountName: string;
+    accountCode?: string | null;
+    valuesByMonth: Record<string, number>;
+  }>;
+
+  // Build per-account TTM summary from F1 GL data
+  const glAccountSummary: Array<{ accountCode: string; accountName: string; cantaraCode: string; ttm: number; fy3: number; fy2: number; fy1: number }> = [];
+
+  const annualYears = args.analysis.annualModel?.years ?? [];
+  const fyMonthRanges = annualYears.map(y => {
+    const months: string[] = [];
+    if (!y.periodStart || !y.periodEnd) return months;
+    let [yr, mo] = y.periodStart.split("-").map(Number);
+    const [eyr, emo] = y.periodEnd.split("-").map(Number);
+    while (yr < eyr || (yr === eyr && mo <= emo)) {
+      months.push(`${yr}-${String(mo).padStart(2, "0")}`);
+      mo++; if (mo > 12) { mo = 1; yr++; }
+    }
+    return months;
+  });
+
+  // Build per-account GL summary for the LLM
+  for (const row of mappedPlRows) {
+    if (!row.cantaraCode || !row.accountName) continue;
+    const ttm = ttmMonths.reduce((sum, m) => sum + (row.valuesByMonth?.[m] ?? 0), 0);
+    const byFy = fyMonthRanges.map(months =>
+      months.reduce((sum, m) => sum + (row.valuesByMonth?.[m] ?? 0), 0)
+    );
+    if (ttm !== 0 || byFy.some(v => v !== 0)) {
+      glAccountSummary.push({
+        accountCode: row.accountCode ?? "",
+        accountName: row.accountName,
+        cantaraCode: row.cantaraCode,
+        ttm,
+        fy3: byFy[2] ?? 0,
+        fy2: byFy[1] ?? 0,
+        fy1: byFy[0] ?? 0,
+      });
+    }
+  }
+  console.log(`[WS2-2 Extract] GL account summary: ${glAccountSummary.length} accounts with non-zero values`);
+
+  // Sum GL amounts for each add-back code, per period
+  const addBackByCode: Record<string, { label: string; ttm: number; fy1: number; fy2: number; fy3: number }> = {};
+  for (const code of addBackCodes as string[]) {
+    const rows = mappedPlRows.filter(r => r.cantaraCode === code);
+    if (rows.length === 0) continue;
+    const ttm = rows.reduce((sum, r) => sum + ttmMonths.reduce((ms, m) => ms + (r.valuesByMonth?.[m] ?? 0), 0), 0);
+    const byFy = fyMonthRanges.map(months =>
+      rows.reduce((sum, r) => sum + months.reduce((ms, m) => ms + (r.valuesByMonth?.[m] ?? 0), 0), 0)
+    );
+    const entry = taxByCode[code];
+    addBackByCode[code] = {
+      label: entry?.category ?? code,
+      ttm,
+      fy1: byFy[0] ?? 0,
+      fy2: byFy[1] ?? 0,
+      fy3: byFy[2] ?? 0,
+    };
+    console.log(`[WS2-2 Extract] ADD-BACK ${code} (${entry?.category}): TTM=$${ttm.toFixed(0)}, FY3=$${(byFy[2] ?? 0).toFixed(0)}, FY2=$${(byFy[1] ?? 0).toFixed(0)}, FY1=$${(byFy[0] ?? 0).toFixed(0)}`);
+  }
+
+  const totalAddBackTtm = Object.values(addBackByCode).reduce((s, v) => s + v.ttm, 0);
+  console.log(`[WS2-2 Extract] Total add-back from GL codes: TTM=$${totalAddBackTtm.toFixed(0)}`);
+
+  const allExtracted = {
+    ownerCompensation: ownerTotals,
+    personalExpenses: personalTotals,
+    nonRecurring: nonRecurTotals,
+    addBackByCode,
+    ttmWindow: ttmMonths.length > 0 ? `${ttmMonths[0]} to ${ttmMonths[ttmMonths.length - 1]}` : "unknown",
+  };
+
+  console.log("[WS2-2] Deterministic extraction:", JSON.stringify({ ...allExtracted, addBackByCode: "see ADD-BACK logs" }));
+
+  const fyLabels = annualYears.map(y => y.fiscalYear ?? y.periodStart?.slice(0, 4) ?? "FY");
+
+  // ── BUILD DETERMINISTIC NORMALIZATION SCHEDULE ─────────────────────────
+  // Compute exact add-back amounts from GL data. The LLM formats these — it does NOT choose amounts.
+  type NormLine = { id: string; category: string; description: string; glRef: string; ltm: number; fy3: number; fy2: number; fy1: number; status: string };
+  const normLines: NormLine[] = [];
+  let lineNum = 0;
+
+  // Helper: sum a GL account across months
+  const sumAccount = (acctCode: string, months: string[]) => {
+    return glAccountSummary
+      .filter(a => a.accountCode === acctCode)
+      .reduce((s, a) => s + months.reduce((ms, m) => ms + (a.ttm !== undefined ? 0 : 0), 0), 0); // placeholder
+  };
+
+  // Category 1: Owner comp — use GL amounts for each account in OPX-LABOR-OWN
+  const ownerAccounts = glAccountSummary.filter(a => a.cantaraCode === "OPX-LABOR-OWN");
+  for (const acct of ownerAccounts) {
+    lineNum++;
+    normLines.push({
+      id: `1${String.fromCharCode(96 + lineNum)}`,
+      category: "Owner / Officer Compensation",
+      description: acct.accountName,
+      glRef: acct.accountCode,
+      ltm: acct.ttm, fy3: acct.fy3, fy2: acct.fy2, fy1: acct.fy1,
+      status: "VERIFIED",
+    });
+  }
+  // Add consulting if not already in OPX-LABOR-OWN
+  const consultingAccounts = glAccountSummary.filter(a => /consult/i.test(a.accountName) && a.cantaraCode !== "OPX-LABOR-OWN");
+  for (const acct of consultingAccounts) {
+    lineNum++;
+    normLines.push({
+      id: `1${String.fromCharCode(96 + lineNum)}`,
+      category: "Owner / Officer Compensation",
+      description: acct.accountName,
+      glRef: acct.accountCode,
+      ltm: acct.ttm, fy3: acct.fy3, fy2: acct.fy2, fy1: acct.fy1,
+      status: "VERIFIED",
+    });
+  }
+  // Replacement salary
+  normLines.push({
+    id: `1${String.fromCharCode(96 + lineNum + 1)}`,
+    category: "Owner / Officer Compensation",
+    description: "Owner Replacement Salary",
+    glRef: "—",
+    ltm: 0, fy3: -20000, fy2: -20000, fy1: -20000,
+    status: "DEFAULT",
+  });
+
+  // Category 2: Personal expenses from F7 + full GL normalization
+  lineNum = 0;
+  // F7 disclosed personal items
+  for (const [cat, data] of Object.entries(f7Personal)) {
+    lineNum++;
+    normLines.push({
+      id: `2${String.fromCharCode(96 + lineNum)}`,
+      category: "Personal Expenses",
+      description: cat,
+      glRef: data.glAccount || "—",
+      ltm: data.ttmAmount, fy3: data.ttmAmount, fy2: 0, fy1: 0, // F7 only has TTM; per-year needs GL
+      status: "VERIFIED",
+    });
+  }
+
+  // GL categories to normalize (full amounts from P&L)
+  const glNormCategories: Array<{ code: string; label: string }> = [
+    { code: "OPX-REPAIR", label: "Total Repairs & Maintenance" },
+    { code: "OPX-SUPPLY", label: "Total Supplies" },
+    { code: "OPX-UTIL", label: "Total Utilities" },
+    { code: "OPX-PROF", label: "Professional Fees" },
+    { code: "OPX-VET", label: "Emergency Vet" },
+    { code: "OPX-SOFT", label: "Dues & Subscriptions" },
+  ];
+  for (const { code, label } of glNormCategories) {
+    const accounts = glAccountSummary.filter(a => a.cantaraCode === code);
+    const ttm = accounts.reduce((s, a) => s + a.ttm, 0);
+    const fy3 = accounts.reduce((s, a) => s + a.fy3, 0);
+    const fy2 = accounts.reduce((s, a) => s + a.fy2, 0);
+    const fy1 = accounts.reduce((s, a) => s + a.fy1, 0);
+    if (ttm !== 0 || fy3 !== 0 || fy2 !== 0 || fy1 !== 0) {
+      lineNum++;
+      normLines.push({
+        id: `2${String.fromCharCode(96 + lineNum)}`,
+        category: "Personal Expenses",
+        description: label,
+        glRef: code,
+        ltm: ttm, fy3: fy3, fy2: fy2, fy1: fy1,
+        status: "FROM-GL",
+      });
+    }
+  }
+
+  // Category 3: Non-recurring from F8
+  lineNum = 0;
+  for (const item of f8NonRecur.expensesToAddBack) {
+    lineNum++;
+    normLines.push({
+      id: `3${String.fromCharCode(96 + lineNum)}`,
+      category: "One-Off Expenses",
+      description: item.description.slice(0, 60),
+      glRef: "F8",
+      ltm: item.amount, fy3: item.amount, fy2: 0, fy1: 0,
+      status: "VERIFIED",
+    });
+  }
+
+  // Compute totals
+  const totalLtm = normLines.reduce((s, l) => s + l.ltm, 0);
+  const totalFy3 = normLines.reduce((s, l) => s + l.fy3, 0);
+  const totalFy2 = normLines.reduce((s, l) => s + l.fy2, 0);
+  const totalFy1 = normLines.reduce((s, l) => s + l.fy1, 0);
+  const normEbitdaLtm = (args.analysis.ttmSummary?.ebitdaPreRecast ?? 0) + totalLtm;
+  const multiple = args.assumptions.multipleMid ?? 0;
+
+  console.log(`[WS2-2] Deterministic normalization: ${normLines.length} lines, total add-backs LTM=$${totalLtm.toFixed(0)}, normalized EBITDA=$${normEbitdaLtm.toFixed(0)}`);
+  for (const line of normLines) {
+    console.log(`[WS2-2]   ${line.id} ${line.description}: LTM=$${line.ltm.toFixed(0)}`);
+  }
+
+  const disclosureOwnerTotal = Object.values(ownerTotals).reduce((s, v) => s + v, 0);
+  const ownerCompFromGL = addBackByCode["OPX-LABOR-OWN"]?.ttm ?? 0;
+  const ownerCompBest = Math.max(ownerCompFromGL, disclosureOwnerTotal);
+
+  // F5 gives us the 36-month master list; F7 gives us TTM per-category
+  const f5PersonalItems = f5Summary.personalExpenses;
+  const f7PersonalItems = Object.values(personalByCategory);
+  const hasF7Detail = f7PersonalItems.length > 0;
+
+  const f8ExpenseTotal = f8NonRecur.expensesToAddBack.reduce((s, v) => s + v.amount, 0);
+  const f8IncomeTotal = f8NonRecur.incomeToRemove.reduce((s, v) => s + v.amount, 0);
+
+  // Build GL account detail for normalization categories
+  const normCategories = ["OPX-LABOR-OWN", "OPX-LABOR-TAX", "OPX-DONAT", "OPX-GIFTS", "OPX-VET", "OPX-VET-OWNER", "OPX-PROF", "OPX-PROF-OWNER", "OPX-MEALS", "OPX-MEALS-OWNER", "OPX-TRAVEL", "OPX-TRAVEL-OWNER", "OPX-REPAIR", "OPX-REPAIR-OWNER", "OPX-SUPPLY", "OPX-SUPPLY-OWNER", "OPX-UTIL", "OPX-UTIL-OWNER", "OPX-MKTG", "OPX-SOFT", "OPX-DUES-OWNER", "OPX-OFFICE-OWNER", "OPX-POSTAGE-OWNER", "OPX-BANK", "OPX-OTHER"];
+  const glByCategory = normCategories.map(code => {
+    const accounts = glAccountSummary.filter(a => a.cantaraCode === code);
+    const ttm = accounts.reduce((s, a) => s + a.ttm, 0);
+    return { code, accounts, ttm };
+  }).filter(c => c.accounts.length > 0);
+
+  // Format the deterministic schedule as a table for the prompt
+  const fmt$ = (v: number) => v < 0 ? `-$${Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: 0 })}` : `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const deterministicSchedule = [
+    `| # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status |`,
+    `|---|---|---|---|---|---|---|---|---|`,
+    `| — | — | Revenue | — | ${fmt$(args.analysis.ttmSummary?.totalRevenue ?? 0)} | ${fmt$(annualYears[2]?.totalRevenue ?? 0)} | ${fmt$(annualYears[1]?.totalRevenue ?? 0)} | ${fmt$(annualYears[0]?.totalRevenue ?? 0)} | — |`,
+    `| — | — | Net Income/EBITDA (Pre-Recast) | — | ${fmt$(args.analysis.ttmSummary?.ebitdaPreRecast ?? 0)} | ${fmt$(annualYears[2]?.ebitdaPreRecast ?? 0)} | ${fmt$(annualYears[1]?.ebitdaPreRecast ?? 0)} | ${fmt$(annualYears[0]?.ebitdaPreRecast ?? 0)} | — |`,
+    ...normLines.map(l => `| ${l.id} | ${l.category} | ${l.description} | ${l.glRef} | ${fmt$(l.ltm)} | ${fmt$(l.fy3)} | ${fmt$(l.fy2)} | ${fmt$(l.fy1)} | ${l.status} |`),
+    `| — | **TOTAL ADD-BACKS** | | | **${fmt$(totalLtm)}** | **${fmt$(totalFy3)}** | **${fmt$(totalFy2)}** | **${fmt$(totalFy1)}** | |`,
+    `| — | **NORMALIZED / RECAST EBITDA** | | | **${fmt$(normEbitdaLtm)}** | **${fmt$((annualYears[2]?.ebitdaPreRecast ?? 0) + totalFy3)}** | **${fmt$((annualYears[1]?.ebitdaPreRecast ?? 0) + totalFy2)}** | **${fmt$((annualYears[0]?.ebitdaPreRecast ?? 0) + totalFy1)}** | |`,
+    `| — | Multiple | | | ${Number(multiple).toFixed(1)}x | ${Number(multiple).toFixed(1)}x | ${Number(multiple).toFixed(1)}x | ${Number(multiple).toFixed(1)}x | |`,
+    `| — | **Valuation** | | | **${fmt$(normEbitdaLtm * multiple)}** | **${fmt$((annualYears[2]?.ebitdaPreRecast ?? 0 + totalFy3) * multiple)}** | **${fmt$((annualYears[1]?.ebitdaPreRecast ?? 0 + totalFy2) * multiple)}** | **${fmt$((annualYears[0]?.ebitdaPreRecast ?? 0 + totalFy1) * multiple)}** | |`,
+  ].join("\n");
 
   content.push({
     type: "text",
-    text: `=== ADMIN INPUTS ===\n${JSON.stringify(args.assumptions, null, 2)}`,
+    text: `=== PRE-COMPUTED NORMALIZATION SCHEDULE (USE EXACTLY AS-IS) ===
+The system has computed the normalization schedule from GL data and seller disclosures. Your job is to OUTPUT this exact schedule in the EBITDA RECAST SCHEDULE section. Do NOT change any amounts — they are computed from the authoritative GL P&L data.
+
+## EBITDA RECAST SCHEDULE
+
+${deterministicSchedule}
+
+=== ADDITIONAL CONTEXT (for flag generation and narrative only) ===
+
+IMPORTANT: Apply normalization from the GL P&L data below. The GL amounts from F1 are the AUTHORITATIVE source for dollar amounts. F5-F9 disclosure files tell you WHICH items are personal — the GL tells you HOW MUCH.
+
+=== GL ACCOUNT DETAIL BY CATEGORY (from F1 via WS2-1) ===
+${glByCategory.map(cat => {
+  const label = taxByCode[cat.code]?.category ?? cat.code;
+  return `\n${label} [${cat.code}] — TTM Total: $${cat.ttm.toLocaleString("en-US", { maximumFractionDigits: 0 })}\n${cat.accounts.map(a =>
+    `  ${a.accountCode ? a.accountCode + " " : ""}${a.accountName}: LTM=$${a.ttm.toLocaleString("en-US", { maximumFractionDigits: 0 })} | ${fyLabels[2] ?? "FY3"}=$${a.fy3.toLocaleString("en-US", { maximumFractionDigits: 0 })} | ${fyLabels[1] ?? "FY2"}=$${a.fy2.toLocaleString("en-US", { maximumFractionDigits: 0 })} | ${fyLabels[0] ?? "FY1"}=$${a.fy1.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+  ).join("\n")}`;
+}).join("\n")}
+
+=== CATEGORY 1: OWNER COMPENSATION ===
+Use the GL amounts above for each owner comp account. The GL includes year-end true-ups (e.g., S-Corp Health Insurance annual adjustment) that F6 transaction detail may not capture.
+F6 sub-items for reference: ${Object.entries(ownerTotals).map(([name, val]) => `${name}: $${val.toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(", ") || "none extracted"}
+F5 36-mo totals: ${f5Summary.ownerComp.map(i => `${i.name}: $${i.total.toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(", ") || "none"}
+→ For each owner comp GL account (OPX-LABOR-OWN), use the GL TTM amount as the add-back. These are the actual P&L amounts including year-end adjustments.
+
+=== CATEGORY 2: PERSONAL EXPENSES ===
+The seller disclosed these personal expenses (F5 Section B / F7):
+${hasF7Detail ? f7PersonalItems.map(item =>
+  `  ${item.description} (${item.glAccount || "n/a"}): TTM=$${item.ttmAmount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+).join("\n") : "  No F7 detail extracted."}
+${f5PersonalItems.length > 0 ? `F5 36-mo totals:\n${f5PersonalItems.map(i => `  ${i.acctNum} ${i.name}: $${i.total.toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join("\n")}` : ""}
+
+ADDITIONALLY — apply full normalization to these P&L categories using GL amounts above:
+- Total Repairs & Maintenance (OPX-REPAIR): add back FULL GL amount
+- Total Supplies (OPX-SUPPLY): add back FULL GL amount
+- Total Utilities (OPX-UTIL): add back FULL GL amount
+- Professional Fees (OPX-PROF): add back FULL GL amount
+- Marketing & Advertising (OPX-MKTG): add back FULL GL amount if seller identified as personal
+- Office/Admin expenses: add back from GL
+- Postage & Delivery: add back from GL
+- Emergency Vet (OPX-VET): add back FULL GL amount
+→ Use the exact GL amounts from the account detail above for each line item.
+
+=== CATEGORY 3: NON-RECURRING ITEMS ===
+${f8NonRecur.expensesToAddBack.length > 0 ? `Expenses to ADD BACK (from F8):\n${f8NonRecur.expensesToAddBack.map(i => `  ${i.date}: ${i.description} — $${i.amount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join("\n")}` : "No non-recurring expenses in TTM."}
+${f8NonRecur.incomeToRemove.length > 0 ? `Income to REMOVE (from F8):\n${f8NonRecur.incomeToRemove.map(i => `  ${i.date}: ${i.description} — $${i.amount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join("\n")}` : "No non-recurring income in TTM."}
+${Object.keys(nonRecurTotals).length > 0 && f8NonRecur.expensesToAddBack.length === 0 ? `Legacy:\n${Object.entries(nonRecurTotals).map(([desc, val]) => `  ${desc}: $${val.toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join("\n")}` : ""}
+→ Do NOT double-count repairs that are already in Category 2.
+
+=== CATEGORY 4: TENANT IMPROVEMENTS ===
+${f5Summary.tenantImprovements.length > 0 ? f5Summary.tenantImprovements.map(i => `  ${i.name}: $${i.total.toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join("\n") : "No tenant improvement add-backs."}
+
+=== REPLACEMENT SALARY ===
+$0 for LTM, -$20,000 for each prior FY (or Admin override).
+
+=== ADMIN INPUTS ===
+${JSON.stringify(args.assumptions, null, 2)}`,
+  });
+  } // end SKIP_OLD_EXTRACTION
+
+  // ── NEW: Clean prompt using deterministic schedule ──────────────────────
+  content.push({
+    type: "text",
+    text: `=== PRE-COMPUTED NORMALIZATION SCHEDULE ===
+The system computed this schedule from the P&L GL data (owner comp) and the seller's personal expense disclosure. Output it in the EBITDA RECAST SCHEDULE section. Do NOT change any amounts.
+
+## EBITDA RECAST SCHEDULE
+
+${schedule.scheduleMarkdown}
+
+Your job: wrap this schedule in the standard WS2-2 report format (STARTING POINT, CATEGORIES, FLAG LIST, SUMMARY). Flag any items that look unusual. Do not recalculate amounts.
+
+=== ADMIN INPUTS ===
+${JSON.stringify(args.assumptions, null, 2)}`,
   });
 
   content.push({
@@ -1095,20 +1889,22 @@ export async function runWs2RecastAnalysis(args: {
   }
 
   const preparedMap = buildPreparedDocumentMap(args.preparedDocuments);
-  const hasAddbackDisclosure =
-    preparedMap.has("addback_disclosure") ||
-    preparedMap.has("shareholder_remuneration_36m") ||
+  const hasRequiredDocs =
     preparedMap.has("personal_expenses_36m") ||
     preparedMap.has("non_recurring_expenses_36m") ||
-    preparedMap.has("tenant_improvements_36m");
+    preparedMap.has("addback_disclosure"); // legacy fallback
 
-  if (!hasAddbackDisclosure) {
-    throw new TtmOrchestratorError("WS2-2 requires File 5 (Seller Add-Back Disclosure) or the legacy add-back source files.", 400);
+  if (!hasRequiredDocs) {
+    throw new TtmOrchestratorError("WS2-2 requires the Personal Expenses list and Non-Recurring Expenses file.", 400);
   }
 
-  const existingCount = await (prisma as any).ws2RecastAnalysis.count({
+  const existingRecords = await (prisma as any).ws2RecastAnalysis.findMany({
     where: { ttmAnalysisId: args.analysisId },
+    select: { version: true },
+    orderBy: { version: "desc" },
+    take: 1,
   });
+  const existingCount = existingRecords[0]?.version ?? 0;
 
   if (!isFiniteNumber(args.assumptions.multipleLow) || !isFiniteNumber(args.assumptions.multipleMid) || !isFiniteNumber(args.assumptions.multipleHigh)) {
     throw new TtmOrchestratorError("Admin must provide low, mid, and high valuation multiples before WS2-2 can run.", 400);
@@ -1120,13 +1916,13 @@ export async function runWs2RecastAnalysis(args: {
     throw new TtmOrchestratorError("Admin's valuation multiples must be ordered low ≤ mid ≤ high.", 400);
   }
 
-  // V3 Section 10: Owner replacement salary not provided → default to $65,000
+  // Owner replacement salary not provided → default to $0 for LTM, $20K for prior FY
   const normalizedAssumptions = { ...args.assumptions };
   let usedDefaultSalary = false;
   if (normalizedAssumptions.replacementSalary == null) {
-    normalizedAssumptions.replacementSalary = 65000;
+    normalizedAssumptions.replacementSalary = 0;
     usedDefaultSalary = true;
-    console.warn(`[TTM] ⚠ Owner replacement salary not provided. Defaulting to $65,000 as per V3 Section 10.`);
+    console.warn(`[TTM] ⚠ Owner replacement salary not provided. Defaulting to $0 for LTM, $20K for prior years.`);
   }
 
   const created = await (prisma as any).ws2RecastAnalysis.create({
@@ -1145,7 +1941,7 @@ export async function runWs2RecastAnalysis(args: {
 
   try {
     const rawReportMarkdown = await generateWs22Report(
-      buildWs22PromptContent({
+      await buildWs22PromptContent({
         analysis,
         assumptions: normalizedAssumptions,
         preparedDocuments: args.preparedDocuments,
@@ -1166,10 +1962,10 @@ export async function runWs2RecastAnalysis(args: {
     // V3 Section 10: Default salary flag
     if (usedDefaultSalary) {
       flagPayloads.push({
-        title: "Owner replacement salary defaulted to $65,000",
-        description: "No replacement salary was provided by Admin. The system used the V3 default of $65,000/year. All outputs are labeled DEFAULT. Admin should verify this amount.",
+        title: "Owner replacement salary defaulted to $0 for LTM",
+        description: "No replacement salary was provided by Admin. Per Cantara methodology, LTM uses $0 replacement salary. Prior fiscal years use -$20,000/year default. Admin should verify.",
         severity: "MEDIUM" as const,
-        payload: { source: "SYSTEM_DEFAULT", defaultAmount: 65000 },
+        payload: { source: "SYSTEM_DEFAULT", defaultAmount: 0 },
       });
     }
 
@@ -1188,9 +1984,10 @@ export async function runWs2RecastAnalysis(args: {
             baseValuationHigh: metrics.valuationHigh,
           },
           normalizedEbitda: metrics.normalizedEbitda,
-          valuationLow: metrics.valuationLow,
-          valuationMid: metrics.valuationMid,
-          valuationHigh: metrics.valuationHigh,
+          // Deterministic fallback: if Claude's report didn't yield valuation but we have EBITDA + multiples, calculate directly
+          valuationLow: metrics.valuationLow ?? (metrics.normalizedEbitda != null && normalizedAssumptions.multipleLow != null ? metrics.normalizedEbitda * normalizedAssumptions.multipleLow : null),
+          valuationMid: metrics.valuationMid ?? (metrics.normalizedEbitda != null && normalizedAssumptions.multipleMid != null ? metrics.normalizedEbitda * normalizedAssumptions.multipleMid : null),
+          valuationHigh: metrics.valuationHigh ?? (metrics.normalizedEbitda != null && normalizedAssumptions.multipleHigh != null ? metrics.normalizedEbitda * normalizedAssumptions.multipleHigh : null),
           errorMessage: null,
         },
       });

@@ -18,6 +18,9 @@ type ParsedScheduleItem = {
   description: string
   glReference: string
   ttmAmount: number
+  fy3Amount: number | null
+  fy2Amount: number | null
+  fy1Amount: number | null
   status: string
   sourcePeriod: string | null
   sourceAmount: number | null
@@ -173,7 +176,12 @@ function parseCategoryPeriodItems(reportMarkdown: string, heading: string) {
 
 function parseRecastScheduleRows(reportMarkdown: string | null | undefined): ParsedScheduleItem[] {
   if (!reportMarkdown) return []
-  const match = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i)
+  // Match multi-year format (9 columns: # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status)
+  const multiYearMatch = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\|[^\n]*#[^\n]*Category[^\n]*LTM[^\n]*FY3[^\n]*FY2[^\n]*FY1[^\n]*Status[^\n]*\|[\s\S]*?)(?:\n## FLAG LIST|$)/i)
+  // Fall back to legacy format
+  const legacyMatch = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i)
+  const match = multiYearMatch ?? legacyMatch
+  const isMultiYear = Boolean(multiYearMatch)
   if (!match) return []
 
   const category3Items = parseCategoryPeriodItems(reportMarkdown, 'CATEGORY 3: ONE-OFF NON-RECURRING EXPENSES')
@@ -193,20 +201,40 @@ function parseRecastScheduleRows(reportMarkdown: string | null | undefined): Par
     .filter((line) => !/^\|\s*-+/.test(line))
     .map((line) => line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim().replace(/\*\*/g, '')))
     .filter((cells) => cells.length >= 6 && cells[0] !== '#' && cells[1] !== 'Category')
-    .map((cells) => ({
-      index: cells[0],
-      category: cells[1],
-      description: cells[2],
-      glReference: cells[3],
-      ttmAmount: parseCurrency(cells[4]) ?? 0,
-      status: cells[5] || 'CALCULATED',
-      sourcePeriod: periodByDescription.get(normalizeDescriptionKey(cells[2])) ?? null,
-      sourceAmount: amountByDescription.get(normalizeDescriptionKey(cells[2])) ?? null,
-    }))
+    .map((cells) => {
+      if (isMultiYear && cells.length >= 9) {
+        return {
+          index: cells[0],
+          category: cells[1],
+          description: cells[2],
+          glReference: cells[3],
+          ttmAmount: parseCurrency(cells[4]) ?? 0,
+          fy3Amount: parseCurrency(cells[5]),
+          fy2Amount: parseCurrency(cells[6]),
+          fy1Amount: parseCurrency(cells[7]),
+          status: cells[8] || 'CALCULATED',
+          sourcePeriod: periodByDescription.get(normalizeDescriptionKey(cells[2])) ?? null,
+          sourceAmount: amountByDescription.get(normalizeDescriptionKey(cells[2])) ?? null,
+        }
+      }
+      return {
+        index: cells[0],
+        category: cells[1],
+        description: cells[2],
+        glReference: cells[3],
+        ttmAmount: parseCurrency(cells[4]) ?? 0,
+        fy3Amount: null,
+        fy2Amount: null,
+        fy1Amount: null,
+        status: cells[5] || 'CALCULATED',
+        sourcePeriod: periodByDescription.get(normalizeDescriptionKey(cells[2])) ?? null,
+        sourceAmount: amountByDescription.get(normalizeDescriptionKey(cells[2])) ?? null,
+      }
+    })
     .filter((item) =>
       item.index !== '—' &&
-      !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN/i.test(item.description) &&
-      !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN/i.test(item.category),
+      !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN|Multiple|Valuation|Revenue|Net Income/i.test(item.description) &&
+      !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN|Multiple|Valuation/i.test(item.category),
     )
 }
 
@@ -236,28 +264,39 @@ function buildRecastSchedule(
 
   const fyMonths = annualYears.map((year) => monthsBetween(year.periodStart, year.periodEnd))
 
-  const periodAmount = (item: ParsedScheduleItem, months: string[]) => {
-    if (/Replacement Manager Salary/i.test(item.description)) {
-      return -((replacementSalary * months.length) / 12)
+  const periodAmount = (item: ParsedScheduleItem, months: string[], yearIndex: number | null) => {
+    if (/Replacement.*Salary/i.test(item.description)) {
+      // LTM uses $0 per Cantara methodology; prior years use -$20K default or Craig's input
+      if (yearIndex === null) return 0 // TTM/LTM
+      const priorYearSalary = replacementSalary > 0 ? replacementSalary : 20000
+      return -((priorYearSalary * months.length) / 12)
     }
     if (/Employer FICA on owner wages/i.test(item.description)) {
       return sumGlForMonths(mappedPlRows, '6020', months) * 0.0765
     }
     if (/One-Off Expenses|TI Add-Backs/i.test(item.category)) {
+      // If we have parsed per-year amounts, use them directly
+      if (yearIndex === 0 && item.fy1Amount !== null) return item.fy1Amount
+      if (yearIndex === 1 && item.fy2Amount !== null) return item.fy2Amount
+      if (yearIndex === 2 && item.fy3Amount !== null) return item.fy3Amount
       if (!item.sourcePeriod) return item.ttmAmount
       return months.includes(item.sourcePeriod) ? (item.sourceAmount ?? item.ttmAmount) : 0
     }
     if (/^\d+$/.test(item.glReference)) {
       return sumGlForMonths(mappedPlRows, item.glReference, months)
     }
+    // If we have parsed per-year amounts from multi-year prompt output, use them
+    if (yearIndex === 0 && item.fy1Amount !== null) return item.fy1Amount
+    if (yearIndex === 1 && item.fy2Amount !== null) return item.fy2Amount
+    if (yearIndex === 2 && item.fy3Amount !== null) return item.fy3Amount
     return item.ttmAmount
   }
 
   return parsedItems.map<AddBackItem>((item) => {
-    const ttmAmount = periodAmount(item, ttmMonths)
-    const fy1Amount = periodAmount(item, fyMonths[0] ?? [])
-    const fy2Amount = periodAmount(item, fyMonths[1] ?? [])
-    const fy3Amount = periodAmount(item, fyMonths[2] ?? [])
+    const ttmAmount = periodAmount(item, ttmMonths, null)
+    const fy1Amount = periodAmount(item, fyMonths[0] ?? [], 0)
+    const fy2Amount = periodAmount(item, fyMonths[1] ?? [], 1)
+    const fy3Amount = periodAmount(item, fyMonths[2] ?? [], 2)
     const outOfPeriod = (/One-Off Expenses|TI Add-Backs/i.test(item.category) && item.sourcePeriod && !ttmMonths.includes(item.sourcePeriod) && ttmAmount === 0)
     const status = outOfPeriod && !/OUT-OF-PERIOD FOR TTM/i.test(item.status) ? `${item.status} · OUT-OF-PERIOD FOR TTM` : item.status
     return {
@@ -449,9 +488,30 @@ export function buildWS2ReportAdapter(
     summaryText: analysis.summary?.overview ?? 'Summary Generated',
   }
 
-  const replacementSalary = recast?.assumptions?.replacementSalary ?? 65000
+  const replacementSalary = recast?.assumptions?.replacementSalary ?? 0
+  console.log('[WS2-DEBUG] reportMarkdown present:', !!recast?.reportMarkdown, 'length:', recast?.reportMarkdown?.length ?? 0)
   const addBackItems = buildRecastSchedule(recast?.reportMarkdown, mappedPlRows, years, ttmMonths, replacementSalary)
+  console.log('[WS2-DEBUG] addBackItems count:', addBackItems.length, addBackItems.map(i => i.description))
   const ttmRevenue = sum?.totalRevenue ?? 0
+  const totalAddBacksFY1 = addBackItems.reduce((acc, item) => acc + (item.fy1Amount ?? 0), 0)
+  const totalAddBacksFY2 = addBackItems.reduce((acc, item) => acc + (item.fy2Amount ?? 0), 0)
+  const totalAddBacksFY3 = addBackItems.reduce((acc, item) => acc + (item.fy3Amount ?? 0), 0)
+  const normalizedEbitdaFY1 = (years[0]?.ebitdaPreRecast ?? 0) + totalAddBacksFY1
+  const normalizedEbitdaFY2 = (years[1]?.ebitdaPreRecast ?? 0) + totalAddBacksFY2
+  const normalizedEbitdaFY3 = (years[2]?.ebitdaPreRecast ?? 0) + totalAddBacksFY3
+  const midMultiple = recast?.assumptions?.multipleMid ?? 0
+
+  // Build per-year valuation data
+  const byYear = years.map((year, i) => {
+    const normEbitda = i === 0 ? normalizedEbitdaFY1 : i === 1 ? normalizedEbitdaFY2 : normalizedEbitdaFY3
+    return {
+      fiscalYear: year.fiscalYear ?? year.periodStart?.slice(0, 4) ?? `FY${i + 1}`,
+      normalizedEbitda: normEbitda,
+      margin: year.totalRevenue ? normEbitda / year.totalRevenue : null,
+      valuationMid: normEbitda * midMultiple,
+    }
+  })
+
   const ws22 = recast ? {
     status: recast.status as any,
     runId: String(recast.version),
@@ -462,7 +522,13 @@ export function buildWS2ReportAdapter(
       addBackItems,
       totalAddBacks: addBackItems.reduce((acc, item) => acc + item.ttmAmount, 0),
       normalizedEbitdaTTM: recast.normalizedEbitda ?? 0,
+      normalizedEbitdaFY3,
+      normalizedEbitdaFY2,
+      normalizedEbitdaFY1,
       normalizedMarginTTM: recast.normalizedEbitda && ttmRevenue ? recast.normalizedEbitda / ttmRevenue : 0,
+      totalAddBacksFY3,
+      totalAddBacksFY2,
+      totalAddBacksFY1,
       flagsForCraig: recast.flags.map((flag) => ({
         itemId: flag.id,
         issue: flag.title,
@@ -482,9 +548,10 @@ export function buildWS2ReportAdapter(
       revenueMultipleLow: ttmRevenue ? (recast.valuationLow ?? 0) / ttmRevenue : 0,
       revenueMultipleMid: ttmRevenue ? (recast.valuationMid ?? 0) / ttmRevenue : 0,
       revenueMultipleHigh: ttmRevenue ? (recast.valuationHigh ?? 0) / ttmRevenue : 0,
-      replacementSalary: recast.assumptions.replacementSalary ?? 65000,
+      replacementSalary: recast.assumptions.replacementSalary ?? 0,
       replacementSalaryIsDefault: recast.assumptions.replacementSalary == null,
       relatedPartyOwnership: Boolean(recast.assumptions.relatedPartyOwnership),
+      byYear,
       fmrAdjustment: recast.assumptions.relatedPartyOwnership && recast.assumptions.fmrEstimate != null
         ? recast.assumptions.fmrEstimate - mappedPlRows.filter((row) => ['OPX-RENT', 'OPX-RENT-NNN'].includes(row.cantaraCode ?? '')).reduce((sumRent, row) => sumRent + sumRowMonths(row.valuesByMonth, plMonthKeys.slice(-12)), 0)
         : undefined,
@@ -493,7 +560,7 @@ export function buildWS2ReportAdapter(
       multipleRangeLow: recast.assumptions.multipleLow ?? 0,
       multipleRangeMid: recast.assumptions.multipleMid ?? 0,
       multipleRangeHigh: recast.assumptions.multipleHigh ?? 0,
-      replacementSalary: recast.assumptions.replacementSalary ?? 65000,
+      replacementSalary: recast.assumptions.replacementSalary ?? 0,
       relatedPartyOwnership: Boolean(recast.assumptions.relatedPartyOwnership),
       fmrEstimate: recast.assumptions.fmrEstimate ?? undefined,
       enteredAt: recast.createdAt,

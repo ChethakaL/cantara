@@ -25,15 +25,16 @@ const REVENUE_VERTICALS = [
   { name: "Other (Tips)", codes: ["REV-TIPS", "REV-OTHER"] },
 ] as const;
 
+// Benchmark groups using Cantara taxonomy codes (not QuickBooks account numbers)
 const BENCHMARK_GROUPS = [
-  { category: "COGS", glCodes: ["5000"], benchmarkLow: 0, benchmarkHigh: 0.05, flagLow: 0, flagHigh: 0.05, includeInOverall: true },
-  { category: "Marketing", glCodes: ["6300", "6301", "6302"], benchmarkLow: 0.03, benchmarkHigh: 0.05, flagLow: 0.03, flagHigh: 0.05, includeInOverall: true },
-  { category: "Direct Labor", glCodes: ["6000", "6010", "6011", "6030", "6031"], benchmarkLow: 0.35, benchmarkHigh: 0.45, flagLow: 0.35, flagHigh: 0.45, includeInOverall: true },
-  { category: "Payroll Tax", glCodes: ["6040", "6041"], benchmarkLow: 0.02, benchmarkHigh: 0.05, flagLow: 0.02, flagHigh: 0.05, includeInOverall: true },
-  { category: "Building Rent", glCodes: ["6100", "6101", "6102"], benchmarkLow: 0.1, benchmarkHigh: 0.15, flagLow: 0.1, flagHigh: 0.15, includeInOverall: true },
-  { category: "Other Building", glCodes: ["6200", "6201", "6202", "6203", "6500", "6501", "6502", "6503"], benchmarkLow: 0.03, benchmarkHigh: 0.05, flagLow: 0.03, flagHigh: 0.05, includeInOverall: true },
-  { category: "Business Operations", glCodes: ["6700", "6701", "6400", "6900", "6901", "6800", "6801", "6802"], benchmarkLow: 0.07, benchmarkHigh: 0.12, flagLow: 0.04, flagHigh: 0.12, includeInOverall: true },
-  { category: "Supplies (ref)", glCodes: ["6600", "6601", "6602"], benchmarkLow: null, benchmarkHigh: null, flagLow: null, flagHigh: null, includeInOverall: false },
+  { category: "COGS", glCodes: ["COGS-SUPPLY", "COGS-RETAIL", "COGS-OTHER"], benchmarkLow: 0, benchmarkHigh: 0.05, flagLow: 0, flagHigh: 0.05, includeInOverall: true },
+  { category: "Marketing", glCodes: ["OPX-MKTG"], benchmarkLow: 0.03, benchmarkHigh: 0.05, flagLow: 0.03, flagHigh: 0.05, includeInOverall: true },
+  { category: "Direct Labor", glCodes: ["OPX-LABOR-STAFF", "OPX-LABOR-MGMT"], benchmarkLow: 0.35, benchmarkHigh: 0.45, flagLow: 0.35, flagHigh: 0.45, includeInOverall: true },
+  { category: "Payroll Tax", glCodes: ["OPX-LABOR-TAX"], benchmarkLow: 0.02, benchmarkHigh: 0.05, flagLow: 0.02, flagHigh: 0.05, includeInOverall: true },
+  { category: "Building Rent", glCodes: ["OPX-RENT", "OPX-RENT-NNN"], benchmarkLow: 0.1, benchmarkHigh: 0.15, flagLow: 0.1, flagHigh: 0.15, includeInOverall: true },
+  { category: "Other Building", glCodes: ["OPX-UTIL", "OPX-REPAIR", "OPX-INSUR"], benchmarkLow: 0.03, benchmarkHigh: 0.05, flagLow: 0.03, flagHigh: 0.05, includeInOverall: true },
+  { category: "Business Operations", glCodes: ["OPX-PROF", "OPX-BANK", "OPX-SOFT", "OPX-TAX", "OPX-OTHER", "OPX-VET"], benchmarkLow: 0.07, benchmarkHigh: 0.12, flagLow: 0.04, flagHigh: 0.12, includeInOverall: true },
+  { category: "Supplies (ref)", glCodes: ["OPX-SUPPLY"], benchmarkLow: null, benchmarkHigh: null, flagLow: null, flagHigh: null, includeInOverall: false },
 ] as const;
 
 const LABOR_BENCHMARK_LOW = 0.35;
@@ -219,7 +220,7 @@ export function buildWs24StructuredOutput(analysis: TtmAnalysisView): WS24Output
   const benchmarks = BENCHMARK_GROUPS.map((group) => {
     const rowAmount = (months: string[]) =>
       mappedRows
-        .filter((row) => (group.glCodes as readonly string[]).includes(row.accountCode ?? ""))
+        .filter((row) => (group.glCodes as readonly string[]).includes(row.cantaraCode ?? ""))
         .reduce((sum, row) => sum + months.reduce((monthSum, month) => monthSum + Number(row.valuesByMonth?.[month] ?? 0), 0), 0);
     const fy1Dollar = rowAmount(yearMonths[0]);
     const fy2Dollar = rowAmount(yearMonths[1]);

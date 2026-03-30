@@ -166,16 +166,27 @@ type Ws22ScheduleItem = {
   description: string;
   glReference: string;
   ttmAmount: number | null;
+  fy3Amount: number | null;
+  fy2Amount: number | null;
+  fy1Amount: number | null;
   status: string;
 };
 
 type Ws22PeriodMappedItem = Ws22ScheduleItem & {
   sourcePeriod: string | null;
   sourceAmount: number | null;
+  parsedFy3Amount: number | null;
+  parsedFy2Amount: number | null;
+  parsedFy1Amount: number | null;
 };
 
 function parseScheduleTable(reportMarkdown: string) {
-  const match = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i);
+  // Match multi-year format (9 columns: # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status)
+  const multiYearMatch = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\|[^\n]*#[^\n]*Category[^\n]*LTM[^\n]*FY3[^\n]*FY2[^\n]*FY1[^\n]*Status[^\n]*\|[\s\S]*?)(?:\n## FLAG LIST|$)/i);
+  // Fall back to legacy single-column format (6 columns: # | Category | Item Description | GL Reference | TTM Amount | Status)
+  const legacyMatch = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i);
+  const match = multiYearMatch ?? legacyMatch;
+  const isMultiYear = Boolean(multiYearMatch);
   if (!match) return [] as Ws22ScheduleItem[];
 
   return match[1]
@@ -191,14 +202,34 @@ function parseScheduleTable(reportMarkdown: string) {
         .map((cell) => normalizeWhitespace(cell.replace(/\*\*/g, ""))),
     )
     .filter((cells) => cells.length >= 6 && cells[0] !== "#" && cells[1] !== "Category")
-    .map((cells) => ({
-      index: cells[0],
-      category: cells[1],
-      description: cells[2],
-      glReference: cells[3],
-      ttmAmount: parseCurrencyValue(cells[4]),
-      status: cells[5],
-    }))
+    .map((cells) => {
+      if (isMultiYear && cells.length >= 9) {
+        // Multi-year format: # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status
+        return {
+          index: cells[0],
+          category: cells[1],
+          description: cells[2],
+          glReference: cells[3],
+          ttmAmount: parseCurrencyValue(cells[4]),
+          fy3Amount: parseCurrencyValue(cells[5]),
+          fy2Amount: parseCurrencyValue(cells[6]),
+          fy1Amount: parseCurrencyValue(cells[7]),
+          status: cells[8],
+        };
+      }
+      // Legacy format: # | Category | Item Description | GL Reference | TTM Amount | Status
+      return {
+        index: cells[0],
+        category: cells[1],
+        description: cells[2],
+        glReference: cells[3],
+        ttmAmount: parseCurrencyValue(cells[4]),
+        fy3Amount: null,
+        fy2Amount: null,
+        fy1Amount: null,
+        status: cells[5],
+      };
+    })
     .filter(
       (item) =>
         !/TOTAL ADD-BACKS|NORMALIZED \/ RECAST EBITDA|NORMALIZED EBITDA MARGIN/i.test(item.category) &&
@@ -272,6 +303,9 @@ function buildWs22PeriodCorrection(args: {
 
   const enrichedItems: Ws22PeriodMappedItem[] = scheduleItems.map((item) => ({
     ...item,
+    parsedFy3Amount: item.fy3Amount,
+    parsedFy2Amount: item.fy2Amount,
+    parsedFy1Amount: item.fy1Amount,
     sourcePeriod: (() => {
       const direct =
         periodByDescription.get(normalizeDescriptionKey(item.description)) ??
@@ -295,24 +329,53 @@ function buildWs22PeriodCorrection(args: {
         : item.ttmAmount),
   }));
 
-  const replacementSalary = toFiniteNumber(args.assumptions.replacementSalary) ?? 65000;
+  const replacementSalary = toFiniteNumber(args.assumptions.replacementSalary) ?? 0;
+
+  // Determine which parsed per-year amount to use for a given set of months.
+  // Returns null if no parsed amount is available for this period.
+  const getParsedAmountForPeriod = (item: Ws22PeriodMappedItem, months: string[]): number | null => {
+    if (months === ttmMonths) return null; // TTM uses its own column
+    // Match the months to a fiscal year
+    for (let i = 0; i < annualYears.length; i++) {
+      const fyMonths = periodMonths(annualYears[i]);
+      if (fyMonths.length > 0 && fyMonths[0] === months[0] && fyMonths.length === months.length) {
+        if (i === 0) return item.parsedFy1Amount;
+        if (i === 1) return item.parsedFy2Amount;
+        if (i === 2) return item.parsedFy3Amount;
+      }
+    }
+    return null;
+  };
 
   const computeItemAmount = (item: Ws22PeriodMappedItem, months: string[]) => {
     if (item.index === "—") return item.ttmAmount ?? 0;
-    if (/Replacement Manager Salary/i.test(item.description)) {
-      return -(replacementSalary * months.length) / 12;
+    if (/Replacement.*Salary/i.test(item.description)) {
+      // LTM uses $0 replacement salary per Cantara methodology
+      // Prior fiscal years use -$20,000 default (or Craig's input)
+      if (months === ttmMonths) return 0;
+      const priorYearSalary = replacementSalary > 0 ? replacementSalary : 20000;
+      return -(priorYearSalary * months.length) / 12;
     }
     if (/Employer FICA on owner wages/i.test(item.description)) {
       const ownerWages = sumGlForMonths(mappedPlRows, "6020", months);
       return ownerWages * 0.0765;
     }
     if (item.category === "One-Off Expenses" || item.category === "TI Add-Backs") {
-      if (!item.sourcePeriod) return item.ttmAmount ?? 0;
+      if (!item.sourcePeriod) {
+        // If we have parsed per-year amounts from multi-year prompt output, use them
+        const parsed = getParsedAmountForPeriod(item, months);
+        if (parsed !== null) return parsed;
+        return item.ttmAmount ?? 0;
+      }
       return months.includes(item.sourcePeriod) ? item.sourceAmount ?? item.ttmAmount ?? 0 : 0;
     }
+    // Try GL lookup first
     if (/^\d+$/.test(item.glReference)) {
       return sumGlForMonths(mappedPlRows, item.glReference, months);
     }
+    // If no GL code but we have parsed per-year amounts from multi-year prompt, use them
+    const parsed = getParsedAmountForPeriod(item, months);
+    if (parsed !== null) return parsed;
     return item.ttmAmount ?? 0;
   };
 
@@ -346,9 +409,14 @@ function buildWs22PeriodCorrection(args: {
   const valuationMid = toFiniteNumber(args.assumptions.multipleMid) != null ? correctedNormalizedTtm * Number(args.assumptions.multipleMid) : null;
   const valuationHigh = toFiniteNumber(args.assumptions.multipleHigh) != null ? correctedNormalizedTtm * Number(args.assumptions.multipleHigh) : null;
 
+  const fyMonthsList = annualYears.map((year) => periodMonths(year));
+
   const correctedScheduleRows = enrichedItems.map((item) => {
     if (item.index === "—") return item;
     const correctedTtmAmount = computeItemAmount(item, ttmMonths);
+    const correctedFy1Amount = computeItemAmount(item, fyMonthsList[0] ?? []);
+    const correctedFy2Amount = computeItemAmount(item, fyMonthsList[1] ?? []);
+    const correctedFy3Amount = computeItemAmount(item, fyMonthsList[2] ?? []);
     const needsOutOfPeriodNote =
       (item.category === "One-Off Expenses" || item.category === "TI Add-Backs") &&
       item.sourcePeriod &&
@@ -358,6 +426,9 @@ function buildWs22PeriodCorrection(args: {
     return {
       ...item,
       ttmAmount: correctedTtmAmount,
+      fy3Amount: correctedFy3Amount,
+      fy2Amount: correctedFy2Amount,
+      fy1Amount: correctedFy1Amount,
       status:
         needsOutOfPeriodNote && !/OUT-OF-PERIOD FOR TTM/i.test(item.status)
           ? `${item.status} · OUT-OF-PERIOD FOR TTM`
@@ -393,30 +464,33 @@ export function applyWs22SpecCorrections(args: {
     };
   }
 
+  const annualYears = args.analysis.annualModel?.years ?? [];
+  const fy1Addbacks = correction.correctedScheduleRows.filter((item) => item.index !== "—").reduce((sum, item) => sum + (item.fy1Amount ?? 0), 0);
+  const fy2Addbacks = correction.correctedScheduleRows.filter((item) => item.index !== "—").reduce((sum, item) => sum + (item.fy2Amount ?? 0), 0);
+  const fy3Addbacks = correction.correctedScheduleRows.filter((item) => item.index !== "—").reduce((sum, item) => sum + (item.fy3Amount ?? 0), 0);
+
   const scheduleLines = [
-    "**EBITDA RECAST SCHEDULE — TTM Jan 2024 to Dec 2024**",
+    "**EBITDA RECAST SCHEDULE**",
     "",
-    "| # | Category | Item Description | GL Reference | TTM Amount | Status |",
-    "|---|---|---|---|---|---|",
+    "| # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status |",
+    "|---|---|---|---|---|---|---|---|---|",
     ...correction.correctedScheduleRows.map((item) => [
       item.index,
       item.category,
       item.description,
       item.glReference,
-      item.index === "—" && /TTM 4-Wall EBITDA/i.test(item.description)
+      item.index === "—" && /Pre-Recast|4-Wall EBITDA/i.test(item.description)
         ? formatCurrencyForReport(args.analysis.ttmSummary?.ebitdaPreRecast ?? item.ttmAmount)
         : formatCurrencyForReport(item.ttmAmount),
+      formatCurrencyForReport(item.fy3Amount),
+      formatCurrencyForReport(item.fy2Amount),
+      formatCurrencyForReport(item.fy1Amount),
       item.status,
     ].join(" | ").replace(/^/, "| ").replace(/$/, " |")),
-    `| — | **TOTAL ADD-BACKS** |  |  | **${formatCurrencyForReport(correction.ttmAddbacks)}** |  |`,
-    `| — | **NORMALIZED / RECAST EBITDA (TTM)** |  |  | **${formatCurrencyForReport(correction.correctedNormalizedTtm)}** |  |`,
-    `| — | **NORMALIZED EBITDA MARGIN (TTM)** |  |  | **${formatPeriodMargin(correction.correctedTtmMargin)}** |  |`,
-    "",
-    "**3-Year Normalized EBITDA Summary:**",
-    ...correction.normalizedByYear.map(
-      (year, index) => `- ${year.fiscalYear} (${periodYearLabel(args.analysis.annualModel?.years?.[index], year.fiscalYear)}) Normalized EBITDA: ${formatCurrencyForReport(year.normalizedEbitda)} (${formatPeriodMargin(year.margin)} margin)`,
-    ),
-    `- TTM Normalized EBITDA: ${formatCurrencyForReport(correction.correctedNormalizedTtm)} (${formatPeriodMargin(correction.correctedTtmMargin)} margin)`,
+    `| — | **TOTAL ADD-BACKS** |  |  | **${formatCurrencyForReport(correction.ttmAddbacks)}** | **${formatCurrencyForReport(fy3Addbacks)}** | **${formatCurrencyForReport(fy2Addbacks)}** | **${formatCurrencyForReport(fy1Addbacks)}** |  |`,
+    `| — | **NORMALIZED / RECAST EBITDA** |  |  | **${formatCurrencyForReport(correction.correctedNormalizedTtm)}** | **${formatCurrencyForReport(correction.normalizedByYear[2]?.normalizedEbitda)}** | **${formatCurrencyForReport(correction.normalizedByYear[1]?.normalizedEbitda)}** | **${formatCurrencyForReport(correction.normalizedByYear[0]?.normalizedEbitda)}** |  |`,
+    `| — | Multiple |  |  | ${Number(args.assumptions.multipleMid ?? 0).toFixed(1)}x | ${Number(args.assumptions.multipleMid ?? 0).toFixed(1)}x | ${Number(args.assumptions.multipleMid ?? 0).toFixed(1)}x | ${Number(args.assumptions.multipleMid ?? 0).toFixed(1)}x |  |`,
+    `| — | **Valuation** |  |  | **${formatCurrencyForReport(correction.valuationMid)}** | **${formatCurrencyForReport(correction.normalizedByYear[2] ? (correction.normalizedByYear[2].normalizedEbitda * Number(args.assumptions.multipleMid ?? 0)) : null)}** | **${formatCurrencyForReport(correction.normalizedByYear[1] ? (correction.normalizedByYear[1].normalizedEbitda * Number(args.assumptions.multipleMid ?? 0)) : null)}** | **${formatCurrencyForReport(correction.normalizedByYear[0] ? (correction.normalizedByYear[0].normalizedEbitda * Number(args.assumptions.multipleMid ?? 0)) : null)}** |  |`,
   ];
 
   const valuationLines = [
@@ -439,7 +513,7 @@ export function applyWs22SpecCorrections(args: {
   ];
 
   let reportMarkdown = args.reportMarkdown.replace(
-    /## EBITDA RECAST SCHEDULE[\s\S]*?(?=\n## FLAG LIST FOR ADMIN REVIEW|\n## PRELIMINARY VALUATION RANGE|$)/i,
+    /## EBITDA RECAST SCHEDULE[\s\S]*?(?=\n## FLAG LIST|\n## PRELIMINARY VALUATION RANGE|$)/i,
     `## EBITDA RECAST SCHEDULE\n\n${scheduleLines.join("\n")}\n`,
   );
 
@@ -486,6 +560,7 @@ export function applyWs22SpecCorrections(args: {
       valuationLow: correction.valuationLow,
       valuationMid: correction.valuationMid,
       valuationHigh: correction.valuationHigh,
+      normalizedByYear: correction.normalizedByYear,
     },
     extraFlags,
   };
@@ -1016,8 +1091,8 @@ function buildAssumptionsTab(recast: Ws2RecastView) {
     ["Multiple — High End", recast.assumptions.multipleHigh],
     [],
     ["OWNER REPLACEMENT SALARY"],
-    ["Annual Replacement Salary", recast.assumptions.replacementSalary ?? 65000],
-    recast.assumptions.replacementSalary ? ["Basis", "Admin-provided"] : ["Basis", "DEFAULT $65,000"],
+    ["Annual Replacement Salary", recast.assumptions.replacementSalary ?? 0],
+    recast.assumptions.replacementSalary ? ["Basis", "Admin-provided"] : ["Basis", "DEFAULT $0 LTM / $20K prior FY"],
     [],
     ["FAIR MARKET RENT"],
     ["Related-Party Ownership", recast.assumptions.relatedPartyOwnership ? "Yes" : "No"],

@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { PremiumMarkdown } from '@/components/ttm-agent/PremiumMarkdown'
 import { Badge, Button, Card, Input, Textarea, cn } from '@/components/ui'
 import { logWs2ClientEvent, logWs2Error, logWs2PreparedDocuments, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import { prepareWs2DocumentFromServer } from '@/lib/ttm-agent/browser-documents'
@@ -10,10 +9,14 @@ import type { DocumentStatus } from '@/lib/store'
 import type { TtmAnalysisView, Ws2RecastAssumptions } from '@/lib/ttm-agent/types'
 
 const REQUIRED_RECAST_DOCS = [
-  { id: 'addback_disclosure', label: 'File 5 — Add-Back Disclosure' },
+  { id: 'personal_expenses_36m', label: 'Personal Expenses List' },
+  { id: 'non_recurring_expenses_36m', label: 'Non-Recurring Expenses' },
 ] as const
 
+const ADDBACK_DETAIL_DOCS: Array<{ id: string; label: string }> = []
+
 const OPTIONAL_RECAST_DOCS = [
+  { id: 'addback_disclosure', label: 'Add-Back Disclosure (optional)' },
   { id: 'leases', label: 'Lease from WS1' },
   { id: 'owner_gm_assessment', label: 'Owner & GM Assessment from WS1' },
 ] as const
@@ -39,6 +42,9 @@ type ScheduleRow = {
   description: string
   glReference: string
   ttmAmount: number | null
+  fy3Amount: number | null
+  fy2Amount: number | null
+  fy1Amount: number | null
   status: string
 }
 
@@ -62,7 +68,12 @@ function parseCurrencyCell(raw: string) {
 
 function parseScheduleRows(reportMarkdown: string | null | undefined) {
   if (!reportMarkdown) return [] as ScheduleRow[]
-  const match = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i)
+  // Match multi-year format (9 columns)
+  const multiYearMatch = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\|[^\n]*#[^\n]*Category[^\n]*LTM[^\n]*FY3[^\n]*FY2[^\n]*FY1[^\n]*Status[^\n]*\|[\s\S]*?)(?:\n## FLAG LIST|$)/i)
+  // Fall back to legacy format
+  const legacyMatch = reportMarkdown.match(/## EBITDA RECAST SCHEDULE[\s\S]*?\n(\| # \| Category \| Item Description \| GL Reference \| TTM Amount \| Status \|[\s\S]*?)(?:\n\*\*3-Year Normalized EBITDA Summary:|\n## FLAG LIST FOR ADMIN REVIEW|$)/i)
+  const match = multiYearMatch ?? legacyMatch
+  const isMultiYear = Boolean(multiYearMatch)
   if (!match) return [] as ScheduleRow[]
 
   return match[1]
@@ -78,14 +89,32 @@ function parseScheduleRows(reportMarkdown: string | null | undefined) {
         .map((cell) => cell.trim().replace(/\*\*/g, '')),
     )
     .filter((cells) => cells.length >= 6 && cells[0] !== '#' && cells[1] !== 'Category')
-    .map((cells) => ({
-      index: cells[0],
-      category: cells[1],
-      description: cells[2],
-      glReference: cells[3],
-      ttmAmount: parseCurrencyCell(cells[4]),
-      status: cells[5],
-    }))
+    .map((cells) => {
+      if (isMultiYear && cells.length >= 9) {
+        return {
+          index: cells[0],
+          category: cells[1],
+          description: cells[2],
+          glReference: cells[3],
+          ttmAmount: parseCurrencyCell(cells[4]),
+          fy3Amount: parseCurrencyCell(cells[5]),
+          fy2Amount: parseCurrencyCell(cells[6]),
+          fy1Amount: parseCurrencyCell(cells[7]),
+          status: cells[8],
+        }
+      }
+      return {
+        index: cells[0],
+        category: cells[1],
+        description: cells[2],
+        glReference: cells[3],
+        ttmAmount: parseCurrencyCell(cells[4]),
+        fy3Amount: null,
+        fy2Amount: null,
+        fy1Amount: null,
+        status: cells[5],
+      }
+    })
 }
 
 function statusTone(status: string) {
@@ -128,7 +157,6 @@ export function Ws2RecastPanel({
   const [savingFlagId, setSavingFlagId] = useState<string | null>(null)
   const [approving, setApproving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showRawReport, setShowRawReport] = useState(false)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
 
   const latestRecast = analysis.recastAnalyses?.[0] ?? null
@@ -140,9 +168,12 @@ export function Ws2RecastPanel({
   const isApproved = latestRecast?.status === 'APPROVED'
   const derivedStatusByAgent = new Map((analysis.derivedReports ?? []).map((report) => [report.agentId, report.status]))
   const scheduleRows = useMemo(() => parseScheduleRows(latestRecast?.reportMarkdown), [latestRecast?.reportMarkdown])
-  const preRecastRow = scheduleRows.find((row) => /4-Wall EBITDA/i.test(row.description))
+  const hasMultiYear = scheduleRows.some((row) => row.fy1Amount !== null || row.fy2Amount !== null || row.fy3Amount !== null)
+  const preRecastRow = scheduleRows.find((row) => /4-Wall EBITDA|Pre-Recast/i.test(row.description))
   const totalAddBacksRow = scheduleRows.find((row) => /TOTAL ADD-BACKS/i.test(row.category) || /TOTAL ADD-BACKS/i.test(row.description))
   const normalizedRow = scheduleRows.find((row) => /NORMALIZED \/ RECAST EBITDA/i.test(row.category) || /NORMALIZED \/ RECAST EBITDA/i.test(row.description))
+  const years = analysis.annualModel?.years ?? []
+  const fyLabels = years.map((y) => y.periodStart?.slice(0, 4) ? `FY ${y.periodStart.slice(0, 4)}` : '')
   const categoryRows = useMemo(() => {
     const groups = new Map<string, ScheduleRow[]>()
     for (const row of scheduleRows) {
@@ -174,22 +205,25 @@ export function Ws2RecastPanel({
   const canRun =
     analysis.status === 'APPROVED' &&
     requiredReady &&
-    hasRequiredMultiples &&
-    (!recastDispatchTask || recastDispatchTask.status === 'RELEASED')
+    hasRequiredMultiples
+  // Note: removed recastDispatchTask gate — admin should always be able to re-run WS2-2
 
   const runRecast = async () => {
     setRunning(true)
     setError(null)
     try {
+      // Include F5 (required) + F6-F9 (add-back detail, when uploaded) + optional lease/owner assessment
+      const addbackDetailDocs = ADDBACK_DETAIL_DOCS.filter((doc) => documentStatuses[doc.id]?.fileName)
       const preparedDocuments = await Promise.all(
         [
           ...REQUIRED_RECAST_DOCS,
+          ...addbackDetailDocs,
           ...(leaseReady ? [{ id: 'leases', label: 'Lease(s)' } as const] : []),
           ...(ownerAssessmentReady ? [{ id: 'owner_gm_assessment', label: 'Owner & GM Assessment' } as const] : []),
         ].map((doc) =>
           prepareWs2DocumentFromServer({
             clientId,
-            documentId: doc.id,
+            documentId: doc.id as any,
             fileName: documentStatuses[doc.id]?.fileName || doc.label,
           }),
         ),
@@ -332,8 +366,13 @@ export function Ws2RecastPanel({
               </Button>
             )}
             <Button size="sm" onClick={() => void runRecast()} disabled={!canRun || running}>
-              {running ? 'Running WS2-2...' : latestRecast ? 'Refresh WS2-2' : 'Run WS2-2'}
+              {running ? 'Running WS2-2...' : 'Run WS2-2'}
             </Button>
+            {latestRecast && !running && (
+              <Button size="sm" variant="outline" onClick={() => void runRecast()} disabled={!canRun || running}>
+                Re-run WS2-2
+              </Button>
+            )}
           </div>
         </div>
 
@@ -366,8 +405,13 @@ export function Ws2RecastPanel({
           </div>
         ) : isApproved ? (
           <div className="mt-4 space-y-4">
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              WS2-2 is approved. The EBITDA review controls are now hidden and the workflow moves into WS2-3, WS2-4, WS2-5, and the baseline report.
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+              <p className="text-sm text-emerald-800">
+                WS2-2 is approved. To revise add-backs or fix issues, re-run WS2-2 below.
+              </p>
+              <Button size="sm" variant="outline" onClick={() => void runRecast()} disabled={!canRun || running}>
+                {running ? 'Running...' : 'Re-run WS2-2'}
+              </Button>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -398,7 +442,7 @@ export function Ws2RecastPanel({
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Replacement salary</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(latestRecast?.assumptions.replacementSalary ?? 65000)}</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(latestRecast?.assumptions.replacementSalary ?? 0)}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Related-party rent</p>
@@ -450,7 +494,7 @@ export function Ws2RecastPanel({
                   <Input label="Low multiple" value={assumptions.multipleLow} onChange={(event) => setAssumptions((current) => ({ ...current, multipleLow: event.target.value }))} placeholder="3.5" />
                   <Input label="Mid multiple" value={assumptions.multipleMid} onChange={(event) => setAssumptions((current) => ({ ...current, multipleMid: event.target.value }))} placeholder="4.5" />
                   <Input label="High multiple" value={assumptions.multipleHigh} onChange={(event) => setAssumptions((current) => ({ ...current, multipleHigh: event.target.value }))} placeholder="5.5" />
-                  <Input label="Replacement salary" value={assumptions.replacementSalary} onChange={(event) => setAssumptions((current) => ({ ...current, replacementSalary: event.target.value }))} placeholder="Defaults to 65000 if blank" />
+                  <Input label="Replacement salary" value={assumptions.replacementSalary} onChange={(event) => setAssumptions((current) => ({ ...current, replacementSalary: event.target.value }))} placeholder="$0 for LTM (Cantara default)" />
                   <Input
                     label="Related-party ownership"
                     value={assumptions.relatedPartyOwnership}
@@ -480,11 +524,11 @@ export function Ws2RecastPanel({
                   </div>
                 </div>
                 <div className="mt-4 grid gap-3">
-                  {[...REQUIRED_RECAST_DOCS, ...OPTIONAL_RECAST_DOCS].map((doc) => (
+                  {[...REQUIRED_RECAST_DOCS, ...ADDBACK_DETAIL_DOCS, ...OPTIONAL_RECAST_DOCS].map((doc) => (
                     <div key={doc.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3">
                       <span className="text-sm text-slate-700">{doc.label}</span>
-                      <Badge color={documentStatuses[doc.id]?.fileName ? 'green' : doc.id === 'addback_disclosure' ? 'red' : 'slate'}>
-                        {documentStatuses[doc.id]?.fileName ? 'Uploaded' : doc.id === 'addback_disclosure' ? 'Missing' : 'Optional'}
+                      <Badge color={documentStatuses[doc.id]?.fileName ? 'green' : REQUIRED_RECAST_DOCS.some(r => r.id === doc.id) ? 'red' : 'slate'}>
+                        {documentStatuses[doc.id]?.fileName ? 'Uploaded' : REQUIRED_RECAST_DOCS.some(r => r.id === doc.id) ? 'Missing' : 'Optional'}
                       </Badge>
                     </div>
                   ))}
@@ -607,15 +651,29 @@ export function Ws2RecastPanel({
                 </div>
 
                 <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">
-                  Based on TTM normalized EBITDA of <span className="font-semibold text-slate-900">{formatCurrency(latestRecast.normalizedEbitda)}</span>. Pre-recast EBITDA was {formatCurrency(preRecastRow?.ttmAmount)}; total add-backs of {formatCurrency(totalAddBacksRow?.ttmAmount)}.
+                  Based on LTM normalized EBITDA of <span className="font-semibold text-slate-900">{formatCurrency(latestRecast.normalizedEbitda)}</span>. Pre-recast EBITDA was {formatCurrency(preRecastRow?.ttmAmount)}; total add-backs of {formatCurrency(totalAddBacksRow?.ttmAmount)}.
                 </div>
               </div>
 
               <div className="overflow-hidden rounded-2xl bg-[#1a2332] px-6 py-4 text-white shadow-lg">
                 <div className="flex items-center justify-between gap-4">
-                  <h3 className="text-2xl font-semibold tracking-tight">Normalized EBITDA (TTM)</h3>
+                  <h3 className="text-2xl font-semibold tracking-tight">Normalized EBITDA (LTM)</h3>
                   <span className="text-3xl font-semibold">{formatCurrency(normalizedRow?.ttmAmount ?? latestRecast.normalizedEbitda)}</span>
                 </div>
+                {hasMultiYear && normalizedRow && (
+                  <div className="mt-3 grid grid-cols-3 gap-4 border-t border-white/20 pt-3">
+                    {[
+                      { label: fyLabels[2] || 'FY3', value: normalizedRow.fy3Amount },
+                      { label: fyLabels[1] || 'FY2', value: normalizedRow.fy2Amount },
+                      { label: fyLabels[0] || 'FY1', value: normalizedRow.fy1Amount },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="text-center">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums">{formatCurrency(value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-slate-200">
@@ -626,22 +684,30 @@ export function Ws2RecastPanel({
                         <th className="px-4 py-3">Cat.</th>
                         <th className="px-4 py-3">Item</th>
                         <th className="px-4 py-3">GL Account</th>
-                        <th className="px-4 py-3 text-right">TTM Amount</th>
+                        <th className="px-4 py-3 text-right">LTM</th>
+                        {hasMultiYear && <th className="px-4 py-3 text-right">{fyLabels[2] || 'FY3'}</th>}
+                        {hasMultiYear && <th className="px-4 py-3 text-right">{fyLabels[1] || 'FY2'}</th>}
+                        {hasMultiYear && <th className="px-4 py-3 text-right">{fyLabels[0] || 'FY1'}</th>}
                         <th className="px-4 py-3 text-right">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       <tr>
-                        <td className="px-4 py-4 font-semibold text-slate-900" colSpan={4}>4-Wall EBITDA (Pre-Recast)</td>
+                        <td className="px-4 py-4 font-semibold text-slate-900" colSpan={3}>EBITDA (Pre-Recast)</td>
                         <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastRow?.ttmAmount)}</td>
+                        {hasMultiYear && <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastRow?.fy3Amount)}</td>}
+                        {hasMultiYear && <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastRow?.fy2Amount)}</td>}
+                        {hasMultiYear && <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastRow?.fy1Amount)}</td>}
+                        <td className="px-4 py-4" />
                       </tr>
                     </tbody>
                     {categoryRows.map(([category, rows]) => {
                       const isOpen = openCategories[category] ?? false
+                      const colSpan = hasMultiYear ? 8 : 5
                       return (
                         <tbody key={category} className="divide-y divide-slate-100">
                           <tr className="bg-slate-50/70">
-                            <td colSpan={5} className="px-4 py-2">
+                            <td colSpan={colSpan} className="px-4 py-2">
                               <button
                                 type="button"
                                 className="flex w-full items-center justify-between gap-3 text-left"
@@ -671,6 +737,21 @@ export function Ws2RecastPanel({
                                 <td className={cn('px-4 py-3 text-right tabular-nums font-medium', (row.ttmAmount ?? 0) < 0 ? 'text-rose-700' : 'text-slate-900')}>
                                   {formatCurrency(row.ttmAmount)}
                                 </td>
+                                {hasMultiYear && (
+                                  <td className={cn('px-4 py-3 text-right tabular-nums font-medium', (row.fy3Amount ?? 0) < 0 ? 'text-rose-700' : 'text-slate-900')}>
+                                    {formatCurrency(row.fy3Amount)}
+                                  </td>
+                                )}
+                                {hasMultiYear && (
+                                  <td className={cn('px-4 py-3 text-right tabular-nums font-medium', (row.fy2Amount ?? 0) < 0 ? 'text-rose-700' : 'text-slate-900')}>
+                                    {formatCurrency(row.fy2Amount)}
+                                  </td>
+                                )}
+                                {hasMultiYear && (
+                                  <td className={cn('px-4 py-3 text-right tabular-nums font-medium', (row.fy1Amount ?? 0) < 0 ? 'text-rose-700' : 'text-slate-900')}>
+                                    {formatCurrency(row.fy1Amount)}
+                                  </td>
+                                )}
                                 <td className={cn('px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em]', statusTone(row.status))}>
                                   {row.status}
                                 </td>
@@ -697,25 +778,6 @@ export function Ws2RecastPanel({
             </div>
           </Card>
 
-          {latestRecast.reportMarkdown && (
-            <Card className="p-5">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-800">Full WS2-2 report</h4>
-                  <p className="text-xs text-slate-400 mt-1">Hidden by default so the UI stays focused on the active review items.</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => setShowRawReport((current) => !current)}>
-                  {showRawReport ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                  {showRawReport ? 'Hide report' : 'Show report'}
-                </Button>
-              </div>
-              {showRawReport && (
-                <div className="mt-4 text-sm">
-                  <PremiumMarkdown>{latestRecast.reportMarkdown}</PremiumMarkdown>
-                </div>
-              )}
-            </Card>
-          )}
         </>
       )}
     </div>

@@ -6,7 +6,6 @@ import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
 import { Badge, Button, Card } from '@/components/ui'
 import { Ws2RecastPanel } from '@/components/ttm-agent/Ws2RecastPanel'
-import { Ws2DerivedReportsPanel } from '@/components/ttm-agent/Ws2DerivedReportsPanel'
 import { BaselineValuationReportPanel } from '@/components/ttm-agent/BaselineValuationReportPanel'
 import { Ws21ReviewWorkspace } from '@/components/ttm-agent/Ws21ReviewWorkspace'
 import { logWs2ClientEvent, logWs2Error, logWs2PreparedDocuments, logWs2Response } from '@/lib/ttm-agent/browser-debug'
@@ -15,10 +14,8 @@ import type { DocumentStatus } from '@/lib/store'
 import type { TtmAnalysisView, TtmRequiredDocumentId } from '@/lib/ttm-agent/types'
 
 const REQUIRED_DOCS: Array<{ id: TtmRequiredDocumentId; label: string }> = [
-  { id: 'monthly_pl_excel', label: 'Monthly P&L Excel' },
-  { id: 'monthly_bs_excel', label: 'Monthly Balance Sheet Excel' },
-  { id: 'accountant_statements', label: 'Accountant Statements' },
-  { id: 'ar_aging_detail', label: 'AR Aging Detail' },
+  { id: 'monthly_pl_excel', label: 'Monthly P&L (36 months)' },
+  { id: 'monthly_bs_excel', label: 'Monthly Balance Sheet (36 months)' },
 ]
 
 type Ws2SectionKey =
@@ -69,6 +66,7 @@ export function TtmAnalysisTab({
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null)
   const [loadingAnalyses, setLoadingAnalyses] = useState(true)
   const [running, setRunning] = useState(false)
+  const [rerunningWs22, setRerunningWs22] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [collapsedSections, setCollapsedSections] = useState<Record<Ws2SectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const [baselineBuildState, setBaselineBuildState] = useState<{
@@ -617,20 +615,67 @@ export function TtmAnalysisTab({
               </div>
               <div className="mt-4 space-y-2">
                 {navItems.map((item, index) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => navigateToSection(item)}
-                    className="flex w-full items-start gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left transition hover:border-amber-300 hover:bg-amber-50"
-                  >
-                    <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
-                      {index + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800">{item.label}</p>
-                      <p className="mt-1 text-xs text-slate-500">{item.meta}</p>
-                    </div>
-                  </button>
+                  <div key={item.key} className="rounded-xl border border-slate-200 transition hover:border-amber-300 hover:bg-amber-50">
+                    <button
+                      type="button"
+                      onClick={() => navigateToSection(item)}
+                      className="flex w-full items-start gap-3 px-3 py-3 text-left"
+                    >
+                      <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
+                        {index + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-800">{item.label}</p>
+                        <p className="mt-1 text-xs text-slate-500">{item.meta}</p>
+                      </div>
+                    </button>
+                    {item.key === 'ws22-recast' && activeAnalysis?.status === 'APPROVED' && (
+                      <div className="px-3 pb-3 pt-0">
+                        <button
+                          type="button"
+                          className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            console.log('[WS2-2 Rerun] Button clicked')
+                            setRerunningWs22(true)
+                            try {
+                              const docIds = ['addback_disclosure', 'shareholder_remuneration_36m', 'personal_expenses_36m', 'non_recurring_expenses_36m', 'tenant_improvements_36m', 'leases', 'owner_gm_assessment'] as const
+                              const uploadedIds = docIds.filter(id => documentStatuses[id]?.fileName)
+                              console.log('[WS2-2 Rerun] Preparing docs:', uploadedIds)
+                              const docs = await Promise.all(
+                                uploadedIds.map(id => prepareWs2DocumentFromServer({ clientId, documentId: id as any, fileName: documentStatuses[id]?.fileName || id }))
+                              )
+                              console.log('[WS2-2 Rerun] Docs prepared:', docs.length)
+                              const assumptions = activeAnalysis?.recastAnalyses?.[0]?.assumptions
+                              if (!assumptions) { alert('No assumptions found from previous WS2-2 run. Check that WS2-2 was run at least once.'); setRerunningWs22(false); return }
+                              console.log('[WS2-2 Rerun] Calling API with analysisId:', activeAnalysis!.id)
+                              const res = await fetch('/api/ttm-agent/recast', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ mode: 'run', analysisId: activeAnalysis!.id, assumptions, preparedDocuments: docs }),
+                              })
+                              console.log('[WS2-2 Rerun] API response status:', res.status)
+                              if (res.ok) {
+                                const data = await res.json()
+                                handleUpdatedAnalysis(data)
+                                alert('WS2-2 re-run complete! Refresh the page to see updated results.')
+                              } else {
+                                const errText = await res.text()
+                                alert('WS2-2 failed: ' + errText)
+                              }
+                            } catch (err) {
+                              console.error('[WS2-2 Rerun] Error:', err)
+                              alert('Error: ' + (err instanceof Error ? err.message : String(err)))
+                            }
+                            setRerunningWs22(false)
+                          }}
+                        >
+                          {rerunningWs22 ? '⏳ Running WS2-2...' : 'Re-run WS2-2'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
               <div className="mt-4 grid gap-2">
@@ -685,44 +730,20 @@ export function TtmAnalysisTab({
               onUpdated={handleUpdatedAnalysis}
             />
           )}
-          <section id="ws22-recast" className="scroll-mt-24">
-          <Ws2RecastPanel
-            analysis={activeAnalysis}
-            clientId={clientId}
-            adminName={adminName}
-            documentStatuses={documentStatuses}
-            onUpdated={handleUpdatedAnalysis}
-            collapsed={collapsedSections['ws22-recast']}
-            onToggleCollapse={() => toggleSection('ws22-recast')}
-          />
-          </section>
-          <section id="ws23-report" className="scroll-mt-24">
-          <Ws2DerivedReportsPanel
-            analysis={activeAnalysis}
-            clientId={clientId}
-            documentStatuses={documentStatuses}
-            onUpdated={handleUpdatedAnalysis}
-            collapsed={
-              collapsedSections['ws23-report'] &&
-              collapsedSections['ws24-report'] &&
-              collapsedSections['ws25-report']
-            }
-            onToggleCollapse={() => {
-              const nextCollapsed =
-                !(
-                  collapsedSections['ws23-report'] &&
-                  collapsedSections['ws24-report'] &&
-                  collapsedSections['ws25-report']
-                )
-              setCollapsedSections((current) => ({
-                ...current,
-                'ws23-report': nextCollapsed,
-                'ws24-report': nextCollapsed,
-                'ws25-report': nextCollapsed,
-              }))
-            }}
-          />
-          </section>
+          {/* WS2-2 Recast Panel — visible after WS2-1 approval */}
+          {ws21Approved && (
+            <section id="ws22-recast" className="scroll-mt-24">
+            <Ws2RecastPanel
+              analysis={activeAnalysis}
+              clientId={clientId}
+              adminName={adminName}
+              documentStatuses={documentStatuses}
+              onUpdated={handleUpdatedAnalysis}
+              collapsed={collapsedSections['ws22-recast']}
+              onToggleCollapse={() => toggleSection('ws22-recast')}
+            />
+            </section>
+          )}
           </>
           )}
           </div>

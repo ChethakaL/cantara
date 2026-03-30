@@ -117,20 +117,55 @@ function buildBreakdown(rows: MappedLedgerRow[], months: string[], codes: string
 
 function groupMonthsByFiscalYear(monthKeys: string[]) {
   const sorted = [...monthKeys].sort((a, b) => a.localeCompare(b));
-  const buckets: Array<{ fiscalYear: string; months: string[]; periodStart: string; periodEnd: string; accountantYearKey: string | null }> = [];
 
+  // Determine if data starts on January — if so, use calendar years.
+  // If data starts mid-year (e.g. June), group into rolling 12-month periods.
+  const firstMonth = sorted[0]; // e.g. "2019-06"
+  const startMonth = firstMonth ? parseInt(firstMonth.split("-")[1]) : 1;
+  const useCalendarYear = startMonth === 1;
+
+  if (useCalendarYear) {
+    // Group by calendar year (Jan–Dec) — matches CPA-prepared statements
+    const byYear = new Map<string, string[]>();
+    for (const m of sorted) {
+      const year = m.slice(0, 4);
+      const existing = byYear.get(year) ?? [];
+      existing.push(m);
+      byYear.set(year, existing);
+    }
+    return Array.from(byYear.entries()).map(([year, months], i) => ({
+      fiscalYear: `FY${i + 1}`,
+      months: months.sort(),
+      periodStart: months[0],
+      periodEnd: months[months.length - 1],
+      accountantYearKey: year,
+    }));
+  }
+
+  // Rolling 12-month periods for non-January starts (e.g. Jun-May)
+  const buckets: Array<{ fiscalYear: string; months: string[]; periodStart: string; periodEnd: string; accountantYearKey: string | null }> = [];
   for (let index = 0; index < sorted.length; index += 12) {
     const months = sorted.slice(index, index + 12);
     if (!months.length) continue;
+    // For rolling fiscal years, the accountantYearKey maps to the calendar year
+    // that contains the majority of the period. For Jun 2019–May 2020, that's 2019
+    // (7 months in 2019 vs 5 months in 2020). But CPA statements are by calendar year,
+    // so we map to the START year since that's the primary comparison period.
+    const startYear = months[0].slice(0, 4);
+    const endYear = months[months.length - 1].slice(0, 4);
+    // Use the year that contains the most months
+    const startYearMonths = months.filter(m => m.startsWith(startYear)).length;
+    const endYearMonths = months.filter(m => m.startsWith(endYear)).length;
+    const primaryYear = startYearMonths >= endYearMonths ? startYear : endYear;
+
     buckets.push({
       fiscalYear: `FY${buckets.length + 1}`,
       months,
       periodStart: months[0],
       periodEnd: months[months.length - 1],
-      accountantYearKey: months.length === 12 ? months[months.length - 1].slice(0, 4) : null,
+      accountantYearKey: primaryYear,
     });
   }
-
   return buckets;
 }
 
@@ -176,14 +211,27 @@ function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: Parse
   }
 
   if (bsMonths.length) {
-    const expectedMonths = monthsBetween(bsMonths[0], bsMonths[bsMonths.length - 1]);
-    const missingBsMonths = expectedMonths.filter((month) => !bsMonths.includes(month));
-    if (missingBsMonths.length) {
+    // Check for missing BS months WITHIN the P&L engagement window, not the BS's own range.
+    // The engagement window is defined by the P&L data (e.g. Jun 2019 – May 2022).
+    // BS data may legitimately end earlier (e.g. Feb 2022) if the business is cash-basis.
+    const engagementEnd = plMonths.length > 0 ? plMonths[plMonths.length - 1] : bsMonths[bsMonths.length - 1];
+    const engagementStart = plMonths.length > 0 ? plMonths[0] : bsMonths[0];
+    const expectedBsMonths = monthsBetween(engagementStart, engagementEnd);
+    const missingBsMonths = expectedBsMonths.filter((month) => !bsMonths.includes(month));
+    if (missingBsMonths.length && missingBsMonths.length <= 6) {
+      // Only flag if a few months are missing — not if the entire range is misaligned
       items.push({
         title: "Missing months in monthly balance sheet",
-        severity: "HIGH",
-        description: `The monthly balance sheet is missing ${missingBsMonths.join(", ")}.`,
+        severity: missingBsMonths.length > 3 ? "HIGH" : "MEDIUM",
+        description: `The monthly balance sheet is missing ${missingBsMonths.length} month(s) within the engagement window: ${missingBsMonths.join(", ")}.`,
         payload: { missingMonths: missingBsMonths },
+      });
+    } else if (missingBsMonths.length > 6) {
+      items.push({
+        title: "Balance sheet coverage gap",
+        severity: "MEDIUM",
+        description: `The monthly balance sheet covers ${bsMonths.length} of ${expectedBsMonths.length} months in the engagement window (${engagementStart} to ${engagementEnd}). ${missingBsMonths.length} months are not present.`,
+        payload: { missingMonths: missingBsMonths.slice(0, 6), totalMissing: missingBsMonths.length },
       });
     }
   }
@@ -206,18 +254,21 @@ function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: Parse
     });
   }
 
+  // Zero-revenue check: use the MAPPED rows with Cantara revenue codes, not raw account name matching.
+  // Raw name matching fails when revenue accounts have names like "Boarding", "Daycare" (no "revenue" keyword).
   const zeroRevenueMonths = plMonths.filter((month) => {
-    const totalRevenue = monthlyPl.rows
-      .filter((row) => /revenue|sales|income/i.test(row.accountName))
+    const totalRevenue = mappedPlRows
+      .filter((row) => row.cantaraCode && REVENUE_CODES.includes(row.cantaraCode))
       .reduce((acc, row) => acc + (row.valuesByMonth[month] ?? 0), 0);
     return totalRevenue === 0;
   });
 
-  if (zeroRevenueMonths.length) {
+  if (zeroRevenueMonths.length && zeroRevenueMonths.length < plMonths.length) {
+    // Only flag if SOME months have zero revenue (not all — if all are zero, the mapping is wrong, not the data)
     items.push({
       title: "Zero-revenue months require confirmation",
       severity: "MEDIUM",
-      description: `Revenue is zero across all revenue lines for ${zeroRevenueMonths.join(", ")}.`,
+      description: `Revenue is zero across all mapped revenue accounts for ${zeroRevenueMonths.join(", ")}.`,
       payload: { zeroRevenueMonths },
     });
   }
@@ -246,9 +297,9 @@ function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: Parse
     });
   } else {
     items.push({
-      title: "Corporate overhead not separately identifiable",
-      severity: "MEDIUM",
-      description: "No explicit parent-company or corporate overhead allocation lines were identified in the monthly P&L. Admin should confirm whether above-the-line corporate allocations are absent or embedded in other accounts.",
+      title: "No corporate overhead detected",
+      severity: "LOW",
+      description: "No explicit parent-company or corporate overhead allocation lines were identified. This is expected for single-location owner-operators with no parent company structure.",
       payload: {
         reason: "No explicit corporate overhead allocation lines matched WS2-1 heuristics",
       },
@@ -287,7 +338,12 @@ function buildStructuredModel(rows: MappedLedgerRow[], monthKeys: string[]): Str
 }
 
 function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl: ParsedMonthlyWorkbook): TtmSummary {
-  const ttmMonths = monthKeys.slice(-12);
+  // Anchor TTM to the last 12 months by DATE, not by position.
+  // Filter to only valid YYYY-MM keys, sort chronologically, then take last 12.
+  const validMonths = monthKeys
+    .filter((key) => /^\d{4}-\d{2}$/.test(key))
+    .sort((a, b) => a.localeCompare(b));
+  const ttmMonths = validMonths.slice(-12);
   const mappedRevenue = sumRowsForMonths(rows, ttmMonths, REVENUE_CODES);
   const mappedCogs = sumRowsForMonths(rows, ttmMonths, COGS_CODES);
   const mappedOpEx = sumRowsForMonths(rows, ttmMonths, EBITDA_OPERATING_EXPENSE_CODES);
@@ -487,10 +543,84 @@ function buildMappingSection(
 function buildAccountantVarianceSection(args: {
   monthlyAnnualModel: AnnualModel;
   accountantStatements: ParsedAccountantStatements;
+  mappedPlRows: MappedLedgerRow[];
+  monthKeys: string[];
 }) {
   const items: SectionReportItem[] = [];
   const accountantByYear = new Map(args.accountantStatements.years.map((year) => [year.fiscalYear, year]));
 
+  // Detect if there's a fiscal year convention mismatch.
+  // Agent fiscal years start in the earliest data month (e.g. June).
+  // Accountant statements typically use calendar years (Jan–Dec).
+  // When mismatched, re-sum monthly data for calendar year periods to compare correctly.
+  const firstMonth = args.monthKeys.length > 0 ? parseInt(args.monthKeys[0].split("-")[1]) : 1;
+  const isMidYearStart = firstMonth !== 1;
+  const accountantYears = Array.from(accountantByYear.keys()).sort();
+
+  if (isMidYearStart && accountantYears.length > 0) {
+    // Cross-check using CALENDAR YEAR periods (Jan–Dec) to match accountant statements.
+    // Re-sum monthly data for each calendar year that has accountant data.
+    for (const calYear of accountantYears) {
+      const accountant = accountantByYear.get(calYear);
+      if (!accountant) continue;
+
+      const calMonths = args.monthKeys.filter((m) => m.startsWith(calYear));
+      if (calMonths.length === 0) continue;
+
+      const calRevenue = sumRowsForMonths(args.mappedPlRows, calMonths, REVENUE_CODES);
+      const calCogs = sumRowsForMonths(args.mappedPlRows, calMonths, COGS_CODES);
+      const calGrossProfit = calRevenue - calCogs;
+      const calOpEx = sumRowsForMonths(args.mappedPlRows, calMonths, EBITDA_OPERATING_EXPENSE_CODES);
+      const calNetIncome = calGrossProfit - calOpEx;
+      const isPartialYear = calMonths.length < 12;
+      const displayLabel = isPartialYear
+        ? `CY${calYear} (${calMonths[0]} — ${calMonths[calMonths.length - 1]}, ${calMonths.length} months)`
+        : `CY${calYear} (Jan — Dec ${calYear})`;
+
+      if (isPartialYear) {
+        // Can't meaningfully compare a partial year — skip with info note
+        items.push({
+          title: `Partial calendar year ${calYear} — ${calMonths.length} months available`,
+          severity: "LOW" as const,
+          description: `Only ${calMonths.length} months of data exist for calendar year ${calYear} (${calMonths[0]} through ${calMonths[calMonths.length - 1]}). Cannot cross-check against full-year accountant statement.`,
+          payload: { fiscalYear: displayLabel, monthCount: calMonths.length },
+        });
+        continue;
+      }
+
+      const comparisons = [
+        { lineItem: "Total Revenue", actual: calRevenue, expected: accountant.revenue },
+        { lineItem: "Total COGS", actual: calCogs, expected: accountant.cogs },
+        { lineItem: "Gross Profit", actual: calGrossProfit, expected: accountant.grossProfit },
+        { lineItem: "Total OpEx", actual: calOpEx, expected: accountant.opEx },
+        { lineItem: "Net Income", actual: calNetIncome, expected: accountant.netIncome },
+      ];
+
+      for (const comparison of comparisons) {
+        if (comparison.actual === null || comparison.expected === null) continue;
+        const variance = compareAgainstThreshold(comparison.actual, comparison.expected, 1000, 1);
+        if (variance.isMaterial) {
+          console.log(`[TTM] Section C: ${comparison.lineItem} ${displayLabel} variance=$${variance.variance.toFixed(2)} (rollup=$${comparison.actual}, accountant=$${comparison.expected})`);
+          items.push({
+            title: `${comparison.lineItem} variance for ${displayLabel}`,
+            severity: Math.abs(variance.variance) > 5000 ? "HIGH" as const : "MEDIUM" as const,
+            description: `${comparison.lineItem} differs from accountant totals by $${variance.variance.toFixed(2)}.`,
+            payload: {
+              lineItem: comparison.lineItem,
+              monthlyRollup: comparison.actual,
+              accountantStatement: comparison.expected,
+              variance: variance.variance,
+              variancePct: variance.variancePct,
+              fiscalYear: displayLabel,
+            },
+          });
+        }
+      }
+    }
+    return items;
+  }
+
+  // Standard path: fiscal years align (both start January)
   for (const year of args.monthlyAnnualModel.years) {
     const displayFiscalYear = `${year.fiscalYear} (${year.periodStart} — ${year.periodEnd})`;
     const accountant = year.accountantYearKey ? accountantByYear.get(year.accountantYearKey) : null;
@@ -567,9 +697,15 @@ export function reconcileFinancials(args: {
   mappedBsRows: MappedLedgerRow[];
   accountantStatements: ParsedAccountantStatements;
 }) {
-  const monthKeys = uniqueMonths(args.monthlyPl.monthKeys);
+  // Filter to only valid YYYY-MM month keys — exclude any non-date columns
+  // that may have leaked from rollup/subtotal/year-total columns in F1/F2.
+  const rawMonthKeys = uniqueMonths(args.monthlyPl.monthKeys);
+  const monthKeys = rawMonthKeys.filter((key) => /^\d{4}-\d{2}$/.test(key));
+  if (rawMonthKeys.length !== monthKeys.length) {
+    console.warn(`[TTM] Filtered ${rawMonthKeys.length - monthKeys.length} invalid month keys:`, rawMonthKeys.filter((k) => !/^\d{4}-\d{2}$/.test(k)));
+  }
   const fourWallPlRows = filterFourWallRows(args.mappedPlRows);
-  console.log(`[TTM] Reconciling: ${monthKeys.length} months, ${args.mappedPlRows.length} P&L rows, ${args.mappedBsRows.length} BS rows`);
+  console.log(`[TTM] Reconciling: ${monthKeys.length} valid months, ${args.mappedPlRows.length} P&L rows, ${args.mappedBsRows.length} BS rows`);
   const structuredModel = buildStructuredModel(fourWallPlRows, monthKeys);
   console.log(`[TTM] Structured model: ${structuredModel.months.length} months, confidence=${structuredModel.confidence}`);
   const ttmSummary = buildTtmSummary(fourWallPlRows, monthKeys, args.monthlyPl);
@@ -594,6 +730,8 @@ export function reconcileFinancials(args: {
     C: buildAccountantVarianceSection({
       monthlyAnnualModel: annualModel,
       accountantStatements: args.accountantStatements,
+      mappedPlRows: args.mappedPlRows,
+      monthKeys,
     }),
     D: buildCoverageSection(args.monthlyPl, args.monthlyBs, args.mappedPlRows),
     E: [],

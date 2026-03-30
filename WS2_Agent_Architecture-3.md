@@ -124,32 +124,52 @@ The agent must detect which format is present and parse accordingly.
 
 ### Operating Expenses
 
+**IMPORTANT: Business vs. Personal/Owner Split**
+Several expense categories are split into a BUSINESS code (stays as operating expense) and an OWNER code (100% add-back in WS2-2 normalization). When classifying GL accounts, look at the account name for clues: accounts containing "personal", "home", "owner", or that represent expenses the owner runs through the business should use the `-OWNER` variant.
+
+Codes marked with **⬆ ADD-BACK** are automatically added back in WS2-2 normalization at 100% of the GL amount.
+
 | Cantara Code | Category Name | What It Includes | QB Account Examples |
 |---|---|---|---|
-| `OPX-LABOR-STAFF` | Staff / Direct Labor | All non-owner, non-manager hourly wages, groom commissions, kennel staff | "Wages", "Groom Commission", "Day Labor", "Other Earnings" |
-| `OPX-LABOR-MGMT` | Management Labor | General manager, operations manager, front desk, admin wages | "Manager Salary", "Admin Wages", "Office Staff" |
-| `OPX-LABOR-OWN` | Owner Compensation | Any wages, draws, or compensation paid to the owner or owner's family | "Officer Wages", "Owner Draw", "Owner Salary", "S-Corp Distributions", "Officer" |
-| `OPX-LABOR-TAX` | Payroll Taxes & Benefits | Employer-side FICA, SUTA, FUTA, health insurance, 401k/SIMPLE IRA | "Employer Taxes", "FICA", "SIMPLE IRA", "Health Insurance", "Payroll Tax", "BCBS" |
-| `OPX-TIPS-OUT` | Tips Paid Out | Tips passed through to staff | "Cash Tips Paid Out", "Paycheck Tips" (when in expense section) |
+| **— Labor —** | | | |
+| `OPX-LABOR-STAFF` | Staff / Direct Labor | All non-owner, non-manager hourly wages | "Wages", "Groom Commission", "Day Labor", "Other Earnings" |
+| `OPX-LABOR-MGMT` | Management Labor | GM, ops manager, front desk, admin wages | "Manager Salary", "Admin Wages", "Office Staff" |
+| `OPX-LABOR-OWN` | Owner Compensation **⬆ ADD-BACK** | ALL owner/officer wages, draws, distributions, S-Corp health, consulting | "Officer Wages", "Owner Draw", "S-Corp Health Ins", "Consulting Fees", "Distributions" |
+| `OPX-LABOR-TAX` | Payroll Taxes & Benefits | Employer-side FICA, SUTA, health insurance, 401k | "Employer Taxes", "FICA", "SIMPLE IRA", "Health Insurance" |
+| `OPX-TIPS-OUT` | Tips Paid Out | Tips passed through to staff | "Cash Tips Paid Out", "Paycheck Tips" (in expense section) |
+| **— Facility —** | | | |
 | `OPX-RENT` | Base Rent | Monthly lease payments only | "Lease", "Base Rent", "Rent" |
-| `OPX-RENT-NNN` | NNN / CAM Charges | Triple-net charges, common area maintenance, management fees, sales tax on rent | "CAMs", "NNN", "Mgmt Fee", "Sales Tax" (on rent) |
-| `OPX-UTIL` | Utilities | Electric, gas, water, internet, phone | "Electric", "Gas", "Water", "Internet", "Phone", "Telecom" |
-| `OPX-MKTG` | Marketing & Advertising | All advertising and marketing spend | "Advertising", "Google Ads", "Facebook", "Marketing", "Direct Mail", "Periodical" |
-| `OPX-INSUR` | Insurance | Business insurance, liability, property, workers comp | "Insurance", "Liability", "Workers Comp", "Property Insurance" |
-| `OPX-REPAIR` | Repairs & Maintenance | Building repairs, equipment repairs, janitorial, pest control, waste removal | "Repairs", "Maintenance", "Janitorial", "Pest Control", "Waste Removal" |
-| `OPX-SUPPLY` | Supplies | Caretaking supplies, grooming supplies not in COGS, office supplies | "Supplies", "Caretaking", "Office Supplies" |
-| `OPX-SOFT` | Software & Subscriptions | POS system, reservation software, SaaS tools | "Software", "Subscriptions", "Dues", "POS", "Gingr", "Kennel Booker" |
-| `OPX-PROF` | Professional Fees | Accounting, bookkeeping, legal, consulting | "Accounting", "Legal", "Payroll Service", "Consulting", "Bookkeeping" |
-| `OPX-BANK` | Bank & Merchant Fees | Credit card processing, bank fees, Square fees | "Square Processing Fees", "Credit Card Processing", "Bank Charges", "Merchant Fees" |
-| `OPX-VET` | Emergency Vet | Emergency vet expenses for boarded animals | "Emergency Vet" |
-| `OPX-DEPR` | Depreciation & Amortization | Non-cash accounting charge | "Depreciation Expense", "Amortization" |
-| `OPX-INT` | Interest Expense | Loan interest | "Interest Expense" |
-| `OPX-MEALS` | Meals & Entertainment | Staff meals, client meals, entertainment | "Meals and Entertainment", "Dining w Staff", "Dining w Clients" |
-| `OPX-TRAVEL` | Travel | Business travel | "Travel", "Airfare", "Lodging" |
-| `OPX-DONAT` | Donations | Charitable donations | "Donations", "Church", "Non-Profit" |
-| `OPX-GIFTS` | Gifts | Gifts to clients or staff | "Gifts Given" |
+| `OPX-RENT-NNN` | NNN / CAM Charges | Triple-net, common area maintenance | "CAMs", "NNN", "Mgmt Fee", "Sales Tax" (on rent) |
+| `OPX-UTIL` | Utilities (Business) | Facility electric, gas, water, internet, phone | "Electric", "Gas", "Water", "Internet", "Phone" |
+| `OPX-UTIL-OWNER` | Utilities (Personal/Home) **⬆ ADD-BACK** | Personal home utilities charged to business | "Home Electric", "Personal Phone", "Home Internet" |
+| **— Business Operations —** | | | |
+| `OPX-MKTG` | Marketing & Advertising | All advertising and marketing spend | "Advertising", "Google Ads", "Facebook", "Marketing" |
+| `OPX-INSUR` | Insurance | Business insurance, liability, workers comp | "Insurance", "Liability", "Workers Comp" |
+| `OPX-REPAIR` | Repairs & Maintenance (Business) | Facility repairs, janitorial, pest control | "Repairs", "Janitorial", "Pest Control", "Waste Removal" |
+| `OPX-REPAIR-OWNER` | Repairs & Maintenance (Personal) **⬆ ADD-BACK** | Personal/home repairs charged to business | "Home Repairs", "Personal Maintenance", "Landscape Owner Home" |
+| `OPX-SUPPLY` | Supplies (Business) | Facility caretaking, cleaning, office supplies | "Caretaking Supplies", "Cleaning Supplies", "Office Supplies" |
+| `OPX-SUPPLY-OWNER` | Supplies (Personal/Home) **⬆ ADD-BACK** | Personal home supplies charged to business | "Home Supplies", "Personal Supplies" |
+| `OPX-SOFT` | Software & Subscriptions | POS, reservation software, SaaS tools | "Software", "Subscriptions", "POS", "Gingr" |
+| `OPX-PROF` | Professional Fees (Business) | Business accounting, bookkeeping, legal | "Accounting", "Legal", "Payroll Service", "Bookkeeping" |
+| `OPX-PROF-OWNER` | Professional Fees (Personal) **⬆ ADD-BACK** | Personal legal/accounting charged to business | "Personal Legal", "Owner Legal Fees" |
+| `OPX-BANK` | Bank & Merchant Fees | Credit card processing, bank fees | "Square Processing", "Bank Charges", "Merchant Fees" |
+| `OPX-VET` | Emergency Vet (Business) | Vet expenses for boarded/daycare animals | "Emergency Vet" (for client animals) |
+| `OPX-VET-OWNER` | Emergency Vet (Personal) **⬆ ADD-BACK** | Personal pet vet bills charged to business | "Personal Vet", "Owner Pet Vet" |
+| `OPX-DEPR` | Depreciation & Amortization | Non-cash (EXCLUDED FROM EBITDA) | "Depreciation", "Amortization" |
+| `OPX-INT` | Interest Expense | Loan interest (EXCLUDED FROM EBITDA) | "Interest Expense" |
+| **— Personal / Owner Expenses (all are ⬆ ADD-BACK) —** | | | |
+| `OPX-MEALS` | Meals & Entertainment (Business) | Business staff/client meals | "Business Meals", "Client Entertainment" |
+| `OPX-MEALS-OWNER` | Meals & Entertainment (Personal) **⬆ ADD-BACK** | Personal meals charged to business | "Personal Meals", "Owner Dining" |
+| `OPX-TRAVEL` | Travel (Business) | Business travel | "Conference Travel", "Business Airfare" |
+| `OPX-TRAVEL-OWNER` | Travel (Personal) **⬆ ADD-BACK** | Personal travel charged to business | "Personal Travel", "Vacation", "Personal Airfare" |
+| `OPX-DONAT` | Donations **⬆ ADD-BACK** | ALL charitable donations (personal through business) | "Donations", "Church", "Non-Profit", "Charitable" |
+| `OPX-GIFTS` | Gifts Given **⬆ ADD-BACK** | Personal gifts charged to business | "Gifts Given", "Personal Gifts" |
+| `OPX-OFFICE-OWNER` | Office Expenses (Personal) **⬆ ADD-BACK** | Personal office/admin charged to business | "Personal Office", "Home Office" |
+| `OPX-POSTAGE-OWNER` | Postage & Delivery (Personal) **⬆ ADD-BACK** | Personal postage charged to business | "Personal Postage", "Personal Delivery" |
+| `OPX-DUES-OWNER` | Dues & Subscriptions (Personal) **⬆ ADD-BACK** | Personal memberships/subscriptions | "Personal Dues", "Owner Memberships" |
+| `OPX-ONEOFF` | One-Off Non-Recurring **⬆ ADD-BACK** | Leasehold improvements, non-recurring events >$5K | "Leasehold Improvement", "One-Off Repairs" |
 | `OPX-TAX` | Taxes & Licenses | Business licenses, permits | "Taxes & Licenses", "Permits" |
-| `OPX-OTHER` | Other Operating Expenses | Anything that doesn't fit above | "Miscellaneous", "Other Expenses", "Uncategorized Expense" |
+| `OPX-OTHER` | Other Operating Expenses | Anything that doesn't fit above | "Miscellaneous", "Other Expenses" |
 
 ### Balance Sheet — Working Capital Components
 
@@ -738,92 +758,120 @@ Confirm the TTM 4-Wall EBITDA (Pre-Recast) from WS2-1. State it explicitly:
 Also state the 3-year annual pre-recast EBITDA for FY1, FY2, FY3 as context.
 
 ================================================================================
-SECTION B: PROCESS EACH ADD-BACK CATEGORY
+SECTION B: PROCESS NORMALIZATION ITEMS — MULTI-YEAR FULL ADD-BACK METHODOLOGY
 ================================================================================
 
-For each of the five categories below, process the seller-provided list against the GL data.
+CRITICAL METHODOLOGY: Cantara uses FULL add-back normalization. Every owner/personal expense run through the business is added back at 100% of the GL amount. Do NOT apply personal percentage haircuts. The buyer's advisor will negotiate specific items — our job is to show the full normalization potential.
 
---- CATEGORY 1: OWNER / OFFICER COMPENSATION ---
+MULTI-YEAR REQUIREMENT: Compute normalization items for EVERY fiscal year available (typically 3-4 years + LTM). This shows the buyer the trend. Each line item must show amounts for LTM and each historical fiscal year.
 
-Step 1: From the GL mapping in WS2-1, extract ALL amounts coded to OPX-LABOR-OWN for the TTM period. List every GL account and the TTM total. This is the gross owner compensation in the books.
+REPLACEMENT SALARY: Apply the replacement salary deduction for historical years only. For LTM, show $0 replacement salary if Craig has not specified one. For prior years, use -$20,000 as default (or Craig's input if provided). FLAG for Craig to confirm the replacement amount.
 
-Step 2: From the seller's remuneration list (Item 5), list every item claimed as an add-back with its stated amount and GL cross-reference.
+For each GL account listed below, extract the FULL annual amount for each fiscal year and the LTM period. Add back 100% — no percentage haircuts.
 
-Step 3: Verify each item: does the stated amount match what appears in the GL data for that account? 
-- If match within 5%: VERIFIED ✓
-- If variance 5-20%: FLAGGED-MINOR — note the discrepancy but proceed
-- If variance >20% OR the GL code doesn't match: FLAGGED-MAJOR — Craig must resolve before this add-back can be used
+CRITICAL: You MUST include EVERY item below in your output, even if the amount is $0. Do NOT skip items. Do NOT apply percentage allocations (e.g., "75% personal"). Every dollar in these GL accounts is added back at 100%.
 
-Step 4: Apply the "Owner Replacement Salary" deduction. A buyer will need to hire a manager to replace the owner's working role in the business. Based on the Owner & GM Assessment output (if available), or based on the business size and Craig's standard: apply a replacement salary deduction of $[CRAIG_REPLACEMENT_SALARY — this will be provided by Craig in the agent inputs]. If no replacement salary figure is provided, use $65,000 as the default annual replacement salary and FLAG for Craig to confirm.
+--- NORMALIZATION LINE ITEMS (YOU MUST EXTRACT ALL OF THESE) ---
 
-Step 5: Net owner comp add-back = Gross owner comp add-back - Replacement salary.
+CATEGORY 1 — OWNER / OFFICER COMPENSATION:
+1. Total Payroll Expenses — Sum ALL owner-related payroll: wages, salary, S-Corp health insurance, draws, distributions, consulting fees, management fees, owner bonuses. Search for GL accounts containing: payroll, wages, salary, health insurance, S-Corp, officer, owner, draw, distribution, consulting. Add back the FULL amount — this is typically the largest add-back ($100K-$300K range for pet resorts). Do NOT omit any owner compensation sub-account.
+2. Owner Replacement Salary — Deduction: $0 for LTM, -$20,000 for each prior FY (or Craig's input if different). This is the ONLY item that reduces the add-back total.
 
-Also add back: the employer-side FICA/payroll taxes attributable to the owner's wages (approximately 7.65% of the owner wage amount being added back).
+CATEGORY 2 — PERSONAL EXPENSES:
+CRITICAL METHODOLOGY: Category 2 add-backs are ONLY the amounts the seller disclosed as personal expenses in their disclosure files (F6 — Personal Expenses file). Do NOT add back the entire GL category. The GL category contains both legitimate business expenses AND personal expenses — only the personal portion is added back.
 
---- CATEGORY 2: PERSONAL EXPENSES ---
+For example: If Total Utilities in the GL is $30,000 but the seller's disclosure only lists $1,275 of personal home utilities, the add-back is $1,275 — NOT $30,000. The business's real utility costs stay as an expense.
 
-For each item in the seller's personal expense list (Item 6):
-- State the expense description, amount, and GL cross-reference provided by the seller
-- Verify against the GL data: does this GL account exist? Does the amount match?
-- Apply the SUSPICIOUS PATTERN TESTS:
-  TEST 1 — Recurrence: Does this same expense appear every month at nearly the same amount? If yes, label SUSPICIOUS-RECURRING and flag for Craig.
-  TEST 2 — Round numbers: Is the amount an exact round number ($500, $1,000, $2,500)? If yes, note it (may be an estimate, not an actual invoice).
-  TEST 3 — GL mismatch: Does the GL account description match the expense type claimed? If a seller says "personal meals = $2,360" but the GL code is mapped to OPX-MKTG (Marketing), flag the mismatch.
-  TEST 4 — Size test: Is a single "personal expense" item more than 5% of annual revenue? Flag as unusually large.
-- Status for each item: VERIFIED / FLAGGED-SUSPICIOUS / FLAGGED-UNTRACED (GL doesn't match)
+For each item below, look FIRST at the seller's Personal Expenses disclosure file (F6). Use those amounts. If no disclosure file exists, use the full GL amount as a fallback and FLAG it for Craig to review.
 
---- CATEGORY 3: ONE-OFF NON-RECURRING EXPENSES ---
+3. Total Advertising — ONLY if seller disclosed personal advertising. Usually $0 for LTM.
+4. Total Donations — From seller disclosure. These are personal charitable contributions run through the business.
+5. Dues & Subscriptions — From seller disclosure. Personal memberships only.
+6. Emergency Vet — From seller disclosure. Personal vet bills charged to business.
+7. Gifts Given — From seller disclosure. Personal gifts only.
+8. Professional Fees — From seller disclosure. Only personal professional fees (e.g., personal legal matters). Do NOT add back the business's normal accounting/bookkeeping fees unless seller explicitly disclosed them as personal.
+9. Total Meals and Entertainment — From seller disclosure. Personal meals only.
+10. Office Expenses - Admin — From seller disclosure. Personal office items only.
+11. Postage & Delivery — From seller disclosure. Personal postage only.
+12. Total Repairs & Maintenance — From seller disclosure. Add back ONLY the repairs the seller identified as personal/discretionary. Do NOT add back the business's normal maintenance costs. Cross-reference with the GL to get the exact amounts per year.
+13. Total Supplies — From seller disclosure. Only personal supplies (home supplies, personal items). Do NOT add back the business's normal caretaking/cleaning supplies.
+14. Total Travel — From seller disclosure. Personal travel only. Can be negative if seller reimbursed the business.
+15. Total Utilities — From seller disclosure. ONLY personal home utilities charged to business. Do NOT add back the business's actual utility costs (electricity, water for the facility).
 
-For each item in the seller's one-off expense list (Item 7):
-- State the expense description, amount, year, and GL cross-reference
-- Apply the RECURRENCE TEST: search the 3-year GL data for this same type of expense in other years. If this category of expense appears in 2 or more of the 3 fiscal years, label FLAGGED-RECURRING (not truly one-off).
-- Verify the amount against GL data.
-- Status: VERIFIED / FLAGGED-RECURRING / FLAGGED-UNTRACED
+CATEGORY 3 — ONE-OFF NON-RECURRING EXPENSES:
+16. One-Off Expenses — From seller disclosure file F7 (Non-Recurring Expenses) and F8 (Tenant Improvements). These are specific events the seller identified as non-recurring. Compute net amount per year. Do NOT duplicate items already counted in Category 2 (e.g., if repairs are in Category 2, do not also add a "repairs event" in Category 3 for the same amount).
 
---- CATEGORY 4: TENANT IMPROVEMENT (TI) ADD-BACKS ---
+CATEGORY 5 — FAIR MARKET RENT:
+17. FMR Adjustment — Only if related-party ownership applies.
 
-For each TI in the seller's list (Item 8):
-- State description, amount, year expensed, and GL cross-reference
-- Determine treatment: Was this expensed (appears in P&L) or capitalized (appears on balance sheet)? Only expensed TIs are added back to EBITDA.
-- Verify against GL data.
-- Note whether a building permit was referenced (from WS1 if available).
-- Status: VERIFIED-EXPENSED / VERIFIED-CAPITALIZED (no P&L add-back needed) / FLAGGED-UNTRACED
+VERIFICATION CHECKLIST — Before producing your output, verify:
+□ For Category 2 items: Am I using the seller's disclosure amounts, NOT the full GL category totals?
+□ Am I adding back owner COMPENSATION (Category 1) at full GL amounts, but PERSONAL EXPENSES (Category 2) at disclosure amounts only?
+□ Total Utilities add-back should be small ($0-$2K typically) — if it's >$5K, I'm probably using the full GL amount instead of the personal disclosure amount
+□ Total Supplies add-back should match the seller's disclosure ($5K-$15K typically) — if it's >$20K, I'm probably using the full GL amount
+□ Professional Fees add-back should be only the personal portion — if it's >$10K, I'm probably adding back the business's normal accounting costs
+□ Am I double-counting any repairs in both Category 2 and Category 3?
+□ Did I capture ALL owner payroll sub-accounts (wages + health + draws + consulting + distributions)?
+□ Is the replacement salary $0 for LTM and -$20,000 for prior years (or Craig's override)?
+
+--- VERIFICATION ---
+
+For each line item:
+- State the GL account(s), amount per year, and amount for LTM
+- Verify against seller's disclosure if available
+- If a line item is $0 for a given year, show $0 (do not omit the row)
+- Status: VERIFIED ✓ / FLAGGED / N/A
 
 --- CATEGORY 5: FAIR MARKET RENT NORMALIZATION ---
 
 Check: Is the property owned by a related party?
-- If YES: Calculate FMR adjustment = Actual Annual Rent Paid (from OPX-RENT + OPX-RENT-NNN in TTM) - Fair Market Rent Estimate (from seller input Item 10)
-  - If actual rent > FMR: positive add-back (excess rent paid to related-party owner)
-  - If actual rent < FMR: negative adjustment (buyer will pay more for rent)
-- If NO related-party ownership: State "Not Applicable — no related-party rent adjustment required"
-- If related-party but no FMR provided: Flag as MISSING-DATA — cannot calculate
+- If YES: Calculate FMR adjustment per year
+- If NO: State "Not Applicable"
 
 ================================================================================
-SECTION C: BUILD THE RECAST SCHEDULE
+SECTION C: BUILD THE MULTI-YEAR NORMALIZATION SCHEDULE
 ================================================================================
 
-Produce the EBITDA Recast Schedule in this exact format:
+Produce the EBITDA RECAST SCHEDULE as a MULTI-YEAR TABLE using EXACTLY this column format. Each row is a normalization item. Columns are: #, Category, Item Description, GL Reference, LTM amount, FY3 amount, FY2 amount, FY1 amount, and Status. This matches the Cantara Valuation Analysis workbook format.
 
-EBITDA RECAST SCHEDULE — TTM [Start Month] to [End Month]
+## EBITDA RECAST SCHEDULE
 
-| # | Category | Item Description | GL Reference | TTM Amount | Status |
-|---|---|---|---|---|---|
-| — | TTM 4-Wall EBITDA (Pre-Recast) | Starting point from WS2-1 | — | $[AMOUNT] | — |
-| 1a | Owner Compensation | [Owner Name] - Wages/Draws | [GL Code] | $[AMOUNT] | VERIFIED ✓ |
-| 1b | Owner Compensation | [Owner Name] - S-Corp Health Insurance | [GL Code] | $[AMOUNT] | VERIFIED ✓ |
-| 1c | Owner Compensation | Employer FICA on owner wages (add-back) | [GL Code] | $[AMOUNT] | CALCULATED |
-| 1d | Owner Compensation | Replacement Manager Salary (deduction) | — | -$[AMOUNT] | [Craig-confirmed or DEFAULT] |
-| 2a | Personal Expenses | [Description] | [GL Code] | $[AMOUNT] | [Status] |
-| ... | ... | ... | ... | ... | ... |
-| 3a | One-Off Expenses | [Description] | [GL Code] | $[AMOUNT] | [Status] |
-| ... | ... | ... | ... | ... | ... |
-| 4a | TI Add-Backs | [Description] | [GL Code] | $[AMOUNT] | [Status] |
-| 5a | FMR Rent Adjustment | [Description] | OPX-RENT | $[AMOUNT] | [Status] |
-| — | **TOTAL ADD-BACKS** | | | **$[TOTAL]** | |
-| — | **NORMALIZED / RECAST EBITDA (TTM)** | | | **$[AMOUNT]** | |
-| — | **NORMALIZED EBITDA MARGIN (TTM)** | | | **[X]%** | |
+| # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status |
+|---|---|---|---|---|---|---|---|---|
+| — | — | Revenue | — | $[LTM] | $[FY3] | $[FY2] | $[FY1] | — |
+| — | — | Net Income/EBITDA (Pre-Recast) | — | $[LTM] | $[FY3] | $[FY2] | $[FY1] | — |
+| 1a | Owner / Officer Compensation | Total Payroll Expenses | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 1b | Owner / Officer Compensation | Owner Replacement Salary | — | $0 | -$20,000 | -$20,000 | -$20,000 | DEFAULT |
+| 2a | Personal Expenses | Total Donations | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2b | Personal Expenses | Emergency Vet | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2c | Personal Expenses | Gifts Given | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2d | Personal Expenses | Professional Fees | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2e | Personal Expenses | Total Meals and Entertainment | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2f | Personal Expenses | Office Expenses - Admin | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2g | Personal Expenses | Postage & Delivery | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2h | Personal Expenses | Total Repairs & Maintenance | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2i | Personal Expenses | Total Supplies | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2j | Personal Expenses | Total Travel | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2k | Personal Expenses | Total Utilities | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2l | Personal Expenses | Total Advertising | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 2m | Personal Expenses | Dues & Subscriptions | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 3a | One-Off Expenses | [description] | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| 4a | TI Add-Backs | [description] | [GL#] | $[amount] | $[amount] | $[amount] | $[amount] | VERIFIED |
+| — | **TOTAL ADD-BACKS** | | | **$[TOTAL]** | **$[TOTAL]** | **$[TOTAL]** | **$[TOTAL]** | |
+| — | **NORMALIZED / RECAST EBITDA** | | | **$[LTM_NORM]** | **$[FY3_NORM]** | **$[FY2_NORM]** | **$[FY1_NORM]** | |
+| — | Multiple | | | [X]x | [X]x | [X]x | [X]x | |
+| — | **Valuation** | | | **$[LTM_VAL]** | **$[FY3_VAL]** | **$[FY2_VAL]** | **$[FY1_VAL]** | |
 
-Also produce the same recast for FY3 (most recent full fiscal year) and FY2 for 3-year context.
+IMPORTANT:
+- Use EXACTLY this column format: | # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status |
+- Every line item shows the FULL GL amount for that year (100% add-back, no percentage haircuts)
+- LTM = last 12 months of GL data
+- FY years use calendar year (Jan-Dec) to match accountant statements
+- Show $0 for items that don't apply in a given year — do NOT omit rows
+- Owner Replacement Salary: $0 for LTM column, -$20,000 for each prior FY (or Craig's input if different)
+- One-Off Expenses may be negative (removing non-recurring income like PPP) for some years
+- Apply Craig's valuation multiple to each year's Revised EBITDA
+- Every dollar amount must be formatted as $X,XXX (with dollar sign and commas)
 
 ================================================================================
 SECTION D: FLAG LIST FOR CRAIG
@@ -846,23 +894,18 @@ For each flag, state:
 SECTION E: PRELIMINARY VALUATION RANGE
 ================================================================================
 
-Apply Craig's valuation multiple range to the Normalized EBITDA.
+Apply Craig's valuation multiple to the Revised Net Income/EBITDA for EACH year.
 
-Craig will have provided a multiple range (e.g., 3.5x to 5.5x with a midpoint of 4.5x) via the portal input field before this agent runs.
+Craig will have provided a target multiple (e.g., 5x) via the portal input. Apply this same multiple to every year.
 
-Valuation Range:
-- Low: Normalized TTM EBITDA × Low Multiple = $[AMOUNT]
-- Mid: Normalized TTM EBITDA × Mid Multiple = $[AMOUNT]
-- High: Normalized TTM EBITDA × High Multiple = $[AMOUNT]
+The multi-year valuation is already included in the EBITDA RECAST SCHEDULE table above (the Valuation row). No separate table is needed here — just restate the key numbers:
 
-Revenue multiple cross-check (informational only):
-- Low / Mid / High valuation ÷ TTM Revenue = X.Xx revenue multiple (context check)
+**Valuation Range (LTM):**
+- Low: $[LTM_NORM] × [X]x = **$[LTM_VAL_LOW]**
+- Mid: $[LTM_NORM] × [X]x = **$[LTM_VAL_MID]**
+- High: $[LTM_NORM] × [X]x = **$[LTM_VAL_HIGH]**
 
-Revenue trend adjustment flag:
-- If TTM revenue is LOWER than FY3 annual revenue: "DECLINING REVENUE — buyer will likely apply multiple to lower end of range"
-- If TTM revenue is HIGHER than FY3 annual revenue: "GROWING REVENUE — multiple range may support mid-to-high application"
-
-State clearly: "This is a PRELIMINARY valuation range for Craig's internal planning. It has not been reviewed or approved. It must not be shared with the seller until Craig approves it."
+State clearly: "This is a PRELIMINARY valuation range for Craig's internal planning."
 
 ================================================================================
 SECTION F: OUTPUT FORMAT
@@ -891,10 +934,7 @@ Structure your complete output with these exact headers:
 [FMR analysis or N/A]
 
 ### EBITDA RECAST SCHEDULE
-[Full table as specified above]
-
-### 3-YEAR NORMALIZED EBITDA SUMMARY
-[FY1, FY2, FY3, TTM normalized EBITDA and margins]
+[Full multi-year table as specified in Section C — must use the exact 9-column format: # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status]
 
 ### FLAG LIST FOR CRAIG REVIEW
 [All flags with dollar impacts]

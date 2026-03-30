@@ -6,7 +6,8 @@ const ARCHITECTURE_PATH = path.join(process.cwd(), "WS2_Agent_Architecture-3.md"
 let cachedArchitecture: string | null = null;
 
 function loadArchitecture() {
-  if (cachedArchitecture) return cachedArchitecture;
+  // Always reload in development to pick up prompt changes
+  if (cachedArchitecture && process.env.NODE_ENV === "production") return cachedArchitecture;
   cachedArchitecture = readFileSync(ARCHITECTURE_PATH, "utf8").replace(/\r\n/g, "\n");
   return cachedArchitecture;
 }

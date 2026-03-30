@@ -37,6 +37,7 @@ function asMappedRows(value: unknown) {
 }
 
 function mappingStatus(row: MappedLedgerRow) {
+  if (row.cantaraCode === '_EXCLUDED') return 'Excluded'
   if (!row.cantaraCode) return row.candidateCodes.length ? 'Needs review' : 'Unmapped'
   if (row.mappingMethod === 'claude' || row.mappingMethod === 'fuzzy') return 'Needs review'
   return 'Auto-mapped'
@@ -44,6 +45,7 @@ function mappingStatus(row: MappedLedgerRow) {
 
 function mappingTone(row: MappedLedgerRow) {
   const status = mappingStatus(row)
+  if (status === 'Excluded') return 'gray' as const
   if (status === 'Auto-mapped') return 'green' as const
   if (status === 'Needs review') return 'gold' as const
   return 'red' as const
@@ -95,7 +97,10 @@ export function Ws21StructuredReport({ analysis }: { analysis: TtmAnalysisView }
     : 'TTM not available'
   const mappedPlRows = asMappedRows(analysis.normalizedData?.mappedPlRows)
   const mappedBsRows = asMappedRows(analysis.normalizedData?.mappedBsRows)
-  const mappingRows = [...mappedPlRows, ...mappedBsRows].sort((a, b) => a.accountName.localeCompare(b.accountName))
+  const allMappingRows = [...mappedPlRows, ...mappedBsRows].sort((a, b) => a.accountName.localeCompare(b.accountName))
+  // Filter out excluded (subtotal/rollup) rows — they should not appear in the mapping queue
+  const mappingRows = allMappingRows.filter((row) => mappingStatus(row) !== 'Excluded')
+  const excludedCount = allMappingRows.filter((row) => mappingStatus(row) === 'Excluded').length
   const autoMappedCount = mappingRows.filter((row) => mappingStatus(row) === 'Auto-mapped').length
   const reviewMappingCount = mappingRows.filter((row) => mappingStatus(row) === 'Needs review').length
   const unmappedCount = mappingRows.filter((row) => mappingStatus(row) === 'Unmapped').length
