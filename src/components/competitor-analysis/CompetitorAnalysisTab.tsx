@@ -14,7 +14,7 @@ import {
   Tag,
   TrendingUp,
 } from 'lucide-react';
-import { Badge, Button, Card, Input, Textarea, cn } from '@/components/ui';
+import { Badge, Button, Card, Input, Modal, Textarea, cn } from '@/components/ui';
 import {
   AnalysisStatus,
   CompetitorAnalysisFormData,
@@ -60,6 +60,18 @@ function hasConcretePricePoints(pricePoints: string[]): boolean {
 
 function pricingStatusFromPoints(pricePoints: string[]): string {
   return hasConcretePricePoints(pricePoints) ? 'Published' : 'Not published';
+}
+
+function cleanSourceLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(/\/+$/, '') || '/';
+    if (/search/i.test(path) || parsed.search.includes('cgid=')) return 'Pricing search page';
+    if (/dog|cat|food|treat|product|shop|collection|category/i.test(path)) return 'Pricing category page';
+    return `${parsed.hostname.replace(/^www\./, '')}${path}`;
+  } catch {
+    return 'Pricing page';
+  }
 }
 
 function formatNumber(value: number | null | undefined): string {
@@ -601,6 +613,7 @@ function ComparisonTable({
   if (!discoveredCompetitors.length) return null;
   const PAGE_SIZE = 8;
   const [page, setPage] = useState(1);
+  const [priceModalCompetitor, setPriceModalCompetitor] = useState<CompetitorReportItem | null>(null);
   const researchedById = new Map(researchedCompetitors.map((competitor) => [competitor.placeId ?? '', competitor]));
   const totalPages = Math.max(1, Math.ceil(discoveredCompetitors.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -657,7 +670,19 @@ function ComparisonTable({
                   {competitor.rating ?? 'Not found'}
                   <span className="block text-xs text-slate-400 mt-1">{formatNumber(competitor.reviewCount)} reviews</span>
                 </td>
-                <td className="px-4 py-4 text-slate-700">{researched ? pricingStatusFromPoints(researched.pricePoints) : 'Not researched'}</td>
+                <td className="px-4 py-4 text-slate-700">
+                  {researched ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPriceModalCompetitor(researched)}
+                    >
+                      View prices
+                    </Button>
+                  ) : (
+                    'Not researched'
+                  )}
+                </td>
                 <td className="px-4 py-4 text-slate-700">
                   {competitor.openNow === null ? 'Not found' : competitor.openNow ? 'Open now' : 'Closed now'}
                 </td>
@@ -706,6 +731,93 @@ function ComparisonTable({
           </div>
         </div>
       )}
+      <Modal
+        open={Boolean(priceModalCompetitor)}
+        onClose={() => setPriceModalCompetitor(null)}
+        title={priceModalCompetitor ? `${priceModalCompetitor.name} pricing evidence` : 'Pricing evidence'}
+        sizeClassName="max-w-2xl"
+      >
+        {priceModalCompetitor && (
+          <div className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing status</p>
+              <p className="mt-2 text-sm text-slate-700">
+                {pricingStatusFromPoints(priceModalCompetitor.pricePoints)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing read</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                {priceModalCompetitor.pricingComparison}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Public price evidence</p>
+              {priceModalCompetitor.priceEvidence?.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {priceModalCompetitor.priceEvidence.map((item, index) => (
+                    <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      {item.label}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-slate-500">
+                  No public product price evidence is currently saved for this business.
+                </p>
+              )}
+            </div>
+            {priceModalCompetitor.priceEvidence?.some((item) => item.url) && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing pages</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {priceModalCompetitor.priceEvidence
+                    .filter((item) => item.url)
+                    .slice(0, 4)
+                    .map((item, index) => (
+                      <a
+                        key={`${item.url}-${index}`}
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:border-slate-300"
+                      >
+                        {item.pageTitle || cleanSourceLabel(item.url!)}
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    ))}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              {priceModalCompetitor.websiteUrl && (
+                <a
+                  href={priceModalCompetitor.websiteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-amber-700 hover:text-amber-800"
+                >
+                  <Globe className="w-4 h-4" />
+                  Website
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
+              {priceModalCompetitor.mapsUrl && (
+                <a
+                  href={priceModalCompetitor.mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-800"
+                >
+                  <MapPin className="w-4 h-4" />
+                  Map listing
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </Card>
   );
 }

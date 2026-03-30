@@ -42,11 +42,29 @@ interface ClaudeOverlayResponse {
 }
 
 const COMPETITOR_ANALYSIS_MODEL = 'claude-sonnet-4-20250514';
-const PRIMARY_MAX_TOKENS = 2200;
-const RETRY_MAX_TOKENS = 1400;
+const PRIMARY_MAX_TOKENS = 2600;
+const RETRY_MAX_TOKENS = 1200;
 
 function clip(text: string | undefined, limit = 240): string {
   return (text ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function dedupePricePoints(points: string[]): string[] {
+  const seen = new Set<string>();
+  return points.filter((point) => {
+    const key = point.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 8);
+}
+
+function summarizePriceEvidence(research: WebsiteResearchData | null): string | null {
+  if (!research?.priceEvidence?.length) return null;
+  return research.priceEvidence
+    .slice(0, 2)
+    .map((item) => clip(item.label, 90))
+    .join(' | ');
 }
 
 function buildWebsiteSection(label: string, research: WebsiteResearchData | null): string {
@@ -55,18 +73,18 @@ function buildWebsiteSection(label: string, research: WebsiteResearchData | null
   }
 
   const snippets = research.snippets
-    .slice(0, 2)
+    .slice(0, 1)
     .map((snippet, index) => [
       `Snippet ${index + 1}`,
       `Title: ${clip(snippet.title, 80)}`,
-      `Content: ${clip(snippet.snippet, 240)}`,
+      `Content: ${clip(snippet.snippet, 140)}`,
     ].join('\n'))
     .join('\n\n');
 
   return [
     `${label}:`,
-    `Website: ${research.websiteUrl}`,
     `Confidence: ${research.confidence}`,
+    summarizePriceEvidence(research) ? `Price evidence: ${summarizePriceEvidence(research)}` : null,
     research.error ? `Research note: ${research.error}` : null,
     snippets || 'No usable snippets found.',
   ].filter(Boolean).join('\n');
@@ -80,7 +98,7 @@ function buildPrompt(args: {
   competitorWebsiteResearch: Record<string, WebsiteResearchData | null>;
   compact?: boolean;
 }): string {
-  const competitorsBlock = args.competitors.slice(0, args.compact ? 5 : 6).map((competitor, index) => {
+  const competitorsBlock = args.competitors.slice(0, args.compact ? 4 : 5).map((competitor, index) => {
     const websiteSection = buildWebsiteSection(
       `${competitor.name} website research`,
       args.competitorWebsiteResearch[competitor.placeId ?? ''] ?? null
@@ -93,12 +111,10 @@ function buildPrompt(args: {
       `Distance: ${competitor.distanceMiles.toFixed(2)} miles`,
       `Rating: ${competitor.rating ?? 'Not found'}`,
       `Review count: ${competitor.reviewCount ?? 'Not found'}`,
-      `Price level: ${competitor.priceLevel ?? 'Not found'}`,
       `Open now: ${competitor.openNow === null ? 'Not found' : competitor.openNow ? 'Yes' : 'No'}`,
-      `Business status: ${competitor.businessStatus ?? 'Not found'}`,
-      `Website: ${competitor.websiteUrl ?? 'Not found'}`,
-      `Primary types: ${competitor.primaryTypes.join(', ') || 'Not found'}`,
-      `Weekday hours: ${competitor.weekdayText.join(' | ') || 'Not found'}`,
+      `Website available: ${competitor.websiteUrl ? 'Yes' : 'No'}`,
+      `Primary type: ${competitor.primaryTypes[0] ?? 'Not found'}`,
+      `Hours summary: ${competitor.weekdayText[0] ?? 'Not found'}`,
       websiteSection,
     ].join('\n');
   }).join('\n\n---\n\n');
@@ -180,7 +196,8 @@ Rules:
 - "similarityScore" must be 1 to 5, where 5 means very direct substitute.
 - If pricing is not visible, say "No public pricing located" or similar rather than guessing.
 - Do not treat Google or listing price-level symbols such as $, $$, $$$ as published pricing. Only describe pricing as published when exact public website pricing was actually found.
-- Keep the total response short enough to fit comfortably inside a small JSON payload.
+- Keep the total response very compact.
+- Use at most 3 services and at most 3 pricePoints per business.
   `.trim();
 }
 
@@ -260,8 +277,9 @@ export async function buildCompetitorAnalysisReport(args: {
       '',
       'Your previous answer was invalid or truncated.',
       'Return a shorter JSON response now.',
-      'Use at most 2 short takeaways, 2 short recommendations, and at most 4 competitors.',
+      'Use at most 2 short takeaways, 2 short recommendations, and at most 3 competitors.',
       'Every summary field should be one short sentence.',
+      'Use at most 2 services and 2 pricePoints per business.',
       'Return valid JSON only.',
     ].join('\n');
 
@@ -286,8 +304,13 @@ export async function buildCompetitorAnalysisReport(args: {
     ...args.subject,
     serviceSummary: parsed.clientProfile?.serviceSummary ?? 'Public sources did not clearly describe the full service mix.',
     services: parsed.clientProfile?.services ?? [],
-    pricingSummary: parsed.clientProfile?.pricingSummary ?? 'No detailed public pricing was confirmed.',
-    pricePoints: parsed.clientProfile?.pricePoints ?? [],
+    pricingSummary: parsed.clientProfile?.pricingSummary
+      ?? (args.subjectWebsiteResearch?.pricePoints?.length ? 'Public product pricing was located on the website.' : 'No detailed public pricing was confirmed.'),
+    pricePoints: dedupePricePoints([
+      ...(parsed.clientProfile?.pricePoints ?? []),
+      ...(args.subjectWebsiteResearch?.pricePoints ?? []),
+    ]),
+    priceEvidence: args.subjectWebsiteResearch?.priceEvidence ?? [],
     hoursSummary: parsed.clientProfile?.hoursSummary ?? 'Public hours information was limited.',
     reputationSummary: parsed.clientProfile?.reputationSummary ?? 'Public reputation signals were limited.',
     websiteConfidence: parsed.clientProfile?.websiteConfidence ?? args.subjectWebsiteResearch?.confidence ?? 'low',
@@ -295,7 +318,10 @@ export async function buildCompetitorAnalysisReport(args: {
 
   const competitors: CompetitorReportItem[] = args.competitors.map((competitor) => {
     const overlay = overlayByPlaceId.get(competitor.placeId ?? '');
-    const pricePoints = overlay?.pricePoints ?? [];
+    const pricePoints = dedupePricePoints([
+      ...(overlay?.pricePoints ?? []),
+      ...(args.competitorWebsiteResearch[competitor.placeId ?? '']?.pricePoints ?? []),
+    ]);
     return {
       ...competitor,
       similarityLevel: overlay?.similarityLevel ?? 'medium',
@@ -307,6 +333,7 @@ export async function buildCompetitorAnalysisReport(args: {
       reputationComparison: overlay?.reputationComparison ?? 'Reputation comparison is based on public rating and review signals.',
       services: overlay?.services ?? [],
       pricePoints,
+      priceEvidence: args.competitorWebsiteResearch[competitor.placeId ?? '']?.priceEvidence ?? [],
       strengths: overlay?.strengths ?? [],
       gaps: overlay?.gaps ?? [],
       websiteConfidence: overlay?.websiteConfidence ?? args.competitorWebsiteResearch[competitor.placeId ?? '']?.confidence ?? 'low',
@@ -400,7 +427,10 @@ export async function buildSingleCompetitorReport(args: {
   }
 
   const overlay = parsed.competitors?.[0];
-  const pricePoints = overlay?.pricePoints ?? [];
+  const pricePoints = dedupePricePoints([
+    ...(overlay?.pricePoints ?? []),
+    ...(args.competitorWebsiteResearch?.pricePoints ?? []),
+  ]);
   return {
     ...args.competitor,
     similarityLevel: overlay?.similarityLevel ?? 'medium',
@@ -412,6 +442,7 @@ export async function buildSingleCompetitorReport(args: {
     reputationComparison: overlay?.reputationComparison ?? 'Reputation comparison is based on public rating and review signals.',
     services: overlay?.services ?? [],
     pricePoints,
+    priceEvidence: args.competitorWebsiteResearch?.priceEvidence ?? [],
     strengths: overlay?.strengths ?? [],
     gaps: overlay?.gaps ?? [],
     websiteConfidence: overlay?.websiteConfidence ?? args.competitorWebsiteResearch?.confidence ?? 'low',
