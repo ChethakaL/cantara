@@ -43,9 +43,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       where: { id },
       data: {
         businessName: body.company,
-        businessAddress: typeof body.businessAddress === "string" ? body.businessAddress : undefined,
-        businessCategory: typeof body.businessCategory === "string" ? body.businessCategory : undefined,
-        websiteUrl: typeof body.websiteUrl === "string" ? body.websiteUrl : undefined,
         email: body.email,
         phone: body.phone,
         workstream: body.workstream ? body.workstream.toUpperCase() : undefined,

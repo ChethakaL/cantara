@@ -98,24 +98,12 @@ export interface ContractAnalysis {
   parsed: any | null
 }
 
-export interface CompetitorAnalysis {
-  id: string
-  clientId: string
-  fileName: string
-  createdAt: string
-  report: string
-  parsed: any | null
-}
-
 export interface Client {
   id: string
   name: string
   email: string
   company: string
   phone: string
-  businessAddress: string
-  businessCategory: string
-  websiteUrl: string
   workstream: Workstream
   stage: ClientStage
   businessType: BusinessType
@@ -353,80 +341,6 @@ export async function deleteContractAnalysis(id: string) {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(text || 'Failed to delete contract analysis');
-    }
-    return await res.json();
-  } catch (error) {
-    console.error(error);
-    throw error
-  }
-}
-
-// ── Competitor Analyses ─────────────────────────────────────────────────────
-
-export async function getCompetitorAnalyses(clientId: string): Promise<CompetitorAnalysis[]> {
-  try {
-    const res = await fetch(`/api/competitor-analysis/reports?clientId=${clientId}`);
-    if (!res.ok) return [];
-    return await res.json();
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
-}
-
-export async function saveCompetitorAnalysis(data: {
-  clientId: string;
-  fileName: string;
-  report: string;
-  parsed: any;
-}) {
-  try {
-    const res = await fetch('/api/competitor-analysis/reports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(text || 'Failed to save competitor analysis');
-    }
-    return await res.json();
-  } catch (error) {
-    console.error(error);
-    throw error
-  }
-}
-
-export async function deleteCompetitorAnalysis(id: string) {
-  try {
-    const res = await fetch(`/api/competitor-analysis/reports?id=${id}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(text || 'Failed to delete competitor analysis');
-    }
-    return await res.json();
-  } catch (error) {
-    console.error(error);
-    throw error
-  }
-}
-
-export async function updateCompetitorAnalysis(id: string, update: {
-  fileName?: string;
-  report?: string;
-  parsed?: any;
-}) {
-  try {
-    const res = await fetch(`/api/competitor-analysis/reports?id=${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(update),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(text || 'Failed to update competitor analysis');
     }
     return await res.json();
   } catch (error) {

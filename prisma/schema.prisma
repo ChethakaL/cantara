@@ -33,19 +33,6 @@ model ContractAnalysis {
   @@index([clientId, createdAt])
 }
 
-model CompetitorAnalysis {
-  id        String        @id @default(cuid())
-  clientId  String
-  fileName  String
-  report    String        @db.Text
-  parsed    Json?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@index([clientId, createdAt])
-}
-
 model TtmAnalysis {
   id              String            @id @default(cuid())
   clientId        String
@@ -268,9 +255,6 @@ model ClientProfile {
   userId              String            @unique
   businessName        String
   businessDescription String?           @db.Text
-  businessAddress     String?           @db.Text
-  businessCategory    String?
-  websiteUrl          String?
   email               String?
   phone               String?
   workstream          Workstream?
@@ -295,7 +279,6 @@ model ClientProfile {
   DocumentRequest     DocumentRequest[]
   LeaseAnalysis       LeaseAnalysis[]
   ContractAnalysis    ContractAnalysis[]
-  CompetitorAnalyses  CompetitorAnalysis[]
   Questions           Question[]
   Branches            Branch[]
   ChatMessages        ChatMessage[]

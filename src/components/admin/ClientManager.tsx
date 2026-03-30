@@ -162,36 +162,6 @@ export default function ClientManager({ client: initial, onSaved }: {
         </div>
       </section>
 
-      <section>
-        <h4 className="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Business Market Profile</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input
-            label="Business category"
-            placeholder="e.g. Chinese restaurant, veterinary clinic, hair salon"
-            value={client.businessCategory}
-            onChange={e => update('businessCategory', e.target.value)}
-          />
-          <Input
-            label="Website URL"
-            placeholder="https://www.example.com"
-            value={client.websiteUrl}
-            onChange={e => update('websiteUrl', e.target.value)}
-          />
-        </div>
-        <div className="mt-4">
-          <Textarea
-            label="Primary business address"
-            placeholder="123 Main St, Suite 200, Seattle, WA 98101"
-            value={client.businessAddress}
-            onChange={e => update('businessAddress', e.target.value)}
-            rows={3}
-          />
-        </div>
-        <p className="mt-2 text-xs text-slate-400">
-          These fields are used by the Competitor Analysis Agent to search nearby competing businesses and compare services, pricing, reputation, and hours.
-        </p>
-      </section>
-
       {/* Workstream provisioning (was Monday dropdown) */}
       <section>
         <h4 className="text-sm font-semibold text-slate-700 mb-1 pb-2 border-b border-slate-100 flex items-center gap-2">
