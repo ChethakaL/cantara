@@ -18,6 +18,7 @@ import AdminDocumentsView from '@/components/admin/AdminDocuments'
 import MeetingsTab from '@/components/admin/MeetingsTab'
 import { TtmAnalysisTab } from '@/components/ttm-agent/TtmAnalysisTab'
 import DigitalPresenceTab from '@/components/digital-presence/DigitalPresenceTab'
+import CompetitorAnalysisTab from '@/components/competitor-analysis/CompetitorAnalysisTab'
 import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
@@ -49,6 +50,12 @@ const AGENT_TABS = [
     label: 'Digital Presence',
     badge: null,
     icon: Globe2,
+  },
+  {
+    key: 'competitor',
+    label: 'Competitor Analysis Agent',
+    badge: null,
+    icon: Bot,
   },
   {
     key: 'insurance',
@@ -382,6 +389,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'digital' && (
               <DigitalPresenceTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'competitor' && (
+              <CompetitorAnalysisTab
+                clientId={client.id}
+                businessName={client.company || client.name}
+                businessAddress={client.businessAddress}
+                businessCategory={client.businessCategory}
+                websiteUrl={client.websiteUrl}
+              />
             )}
             {activeTab === 'insurance' && (
               <InsuranceReviewTab clientId={client.id} />
