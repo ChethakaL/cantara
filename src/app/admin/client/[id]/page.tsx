@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, CalendarDays, FileSpreadsheet, Globe2,
-  ChevronDown, Bot,
+  ChevronDown, Bot, LineChart,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
@@ -19,6 +19,7 @@ import MeetingsTab from '@/components/admin/MeetingsTab'
 import { TtmAnalysisTab } from '@/components/ttm-agent/TtmAnalysisTab'
 import DigitalPresenceTab from '@/components/digital-presence/DigitalPresenceTab'
 import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
+import CompetitorAnalysisTab from '@/components/competitor-analysis/CompetitorAnalysisTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -55,6 +56,12 @@ const AGENT_TABS = [
     label: 'Insurance Review Agent',
     badge: null,
     icon: FileText,
+  },
+  {
+    key: 'competitor',
+    label: 'Competitor Analysis',
+    badge: null,
+    icon: LineChart,
   },
 ] as const
 
@@ -385,6 +392,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'insurance' && (
               <InsuranceReviewTab clientId={client.id} />
+            )}
+            {activeTab === 'competitor' && (
+              <CompetitorAnalysisTab
+                clientId={client.id}
+                businessName={(client as any).businessName || client.company || client.name}
+                businessAddress={(client as any).businessAddress || ''}
+                businessCategory={(client as any).businessCategory || 'pet store'}
+                websiteUrl={(client as any).websiteUrl || ''}
+              />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />

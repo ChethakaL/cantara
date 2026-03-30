@@ -14,7 +14,7 @@ import {
   Tag,
   TrendingUp,
 } from 'lucide-react';
-import { Badge, Button, Card, Input, Textarea, cn } from '@/components/ui';
+import { Badge, Button, Card, Input, Modal, Textarea, cn } from '@/components/ui';
 import {
   AnalysisStatus,
   CompetitorAnalysisFormData,
@@ -60,6 +60,18 @@ function hasConcretePricePoints(pricePoints: string[]): boolean {
 
 function pricingStatusFromPoints(pricePoints: string[]): string {
   return hasConcretePricePoints(pricePoints) ? 'Published' : 'Not published';
+}
+
+function cleanSourceLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(/\/+$/, '') || '/';
+    if (/search/i.test(path) || parsed.search.includes('cgid=')) return 'Pricing search page';
+    if (/dog|cat|food|treat|product|shop|collection|category/i.test(path)) return 'Pricing category page';
+    return `${parsed.hostname.replace(/^www\./, '')}${path}`;
+  } catch {
+    return 'Pricing page';
+  }
 }
 
 function formatNumber(value: number | null | undefined): string {

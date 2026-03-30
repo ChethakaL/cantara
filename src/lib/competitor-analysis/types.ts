@@ -39,11 +39,19 @@ export interface WebsiteSnippet {
   source: 'site_fetch' | 'search';
 }
 
+export interface PriceEvidenceItem {
+  label: string;
+  url?: string;
+  pageTitle?: string;
+}
+
 export interface WebsiteResearchData {
   websiteUrl: string;
   domain: string;
   confidence: ConfidenceLevel;
   snippets: WebsiteSnippet[];
+  pricePoints: string[];
+  priceEvidence: PriceEvidenceItem[];
   error?: string;
 }
 
@@ -52,6 +60,7 @@ export interface SubjectBusinessProfile extends BusinessPlaceProfile {
   services: string[];
   pricingSummary: string;
   pricePoints: string[];
+  priceEvidence: PriceEvidenceItem[];
   hoursSummary: string;
   reputationSummary: string;
   websiteConfidence: ConfidenceLevel;
@@ -68,6 +77,7 @@ export interface CompetitorReportItem extends BusinessPlaceProfile {
   reputationComparison: string;
   services: string[];
   pricePoints: string[];
+  priceEvidence: PriceEvidenceItem[];
   strengths: string[];
   gaps: string[];
   websiteConfidence: ConfidenceLevel;
