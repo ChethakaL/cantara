@@ -514,8 +514,11 @@ function SummaryList({ title, items }: { title: string; items: string[] }) {
 
 function ProfileCard({ report }: { report: CompetitorAnalysisReport }) {
   const profile = report.clientProfile;
+  const publishedPriceCount = profile.priceEvidence?.length ?? 0;
+  const [showSubjectPriceModal, setShowSubjectPriceModal] = useState(false);
   return (
-    <Card className="p-5 space-y-4">
+    <>
+      <Card className="p-5 space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Subject Business</p>
@@ -568,11 +571,14 @@ function ProfileCard({ report }: { report: CompetitorAnalysisReport }) {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing</p>
             <p className="text-sm text-slate-700 leading-relaxed mt-2">{profile.pricingSummary}</p>
-            {profile.pricePoints.length > 0 && (
-              <div className="mt-3 space-y-1.5">
-                {profile.pricePoints.map((point, index) => (
-                  <div key={index} className="text-sm text-slate-600">{point}</div>
-                ))}
+            {publishedPriceCount > 0 && (
+              <div className="mt-3 flex items-center gap-3">
+                <p className="text-sm text-slate-600">
+                  {publishedPriceCount} public price point{publishedPriceCount === 1 ? '' : 's'} captured from website evidence.
+                </p>
+                <Button variant="outline" size="sm" onClick={() => setShowSubjectPriceModal(true)}>
+                  View prices
+                </Button>
               </div>
             )}
           </div>
@@ -583,7 +589,64 @@ function ProfileCard({ report }: { report: CompetitorAnalysisReport }) {
           </div>
         </div>
       </div>
-    </Card>
+      </Card>
+
+      <Modal
+        open={showSubjectPriceModal}
+        onClose={() => setShowSubjectPriceModal(false)}
+        title={`${profile.name} pricing evidence`}
+        sizeClassName="max-w-2xl"
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing status</p>
+            <p className="mt-2 text-sm text-slate-700">{pricingStatusFromPoints(profile.pricePoints)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing read</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">{profile.pricingSummary}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Public price evidence</p>
+            {profile.priceEvidence?.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {profile.priceEvidence.map((item, index) => (
+                  <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                    {item.label}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">
+                No public product price evidence is currently saved for this business.
+              </p>
+            )}
+          </div>
+          {profile.priceEvidence?.some((item) => item.url) && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing pages</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {profile.priceEvidence
+                  .filter((item) => item.url)
+                  .slice(0, 6)
+                  .map((item, index) => (
+                    <a
+                      key={`${item.url}-${index}`}
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:border-slate-300"
+                    >
+                      {item.pageTitle || cleanSourceLabel(item.url!)}
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+    </>
   );
 }
 
@@ -711,6 +774,8 @@ function ComparisonTable({
 }
 
 function CompetitorCard({ competitor, index }: { competitor: CompetitorReportItem; index: number }) {
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  const publishedPriceCount = competitor.priceEvidence?.length ?? 0;
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-start justify-between gap-4">
@@ -758,11 +823,14 @@ function CompetitorCard({ competitor, index }: { competitor: CompetitorReportIte
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing</p>
             <p className="text-sm text-slate-700 leading-relaxed mt-2">{competitor.pricingComparison}</p>
-            {competitor.pricePoints.length > 0 && (
-              <div className="mt-3 space-y-1.5">
-                {competitor.pricePoints.map((point, pointIndex) => (
-                  <div key={pointIndex} className="text-sm text-slate-600">{point}</div>
-                ))}
+            {publishedPriceCount > 0 && (
+              <div className="mt-3 flex items-center gap-3">
+                <p className="text-sm text-slate-600">
+                  {publishedPriceCount} public price point{publishedPriceCount === 1 ? '' : 's'} found.
+                </p>
+                <Button variant="outline" size="sm" onClick={() => setShowPriceModal(true)}>
+                  View prices
+                </Button>
               </div>
             )}
           </div>
@@ -808,6 +876,62 @@ function CompetitorCard({ competitor, index }: { competitor: CompetitorReportIte
         )}
         <span className="text-xs text-slate-400">Website evidence confidence: {competitor.websiteConfidence}</span>
       </div>
+
+      <Modal
+        open={showPriceModal}
+        onClose={() => setShowPriceModal(false)}
+        title={`${competitor.name} pricing evidence`}
+        sizeClassName="max-w-2xl"
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing status</p>
+            <p className="mt-2 text-sm text-slate-700">{pricingStatusFromPoints(competitor.pricePoints)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing read</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">{competitor.pricingComparison}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Public price evidence</p>
+            {competitor.priceEvidence?.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {competitor.priceEvidence.map((item, evidenceIndex) => (
+                  <div key={evidenceIndex} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                    {item.label}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">
+                No public product price evidence is currently saved for this business.
+              </p>
+            )}
+          </div>
+          {competitor.priceEvidence?.some((item) => item.url) && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing pages</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {competitor.priceEvidence
+                  .filter((item) => item.url)
+                  .slice(0, 6)
+                  .map((item, evidenceIndex) => (
+                    <a
+                      key={`${item.url}-${evidenceIndex}`}
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:border-slate-300"
+                    >
+                      {item.pageTitle || cleanSourceLabel(item.url!)}
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </Card>
   );
 }
