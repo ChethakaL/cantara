@@ -127,19 +127,22 @@ export function parsePersonalExpenses(
     const col0 = String(row[0] ?? "").trimEnd(); // preserve leading spaces for indent detection
     const col0Trimmed = col0.trim();
     const dateCell = String(row[dateCol] ?? "").trim();
+    const rawAmount = row[amountCol];
     const amountCell = row[amountCol];
 
     // Skip empty rows
     if (!col0Trimmed && !dateCell) continue;
 
-    // "Total for X" rows — skip
-    if (/^Total for/i.test(col0Trimmed)) continue;
+    // "Total for X" or "Total X" rows — skip
+    if (/^Total/i.test(col0Trimmed)) continue;
 
     // TOTAL row at end
     if (/^TOTAL$/i.test(col0Trimmed)) break;
 
-    // Category header: has text in col0, no date
-    if (col0Trimmed && !dateCell) {
+    // Category header: has text in col0 that is NOT a date pattern
+    const looksLikeDate = /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(col0Trimmed) || /^\d{5}$/.test(col0Trimmed);
+    const hasAmount = rawAmount !== undefined && String(rawAmount) !== "" && rawAmount !== null && Number(rawAmount) !== 0;
+    if (col0Trimmed && !looksLikeDate && !hasAmount) {
       // Determine indent level (rough: count leading spaces)
       const indent = col0.length - col0.trimStart().length;
       if (indent === 0) {
@@ -158,12 +161,12 @@ export function parsePersonalExpenses(
       continue;
     }
 
-    // Transaction row: has a date
+    // Transaction row: has a parseable date
     if (!dateCell) continue;
     const month = parseDateToMonth(dateCell);
     if (!month) continue;
 
-    const amount = parseAmount(amountCell);
+    const amount = parseAmount(row[amountCol]);
     if (amount === 0) continue;
 
     if (month < earliest) earliest = month;
