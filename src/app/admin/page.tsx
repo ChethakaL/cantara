@@ -3,10 +3,10 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail } from 'lucide-react'
+import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2 } from 'lucide-react'
 import AdminNav from '@/components/admin/AdminNav'
 import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card } from '@/components/ui'
-import { getClients, createClient, getCurrentRole, getAdminName, getMessages } from '@/lib/store'
+import { getClients, createClient, getCurrentRole, getAdminName } from '@/lib/store'
 import type { Client } from '@/lib/store'
 
 const WORKSTREAM_SECTIONS = [
@@ -20,16 +20,34 @@ const WORKSTREAM_SECTIONS = [
 export default function AdminDashboard() {
   const router = useRouter()
   const [clients, setClients] = useState<Client[]>([])
+  const [loadingClients, setLoadingClients] = useState(true)
   const [search, setSearch] = useState('')
   const [adding, setAdding] = useState(false)
   const [newClient, setNewClient] = useState({ name: '', email: '', company: '' })
   const [adminName, setAdminName] = useState('Admin Pollack')
 
   useEffect(() => {
-    if (getCurrentRole() !== 'admin') { router.push('/login/admin'); return }
+    if (getCurrentRole() !== 'admin') {
+      router.push('/login/admin')
+      return
+    }
+
     setAdminName(getAdminName())
-    getClients().then(setClients)
-  }, [])
+
+    let active = true
+    ;(async () => {
+      try {
+        const data = await getClients()
+        if (active) setClients(data)
+      } finally {
+        if (active) setLoadingClients(false)
+      }
+    })()
+
+    return () => {
+      active = false
+    }
+  }, [router])
 
   const refresh = () => getClients().then(setClients)
 
@@ -132,7 +150,14 @@ export default function AdminDashboard() {
             )
           })}
 
-          {filtered.length === 0 && (
+          {loadingClients && (
+            <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
+              <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+              <span>Loading clients...</span>
+            </div>
+          )}
+
+          {!loadingClients && filtered.length === 0 && (
             <div className="py-16 text-center text-slate-400 text-sm">
               No clients match your search.
             </div>
