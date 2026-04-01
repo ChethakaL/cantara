@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, CalendarDays, FileSpreadsheet, Globe2,
-  ChevronDown, Bot,
+  ChevronDown, Bot, Users2,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
@@ -20,6 +20,7 @@ import { TtmAnalysisTab } from '@/components/ttm-agent/TtmAnalysisTab'
 import DigitalPresenceTab from '@/components/digital-presence/DigitalPresenceTab'
 import CompetitorAnalysisTab from '@/components/competitor-analysis/CompetitorAnalysisTab'
 import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
+import EmployeeObligationsTab from '@/components/ws1-6/EmployeeObligationsTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -38,6 +39,12 @@ const AGENT_TABS = [
     label: 'Lease Analysis',
     badge: null,
     icon: Landmark,
+  },
+  {
+    key: 'employee-obligations',
+    label: 'Employee Obligations Agent',
+    badge: null,
+    icon: Users2,
   },
   {
     key: 'contract',
@@ -383,6 +390,16 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'lease' && (
               <LeaseAnalysisTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'employee-obligations' && (
+              <EmployeeObligationsTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                state={client.state || 'Unknown'}
+                dba={client.dba || undefined}
+                totalEmployeesSelfReported={client.totalEmployeesSelfReported ?? undefined}
+                employmentTypeBreakdown={client.employmentTypeBreakdown ?? undefined}
+              />
             )}
             {activeTab === 'contract' && (
               <ContractAnalysisTab clientId={client.id} clientName={client.name} />

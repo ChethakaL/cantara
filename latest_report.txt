@@ -1,0 +1,162 @@
+# EMPLOYEE OBLIGATIONS REPORT
+**Foothills Pet Resort LLC**  
+**Prepared for:** Cantara Pet Advisors  
+**Client:** Chethaka Lakshitha  
+**Analysis Date:** [Current Date]  
+**Transaction Type:** Business Sale Readiness (Asset Sale Assumed)
+
+---
+
+## SECTION 1 — DOCUMENT INVENTORY
+
+| Document Name | Document Type | Employees or Parties Covered | Date | Completeness Flag |
+|---------------|---------------|------------------------------|------|-------------------|
+| **OpsManager_EmploymentAgreement.pdf** | Employment Agreement | Operations Manager (Maria R. Santos) | January 10, 2023 | Complete |
+| **Owner_NonCompete_Agreement.pdf** | Non-Compete | Owner (James T. Whitfield) | March 15, 2024 | Complete |
+| **Employee_Handbook_2024.pdf** | Handbook | All Employees | February 1, 2024 | Complete |
+| **Benefits_Summary_2024.pdf** | Benefits Summary | All Full-Time Employees | January 1, 2024 | Complete |
+| **Payroll_Register_Q1_2026.xlsx** | Payroll Register | All Employees (12 + Owner) | March 31, 2026 | Complete |
+| **OrgChart_FPR_2026.png** | Org Chart | All Employees | 2026 | Complete |
+| **OpsManager_OfferLetter_2023.pdf** | Offer Letter | Operations Manager (Maria R. Santos) | January 3, 2023 | Complete - Superseded by Employment Agreement |
+
+**Coverage Gap Note:** No retirement plan documents uploaded. **Benefits_Summary_2024.pdf** indicates retirement plan status cannot be assessed without plan documents.
+
+---
+
+## SECTION 2 — EMPLOYMENT AGREEMENT COVERAGE TABLE
+
+| Role / Title | Agreement Type | Fixed-Term or At-Will | Non-Compete Attached Y/N | Non-Solicitation Attached Y/N | NDA/Confidentiality Attached Y/N | Source Document |
+|--------------|----------------|----------------------|--------------------------|-------------------------------|-----------------------------------|-----------------|
+| Owner / Operator | Non-Compete Agreement | N/A (Owner) | Y | Y | Y | **Owner_NonCompete_Agreement.pdf** |
+| Operations Manager | Employment Agreement | At-Will | N | Y | Y | **OpsManager_EmploymentAgreement.pdf, Section 7** |
+| Head Groomer | No Agreement Found | At-Will Only | N | N | N | **Employee_Handbook_2024.pdf** (at-will default) |
+| Lead Kennel Tech | No Agreement Found | At-Will Only | N | N | N | **Employee_Handbook_2024.pdf** (at-will default) |
+| Front Desk Supervisor | No Agreement Found | At-Will Only | N | N | N | **Employee_Handbook_2024.pdf** (at-will default) |
+| Kennel Tech (4 employees) | No Agreement Found | At-Will Only | N | N | N | **Employee_Handbook_2024.pdf** (at-will default) |
+| Groomer / Bather (2 employees) | No Agreement Found | At-Will Only | N | N | N | **Employee_Handbook_2024.pdf** (at-will default) |
+| Front Desk (2 employees) | No Agreement Found | At-Will Only | N | N | N | **Employee_Handbook_2024.pdf** (at-will default) |
+
+---
+
+## SECTION 3 — NON-COMPETE & NON-SOLICITATION ANALYSIS
+
+### **OWNER NON-COMPETE — CRITICAL BUYER PROTECTION**
+- **Covered Party:** James T. Whitfield (Owner/Seller)
+- **Agreement Source:** **Owner_NonCompete_Agreement.pdf, Section 1**
+- **Geographic Scope:** 25-mile radius of 4801 E Ray Rd, Phoenix, AZ 85044
+- **Duration:** 24 months post-closing
+- **Covered Activities:** Pet boarding, daycare, grooming, training, and substantially similar pet care services
+- **Consideration Adequacy:** Assessed at signing — tied to sale proceeds under Asset Purchase Agreement
+- **State Enforceability Note:** Arizona generally enforces reasonable non-competes with adequate consideration
+- **Flag:** 🟢 **Strong buyer protection with reasonable scope and duration**
+
+### **OWNER NON-SOLICITATION**
+- **Covered Party:** James T. Whitfield (Owner/Seller)
+- **Agreement Source:** **Owner_NonCompete_Agreement.pdf, Section 2**
+- **Geographic Scope:** No geographic limitation (client and employee solicitation)
+- **Duration:** 24 months post-closing
+- **Covered Activities:** Soliciting clients (12 months pre-close) and employees employed at/after closing
+- **Consideration Adequacy:** Tied to sale proceeds — adequate consideration
+- **State Enforceability Note:** Arizona enforces reasonable non-solicitation provisions
+- **Flag:** 🟢 **Comprehensive protection for buyer's client base and workforce**
+
+### **OPERATIONS MANAGER NON-SOLICITATION**
+- **Covered Party:** Operations Manager (Maria R. Santos)
+- **Agreement Source:** **OpsManager_EmploymentAgreement.pdf, Section 7**
+- **Geographic Scope:** No geographic restriction (employee solicitation only)
+- **Duration:** 12 months post-termination
+- **Covered Activities:** Soliciting, recruiting, or hiring Company employees
+- **Consideration Adequacy:** Signed at hire with employment — adequate consideration
+- **State Enforceability Note:** Arizona enforces reasonable employee non-solicitation
+- **Flag:** 🟡 **Limited protection — covers employee solicitation only, no client or competition restriction**
+
+🔴 **CRITICAL GAP:** No non-compete or non-solicitation agreements identified for any key employees other than Operations Manager. Head Groomer, Lead Kennel Tech, and Front Desk Supervisor have no restrictive covenants despite being in key operational roles.
+
+---
+
+## SECTION 4 — BENEFIT PLAN OBLIGATIONS TABLE
+
+| Benefit Type | Employer Contribution | Contractually Bound Y/N | Transferable on Asset Sale | Estimated Annual Cost | Transition Complexity | Source Reference |
+|--------------|----------------------|------------------------|---------------------------|---------------------|---------------------|------------------|
+| Health Insurance | 100% employee-only premium (~$200/month) | N (Discretionary per handbook) | Unclear — Flag for Counsel | ~$28,800 (12 FT employees) | High | **Benefits_Summary_2024.pdf** |
+| PTO | 10 days/year accrual | N (Handbook policy) | No — accrued balances may transfer | Unknown — no balance report | Medium | **Employee_Handbook_2024.pdf, Section 4.4** |
+| Sick Leave (AZ Prop 206) | Statutory minimum | Y (Required by law) | Yes — statutory obligation | Minimal | Low | **Employee_Handbook_2024.pdf, Section 4.5** |
+| Holiday Pay | 6 paid holidays (FT only) | N (Discretionary) | No | Variable | Low | **Employee_Handbook_2024.pdf, Section 4.6** |
+| Pet Care Discount | Discretionary discount | N (Explicitly discretionary) | No | Minimal | Low | **Benefits_Summary_2024.pdf** |
+| Dental/Vision | Employee-paid only | N (Voluntary) | Unclear — Flag for Counsel | $0 employer cost | Medium | **Benefits_Summary_2024.pdf** |
+
+**Retirement Plan Note:** No retirement plan documents provided. **Benefits_Summary_2024.pdf** indicates the Company may sponsor a 401(k), SIMPLE IRA, or SEP-IRA, but plan status cannot be assessed without documentation. This creates uncertainty for buyer assumption obligations.
+
+**Accrued PTO Liability Note:** No PTO balance report uploaded. **Benefits_Summary_2024.pdf** references a "PTO Accrual Ledger (not yet uploaded)." Accrued PTO liability cannot be quantified, creating potential hidden liability for buyer.
+
+---
+
+## SECTION 5 — INDEPENDENT CONTRACTOR ANALYSIS
+
+**No independent contractor relationships identified in uploaded documents.** **Payroll_Register_Q1_2026.xlsx** shows all 12 employees classified as W-2 with explicit notation: "All 12 employees (excluding owner) are classified as W-2 employees. No 1099 independent contractors identified in this payroll period."
+
+If the business uses 1099 workers not captured in Q1 2026 payroll, those agreements should be uploaded for misclassification risk assessment.
+
+---
+
+## SECTION 6 — KEY PERSON RISK TABLE
+
+| Role | Employment Type | Non-Compete | Emp. Agreement | Risk Level | Transition Notes |
+|------|----------------|-------------|----------------|------------|-----------------|
+| Owner / Operator | Owner | Y | Y | High | Owner-operator model; 24-month non-compete provides buyer protection |
+| Operations Manager | Salaried FT | N | Y | High | Only employee with formal agreement; manages daily operations, staff, vendors |
+| Head Groomer | Hourly FT | N | N | High | Specialized skill; client-facing; no agreement or non-compete |
+| Lead Kennel Tech | Hourly FT | N | N | Medium | Operational leadership; no redundancy noted |
+| Front Desk Supervisor | Hourly FT | N | N | Medium | Client-facing; supervisory role; no agreement |
+| Kennel Techs (4) | Hourly FT/PT | N | N | Low | Multiple employees provide redundancy |
+| Groomers/Bathers (2) | Hourly PT | N | N | Low | Part-time; support roles |
+| Front Desk (2) | Hourly FT/PT | N | N | Low | Multiple employees provide coverage |
+
+**Key Person Narrative:** The business faces significant key-person risk due to the owner-operator model and lack of formal agreements with critical employees. The Operations Manager is the only employee with a formal employment agreement, but lacks non-compete protection. The Head Groomer, Lead Kennel Tech, and Front Desk Supervisor hold key operational roles with direct client contact but have no employment agreements or restrictive covenants. This creates substantial workforce transition risk for a buyer, as these employees could immediately compete or join competitors post-close.
+
+---
+
+## SECTION 7 — BUYER-FACING OBLIGATIONS SUMMARY
+
+**Workforce Overview:** Foothills Pet Resort employs 12 individuals plus the owner-operator, with 8 full-time and 4 part-time employees across kennel operations, grooming, and front desk functions. Only the Operations Manager has a formal employment agreement; all other employees operate under at-will handbook policies. The workforce is typical for a mid-sized pet resort operation.
+
+**Non-Compete Protections:** The seller has executed a comprehensive 24-month non-compete and non-solicitation agreement covering a 25-mile radius, providing strong buyer protection. However, only the Operations Manager has any restrictive covenant (employee non-solicitation only), creating significant risk that key employees in specialized roles (Head Groomer, Lead Kennel Tech, Front Desk Supervisor) could immediately compete or be recruited by competitors post-close.
+
+**Assumed Benefit Obligations:** Under an asset sale structure, the buyer is not required to assume existing benefit obligations but will need to establish new benefit programs to retain employees. The current employer-paid health insurance costs approximately $28,800 annually for full-time employees. All benefits are discretionary under handbook policies, giving the buyer flexibility in plan design. Arizona statutory sick leave obligations will transfer to the buyer as a matter of law.
+
+**Retirement Plan & PTO Obligations:** Retirement plan status is unclear due to missing plan documents, creating uncertainty about potential assumption obligations or termination requirements. Accrued PTO liability cannot be quantified without balance reports but could represent significant hidden liability if employees have substantial unused balances. Arizona law may require PTO payout upon separation.
+
+**Independent Contractor Risk:** No independent contractor relationships identified in current payroll, eliminating misclassification exposure from existing arrangements. However, if the business historically used 1099 workers, those relationships should be reviewed for potential retroactive liability.
+
+**Transition Considerations:** Under asset sale structure, the buyer must make new employment offers to all existing employees. The lack of employment agreements for key personnel creates both opportunity (flexibility in new terms) and risk (no retention mechanisms). The owner-operator model means the buyer will need to either hire replacement management or assume direct operational oversight. Arizona does not have state-level WARN Act requirements, and the workforce size (12 employees) is below federal WARN Act thresholds.
+
+**Items Requiring Buyer's Employment Counsel Review:**
+• Health insurance plan transferability and COBRA obligations
+• Retirement plan status and potential termination/assumption requirements  
+• Accrued PTO liability quantification and payout obligations under Arizona law
+• Employment agreement templates for key employee retention
+• Non-compete/non-solicitation agreements for critical roles post-close
+• Compliance with Arizona employment law requirements for new employer
+
+---
+
+## SECTION 8 — FLAGS SUMMARY
+
+| # | Flag Severity | Domain | Flag Description | Source Reference | Review Status |
+|---|--------------|--------|-----------------|-----------------|--------------|
+| 1 | 🔴 Deal Risk | Non-Compete | No non-compete agreements for key employees (Head Groomer, Lead Kennel Tech, Front Desk Supervisor) who could immediately compete | **Payroll_Register_Q1_2026.xlsx, OrgChart_FPR_2026.png** | ☐ Confirmed ☐ N/A |
+| 2 | 🔴 Deal Risk | Benefits | Retirement plan status unknown — missing plan documents create assumption/termination uncertainty | **Benefits_Summary_2024.pdf** | ☐ Confirmed ☐ N/A |
+| 3 | 🔴 Deal Risk | Benefits | Accrued PTO liability unquantified — potential hidden liability for buyer | **Benefits_Summary_2024.pdf** | ☐ Confirmed ☐ N/A |
+| 4 | 🟡 Negotiation Point | Employment Coverage | Only 1 of 12 employees has formal employment agreement — limits retention mechanisms | **Document Inventory Analysis** | ☐ Confirmed ☐ N/A |
+| 5 | 🟡 Negotiation Point | Key Person Risk | Owner-operator model creates management transition complexity | **OrgChart_FPR_2026.png** | ☐ Confirmed ☐ N/A |
+| 6 | 🟡 Negotiation Point | Benefits | Health insurance transferability unclear — requires carrier confirmation | **Benefits_Summary_2024.pdf** | ☐ Confirmed ☐ N/A |
+| 7 | 🟢 Positive | Non-Compete | Strong seller non-compete (24 months, 25-mile radius) provides comprehensive buyer protection | **Owner_NonCompete_Agreement.pdf** | ☐ Confirmed ☐ N/A |
+| 8 | 🟢 Positive | IC Risk | No independent contractor misclassification exposure identified | **Payroll_Register_Q1_2026.xlsx** | ☐ Confirmed ☐ N/A |
+| 9 | ⚪ Informational | Workforce | 12-employee workforce typical for mid-market pet resort operations | **Payroll_Register_Q1_2026.xlsx** | ☐ Confirmed ☐ N/A |
+| 10 | ⚪ Informational | State Law | Arizona employment law generally favorable for reasonable restrictive covenants | **Owner_NonCompete_Agreement.pdf, Section 5** | ☐ Confirmed ☐ N/A |
+
+**Flag Definitions:**
+- 🔴 **Deal Risk** — Finding that could cause a buyer to renegotiate price, demand escrow, or walk away if not addressed
+- 🟡 **Negotiation Point** — Finding that warrants attention in purchase agreement negotiation but is not a deal-stopper on its own
+- 🟢 **Positive** — Finding that supports buyer confidence or reduces transition risk
+- ⚪ **Informational** — Finding that is noteworthy but does not require a specific action; included for buyer awareness

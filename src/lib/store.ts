@@ -112,8 +112,12 @@ export interface Client {
   name: string
   email: string
   company: string
+  dba?: string
   phone: string
   businessAddress: string
+  state?: string
+  totalEmployeesSelfReported?: number | string | null
+  employmentTypeBreakdown?: string | null
   businessCategory: string
   websiteUrl: string
   workstream: Workstream

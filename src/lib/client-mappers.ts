@@ -1,4 +1,18 @@
 export function mapClientForFrontend(client: any, unreadCount = 0) {
+  const intake = (client.sectionSubmissions as Record<string, any> | null) ?? {};
+  const combinedIntake = {
+    ...(intake.intake ?? {}),
+    ...(intake.business_profile ?? {}),
+    ...(intake.employment ?? {}),
+    ...(intake.workforce ?? {}),
+  };
+
+  const businessAddress = client.businessAddress || "";
+  const derivedState =
+    typeof combinedIntake.state === "string" && combinedIntake.state.trim()
+      ? combinedIntake.state.trim()
+      : extractStateFromAddress(businessAddress);
+
   const documentStatuses = Object.fromEntries(
     (client.ClientDocumentStatuses ?? []).map((status) => [
       status.documentId,
@@ -39,8 +53,24 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
     name: client.User?.name || "Unknown Client",
     email: client.User?.email || client.email || "",
     company: client.businessName,
+    dba:
+      typeof combinedIntake.dba === "string" && combinedIntake.dba.trim()
+        ? combinedIntake.dba.trim()
+        : "",
     phone: client.phone || "",
-    businessAddress: client.businessAddress || "",
+    businessAddress,
+    state: derivedState,
+    totalEmployeesSelfReported:
+      combinedIntake.totalEmployeesSelfReported ??
+      combinedIntake.totalEmployees ??
+      combinedIntake.employeeCount ??
+      null,
+    employmentTypeBreakdown:
+      typeof combinedIntake.employmentTypeBreakdown === "string" && combinedIntake.employmentTypeBreakdown.trim()
+        ? combinedIntake.employmentTypeBreakdown.trim()
+        : typeof combinedIntake.workforceMix === "string" && combinedIntake.workforceMix.trim()
+          ? combinedIntake.workforceMix.trim()
+          : null,
     businessCategory: client.businessCategory || "",
     websiteUrl: client.websiteUrl || "",
     workstream: client.workstream ? client.workstream.toLowerCase() : null,
@@ -69,4 +99,12 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
     valuationDocUploaded: client.valuationDocUploaded,
     unreadCount,
   };
+}
+
+function extractStateFromAddress(address: string) {
+  const trimmed = address.trim();
+  if (!trimmed) return "";
+  const stateMatch = trimmed.match(/\b([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/);
+  if (stateMatch) return stateMatch[1];
+  return "";
 }

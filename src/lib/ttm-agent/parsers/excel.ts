@@ -267,6 +267,27 @@ function findAccountColumn(headerRow: WorksheetRows[number], monthColumns: numbe
   return { accountColumnIndex, codeColumnIndex };
 }
 
+function resolveAccountNameForRow(
+  row: WorksheetRows[number],
+  monthColumns: number[],
+  accountColumnIndex: number,
+  codeColumnIndex: number | null,
+) {
+  const firstMonthColumn = Math.min(...monthColumns);
+  const explicitAccountCell = String(row[accountColumnIndex] ?? "").trim();
+  if (explicitAccountCell) return explicitAccountCell;
+
+  for (let index = firstMonthColumn - 1; index >= 0; index -= 1) {
+    if (index === codeColumnIndex) continue;
+    const candidate = String(row[index] ?? "").trim();
+    if (!candidate) continue;
+    if (parseMonthLabel(candidate)) continue;
+    return candidate;
+  }
+
+  return explicitAccountCell;
+}
+
 // Cantara GL codes assigned to rollup/subtotal rows in F1 and F2.
 // These codes are for human readability — only leaf-level accounts should be ingested.
 // Every Cantara GL code that represents a computed subtotal, rollup, or out-of-scope line.
@@ -315,8 +336,8 @@ function shouldSkipLedgerRow(accountName: string, accountCode: string | null, va
     if (/^EQ-/.test(code)) return true;
   }
 
-  // Skip section headers (with or without account code)
-  if (PL_SECTION_HEADERS.includes(normalizedName)) {
+  // Skip section headers only when they are structural labels without numeric data.
+  if (!hasNumbers && PL_SECTION_HEADERS.includes(normalizedName)) {
     return true;
   }
 
@@ -481,7 +502,7 @@ function parsePreparedMonthlySection(section: ParsedMonthlySection) {
 
   for (let rowIndex = section.headerRowIndex + 1; rowIndex < section.rows.length; rowIndex += 1) {
     const row = section.rows[rowIndex] ?? [];
-    const accountName = String(row[accountColumnIndex] ?? "").trim();
+    const accountName = resolveAccountNameForRow(row, section.monthColumns, accountColumnIndex, codeColumnIndex);
     const accountCode = codeColumnIndex === null ? null : String(row[codeColumnIndex] ?? "").trim() || null;
 
     const values = Array.from(monthIndexMap.entries()).map(([columnIndex]) => parseNumber(row[columnIndex]));
@@ -679,7 +700,7 @@ export function parseMonthlyWorkbook(
 
   for (let rowIndex = selected.headerRowIndex + 1; rowIndex < selected.rows.length; rowIndex += 1) {
     const row = selected.rows[rowIndex] ?? [];
-    const accountName = String(row[accountColumnIndex] ?? "").trim();
+    const accountName = resolveAccountNameForRow(row, selected.monthColumns, accountColumnIndex, codeColumnIndex);
     const accountCode = codeColumnIndex === null ? null : String(row[codeColumnIndex] ?? "").trim() || null;
 
     const values = Array.from(monthIndexMap.entries()).map(([columnIndex]) => parseNumber(row[columnIndex]));

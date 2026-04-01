@@ -46,6 +46,19 @@ model CompetitorAnalysis {
   @@index([clientId, createdAt])
 }
 
+model EmployeeObligationsReport {
+  id            String        @id @default(cuid())
+  clientId      String
+  markdown      String        @db.Text
+  documentNames String[]      @default([])
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
 model TtmAnalysis {
   id              String            @id @default(cuid())
   clientId        String
@@ -304,6 +317,7 @@ model ClientProfile {
   AgentDispatchTasks  AgentDispatchTask[]
   Ws2RecastAnalyses   Ws2RecastAnalysis[]
   Ws2DerivedReports   Ws2DerivedReport[]
+  EmployeeObligationsReports EmployeeObligationsReport[]
 }
 
 model Branch {
