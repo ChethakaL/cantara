@@ -8,7 +8,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { WS16_SYSTEM_PROMPT, buildWS16ContextBlock } from '@/lib/ws1-6/prompt'
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
-const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse')
 const mammoth: { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } = require('mammoth')
 import sharp from 'sharp'
 
