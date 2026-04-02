@@ -318,6 +318,60 @@ model ClientProfile {
   Ws2RecastAnalyses   Ws2RecastAnalysis[]
   Ws2DerivedReports   Ws2DerivedReport[]
   EmployeeObligationsReports EmployeeObligationsReport[]
+  Meetings            Meeting[]
+}
+
+model NylasConnection {
+  id          String   @id @default(cuid())
+  grantId     String   @unique
+  email       String?
+  provider    String?
+  calendarIds String[] @default([])
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, updatedAt])
+}
+
+model Meeting {
+  id                String             @id @default(cuid())
+  clientId          String
+  title             String
+  startAt           DateTime
+  endAt             DateTime?
+  source            MeetingSource      @default(MANUAL)
+  agenda            String?            @db.Text
+  agendaTags        String[]           @default([])
+  meetingUrl        String?
+  notesText         String?            @db.Text
+  notesFileName     String?
+  notesUploadedAt   DateTime?
+  externalEventId   String?            @unique
+  externalCalendarId String?
+  externalProvider  String?
+  reportStatus      MeetingReportStatus @default(IDLE)
+  reportStartedAt   DateTime?
+  lastReportedAt    DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  client            ClientProfile      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  reports           MeetingReport[]
+
+  @@index([clientId, startAt])
+  @@index([clientId, createdAt])
+}
+
+model MeetingReport {
+  id        String    @id @default(cuid())
+  meetingId String
+  report    String    @db.Text
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  meeting   Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, createdAt])
 }
 
 model Branch {
@@ -514,6 +568,18 @@ enum Ws2DerivedAgentId {
 }
 
 enum Ws2DerivedReportStatus {
+  RUNNING
+  COMPLETE
+  FAILED
+}
+
+enum MeetingSource {
+  MANUAL
+  CALENDAR
+}
+
+enum MeetingReportStatus {
+  IDLE
   RUNNING
   COMPLETE
   FAILED
