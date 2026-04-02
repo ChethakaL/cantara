@@ -197,6 +197,139 @@ export function extractMeetingJoinUrl(event: Record<string, unknown> | null | un
   return null
 }
 
+function cleanTranscriptFragment(value: string) {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function looksLikeText(value: string) {
+  const normalized = cleanTranscriptFragment(value)
+  if (!normalized) return false
+  if (/^https?:\/\//i.test(normalized)) return false
+  if (/^[\w.-]+\.[A-Za-z]{2,}(\/.*)?$/.test(normalized)) return false
+  return /[A-Za-z0-9]/.test(normalized)
+}
+
+function extractWordSequence(input: unknown): string {
+  if (!Array.isArray(input)) return ''
+
+  const words = input
+    .map((item) => {
+      if (typeof item === 'string') return cleanTranscriptFragment(item)
+      if (!item || typeof item !== 'object') return ''
+
+      const record = item as Record<string, unknown>
+      const token =
+        (typeof record.word === 'string' && record.word) ||
+        (typeof record.text === 'string' && record.text) ||
+        (typeof record.token === 'string' && record.token) ||
+        (typeof record.value === 'string' && record.value)
+
+      return token ? cleanTranscriptFragment(token) : ''
+    })
+    .filter(Boolean)
+
+  return cleanTranscriptFragment(words.join(' '))
+}
+
+function normalizeTranscriptEntry(record: Record<string, unknown>): string {
+  const directTextKeys = ['text', 'transcript', 'content', 'sentence', 'utterance', 'value', 'display_text', 'body']
+
+  let text = ''
+  for (const key of directTextKeys) {
+    const value = record[key]
+    if (typeof value === 'string' && looksLikeText(value)) {
+      text = cleanTranscriptFragment(value)
+      break
+    }
+  }
+
+  if (!text && record.words) {
+    text = extractWordSequence(record.words)
+  }
+
+  if (!text && Array.isArray(record.alternatives)) {
+    text = normalizeTranscriptText(record.alternatives)
+  }
+
+  if (!text) return ''
+
+  const speaker =
+    (typeof record.speaker_name === 'string' && record.speaker_name) ||
+    (typeof record.speaker === 'string' && record.speaker) ||
+    (typeof record.name === 'string' && record.name) ||
+    ''
+
+  const normalizedSpeaker = cleanTranscriptFragment(speaker)
+  if (normalizedSpeaker && normalizedSpeaker.toLowerCase() !== text.toLowerCase()) {
+    return `${normalizedSpeaker}: ${text}`
+  }
+
+  return text
+}
+
+function walkTranscript(input: unknown, results: string[]) {
+  if (typeof input === 'string') {
+    if (looksLikeText(input)) results.push(cleanTranscriptFragment(input))
+    return
+  }
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      walkTranscript(item, results)
+    }
+    return
+  }
+
+  if (!input || typeof input !== 'object') return
+
+  const record = input as Record<string, unknown>
+  const normalizedEntry = normalizeTranscriptEntry(record)
+  if (normalizedEntry) {
+    results.push(normalizedEntry)
+    return
+  }
+
+  const beforeCount = results.length
+  const prioritizedKeys = [
+    'utterances',
+    'entries',
+    'segments',
+    'items',
+    'paragraphs',
+    'sentences',
+    'results',
+    'transcripts',
+    'alternatives',
+    'monologues',
+    'data',
+    'words',
+  ]
+
+  for (const key of prioritizedKeys) {
+    if (record[key] !== undefined) {
+      walkTranscript(record[key], results)
+    }
+  }
+
+  if (results.length > beforeCount) return
+
+  for (const value of Object.values(record)) {
+    walkTranscript(value, results)
+  }
+}
+
+export function normalizeTranscriptText(input: unknown): string {
+  const fragments: string[] = []
+  walkTranscript(input, fragments)
+
+  const deduped = fragments.filter((fragment, index) => {
+    if (!fragment) return false
+    return index === 0 || fragment !== fragments[index - 1]
+  })
+
+  return deduped.join('\n').trim()
+}
+
 export function getDefaultCalendarId(connection: { calendarIds: string[] }) {
   return (connection.calendarIds && connection.calendarIds[0]) || 'primary'
 }
@@ -206,6 +339,70 @@ export function getAutoConferencingProvider(provider?: string | null) {
   if (normalized.includes('google')) return 'Google Meet'
   if (normalized.includes('microsoft')) return 'Microsoft Teams'
   return null
+}
+
+export async function createCalendarEvent(args: {
+  grantId: string
+  calendarId: string
+  title: string
+  description?: string | null
+  startAt: Date
+  endAt: Date | null
+  meetingUrl?: string | null
+  provider?: string | null
+}) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  const conferencingProvider = getAutoConferencingProvider(args.provider)
+  const payload: Record<string, unknown> = {
+    title: args.title,
+    description: args.description || undefined,
+    busy: true,
+    when: {
+      start_time: Math.floor(args.startAt.getTime() / 1000),
+      start_timezone: timezone,
+      ...(args.endAt
+        ? {
+            end_time: Math.floor(args.endAt.getTime() / 1000),
+            end_timezone: timezone,
+          }
+        : {}),
+    },
+  }
+
+  if (args.meetingUrl) {
+    payload.location = args.meetingUrl
+    if (conferencingProvider) {
+      payload.conferencing = {
+        provider: conferencingProvider,
+        details: {
+          url: args.meetingUrl,
+        },
+      }
+    }
+  } else if (conferencingProvider) {
+    payload.conferencing = {
+      provider: conferencingProvider,
+      autocreate: {},
+    }
+  }
+
+  console.info('NYLAS_EVENT_CREATE_REQUEST', {
+    grantId: args.grantId,
+    calendarId: args.calendarId,
+    title: args.title,
+    provider: args.provider || null,
+    conferencingProvider: conferencingProvider || null,
+    autocreateConferencing: Boolean(!args.meetingUrl && conferencingProvider),
+    hasManualMeetingUrl: Boolean(args.meetingUrl),
+  })
+
+  return nylasFetch<{ data?: Record<string, unknown> }>(
+    `/v3/grants/${args.grantId}/events?calendar_id=${encodeURIComponent(args.calendarId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export async function scheduleNylasNotetaker(args: {

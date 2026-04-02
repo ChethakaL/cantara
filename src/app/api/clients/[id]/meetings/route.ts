@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getActiveNylasConnection, scheduleNylasNotetaker } from '@/lib/nylas'
+import {
+  createCalendarEvent,
+  extractMeetingJoinUrl,
+  getActiveNylasConnection,
+  getDefaultCalendarId,
+  scheduleNylasNotetaker,
+} from '@/lib/nylas'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,6 +52,10 @@ async function createMeetingForClient(args: {
   externalProvider: string | null
 }) {
   const activeNylasConnection = await getActiveNylasConnection()
+  let resolvedMeetingUrl = args.meetingUrl
+  let resolvedExternalEventId = args.externalEventId
+  let resolvedExternalCalendarId = args.externalCalendarId
+  let resolvedExternalProvider = args.externalProvider || activeNylasConnection?.provider || null
 
   console.info('CLIENT_MEETING_CREATE_START', {
     clientId: args.clientId,
@@ -57,6 +67,38 @@ async function createMeetingForClient(args: {
     nylasConnected: Boolean(activeNylasConnection),
   })
 
+  if (args.source === 'MANUAL' && activeNylasConnection) {
+    try {
+      const calendarId = args.externalCalendarId || getDefaultCalendarId(activeNylasConnection)
+      const calendarEvent = await createCalendarEvent({
+        grantId: activeNylasConnection.grantId,
+        calendarId,
+        title: args.title,
+        description: args.agenda,
+        startAt: args.startAt,
+        endAt: args.endAt,
+        meetingUrl: args.meetingUrl,
+        provider: activeNylasConnection.provider,
+      })
+
+      const eventData = calendarEvent.data || {}
+      const generatedMeetingUrl = extractMeetingJoinUrl(eventData)
+      resolvedMeetingUrl = generatedMeetingUrl || args.meetingUrl
+      resolvedExternalEventId = typeof eventData.id === 'string' ? eventData.id : args.externalEventId
+      resolvedExternalCalendarId =
+        typeof eventData.calendar_id === 'string' ? eventData.calendar_id : calendarId
+
+      console.info('CLIENT_MEETING_CALENDAR_EVENT_CREATED', {
+        title: args.title,
+        externalEventId: resolvedExternalEventId,
+        calendarId: resolvedExternalCalendarId,
+        generatedMeetingUrl: generatedMeetingUrl || null,
+      })
+    } catch (calendarEventError) {
+      console.error('NYLAS_CALENDAR_EVENT_CREATE_ERROR', calendarEventError)
+    }
+  }
+
   let item = await (prisma as any).meeting.create({
     data: {
       clientId: args.clientId,
@@ -66,10 +108,10 @@ async function createMeetingForClient(args: {
       source: args.source,
       agenda: args.agenda,
       agendaTags: args.agendaTags,
-      meetingUrl: args.meetingUrl,
-      externalEventId: args.externalEventId,
-      externalCalendarId: args.externalCalendarId,
-      externalProvider: args.externalProvider,
+      meetingUrl: resolvedMeetingUrl,
+      externalEventId: resolvedExternalEventId,
+      externalCalendarId: resolvedExternalCalendarId,
+      externalProvider: resolvedExternalProvider,
       nylasConnectionId: activeNylasConnection?.id || null,
     },
     include: {

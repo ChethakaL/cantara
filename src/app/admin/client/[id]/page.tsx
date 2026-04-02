@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, CalendarDays, FileSpreadsheet, Globe2,
@@ -214,9 +214,22 @@ function AgentsDropdown({
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
   const { id } = params
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [client, setClient] = useState<Client | null>(null)
   const [activeTab, setActiveTab] = useState<TabKey>('manage')
   const adminName = getAdminName()
+
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (!tab) return
+    const allowedTabs = new Set<string>([
+      ...STANDARD_TABS.map((item) => item.key),
+      ...AGENT_TABS.map((item) => item.key),
+    ])
+    if (allowedTabs.has(tab)) {
+      setActiveTab(tab as TabKey)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     if (getCurrentRole() !== 'admin') { router.push('/login/admin'); return }
@@ -379,7 +392,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           >
             {activeTab === 'manage' && <ClientManager client={client} onSaved={setClient} />}
             {activeTab === 'documents' && <AdminDocumentsView client={client} onClientUpdated={setClient} />}
-            {activeTab === 'meetings' && <MeetingsTab clientName={client.name} />}
+            {activeTab === 'meetings' && <MeetingsTab clientId={client.id} clientName={client.name} />}
             {activeTab === 'ttm' && (
               <TtmAnalysisTab
                 clientId={client.id}

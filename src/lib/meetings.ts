@@ -63,7 +63,7 @@ export async function generateMeetingReport(args: {
   const client = new Anthropic({ apiKey })
   const prompt = `You are Cantara's internal meetings analysis agent.
 
-Generate a full, detailed internal meeting report for Craig Pollack based only on the supplied meeting context and notes.
+Generate a full, detailed internal meeting report for the Cantara admin team based only on the supplied meeting context and notes.
 
 Return Markdown with these exact sections:
 ## Meeting Snapshot
@@ -74,14 +74,22 @@ Return Markdown with these exact sections:
 ## Risks and Blockers
 ## Action Items
 ## Follow-Up Questions
-## Advisor Notes
+## Admin Strategic Considerations
 
 Rules:
 - Be concrete and specific.
+- Extract the fullest possible detail from the notes. Do not compress multiple important facts into one sentence when separate bullets or paragraphs would be clearer.
+- Use every material signal in the transcript, including metrics, growth rates, pricing guardrails, dependencies, risks, owners, conditions, objections, approvals, sequencing, and timing.
 - If a section is partially unsupported by the notes, say that clearly rather than inventing facts.
+- If the notes support a detail, include it. Do not omit quantitative details just to stay concise.
 - In Action Items, use a Markdown table with columns: Owner | Action | Timing | Evidence.
 - In Agenda Coverage, explicitly state whether each agenda tag/topic was covered, partially covered, or not evidenced.
-- In Advisor Notes, write the practical advisor interpretation Craig would care about.
+- In Key Discussion Points, break the discussion into discrete themes with sub-bullets where appropriate.
+- In Decisions Made, capture the exact outcome, any conditions attached to approval, and what still needs to be validated.
+- In Risks and Blockers, separate commercial, operational, integration, financial, and people risks when the notes support them.
+- In Follow-Up Questions, include diligence questions and unresolved assumptions implied by the conversation, not only explicit questions asked out loud.
+- In Admin Strategic Considerations, write the practical internal interpretation the Cantara admin team should care about next, including valuation posture, diligence priorities, integration pacing, retention needs, and decision thresholds where evidenced.
+- Prefer rich bullets, short subsections, and tables over vague narrative when that improves scanability.
 - Keep the tone professional and decision-useful.
 
 Meeting context:
