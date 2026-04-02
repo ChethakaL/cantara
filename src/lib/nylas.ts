@@ -1,18 +1,21 @@
 import crypto from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { getProjectEnv } from '@/lib/project-env'
 
 const DEFAULT_NYLAS_API_URI = 'https://api.us.nylas.com'
 
 function apiBase() {
-  return (process.env.NYLAS_API_URI || DEFAULT_NYLAS_API_URI).replace(/\/$/, '')
+  return (getProjectEnv('NYLAS_API_URI') || DEFAULT_NYLAS_API_URI).replace(/\/$/, '')
 }
 
 export function isNylasConfigured() {
-  return Boolean(process.env.NYLAS_API_KEY && process.env.NYLAS_CLIENT_ID && process.env.NYLAS_CALLBACK_URI)
+  return Boolean(
+    getProjectEnv('NYLAS_API_KEY') && getProjectEnv('NYLAS_CLIENT_ID') && getProjectEnv('NYLAS_CALLBACK_URI')
+  )
 }
 
 export function nylasFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const apiKey = process.env.NYLAS_API_KEY
+  const apiKey = getProjectEnv('NYLAS_API_KEY')
   if (!apiKey) throw new Error('NYLAS_API_KEY is not configured.')
 
   return fetch(`${apiBase()}${path}`, {
@@ -46,8 +49,8 @@ export function nylasFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function buildNylasAuthUrl(options?: { provider?: string; state?: string }) {
-  const clientId = process.env.NYLAS_CLIENT_ID
-  const callbackUri = process.env.NYLAS_CALLBACK_URI
+  const clientId = getProjectEnv('NYLAS_CLIENT_ID')
+  const callbackUri = getProjectEnv('NYLAS_CALLBACK_URI')
 
   if (!clientId || !callbackUri) {
     throw new Error('Nylas auth is not configured.')
@@ -67,9 +70,9 @@ export function buildNylasAuthUrl(options?: { provider?: string; state?: string 
 }
 
 export function exchangeNylasCodeForGrant(code: string) {
-  const clientId = process.env.NYLAS_CLIENT_ID
-  const callbackUri = process.env.NYLAS_CALLBACK_URI
-  const apiKey = process.env.NYLAS_API_KEY
+  const clientId = getProjectEnv('NYLAS_CLIENT_ID')
+  const callbackUri = getProjectEnv('NYLAS_CALLBACK_URI')
+  const apiKey = getProjectEnv('NYLAS_API_KEY')
 
   if (!clientId || !callbackUri || !apiKey) {
     throw new Error('Nylas auth is not configured.')
@@ -134,7 +137,7 @@ export async function upsertActiveNylasConnection(input: {
 }
 
 export function verifyNylasWebhookSignature(rawBody: string, signatureHeader: string | null) {
-  const secret = process.env.NYLAS_WEBHOOK_SECRET
+  const secret = getProjectEnv('NYLAS_WEBHOOK_SECRET')
   if (!secret) return true
   if (!signatureHeader) return false
 
@@ -170,4 +173,41 @@ export function extractMeetingJoinUrl(event: Record<string, unknown> | null | un
   }
 
   return null
+}
+
+export function getDefaultCalendarId(connection: { calendarIds: string[] }) {
+  return (connection.calendarIds && connection.calendarIds[0]) || 'primary'
+}
+
+export function getAutoConferencingProvider(provider?: string | null) {
+  const normalized = (provider || '').toLowerCase()
+  if (normalized.includes('google')) return 'Google Meet'
+  if (normalized.includes('microsoft')) return 'Microsoft Teams'
+  return null
+}
+
+export async function scheduleNylasNotetaker(args: {
+  grantId: string
+  meetingLink: string
+  joinTime: Date
+  title: string
+}) {
+  const joinAt = Math.max(args.joinTime.getTime(), Date.now() + 30 * 1000)
+
+  console.info('NYLAS_NOTETAKER_SCHEDULE_REQUEST', {
+    grantId: args.grantId,
+    title: args.title,
+    meetingLink: args.meetingLink,
+    requestedJoinTimeIso: args.joinTime.toISOString(),
+    effectiveJoinTimeIso: new Date(joinAt).toISOString(),
+  })
+
+  return nylasFetch<{ data?: { id?: string; state?: string } }>(`/v3/grants/${args.grantId}/notetakers`, {
+    method: 'POST',
+    body: JSON.stringify({
+      meeting_link: args.meetingLink,
+      join_time: Math.floor(joinAt / 1000),
+      name: `${args.title} Notetaker`,
+    }),
+  })
 }

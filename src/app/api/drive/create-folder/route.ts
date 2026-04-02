@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getProjectEnv } from '@/lib/project-env'
 
 // ── Google Drive folder creation ──────────────────────────────────────────────
 // Called when an admin provisions a new client.
 // Creates: Cantara Clients / {ClientName} / [Valuation, Legal, Financial, Operations, M&A]
 
-const NYLAS_API_KEY = process.env.NYLAS_API_KEY ?? ''
-const NYLAS_API_URI = process.env.NYLAS_API_URI ?? 'https://api.us.nylas.com'
+const NYLAS_API_KEY = getProjectEnv('NYLAS_API_KEY') ?? ''
+const NYLAS_API_URI = getProjectEnv('NYLAS_API_URI') ?? 'https://api.us.nylas.com'
 
 // In demo mode (no Nylas key), returns a mock Drive URL
 export async function POST(req: NextRequest) {

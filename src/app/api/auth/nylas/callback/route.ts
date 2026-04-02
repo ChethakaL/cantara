@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getProjectEnv } from '@/lib/project-env'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const NYLAS_CLIENT_ID = process.env.NYLAS_CLIENT_ID ?? ''
-const NYLAS_CLIENT_SECRET = process.env.NYLAS_CLIENT_SECRET ?? ''
-const NYLAS_API_KEY = process.env.NYLAS_API_KEY ?? ''
-const NYLAS_API_URI = process.env.NYLAS_API_URI ?? 'https://api.us.nylas.com'
+const NYLAS_CLIENT_ID = getProjectEnv('NYLAS_CLIENT_ID') ?? ''
+const NYLAS_CLIENT_SECRET = getProjectEnv('NYLAS_CLIENT_SECRET') ?? ''
+const NYLAS_API_KEY = getProjectEnv('NYLAS_API_KEY') ?? ''
+const NYLAS_API_URI = getProjectEnv('NYLAS_API_URI') ?? 'https://api.us.nylas.com'
 const APP_URL = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
 
 export async function GET(req: NextRequest) {

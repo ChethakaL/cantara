@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getProjectEnv } from '@/lib/project-env'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -10,8 +11,8 @@ export const dynamic = 'force-dynamic'
 // 3. Admin grants Google access → Nylas callback at /api/auth/nylas/callback
 // 4. Nylas stores Google OAuth tokens → we use them for Drive operations
 
-const NYLAS_CLIENT_ID = process.env.NYLAS_CLIENT_ID ?? ''
-const NYLAS_API_URI = process.env.NYLAS_API_URI ?? 'https://api.us.nylas.com'
+const NYLAS_CLIENT_ID = getProjectEnv('NYLAS_CLIENT_ID') ?? ''
+const NYLAS_API_URI = getProjectEnv('NYLAS_API_URI') ?? 'https://api.us.nylas.com'
 const APP_URL = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
 
 export async function GET(req: NextRequest) {

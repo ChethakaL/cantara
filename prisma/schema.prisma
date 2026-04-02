@@ -350,6 +350,10 @@ model Meeting {
   externalEventId   String?            @unique
   externalCalendarId String?
   externalProvider  String?
+  nylasConnectionId String?
+  nylasNotetakerId  String?
+  nylasNotetakerState String?
+  nylasNotetakerLastWebhookAt DateTime?
   reportStatus      MeetingReportStatus @default(IDLE)
   reportStartedAt   DateTime?
   lastReportedAt    DateTime?
