@@ -172,7 +172,9 @@ export function extractMeetingJoinUrl(event: Record<string, unknown> | null | un
 
   const conferencing = Array.isArray((event as { conferencing?: unknown[] }).conferencing)
     ? ((event as { conferencing?: Array<Record<string, unknown>> }).conferencing as Array<Record<string, unknown>>)
-    : []
+    : (event as { conferencing?: unknown }).conferencing && typeof (event as { conferencing?: unknown }).conferencing === 'object'
+      ? [((event as { conferencing?: Record<string, unknown> }).conferencing as Record<string, unknown>)]
+      : []
 
   for (const item of conferencing) {
     if (typeof item.url === 'string') return item.url
@@ -192,6 +194,10 @@ export function extractMeetingJoinUrl(event: Record<string, unknown> | null | un
 
   if (typeof (event as { location?: unknown }).location === 'string') {
     return (event as { location: string }).location
+  }
+
+  if (typeof (event as { html_link?: unknown }).html_link === 'string') {
+    return (event as { html_link: string }).html_link
   }
 
   return null
