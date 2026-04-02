@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getActiveNylasConnection, nylasFetch } from '@/lib/nylas'
+import { deactivateNylasConnection, getActiveNylasConnection, isGrantNotFoundError, nylasFetch } from '@/lib/nylas'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +27,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items: data.data || [] })
   } catch (error) {
     console.error('NYLAS_CALENDAR_EVENTS_ERROR', error)
+
+    if (connection && isGrantNotFoundError(error)) {
+      await deactivateNylasConnection(connection.grantId)
+      return NextResponse.json(
+        { items: [], error: 'Saved calendar connection is no longer valid. Please reconnect the calendar.' },
+        { status: 200 }
+      )
+    }
+
     return NextResponse.json(
       { items: [], error: error instanceof Error ? error.message : 'Could not load calendar events.' },
       { status: 400 }

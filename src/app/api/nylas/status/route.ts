@@ -1,10 +1,30 @@
 import { NextResponse } from 'next/server'
-import { getActiveNylasConnection, isNylasConfigured } from '@/lib/nylas'
+import {
+  deactivateNylasConnection,
+  fetchGrantDetails,
+  getActiveNylasConnection,
+  isGrantNotFoundError,
+  isNylasConfigured,
+} from '@/lib/nylas'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const connection = await getActiveNylasConnection()
+  let connection = await getActiveNylasConnection()
+
+  if (connection) {
+    try {
+      await fetchGrantDetails(connection.grantId)
+    } catch (error) {
+      if (isGrantNotFoundError(error)) {
+        await deactivateNylasConnection(connection.grantId)
+        connection = null
+      } else {
+        throw error
+      }
+    }
+  }
+
   return NextResponse.json({
     configured: isNylasConfigured(),
     connected: Boolean(connection),

@@ -37,15 +37,30 @@ export function nylasFetch<T>(path: string, init?: RequestInit): Promise<T> {
     }
 
     if (!response.ok) {
-      const message =
+      const topLevelMessage =
         typeof data === 'object' && data && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
           ? (data as { message: string }).message
-          : `Nylas request failed (${response.status}).`
+          : null
+      const nestedError =
+        typeof data === 'object' && data && 'error' in data && typeof (data as { error?: unknown }).error === 'object'
+          ? ((data as { error?: { type?: unknown; message?: unknown } }).error ?? null)
+          : null
+      const nestedType = nestedError && typeof nestedError.type === 'string' ? nestedError.type : null
+      const nestedMessage = nestedError && typeof nestedError.message === 'string' ? nestedError.message : null
+      const message = nestedType || nestedMessage
+        ? [nestedType, nestedMessage].filter(Boolean).join(': ')
+        : topLevelMessage || `Nylas request failed (${response.status}).`
       throw new Error(message)
     }
 
     return data as T
   })
+}
+
+export function isGrantNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  const message = error.message.toLowerCase()
+  return message.includes('grant.not_found') || message.includes('grant not found') || message.includes('no grant found')
 }
 
 export function buildNylasAuthUrl(options?: { provider?: string; state?: string }) {
@@ -104,6 +119,13 @@ export function getActiveNylasConnection() {
   return (prisma as any).nylasConnection.findFirst({
     where: { active: true },
     orderBy: { updatedAt: 'desc' },
+  })
+}
+
+export function deactivateNylasConnection(grantId: string) {
+  return (prisma as any).nylasConnection.updateMany({
+    where: { grantId },
+    data: { active: false },
   })
 }
 
