@@ -2,8 +2,14 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createRequire } from 'module'
 
 const require = createRequire(import.meta.url)
-const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse')
-const mammoth: { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } = require('mammoth')
+
+function loadPdfParse(): (buffer: Buffer) => Promise<{ text: string }> {
+  return require('pdf-parse')
+}
+
+function loadMammoth(): { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } {
+  return require('mammoth')
+}
 
 function extractAnthropicText(result: Anthropic.Messages.Message) {
   return result.content
@@ -28,6 +34,7 @@ export async function extractMeetingNotesText(file: File) {
   }
 
   if (type === 'application/pdf' || lower.endsWith('.pdf')) {
+    const pdfParse = loadPdfParse()
     const result = await pdfParse(buffer)
     return trimMeetingNotes(result.text)
   }
@@ -36,6 +43,7 @@ export async function extractMeetingNotesText(file: File) {
     type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     lower.endsWith('.docx')
   ) {
+    const mammoth = loadMammoth()
     const result = await mammoth.extractRawText({ buffer })
     return trimMeetingNotes(result.value)
   }

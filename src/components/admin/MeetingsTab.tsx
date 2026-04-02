@@ -428,6 +428,31 @@ function combineSections(...parts: Array<string | undefined>) {
   return unique.join('\n\n')
 }
 
+async function readApiResponse(response: Response) {
+  const text = await response.text()
+  let data: any = null
+
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    data = null
+  }
+
+  const fallbackError =
+    response.status >= 500
+      ? 'The service is temporarily unavailable. Please try again in a moment.'
+      : 'We could not complete that request. Please try again.'
+
+  return {
+    ok: response.ok,
+    data,
+    error:
+      (data && typeof data.error === 'string' && data.error) ||
+      (data && typeof data.message === 'string' && data.message) ||
+      fallbackError,
+  }
+}
+
 function ReportPanel({
   latestReport,
   meeting,
@@ -631,12 +656,12 @@ function MeetingCard({
         }),
       })
 
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Could not save meeting.')
+      const { data, error } = await readApiResponse(response)
+      if (!response.ok) throw new Error(error || 'We could not save the meeting updates.')
       if (data.item) onMeetingChange(data.item)
       setMessage('Meeting saved.')
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not save meeting.')
+      setMessage(error instanceof Error ? error.message : 'We could not save the meeting updates.')
     } finally {
       setSaving(false)
     }
@@ -657,12 +682,12 @@ function MeetingCard({
         method: 'POST',
         body: form,
       })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Could not upload notes.')
+      const { data, error } = await readApiResponse(response)
+      if (!response.ok) throw new Error(error || 'We could not upload the meeting notes.')
       if (data.item) onMeetingChange(data.item)
       setMessage(`Notes uploaded from ${file.name}.`)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not upload notes.')
+      setMessage(error instanceof Error ? error.message : 'We could not upload the meeting notes.')
     } finally {
       setUploading(false)
     }
@@ -674,12 +699,12 @@ function MeetingCard({
     setMessage(null)
     try {
       const response = await fetch(`/api/clients/${clientId}/meetings/${meeting.id}/report`, { method: 'POST' })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Could not generate report.')
+      const { data, error } = await readApiResponse(response)
+      if (!response.ok) throw new Error(error || 'The report could not be generated right now.')
       if (data.item) onMeetingChange(data.item)
       setMessage('Detailed report generated.')
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not generate report.')
+      setMessage(error instanceof Error ? error.message : 'The report could not be generated right now.')
     } finally {
       setRunningReport(false)
       setRunStartedAt(null)
@@ -693,12 +718,16 @@ function MeetingCard({
       const response = await fetch(`/api/clients/${clientId}/meetings/${meeting.id}/assistant/refresh`, {
         method: 'POST',
       })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Could not refresh meeting assistant status.')
+      const { data, error } = await readApiResponse(response)
+      if (!response.ok) throw new Error(error || 'Meeting notes are being prepared. Please check back in a few minutes.')
       if (data.item) onMeetingChange(data.item)
       if (data.message) setMessage(data.message)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not refresh meeting assistant status.')
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Meeting notes are being prepared. This usually takes around 5 to 10 minutes.'
+      )
     } finally {
       setRefreshing(false)
     }
@@ -711,11 +740,11 @@ function MeetingCard({
       const response = await fetch(`/api/clients/${clientId}/meetings/${meeting.id}`, {
         method: 'DELETE',
       })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Could not delete meeting.')
+      const { error } = await readApiResponse(response)
+      if (!response.ok) throw new Error(error || 'We could not delete the meeting.')
       onMeetingDelete(meeting.id)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not delete meeting.')
+      setMessage(error instanceof Error ? error.message : 'We could not delete the meeting.')
     } finally {
       setDeleting(false)
     }

@@ -165,7 +165,8 @@ export async function refreshMeetingAssistant(args: {
     const normalized = message.toLowerCase()
     const mediaPending =
       normalized.includes('media is not yet available') ||
-      (normalized.includes('404') && normalized.includes('media'))
+      normalized.includes('request failed (404)') ||
+      normalized.includes('not found')
 
     if (!mediaPending) throw error
 
@@ -192,7 +193,7 @@ export async function refreshMeetingAssistant(args: {
     return {
       processing: true,
       item,
-      message: 'The meeting assistant is still processing notes.',
+      message: 'Meeting notes are being prepared. This usually takes around 5 to 10 minutes after the meeting.',
     }
   }
 }
