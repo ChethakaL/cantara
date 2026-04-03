@@ -303,6 +303,8 @@ RULES:
 - For Retained Earnings closing entries, use them as fiscal year totals.
 - Each entry must have amounts for each fiscal year period (FY1, FY2, FY3) and optionally TTM.
 - If an entry has no amount for a given period, use 0.
+- ALSO scan the P&L expense breakdown (if provided) for personal/owner expenses that should be Source A addbacks: donations, gifts, personal meals, personal travel, personal vet, home office, personal repairs, personal utilities, personal professional fees, etc.
+- CRITICAL: Do NOT double-count. If an expense appears in BOTH the Owner Expenses file AND the P&L, include it ONCE (prefer the Owner Expenses file amount). Only add P&L items that are NOT already covered by the Owner Expenses file.
 
 OUTPUT FORMAT:
 Only return valid JSON. No markdown fences, no commentary.
@@ -324,6 +326,7 @@ export async function extractAddbacksWithLLM(
   ownerExpensesData: string,
   oneOffData: string | null,
   periods: ExtractedFinancials["periods"],
+  plExpenseData?: string | null,
 ): Promise<ExtractedAddbacks> {
   const client = getClient();
 
@@ -337,6 +340,9 @@ export async function extractAddbacksWithLLM(
     oneOffData
       ? "\n\nONE-OFF / NON-RECURRING EXPENSES DATA:\n\n" + oneOffData
       : "\n\n(No one-off expense data provided.)",
+    plExpenseData
+      ? "\n\nP&L EXPENSE BREAKDOWN (scan for additional personal/owner expenses not in the Owner Expenses file above):\n\n" + plExpenseData + "\n\nIMPORTANT: Only add P&L items as Source A if they are clearly personal/owner expenses (e.g., personal meals, personal travel, donations, gifts, home office). Do NOT double-count items that already appear in the Owner Expenses data above. If an expense category appears in BOTH the P&L and the Owner Expenses file, only include it once (use the Owner Expenses amount as it has more detail)."
+      : "",
     "\n\nClassify all addback items into Source A, B, and C and return JSON.",
   ].join("");
 
