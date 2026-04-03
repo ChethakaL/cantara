@@ -476,6 +476,18 @@ export function computeValuation(
     });
   }
 
+  // Add Owner Replacement Salary as a normLine
+  const replacementLine: Record<string, number> = {};
+  for (const period of periods) {
+    replacementLine[period] = period === "LTM" ? 0 : -replacementSalary;
+  }
+  normLines.push({
+    id: "REPL",
+    description: "Owner Replacement Salary",
+    source: "REPLACEMENT",
+    byPeriod: replacementLine,
+  });
+
   // Compute per-period
   for (const period of periods) {
     const addbackKey = mapPeriodToAddbackKey(period);
