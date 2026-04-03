@@ -31,6 +31,8 @@ const MONTH_INDEX: Record<string, number> = {
 const PL_SECTION_HEADERS = [
   "income",
   "ordinary income",
+  "ordinary income/expense",
+  "ordinary income expense",
   "sales",
   "cost of goods sold",
   "cogs",
@@ -39,8 +41,11 @@ const PL_SECTION_HEADERS = [
   "operating expenses",
   "other income",
   "other expense",
+  "other income/expense",
+  "other income expense",
   "gross profit",
   "net income",
+  "net ordinary income",
 ];
 
 const AR_BUCKET_ALIASES: Array<{ key: keyof Omit<ParsedArAging["entries"][number], "customerName" | "total">; matches: string[] }> = [
@@ -201,7 +206,9 @@ function sortMonthKeys(keys: string[]) {
 function pickHeaderRow(rows: WorksheetRows) {
   let best = { index: -1, monthColumns: [] as number[] };
 
-  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 12); rowIndex += 1) {
+  // Scan up to 20 rows to handle files where the header is further down
+  // (e.g., Grand format has headers at row 4, some files have title rows)
+  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 20); rowIndex += 1) {
     const row = rows[rowIndex] ?? [];
     const monthColumns = row
       .map((cell, index) => ({ index, monthKey: parseMonthLabel(cell) }))
@@ -220,7 +227,7 @@ function pickHeaderRow(rows: WorksheetRows) {
   throw new Error("Could not locate a month header row in workbook.");
 }
 
-function findAccountColumn(headerRow: WorksheetRows[number], monthColumns: number[]) {
+function findAccountColumn(headerRow: WorksheetRows[number], monthColumns: number[], rows?: WorksheetRows, headerRowIndex?: number) {
   const firstMonthColumn = Math.min(...monthColumns);
   let accountColumnIndex = -1;
   let codeColumnIndex: number | null = null;
@@ -250,14 +257,47 @@ function findAccountColumn(headerRow: WorksheetRows[number], monthColumns: numbe
   }
 
   if (accountColumnIndex === -1) {
-    // Fallback: use the column just before the first month column, excluding code column
-    for (let index = firstMonthColumn - 1; index >= 0; index -= 1) {
-      if (index !== codeColumnIndex) {
-        accountColumnIndex = index;
-        break;
+    // For plain QB formats (Format 2: Grand, Format 3: Sample #2), there is no
+    // labeled account column. The account names live in the first non-empty column
+    // before the month data, typically column 0. Detect this by scanning data rows
+    // below the header to find which column contains text account names.
+    if (rows && headerRowIndex !== undefined) {
+      const columnTextCounts: Record<number, number> = {};
+      const scanEnd = Math.min((headerRowIndex ?? 0) + 20, rows.length);
+      for (let ri = (headerRowIndex ?? 0) + 1; ri < scanEnd; ri++) {
+        const row = rows[ri] ?? [];
+        for (let ci = 0; ci < firstMonthColumn; ci++) {
+          if (ci === codeColumnIndex) continue;
+          const cellVal = String(row[ci] ?? "").trim();
+          if (cellVal && !parseMonthLabel(cellVal) && Number.isNaN(parseNumber(cellVal))) {
+            columnTextCounts[ci] = (columnTextCounts[ci] ?? 0) + 1;
+          }
+        }
+      }
+      // Pick the column with the most text entries
+      let bestCol = -1;
+      let bestCount = 0;
+      for (const [col, count] of Object.entries(columnTextCounts)) {
+        if (count > bestCount) {
+          bestCount = count;
+          bestCol = Number(col);
+        }
+      }
+      if (bestCol >= 0) {
+        accountColumnIndex = bestCol;
       }
     }
-    if (accountColumnIndex === -1) accountColumnIndex = 0;
+
+    if (accountColumnIndex === -1) {
+      // Fallback: use the column just before the first month column, excluding code column
+      for (let index = firstMonthColumn - 1; index >= 0; index -= 1) {
+        if (index !== codeColumnIndex) {
+          accountColumnIndex = index;
+          break;
+        }
+      }
+      if (accountColumnIndex === -1) accountColumnIndex = 0;
+    }
   }
 
   if (codeColumnIndex === accountColumnIndex) {
@@ -274,9 +314,12 @@ function resolveAccountNameForRow(
   codeColumnIndex: number | null,
 ) {
   const firstMonthColumn = Math.min(...monthColumns);
+  // Trim both leading indentation and trailing whitespace from QB-style accounts
+  // (e.g., "   Sales", "      Cash & Check Sales")
   const explicitAccountCell = String(row[accountColumnIndex] ?? "").trim();
   if (explicitAccountCell) return explicitAccountCell;
 
+  // Fallback: scan columns before the first month column for a text value
   for (let index = firstMonthColumn - 1; index >= 0; index -= 1) {
     if (index === codeColumnIndex) continue;
     const candidate = String(row[index] ?? "").trim();
@@ -336,8 +379,10 @@ function shouldSkipLedgerRow(accountName: string, accountCode: string | null, va
     if (/^EQ-/.test(code)) return true;
   }
 
-  // Skip section headers only when they are structural labels without numeric data.
-  if (!hasNumbers && PL_SECTION_HEADERS.includes(normalizedName)) {
+  // Skip section headers — these are structural labels in QB exports.
+  // In some formats (Grand, Sample #2) these may have subtotal numbers but are
+  // still not leaf-level accounts. Always skip them.
+  if (PL_SECTION_HEADERS.includes(normalizedName)) {
     return true;
   }
 
@@ -362,7 +407,10 @@ function shouldCaptureSummaryRow(accountName: string) {
 }
 
 function deriveFormat(headerRow: WorksheetRows[number], codeColumnIndex: number | null) {
+  // Format 1 (Foothills): has an explicit GL code column → "qb"
   if (codeColumnIndex !== null) return "qb" as const;
+  // Format 2 & 3 (Grand, Sample #2): no code column, plain QB export → "standalone"
+  // These need auto-mapping via the taxonomy alias system
   const headerText = normalizeText(headerRow.join(" "));
   return /(quickbooks|qb)/.test(headerText) ? ("qb" as const) : ("standalone" as const);
 }
@@ -484,7 +532,7 @@ function extractPreparedMonthlySections(preparedDocument: PreparedDocumentInput)
 
 function parsePreparedMonthlySection(section: ParsedMonthlySection) {
   const headerRow = section.rows[section.headerRowIndex] ?? [];
-  const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, section.monthColumns);
+  const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, section.monthColumns, section.rows, section.headerRowIndex);
   const monthKeys = sortMonthKeys(
     section.monthColumns
       .map((columnIndex) => parseMonthLabel(headerRow[columnIndex]))
@@ -682,7 +730,7 @@ export function parseMonthlyWorkbook(
 
   const selected = allSections[0] ?? chooseBestMonthlySheet(workbook, documentId);
   const headerRow = selected.rows[selected.headerRowIndex] ?? [];
-  const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, selected.monthColumns);
+  const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, selected.monthColumns, selected.rows, selected.headerRowIndex);
   const monthKeys = sortMonthKeys(
     selected.monthColumns
       .map((columnIndex) => parseMonthLabel(headerRow[columnIndex]))
@@ -774,7 +822,7 @@ export function parseMonthlyWorkbookFromPrepared(
 
   const selected = chooseBestMonthlySheetFromPrepared(preparedDocument, documentId);
   const headerRow = selected.rows[selected.headerRowIndex] ?? [];
-  const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, selected.monthColumns);
+  const { accountColumnIndex, codeColumnIndex } = findAccountColumn(headerRow, selected.monthColumns, selected.rows, selected.headerRowIndex);
   const monthKeys = sortMonthKeys(
     selected.monthColumns
       .map((columnIndex) => parseMonthLabel(headerRow[columnIndex]))

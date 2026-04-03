@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import type { TtmAnalysisView, Ws2DerivedReportView, Ws2RecastView } from '@/lib/ttm-agent/types'
@@ -75,6 +75,7 @@ export function Ws2WorkbookView({
 }) {
   const [activeTab, setActiveTab] = useState<TabId>('valuation')
   const [overrides, setOverrides] = useState<Overrides>({})
+  const [tabOverrides, setTabOverrides] = useState<Record<string, Record<string, number>>>({}) // "tab:rowId:periodKey" → value
   const [editingCell, setEditingCell] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
 
@@ -112,9 +113,24 @@ export function Ws2WorkbookView({
 
   // ── Add-back data with overrides applied ────────────────────────────────
 
-  // Parse add-back items from reportMarkdown
-  // Handles multiple format variants the LLM may produce
+  // Parse add-back items from LLM valuation result, adapter, or reportMarkdown
   const addBackItems = useMemo(() => {
+    // Priority 1: LLM valuation result (most accurate)
+    const llmResult = (recast as any).parsedReport?.llmValuationResult
+    if (llmResult?.normLines?.length > 0) {
+      console.log('[Ws2WorkbookView] Using LLM valuation normLines:', llmResult.normLines.length)
+      return llmResult.normLines.map((line: any, i: number) => ({
+        id: line.id || `llm-${i}`,
+        description: line.description || 'Unknown',
+        glCode: line.source || '',
+        ttmAmount: line.byPeriod?.['LTM'] ?? line.byPeriod?.['TTM'] ?? 0,
+        fy3Amount: line.byPeriod?.['FY3'] ?? 0,
+        fy2Amount: line.byPeriod?.['FY2'] ?? 0,
+        fy1Amount: line.byPeriod?.['FY1'] ?? 0,
+      }))
+    }
+
+    // Priority 2: Export adapter items
     const fromAdapter = ws2Report.ws22?.recastSchedule.addBackItems ?? []
     if (fromAdapter.length > 0) return fromAdapter
 
@@ -172,7 +188,7 @@ export function Ws2WorkbookView({
     return dataRows
       .filter(c => {
         const name = c[nameCol] ?? ''
-        return !/Total Adjustments|Revised Net Income|Revenue|Net Income\/EBITDA|^Multiple$|^Valuation$/i.test(name) &&
+        return !/Total Adjustments|Revised Net Income|Revenue|Net Income\/EBITDA|^Multiple$|^Valuation$|^—$|^-$/i.test(name) &&
                !/Total Adjustments|Revised|Multiple|Valuation/i.test(name)
       })
       .map(c => {
@@ -212,9 +228,24 @@ export function Ws2WorkbookView({
     [overrides],
   )
 
+  // LLM valuation result (if available, this is the sole source of truth)
+  const llmResult = (recast as any).parsedReport?.llmValuationResult as {
+    preRecast: Record<string, number>
+    normalizedEbitda: Record<string, number>
+    fourWallEbitda?: Record<string, number>
+    valuation: Record<string, { low: number; mid: number; high: number }>
+    normLines: Array<{ id?: string; description: string; source?: string; byPeriod?: Record<string, number> }>
+  } | undefined
+
   const getPreRecast = useCallback(
     (periodKey: PeriodKey): number => {
-      // Use Net Income (not EBITDA) as the pre-recast baseline per methodology v2.
+      // If LLM valuation result exists, use its preRecast values as source of truth
+      if (llmResult?.preRecast) {
+        const llmKey = periodKey === 'ltm' ? 'LTM' : periodKey.toUpperCase()
+        const llmVal = llmResult.preRecast[llmKey] ?? llmResult.preRecast[periodKey]
+        if (llmVal != null) return llmVal
+      }
+      // Fallback: Use Net Income (not EBITDA) as the pre-recast baseline per methodology v2.
       // Net Income includes Other Income (PPP/ERC). Falls back to EBITDA if netIncome not available.
       switch (periodKey) {
         case 'ltm': return (years[2] as any)?.netIncome ?? analysis.ttmSummary?.ebitdaPreRecast ?? 0
@@ -223,7 +254,7 @@ export function Ws2WorkbookView({
         case 'fy1': return (years[0] as any)?.netIncome ?? years[0]?.ebitdaPreRecast ?? 0
       }
     },
-    [analysis, years],
+    [analysis, years, llmResult],
   )
 
   const getRevenue = useCallback(
@@ -238,32 +269,48 @@ export function Ws2WorkbookView({
     [analysis, years],
   )
 
-  // Computed totals per period
+  // Computed totals per period — LLM values are source of truth when available
   const totals = useMemo(() => {
-    const result: Record<PeriodKey, { addBacks: number; normalizedEbitda: number; revenue: number; valuation: number }> = {
-      ltm: { addBacks: 0, normalizedEbitda: 0, revenue: 0, valuation: 0 },
-      fy3: { addBacks: 0, normalizedEbitda: 0, revenue: 0, valuation: 0 },
-      fy2: { addBacks: 0, normalizedEbitda: 0, revenue: 0, valuation: 0 },
-      fy1: { addBacks: 0, normalizedEbitda: 0, revenue: 0, valuation: 0 },
+    const result: Record<PeriodKey, { addBacks: number; normalizedEbitda: number; revenue: number; valuation: number; fourWallEbitda: number }> = {
+      ltm: { addBacks: 0, normalizedEbitda: 0, revenue: 0, valuation: 0, fourWallEbitda: 0 },
+      fy3: { addBacks: 0, normalizedEbitda: 0, revenue: 0, valuation: 0, fourWallEbitda: 0 },
+      fy2: { addBacks: 0, normalizedEbitda: 0, revenue: 0, valuation: 0, fourWallEbitda: 0 },
+      fy1: { addBacks: 0, normalizedEbitda: 0, revenue: 0, valuation: 0, fourWallEbitda: 0 },
     }
+    // Helper to map periodKey to LLM period key format
+    const toLlmKey = (key: PeriodKey): string => key === 'ltm' ? 'LTM' : key.toUpperCase()
+
     for (const key of ['ltm', 'fy3', 'fy2', 'fy1'] as PeriodKey[]) {
       const totalAB = addBackItems.reduce((sum, item) => sum + getItemValue(item, key), 0)
       const preRecast = getPreRecast(key)
       const revenue = getRevenue(key)
       const normalized = preRecast + totalAB
-      // 4-Wall EBITDA = Normalized + Owner Replacement (add the deduction back)
+
+      // If LLM valuation result exists, use its values as source of truth
+      const lk = toLlmKey(key)
+      const llmNormEbitda = llmResult?.normalizedEbitda?.[lk]
+      const llmFourWall = llmResult?.fourWallEbitda?.[lk]
+      const llmValuation = llmResult?.valuation?.[lk]
+
+      // 4-Wall EBITDA fallback: Normalized + Owner Replacement (add the deduction back)
       const replacementItem = addBackItems.find(item => /replacement salary/i.test(item.description))
-      const replacementAmount = replacementItem ? getItemValue(replacementItem, key) : 0
+      const replacementAmount = replacementItem
+        ? getItemValue(replacementItem, key)
+        : (key === 'ltm' ? 0 : -20000)
+
+      const finalNormEbitda = llmNormEbitda ?? normalized
+      const finalFourWall = llmFourWall ?? (normalized - replacementAmount)
+
       result[key] = {
         addBacks: totalAB,
-        normalizedEbitda: normalized,
+        normalizedEbitda: finalNormEbitda,
         revenue,
-        valuation: normalized * multiple,
-        fourWallEbitda: normalized - replacementAmount, // subtract the negative = add it back
-      } as any
+        valuation: llmValuation?.mid ?? (finalNormEbitda * multiple),
+        fourWallEbitda: finalFourWall,
+      }
     }
     return result
-  }, [addBackItems, getItemValue, getPreRecast, getRevenue, multiple])
+  }, [addBackItems, getItemValue, getPreRecast, getRevenue, multiple, llmResult])
 
   // ── Inline editing ─────────────────────────────────────────────────────
 
@@ -284,10 +331,28 @@ export function Ws2WorkbookView({
     setEditValue('')
   }
 
+  const commitTabEdit = (tabRowId: string, periodKey: PeriodKey) => {
+    const parsed = Number(editValue.replace(/[,$]/g, ''))
+    if (Number.isFinite(parsed)) {
+      setTabOverrides((prev) => ({
+        ...prev,
+        [tabRowId]: { ...(prev[tabRowId] ?? {}), [periodKey]: parsed },
+      }))
+    }
+    setEditingCell(null)
+    setEditValue('')
+  }
+
   const cancelEdit = () => {
     setEditingCell(null)
     setEditValue('')
   }
+
+  const getTabOverride = (tabRowId: string, periodKey: PeriodKey): number | undefined => {
+    return tabOverrides[tabRowId]?.[periodKey]
+  }
+
+  const totalTabOverrides = Object.values(tabOverrides).reduce((n, o) => n + Object.keys(o).length, 0)
 
   // ── Category grouping for normalization items ──────────────────────────
 
@@ -424,18 +489,99 @@ export function Ws2WorkbookView({
     )
   }
 
+  /** Generic editable data row for Revenue / Benchmarks / Labor tabs */
+  function EditableDataRow({
+    rowId,
+    label,
+    sublabel,
+    values,
+    percentages,
+    indent,
+    extraColumns,
+  }: {
+    rowId: string
+    label: string
+    sublabel?: string
+    values: (number | null)[]      // one per period
+    percentages?: (number | null)[] // optional pct shown in parentheses
+    indent?: boolean
+    extraColumns?: React.ReactNode[] // extra <td>s after the period columns
+  }) {
+    return (
+      <tr className="hover:bg-blue-50/30 group">
+        <td className={cn(
+          'sticky left-0 z-10 bg-white px-4 py-2 text-sm font-medium text-slate-800 group-hover:bg-blue-50/30',
+          indent && 'pl-8',
+        )}>
+          {label}
+          {sublabel && <div className="text-[10px] text-slate-400 font-normal">{sublabel}</div>}
+        </td>
+        {values.map((v, i) => {
+          const periodKey = periods[i]?.key as PeriodKey
+          if (!periodKey) return null
+          const cellId = `tab:${rowId}:${periodKey}`
+          const override = getTabOverride(rowId, periodKey)
+          const displayValue = override !== undefined ? override : v
+          const isEditing = editingCell === cellId
+          const hasOverride = override !== undefined
+          const pctVal = percentages?.[i]
+
+          if (isEditing) {
+            return (
+              <td key={periodKey} className="px-2 py-0.5 text-right">
+                <input
+                  autoFocus
+                  type="text"
+                  className="w-full rounded border border-blue-400 bg-blue-50 px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitTabEdit(rowId, periodKey)
+                    if (e.key === 'Escape') cancelEdit()
+                  }}
+                  onBlur={() => commitTabEdit(rowId, periodKey)}
+                />
+              </td>
+            )
+          }
+
+          return (
+            <td
+              key={periodKey}
+              className={cn(
+                'px-3 py-2 text-right text-sm tabular-nums cursor-pointer hover:bg-blue-100/50 transition-colors',
+                negClass(displayValue),
+                hasOverride && 'bg-amber-50 font-semibold text-amber-900',
+              )}
+              onClick={() => startEdit(cellId, displayValue ?? 0)}
+              title="Click to edit"
+            >
+              {acct(displayValue)}
+              {pctVal != null && !hasOverride && (
+                <span className="ml-1 text-[10px] text-slate-400">({(pctVal * 100).toFixed(1)}%)</span>
+              )}
+            </td>
+          )
+        })}
+        {extraColumns?.map((col, i) => <React.Fragment key={`extra-${i}`}>{col}</React.Fragment>)}
+      </tr>
+    )
+  }
+
   // ── TAB: Valuation ─────────────────────────────────────────────────────
 
   function ValuationTab() {
-    const hasOverrides = Object.keys(overrides).length > 0
+    const valuationOverrideCount = Object.values(overrides).reduce((n, o) => n + Object.keys(o).length, 0)
+    const totalOverrideCount = valuationOverrideCount + totalTabOverrides
+    const hasOverrides = totalOverrideCount > 0
     return (
       <div className="space-y-4">
         {hasOverrides && (
           <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2">
             <span className="text-sm text-amber-800">
-              You have edited {Object.values(overrides).reduce((n, o) => n + Object.keys(o).length, 0)} cell(s). Totals are recalculated live.
+              You have edited {totalOverrideCount} cell(s) across all tabs. Totals are recalculated live.
             </span>
-            <Button size="sm" variant="outline" onClick={() => setOverrides({})}>
+            <Button size="sm" variant="outline" onClick={() => { setOverrides({}); setTabOverrides({}) }}>
               Reset all edits
             </Button>
           </div>
@@ -490,34 +636,63 @@ export function Ws2WorkbookView({
               {/* 4-Wall EBITDA */}
               <DataRow
                 label="4-Wall EBITDA"
-                values={periods.map((p) => (totals[p.key] as any).fourWallEbitda ?? totals[p.key].normalizedEbitda)}
+                values={periods.map((p) => totals[p.key].fourWallEbitda)}
                 bold
               />
 
               <tr><td colSpan={colCount} className="h-2" /></tr>
 
-              {/* Multiple */}
+              {/* Multiple — show range if low/high are set */}
               <tr className="bg-slate-50">
                 <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1.5 text-sm font-bold text-slate-900">
                   Multiple
                 </td>
-                {periods.map((p) => (
-                  <td key={p.key} className="px-4 py-1.5 text-right text-sm font-bold tabular-nums text-slate-900">
-                    {acctMult(multiple)}
-                  </td>
-                ))}
+                {periods.map((p) => {
+                  const low = recast.assumptions?.multipleLow
+                  const high = recast.assumptions?.multipleHigh
+                  const rangeStr = low && high ? `${Number(low).toFixed(1)}x – ${Number(high).toFixed(1)}x` : acctMult(multiple)
+                  return (
+                    <td key={p.key} className="px-4 py-1.5 text-right text-sm font-bold tabular-nums text-slate-900">
+                      {rangeStr}
+                    </td>
+                  )
+                })}
               </tr>
 
-              {/* Valuation */}
+              {/* Valuation — show range if low/high multiples are set */}
               <tr className="border-t-2 border-double border-slate-400 bg-slate-800 text-white">
                 <td className="sticky left-0 z-10 bg-slate-800 px-4 py-3 text-sm font-bold">
                   Valuation
                 </td>
-                {periods.map((p) => (
-                  <td key={p.key} className="px-4 py-3 text-right text-lg font-bold tabular-nums text-amber-300">
-                    {acct(totals[p.key].valuation)}
-                  </td>
-                ))}
+                {periods.map((p) => {
+                  const low = recast.assumptions?.multipleLow
+                  const high = recast.assumptions?.multipleHigh
+                  const lk = p.key === 'ltm' ? 'LTM' : p.key.toUpperCase()
+                  const llmVal = llmResult?.valuation?.[lk]
+                  // Use LLM valuation if available
+                  if (llmVal) {
+                    return (
+                      <td key={p.key} className="px-4 py-3 text-right text-sm font-bold tabular-nums text-amber-300">
+                        {acct(llmVal.low)} – {acct(llmVal.high)}
+                      </td>
+                    )
+                  }
+                  const norm = totals[p.key].normalizedEbitda
+                  if (low && high) {
+                    const valLow = norm * Number(low)
+                    const valHigh = norm * Number(high)
+                    return (
+                      <td key={p.key} className="px-4 py-3 text-right text-sm font-bold tabular-nums text-amber-300">
+                        {acct(valLow)} – {acct(valHigh)}
+                      </td>
+                    )
+                  }
+                  return (
+                    <td key={p.key} className="px-4 py-3 text-right text-lg font-bold tabular-nums text-amber-300">
+                      {acct(totals[p.key].valuation)}
+                    </td>
+                  )
+                })}
               </tr>
 
               {/* Margin row */}
@@ -541,11 +716,12 @@ export function Ws2WorkbookView({
         {/* Valuation range summary */}
         <div className="grid gap-3 md:grid-cols-3">
           {[
-            { label: 'Low', mult: recast.assumptions?.multipleLow, tone: 'slate' },
-            { label: 'Mid', mult: recast.assumptions?.multipleMid, tone: 'amber' },
-            { label: 'High', mult: recast.assumptions?.multipleHigh, tone: 'slate' },
-          ].map(({ label, mult, tone }) => {
-            const val = (totals.ltm.normalizedEbitda) * (mult ?? 0)
+            { label: 'Low', mult: recast.assumptions?.multipleLow, tone: 'slate', llmField: 'low' as const },
+            { label: 'Mid', mult: recast.assumptions?.multipleMid, tone: 'amber', llmField: 'mid' as const },
+            { label: 'High', mult: recast.assumptions?.multipleHigh, tone: 'slate', llmField: 'high' as const },
+          ].map(({ label, mult, tone, llmField }) => {
+            const llmLtmVal = llmResult?.valuation?.['LTM']
+            const val = llmLtmVal ? llmLtmVal[llmField] : (totals.ltm.normalizedEbitda) * (mult ?? 0)
             return (
               <div
                 key={label}
@@ -584,23 +760,23 @@ export function Ws2WorkbookView({
       fy1: (years[0] as any)?.netIncome ?? pl.netIncome?.fy1 ?? 0,
     }
     // 4-Wall EBITDA = Normalized EBITDA + Owner Replacement (before deduction)
-    const fourWall = periods.map((p) => (totals[p.key] as any).fourWallEbitda ?? totals[p.key].normalizedEbitda)
+    const fourWall = periods.map((p) => totals[p.key].fourWallEbitda)
 
-    type Row = { label: string; values: (number | null)[]; bold?: boolean; border?: boolean; indent?: boolean; pct?: boolean }
+    type Row = { label: string; values: (number | null)[]; bold?: boolean; border?: boolean; indent?: boolean; pct?: boolean; editPrefix?: string }
     const rows: Row[] = [
       { label: 'Revenue', values: [], bold: true, border: false },
-      ...revLines.map((l) => ({ label: l.label, values: [l.ttm, l.fy3, l.fy2, l.fy1] as (number | null)[], indent: true })),
+      ...revLines.map((l) => ({ label: l.label, values: [l.ttm, l.fy3, l.fy2, l.fy1] as (number | null)[], indent: true, editPrefix: `pl:rev:${l.label}` })),
       { label: 'Total Revenue', values: [pl.totalRevenue.ttm, pl.totalRevenue.fy3, pl.totalRevenue.fy2, pl.totalRevenue.fy1], bold: true, border: true },
       { label: '', values: [null, null, null, null] },
       { label: 'Cost of Goods Sold', values: [], bold: true },
-      ...cogsLines.map((l) => ({ label: l.label, values: [l.ttm, l.fy3, l.fy2, l.fy1] as (number | null)[], indent: true })),
+      ...cogsLines.map((l) => ({ label: l.label, values: [l.ttm, l.fy3, l.fy2, l.fy1] as (number | null)[], indent: true, editPrefix: `pl:cogs:${l.label}` })),
       { label: 'Total COGS', values: [pl.totalCogs.ttm, pl.totalCogs.fy3, pl.totalCogs.fy2, pl.totalCogs.fy1], bold: true, border: true },
       { label: '', values: [null, null, null, null] },
       { label: 'Gross Profit', values: [pl.grossProfit.ttm, pl.grossProfit.fy3, pl.grossProfit.fy2, pl.grossProfit.fy1], bold: true, border: true },
       { label: 'Gross Margin %', values: [pl.grossMargin.ttm, pl.grossMargin.fy3, pl.grossMargin.fy2, pl.grossMargin.fy1], pct: true },
       { label: '', values: [null, null, null, null] },
       { label: 'Operating Expenses', values: [], bold: true },
-      ...expLines.map((l) => ({ label: l.label, values: [l.ttm, l.fy3, l.fy2, l.fy1] as (number | null)[], indent: true })),
+      ...expLines.map((l) => ({ label: l.label, values: [l.ttm, l.fy3, l.fy2, l.fy1] as (number | null)[], indent: true, editPrefix: `pl:exp:${l.label}` })),
       { label: 'Total OpEx', values: [pl.totalOpex.ttm, pl.totalOpex.fy3, pl.totalOpex.fy2, pl.totalOpex.fy1], bold: true, border: true },
       { label: '', values: [null, null, null, null] },
       { label: 'Net Income', values: [netIncome.ttm, netIncome.fy3, netIncome.fy2, netIncome.fy1], bold: true, border: true },
@@ -612,39 +788,69 @@ export function Ws2WorkbookView({
       { label: '4-Wall Margin %', values: periods.map((p, i) => totals[p.key].revenue ? (fourWall[i] ?? 0) / totals[p.key].revenue : null), pct: true },
     ]
 
+    const plOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('pl:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
+
     return (
-      <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
-        <table className="min-w-full border-collapse">
-          <thead><PeriodHeaders /></thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.map((row, i) => {
-              if (!row.label) return <tr key={i}><td colSpan={colCount} className="h-2" /></tr>
-              if (row.values.length === 0) return <SectionHeader key={i} label={row.label} />
-              if (row.pct) {
+      <div className="space-y-4">
+        {plOverrideCount > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2">
+            <span className="text-sm text-amber-800">
+              {plOverrideCount} P&L cell(s) overridden.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setTabOverrides((prev) => {
+              const next = { ...prev }
+              for (const k of Object.keys(next)) { if (k.startsWith('pl:')) delete next[k] }
+              return next
+            })}>
+              Reset P&L edits
+            </Button>
+          </div>
+        )}
+        <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+          <table className="min-w-full border-collapse">
+            <thead><PeriodHeaders /></thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((row, i) => {
+                if (!row.label) return <tr key={i}><td colSpan={colCount} className="h-2" /></tr>
+                if (row.values.length === 0) return <SectionHeader key={i} label={row.label} />
+                if (row.pct) {
+                  return (
+                    <tr key={i}>
+                      <td className="sticky left-0 z-10 bg-white px-4 py-1 text-xs text-slate-400">{row.label}</td>
+                      {row.values.map((v, j) => (
+                        <td key={periods[j]?.key ?? j} className="px-4 py-1 text-right text-xs tabular-nums text-slate-400">
+                          {acctPct(v)}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                }
+                // Editable line items (revenue, COGS, expense lines)
+                if (row.editPrefix) {
+                  return (
+                    <EditableDataRow
+                      key={i}
+                      rowId={row.editPrefix}
+                      label={row.label}
+                      values={row.values}
+                      indent={row.indent}
+                    />
+                  )
+                }
                 return (
-                  <tr key={i}>
-                    <td className="sticky left-0 z-10 bg-white px-4 py-1 text-xs text-slate-400">{row.label}</td>
-                    {row.values.map((v, j) => (
-                      <td key={periods[j]?.key ?? j} className="px-4 py-1 text-right text-xs tabular-nums text-slate-400">
-                        {acctPct(v)}
-                      </td>
-                    ))}
-                  </tr>
+                  <DataRow
+                    key={i}
+                    label={row.label}
+                    values={row.values}
+                    bold={row.bold}
+                    border={row.border}
+                    indent={row.indent}
+                  />
                 )
-              }
-              return (
-                <DataRow
-                  key={i}
-                  label={row.label}
-                  values={row.values}
-                  bold={row.bold}
-                  border={row.border}
-                  indent={row.indent}
-                />
-              )
-            })}
-          </tbody>
-        </table>
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     )
   }
@@ -652,41 +858,99 @@ export function Ws2WorkbookView({
   // ── TAB: Normalization Items ───────────────────────────────────────────
 
   function NormalizationTab() {
+    const normOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('norm:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
     return (
-      <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
-        <table className="min-w-full border-collapse">
-          <thead><PeriodHeaders /></thead>
-          <tbody className="divide-y divide-slate-100">
-            {groupedItems.map(([cat, items]) => (
-              <>
-                <SectionHeader key={`cat-${cat}`} label={ADD_BACK_CATEGORY_LABELS[cat] ?? `Category ${cat}`} />
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="sticky left-0 z-10 bg-white px-4 py-2 text-sm text-slate-700 pl-8">
-                      <div>{item.description}</div>
-                      <div className="text-[10px] text-slate-400">
-                        {item.glCode && `GL: ${item.glCode}`}
-                        {item.glCode && item.status ? ' · ' : ''}
-                        {item.status}
-                      </div>
-                    </td>
-                    {periods.map((p) => (
-                      <td key={p.key} className={cn('px-4 py-2 text-right text-sm tabular-nums', negClass(getItemValue(item, p.key)))}>
-                        {acct(getItemValue(item, p.key))}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </>
-            ))}
-            <DataRow
-              label="Total Adjustments"
-              values={periods.map((p) => totals[p.key].addBacks)}
-              bold
-              border
-            />
-          </tbody>
-        </table>
+      <div className="space-y-4">
+        {normOverrideCount > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2">
+            <span className="text-sm text-amber-800">
+              {normOverrideCount} normalization cell(s) overridden.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setTabOverrides((prev) => {
+              const next = { ...prev }
+              for (const k of Object.keys(next)) { if (k.startsWith('norm:')) delete next[k] }
+              return next
+            })}>
+              Reset normalization edits
+            </Button>
+          </div>
+        )}
+        <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+          <table className="min-w-full border-collapse">
+            <thead><PeriodHeaders /></thead>
+            <tbody className="divide-y divide-slate-100">
+              {groupedItems.map(([cat, items]) => (
+                <>
+                  <SectionHeader key={`cat-${cat}`} label={ADD_BACK_CATEGORY_LABELS[cat] ?? `Category ${cat}`} />
+                  {items.map((item) => {
+                    const rowId = `norm:${item.id}`
+                    return (
+                      <tr key={item.id} className="hover:bg-blue-50/30 group">
+                        <td className="sticky left-0 z-10 bg-white px-4 py-2 text-sm text-slate-700 pl-8 group-hover:bg-blue-50/30">
+                          <div>{item.description}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {item.glCode && `GL: ${item.glCode}`}
+                            {item.glCode && item.status ? ' · ' : ''}
+                            {item.status}
+                          </div>
+                        </td>
+                        {periods.map((p) => {
+                          const periodKey = p.key as PeriodKey
+                          const cellId = `tab:${rowId}:${periodKey}`
+                          const rawValue = getItemValue(item, periodKey)
+                          const override = getTabOverride(rowId, periodKey)
+                          const displayValue = override !== undefined ? override : rawValue
+                          const isEditing = editingCell === cellId
+                          const hasOverride = override !== undefined
+
+                          if (isEditing) {
+                            return (
+                              <td key={periodKey} className="px-2 py-0.5 text-right">
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  className="w-full rounded border border-blue-400 bg-blue-50 px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') commitTabEdit(rowId, periodKey)
+                                    if (e.key === 'Escape') cancelEdit()
+                                  }}
+                                  onBlur={() => commitTabEdit(rowId, periodKey)}
+                                />
+                              </td>
+                            )
+                          }
+
+                          return (
+                            <td
+                              key={periodKey}
+                              className={cn(
+                                'px-4 py-2 text-right text-sm tabular-nums cursor-pointer hover:bg-blue-100/50 transition-colors',
+                                negClass(displayValue),
+                                hasOverride && 'bg-amber-50 font-semibold text-amber-900',
+                              )}
+                              onClick={() => startEdit(cellId, displayValue ?? 0)}
+                              title="Click to edit"
+                            >
+                              {acct(displayValue)}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
+                </>
+              ))}
+              <DataRow
+                label="Total Adjustments"
+                values={periods.map((p) => totals[p.key].addBacks)}
+                bold
+                border
+              />
+            </tbody>
+          </table>
+        </div>
       </div>
     )
   }
@@ -707,24 +971,56 @@ export function Ws2WorkbookView({
       { label: 'Pre-Recast EBITDA Margin', values: [pl.ebitdaMargin.ttm, pl.ebitdaMargin.fy3, pl.ebitdaMargin.fy2, pl.ebitdaMargin.fy1], kind: 'pct' },
     ]
 
+    const kmOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('km:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
+
     return (
-      <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
-        <table className="min-w-full border-collapse">
-          <thead><PeriodHeaders /></thead>
-          <tbody className="divide-y divide-slate-100">
-            <SectionHeader label="Normalized Key Metrics" />
-            {metrics.map((m) => (
-              <tr key={m.label}>
-                <td className="sticky left-0 z-10 bg-white px-4 py-1.5 text-sm text-slate-700">{m.label}</td>
-                {m.values.map((v, i) => (
-                  <td key={periods[i]?.key ?? i} className={cn('px-4 py-1.5 text-right text-sm tabular-nums', negClass(v))}>
-                    {m.kind === 'currency' ? acct(v) : acctPct(v)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="space-y-4">
+        {kmOverrideCount > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2">
+            <span className="text-sm text-amber-800">
+              {kmOverrideCount} key metric cell(s) overridden.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setTabOverrides((prev) => {
+              const next = { ...prev }
+              for (const k of Object.keys(next)) { if (k.startsWith('km:')) delete next[k] }
+              return next
+            })}>
+              Reset key metric edits
+            </Button>
+          </div>
+        )}
+        <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+          <table className="min-w-full border-collapse">
+            <thead><PeriodHeaders /></thead>
+            <tbody className="divide-y divide-slate-100">
+              <SectionHeader label="Normalized Key Metrics" />
+              {metrics.map((m) => {
+                // Currency rows are editable; percentage rows remain read-only
+                if (m.kind === 'currency') {
+                  const rowId = `km:${m.label}`
+                  return (
+                    <EditableDataRow
+                      key={m.label}
+                      rowId={rowId}
+                      label={m.label}
+                      values={m.values}
+                    />
+                  )
+                }
+                return (
+                  <tr key={m.label}>
+                    <td className="sticky left-0 z-10 bg-white px-4 py-1.5 text-sm text-slate-400">{m.label}</td>
+                    {m.values.map((v, i) => (
+                      <td key={periods[i]?.key ?? i} className="px-4 py-1.5 text-right text-xs tabular-nums text-slate-400">
+                        {acctPct(v)}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     )
   }
@@ -737,8 +1033,25 @@ export function Ws2WorkbookView({
     const healthBg = (h: string) => h === 'GREEN' ? 'bg-emerald-50' : h === 'YELLOW' ? 'bg-amber-50' : 'bg-rose-50'
     const flagColor = (s: string) => s === 'CRITICAL' ? 'border-rose-200 bg-rose-50 text-rose-800' : s === 'WARNING' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'
 
+    const revOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('rev:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
+
     return (
       <div className="space-y-4">
+        {revOverrideCount > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2">
+            <span className="text-sm text-amber-800">
+              {revOverrideCount} revenue cell(s) overridden.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setTabOverrides((prev) => {
+              const next = { ...prev }
+              for (const k of Object.keys(next)) { if (k.startsWith('rev:')) delete next[k] }
+              return next
+            })}>
+              Reset revenue edits
+            </Button>
+          </div>
+        )}
+
         {/* Concentration flags */}
         {revData.concentrationFlags.length > 0 && (
           <div className="space-y-2">
@@ -784,35 +1097,78 @@ export function Ws2WorkbookView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {revData.verticals.map((v) => (
-                <tr key={v.name} className="hover:bg-slate-50/50">
-                  <td className="sticky left-0 z-10 bg-white px-4 py-2 text-sm font-medium text-slate-800">
-                    {v.name}
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <span className={cn('inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', healthBg(v.health), healthColor(v.health))}>
-                      {v.health}
-                    </span>
-                  </td>
-                  {[
-                    { val: v.ltm, pctVal: v.ltmPct },
-                    { val: v.fy3, pctVal: v.fy3Pct },
-                    { val: v.fy2, pctVal: v.fy2Pct },
-                    { val: v.fy1, pctVal: v.fy1Pct },
-                  ].map(({ val, pctVal }, i) => (
-                    <td key={i} className="px-4 py-2 text-right text-sm tabular-nums">
-                      <span className={negClass(val)}>{acct(val)}</span>
-                      <span className="ml-1 text-[10px] text-slate-400">({(pctVal * 100).toFixed(1)}%)</span>
+              {revData.verticals.map((v) => {
+                const rowId = `rev:${v.name}`
+                const rawValues = [v.ltm, v.fy3, v.fy2, v.fy1]
+                const displayValues = periods.map((p, i) => {
+                  const override = getTabOverride(rowId, p.key)
+                  return override !== undefined ? override : rawValues[i]
+                })
+                return (
+                  <tr key={v.name} className="hover:bg-blue-50/30 group">
+                    <td className="sticky left-0 z-10 bg-white px-4 py-2 text-sm font-medium text-slate-800 group-hover:bg-blue-50/30">
+                      {v.name}
                     </td>
-                  ))}
-                  <td className={cn('px-3 py-2 text-right text-sm tabular-nums', v.yoyFy2toFy3 !== null && v.yoyFy2toFy3 < 0 ? 'text-rose-600' : 'text-emerald-600')}>
-                    {v.yoyFy2toFy3 !== null ? `${(v.yoyFy2toFy3 * 100).toFixed(0)}%` : '—'}
-                  </td>
-                  <td className={cn('px-3 py-2 text-right text-sm tabular-nums', v.yoyFy1toFy2 !== null && v.yoyFy1toFy2 < 0 ? 'text-rose-600' : 'text-emerald-600')}>
-                    {v.yoyFy1toFy2 !== null ? `${(v.yoyFy1toFy2 * 100).toFixed(0)}%` : '—'}
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-2 py-2 text-center">
+                      <span className={cn('inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', healthBg(v.health), healthColor(v.health))}>
+                        {v.health}
+                      </span>
+                    </td>
+                    {displayValues.map((val, i) => {
+                      const periodKey = periods[i]?.key as PeriodKey
+                      if (!periodKey) return null
+                      const cellId = `tab:${rowId}:${periodKey}`
+                      const override = getTabOverride(rowId, periodKey)
+                      const isEditing = editingCell === cellId
+                      const hasOverride = override !== undefined
+                      const pctVal = [v.ltmPct, v.fy3Pct, v.fy2Pct, v.fy1Pct][i]
+
+                      if (isEditing) {
+                        return (
+                          <td key={periodKey} className="px-2 py-0.5 text-right">
+                            <input
+                              autoFocus
+                              type="text"
+                              className="w-full rounded border border-blue-400 bg-blue-50 px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitTabEdit(rowId, periodKey)
+                                if (e.key === 'Escape') cancelEdit()
+                              }}
+                              onBlur={() => commitTabEdit(rowId, periodKey)}
+                            />
+                          </td>
+                        )
+                      }
+
+                      return (
+                        <td
+                          key={periodKey}
+                          className={cn(
+                            'px-4 py-2 text-right text-sm tabular-nums cursor-pointer hover:bg-blue-100/50 transition-colors',
+                            negClass(val),
+                            hasOverride && 'bg-amber-50 font-semibold text-amber-900',
+                          )}
+                          onClick={() => startEdit(cellId, val ?? 0)}
+                          title="Click to edit"
+                        >
+                          <span className={negClass(val)}>{acct(val)}</span>
+                          {!hasOverride && pctVal != null && (
+                            <span className="ml-1 text-[10px] text-slate-400">({(pctVal * 100).toFixed(1)}%)</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                    <td className={cn('px-3 py-2 text-right text-sm tabular-nums', v.yoyFy2toFy3 !== null && v.yoyFy2toFy3 < 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                      {v.yoyFy2toFy3 !== null ? `${(v.yoyFy2toFy3 * 100).toFixed(0)}%` : '—'}
+                    </td>
+                    <td className={cn('px-3 py-2 text-right text-sm tabular-nums', v.yoyFy1toFy2 !== null && v.yoyFy1toFy2 < 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                      {v.yoyFy1toFy2 !== null ? `${(v.yoyFy1toFy2 * 100).toFixed(0)}%` : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
               {/* Total row */}
               <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
                 <td className="sticky left-0 z-10 bg-slate-50 px-4 py-2 text-sm text-slate-900">Total Revenue</td>
@@ -852,9 +1208,25 @@ export function Ws2WorkbookView({
     const bm = useMemo(() => computeBenchmarks(analysis), [analysis])
     const flagColor = (f: string) => f === 'RED' ? 'bg-rose-50 text-rose-700' : f === 'YELLOW' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
     const flagBorder = (f: string) => f === 'RED' ? 'border-rose-200' : f === 'YELLOW' ? 'border-amber-200' : 'border-emerald-200'
+    const bmOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('bm:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
 
     return (
       <div className="space-y-4">
+        {bmOverrideCount > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2">
+            <span className="text-sm text-amber-800">
+              {bmOverrideCount} benchmark cell(s) overridden.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setTabOverrides((prev) => {
+              const next = { ...prev }
+              for (const k of Object.keys(next)) { if (k.startsWith('bm:')) delete next[k] }
+              return next
+            })}>
+              Reset benchmark edits
+            </Button>
+          </div>
+        )}
+
         {/* Overall health */}
         <div className={cn('rounded-lg border px-4 py-3', flagBorder(bm.overallHealth), flagColor(bm.overallHealth))}>
           <span className="font-bold">{bm.overallHealth}:</span> {bm.overallNote}
@@ -877,38 +1249,78 @@ export function Ws2WorkbookView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {bm.benchmarks.map((b) => (
-                <tr key={b.category} className="hover:bg-slate-50/50">
-                  <td className="sticky left-0 z-10 bg-white px-4 py-2 text-sm font-medium text-slate-800">
-                    {b.category}
-                    {b.notes && <div className="text-[10px] text-slate-400 font-normal">{b.notes}</div>}
-                  </td>
-                  <td className="px-3 py-2 text-center text-xs tabular-nums text-slate-500">
-                    {(b.benchmarkLow * 100).toFixed(0)}%–{(b.benchmarkHigh * 100).toFixed(0)}%
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <span className={cn('inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', flagColor(b.flag))} title={b.flagNote}>
-                      {b.flag}
-                    </span>
-                  </td>
-                  {[
-                    { dollar: b.ltmDollar, pct: b.ltmPct },
-                    { dollar: b.fy3Dollar, pct: b.fy3Pct },
-                    { dollar: b.fy2Dollar, pct: b.fy2Pct },
-                    { dollar: b.fy1Dollar, pct: b.fy1Pct },
-                  ].map(({ dollar, pct }, i) => (
-                    <td key={i} className="px-3 py-2 text-right text-sm tabular-nums">
-                      {acct(dollar)}
-                      <span className={cn('ml-1 text-[10px]', pct > b.benchmarkHigh ? 'text-rose-500 font-semibold' : 'text-slate-400')}>
-                        ({(pct * 100).toFixed(1)}%)
+              {bm.benchmarks.map((b) => {
+                const rowId = `bm:${b.category}`
+                const rawValues = [b.ltmDollar, b.fy3Dollar, b.fy2Dollar, b.fy1Dollar]
+                const rawPcts = [b.ltmPct, b.fy3Pct, b.fy2Pct, b.fy1Pct]
+                return (
+                  <tr key={b.category} className="hover:bg-blue-50/30 group">
+                    <td className="sticky left-0 z-10 bg-white px-4 py-2 text-sm font-medium text-slate-800 group-hover:bg-blue-50/30">
+                      {b.category}
+                      {b.notes && <div className="text-[10px] text-slate-400 font-normal">{b.notes}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-center text-xs tabular-nums text-slate-500">
+                      {(b.benchmarkLow * 100).toFixed(0)}%–{(b.benchmarkHigh * 100).toFixed(0)}%
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <span className={cn('inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', flagColor(b.flag))} title={b.flagNote}>
+                        {b.flag}
                       </span>
                     </td>
-                  ))}
-                  <td className={cn('px-3 py-2 text-right text-sm tabular-nums', b.yoyFy2toFy3 !== null && b.yoyFy2toFy3 > 0.15 ? 'text-rose-600' : 'text-slate-600')}>
-                    {b.yoyFy2toFy3 !== null ? `${(b.yoyFy2toFy3 * 100).toFixed(0)}%` : '—'}
-                  </td>
-                </tr>
-              ))}
+                    {rawValues.map((dollar, i) => {
+                      const periodKey = periods[i]?.key as PeriodKey
+                      if (!periodKey) return null
+                      const cellId = `tab:${rowId}:${periodKey}`
+                      const override = getTabOverride(rowId, periodKey)
+                      const displayValue = override !== undefined ? override : dollar
+                      const isEditing = editingCell === cellId
+                      const hasOverride = override !== undefined
+                      const pctVal = rawPcts[i]
+
+                      if (isEditing) {
+                        return (
+                          <td key={periodKey} className="px-2 py-0.5 text-right">
+                            <input
+                              autoFocus
+                              type="text"
+                              className="w-full rounded border border-blue-400 bg-blue-50 px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitTabEdit(rowId, periodKey)
+                                if (e.key === 'Escape') cancelEdit()
+                              }}
+                              onBlur={() => commitTabEdit(rowId, periodKey)}
+                            />
+                          </td>
+                        )
+                      }
+
+                      return (
+                        <td
+                          key={periodKey}
+                          className={cn(
+                            'px-3 py-2 text-right text-sm tabular-nums cursor-pointer hover:bg-blue-100/50 transition-colors',
+                            hasOverride && 'bg-amber-50 font-semibold text-amber-900',
+                          )}
+                          onClick={() => startEdit(cellId, displayValue ?? 0)}
+                          title="Click to edit"
+                        >
+                          {acct(displayValue)}
+                          {!hasOverride && (
+                            <span className={cn('ml-1 text-[10px]', pctVal > b.benchmarkHigh ? 'text-rose-500 font-semibold' : 'text-slate-400')}>
+                              ({(pctVal * 100).toFixed(1)}%)
+                            </span>
+                          )}
+                        </td>
+                      )
+                    })}
+                    <td className={cn('px-3 py-2 text-right text-sm tabular-nums', b.yoyFy2toFy3 !== null && b.yoyFy2toFy3 > 0.15 ? 'text-rose-600' : 'text-slate-600')}>
+                      {b.yoyFy2toFy3 !== null ? `${(b.yoyFy2toFy3 * 100).toFixed(0)}%` : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -948,9 +1360,25 @@ export function Ws2WorkbookView({
     const replSalary = recast.assumptions?.replacementSalary ?? 20000
     const labor = useMemo(() => computeLaborAnalysis(analysis, replSalary), [analysis, replSalary])
     const flagColor = (f: string) => f === 'RED' ? 'bg-rose-50 text-rose-700 border-rose-200' : f === 'YELLOW' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    const laborOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('labor:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
 
     return (
       <div className="space-y-4">
+        {laborOverrideCount > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2">
+            <span className="text-sm text-amber-800">
+              {laborOverrideCount} labor cell(s) overridden.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setTabOverrides((prev) => {
+              const next = { ...prev }
+              for (const k of Object.keys(next)) { if (k.startsWith('labor:')) delete next[k] }
+              return next
+            })}>
+              Reset labor edits
+            </Button>
+          </div>
+        )}
+
         {/* Benchmark status */}
         <div className={cn('rounded-lg border px-4 py-3', flagColor(labor.benchmarkStatus))}>
           <span className="font-bold">{labor.benchmarkStatus}:</span> {labor.benchmarkNote}
@@ -995,24 +1423,87 @@ export function Ws2WorkbookView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {labor.rows.map((row) => (
-                <tr key={row.category} className={row.isTotal ? 'bg-slate-50 border-t-2 border-slate-300' : 'hover:bg-slate-50/50'}>
-                  <td className={cn('sticky left-0 z-10 bg-white px-4 py-2 text-sm', row.isTotal ? 'font-bold text-slate-900 bg-slate-50' : 'text-slate-700 pl-8')}>
-                    {row.category}
-                  </td>
-                  {[
-                    { dollar: row.ltmDollar, pctVal: row.ltmPct },
-                    { dollar: row.fy3Dollar, pctVal: row.fy3Pct },
-                    { dollar: row.fy2Dollar, pctVal: row.fy2Pct },
-                    { dollar: row.fy1Dollar, pctVal: row.fy1Pct },
-                  ].map(({ dollar, pctVal }, i) => (
-                    <td key={i} className="px-3 py-2 text-right text-sm tabular-nums">
-                      {acct(dollar)}
-                      <span className="ml-1 text-[10px] text-slate-400">({(pctVal * 100).toFixed(1)}%)</span>
+              {labor.rows.map((row) => {
+                // Total rows remain read-only
+                if (row.isTotal) {
+                  return (
+                    <tr key={row.category} className="bg-slate-50 border-t-2 border-slate-300">
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-2 text-sm font-bold text-slate-900">
+                        {row.category}
+                      </td>
+                      {[
+                        { dollar: row.ltmDollar, pctVal: row.ltmPct },
+                        { dollar: row.fy3Dollar, pctVal: row.fy3Pct },
+                        { dollar: row.fy2Dollar, pctVal: row.fy2Pct },
+                        { dollar: row.fy1Dollar, pctVal: row.fy1Pct },
+                      ].map(({ dollar, pctVal }, i) => (
+                        <td key={i} className="px-3 py-2 text-right text-sm tabular-nums font-bold text-slate-900">
+                          {acct(dollar)}
+                          <span className="ml-1 text-[10px] text-slate-400">({(pctVal * 100).toFixed(1)}%)</span>
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                }
+
+                // Editable data rows
+                const rowId = `labor:${row.category}`
+                const rawValues = [row.ltmDollar, row.fy3Dollar, row.fy2Dollar, row.fy1Dollar]
+                const rawPcts = [row.ltmPct, row.fy3Pct, row.fy2Pct, row.fy1Pct]
+                return (
+                  <tr key={row.category} className="hover:bg-blue-50/30 group">
+                    <td className="sticky left-0 z-10 bg-white px-4 py-2 text-sm text-slate-700 pl-8 group-hover:bg-blue-50/30">
+                      {row.category}
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    {rawValues.map((dollar, i) => {
+                      const periodKey = periods[i]?.key as PeriodKey
+                      if (!periodKey) return null
+                      const cellId = `tab:${rowId}:${periodKey}`
+                      const override = getTabOverride(rowId, periodKey)
+                      const displayValue = override !== undefined ? override : dollar
+                      const isEditing = editingCell === cellId
+                      const hasOverride = override !== undefined
+                      const pctVal = rawPcts[i]
+
+                      if (isEditing) {
+                        return (
+                          <td key={periodKey} className="px-2 py-0.5 text-right">
+                            <input
+                              autoFocus
+                              type="text"
+                              className="w-full rounded border border-blue-400 bg-blue-50 px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitTabEdit(rowId, periodKey)
+                                if (e.key === 'Escape') cancelEdit()
+                              }}
+                              onBlur={() => commitTabEdit(rowId, periodKey)}
+                            />
+                          </td>
+                        )
+                      }
+
+                      return (
+                        <td
+                          key={periodKey}
+                          className={cn(
+                            'px-3 py-2 text-right text-sm tabular-nums cursor-pointer hover:bg-blue-100/50 transition-colors',
+                            hasOverride && 'bg-amber-50 font-semibold text-amber-900',
+                          )}
+                          onClick={() => startEdit(cellId, displayValue ?? 0)}
+                          title="Click to edit"
+                        >
+                          {acct(displayValue)}
+                          {!hasOverride && (
+                            <span className="ml-1 text-[10px] text-slate-400">({(pctVal * 100).toFixed(1)}%)</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

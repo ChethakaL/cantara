@@ -7,20 +7,17 @@ type MappingProjection = Pick<
   "cantaraCode" | "category" | "categoryType" | "mappingMethod" | "mappingConfidence" | "candidateCodes" | "isMajor"
 >;
 
+// Only remove truly meaningless words — keep "expense", "income", "revenue" etc.
+// as they help distinguish "Rent Expense" from "Rent Income"
 const STOPWORDS = new Set([
   "the",
   "and",
   "for",
   "of",
   "to",
-  "expense",
-  "expenses",
-  "income",
-  "revenue",
+  "total",
   "account",
   "accounts",
-  "other",
-  "total",
 ]);
 
 function normalizeText(value: string) {
@@ -150,9 +147,13 @@ function getExplicitMappingOverride(row: NormalizedLedgerRow, statementKind: "pl
   const isMajor = maxAbsMonthlyValue >= 1000 || Math.abs(row.total) >= 12000;
 
   // WS2 architecture requires any owner/officer/family compensation to map to OPX-LABOR-OWN.
+  // This also catches "Donna Harris - Draw", "John Smith - Draw" type QB entries.
   const ownerCompPattern =
     /\b(officer|owner|member distributions?|shareholder|share holder|partner draw|owner draw|s corp|s-corp|family member)\b/;
-  if (ownerCompPattern.test(normalizedAccount)) {
+  // After normalization, "Donna Harris - Draw" becomes "donna harris draw"
+  // Match "draw" or "draws" at the end of the account name (owner draw entries)
+  const drawPattern = /\bdraws?\s*$/;
+  if (ownerCompPattern.test(normalizedAccount) || drawPattern.test(normalizedAccount)) {
     return {
       cantaraCode: "OPX-LABOR-OWN",
       category: "Owner Compensation",
@@ -168,7 +169,10 @@ function getExplicitMappingOverride(row: NormalizedLedgerRow, statementKind: "pl
 }
 
 function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs"): MappingProjection {
+  console.log(`[MAPPING] Account: "${row.accountName}" | Code: "${row.accountCode}" | Kind: ${statementKind}`);
   if (shouldExcludeFromMapping(row, statementKind)) {
+    console.log(`[MAPPING]   → EXCLUDED (summary/rollup row)`);
+
     // Mark as excluded — NOT "unmapped". Excluded rows are computed subtotals,
     // rollup lines, or out-of-scope accounts that should never appear in the
     // GL mapping queue or be counted in financial calculations.
@@ -198,7 +202,9 @@ function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs
   const maxAbsMonthlyValue = Math.max(...Object.values(row.valuesByMonth).map((value) => Math.abs(value)), 0);
   const isMajor = maxAbsMonthlyValue >= 1000 || Math.abs(row.total) >= 12000;
 
-  if (best && best.score >= 0.92 && (!second || best.score - second.score >= 0.1)) {
+  console.log(`[MAPPING]   Best: ${best?.entry.code} score=${best?.score.toFixed(3)} | Second: ${second?.entry.code} score=${second?.score.toFixed(3)} | isMajor=${isMajor}`);
+  if (best && best.score >= 0.75 && (!second || best.score - second.score >= 0.06)) {
+    console.log(`[MAPPING]   → AUTO-MAPPED to ${best.entry.code} (${best.entry.category})`);
     return {
       cantaraCode: best.entry.code,
       category: best.entry.category,
@@ -210,7 +216,7 @@ function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs
     };
   }
 
-  if (best && best.score >= 0.72 && (!second || best.score - second.score >= 0.08)) {
+  if (best && best.score >= 0.50 && (!second || best.score - second.score >= 0.04)) {
     return {
       cantaraCode: best.entry.code,
       category: best.entry.category,

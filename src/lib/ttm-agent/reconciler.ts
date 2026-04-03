@@ -356,7 +356,7 @@ function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl
     /^cost of goods sold total$/,
   ]);
   const grossProfitFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^gross profit$/, /^gross margin$/]);
-  const totalExpensesFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^total expenses$/]);
+  const totalExpensesFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^total expenses?$/]);
   const depreciationFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^depreciation/, /^amortization/]) ?? 0;
   const interestFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^interest expense$/, /^interest/]) ?? 0;
 
@@ -368,6 +368,13 @@ function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl
     totalExpensesFromWorkbook !== null && grossProfitFromWorkbook !== null
       ? grossProfitFromWorkbook - totalExpensesFromWorkbook + depreciationFromWorkbook + interestFromWorkbook
       : grossProfit - totalOpEx;
+
+  // Net Income: prefer explicit workbook "Net Income" row, then "Net Ordinary Income", then computed fallback.
+  // This mirrors the annual model logic so TTM and FY periods use the same source of truth.
+  const netIncomeFromWorkbook =
+    sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^net income$/, /^net profit$/]) ??
+    sumWorkbookRowByMatchers(monthlyPl, ttmMonths, [/^net ordinary income$/]);
+  const netIncome = netIncomeFromWorkbook ?? (grossProfit - sumRowsForMonths(rows, ttmMonths, OPEX_CODES));
 
   return {
     startMonth: ttmMonths[0],
@@ -382,11 +389,15 @@ function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl
     totalOpEx,
     ebitdaPreRecast,
     ebitdaMarginPct: percent(ebitdaPreRecast, totalRevenue),
+    netIncome,
   };
 }
 
 function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl: ParsedMonthlyWorkbook): AnnualModel {
-  const groupedYears = groupMonthsByFiscalYear(monthKeys).slice(-3);
+  // Always take the last 3 complete fiscal years and relabel as FY1 (oldest), FY2, FY3 (most recent)
+  const allYears = groupMonthsByFiscalYear(monthKeys);
+  const last3 = allYears.slice(-3);
+  const groupedYears = last3.map((entry, i) => ({ ...entry, fiscalYear: `FY${i + 1}` }));
   const fourWallRows = filterFourWallRows(rows);
   const years: AnnualModelYear[] = groupedYears.map(({ fiscalYear, months, periodStart, periodEnd, accountantYearKey }) => {
     const mappedRevenue = sumRowsForMonths(rows, months, REVENUE_CODES);
@@ -398,16 +409,17 @@ function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[], monthlyP
       sumWorkbookRowByMatchers(monthlyPl, months, [/^total cost of goods sold$/, /^total cogs$/, /^cost of goods sold total$/]) ??
       mappedCogs;
     const grossProfit = sumWorkbookRowByMatchers(monthlyPl, months, [/^gross profit$/, /^gross margin$/]) ?? (totalRevenue - totalCogs);
-    const totalOpEx = sumWorkbookRowByMatchers(monthlyPl, months, [/^total expenses$/]) ?? mappedOpEx;
+    const totalOpEx = sumWorkbookRowByMatchers(monthlyPl, months, [/^total expenses?$/]) ?? mappedOpEx;
     const depreciationFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, months, [/^depreciation/, /^amortization/]) ?? 0;
     const interestFromWorkbook = sumWorkbookRowByMatchers(monthlyPl, months, [/^interest expense$/, /^interest/]) ?? 0;
     const ebitdaPreRecast =
       sumWorkbookRowByMatchers(monthlyPl, months, [/^gross profit$/, /^gross margin$/]) !== null &&
-      sumWorkbookRowByMatchers(monthlyPl, months, [/^total expenses$/]) !== null
+      sumWorkbookRowByMatchers(monthlyPl, months, [/^total expenses?$/]) !== null
         ? grossProfit - totalOpEx + depreciationFromWorkbook + interestFromWorkbook
         : grossProfit - totalOpEx;
     const netIncome =
-      sumWorkbookRowByMatchers(monthlyPl, months, [/^net income$/, /^net profit$/, /^net ordinary income$/]) ??
+      sumWorkbookRowByMatchers(monthlyPl, months, [/^net income$/, /^net profit$/]) ??
+      sumWorkbookRowByMatchers(monthlyPl, months, [/^net ordinary income$/]) ??
       (grossProfit - sumRowsForMonths(fourWallRows, months, OPEX_CODES));
 
     return {
@@ -502,7 +514,9 @@ function buildMappingSection(
     .filter((row) => {
       const normalized = row.accountName.toLowerCase();
       if (/(cash|checking|petty cash|savings)/.test(normalized)) return false;
-      if (/(net income|gross profit|subtotal|pre-recast|pre recast|ebitda)/.test(normalized)) return false;
+      if (/(net income|net operating income|gross profit|subtotal|pre-recast|pre recast|ebitda)/.test(normalized)) return false;
+      // Skip balance sheet items that shouldn't appear as GL mapping requests
+      if (/(leasehold improvement|furniture and equipment|furniture and fixtures|building sign|buildings and improvement|security system|security deposit|accumulated depreciation|less accumulated|dep\.\s|note payment|members equity|owner.?s? equity|opening balance equity|retained earnings|accounts payable|accounts receivable|fixed asset|long.term|current liabilities|current assets|computer equipment|machinery and equipment|grooming salon|retail store|vehicles|land|organizational cost|government line|line of credit|bdc loan|accrued liabilit|advance customer|dividends paid|income tax adjust|owners draw)/.test(normalized)) return false;
       return !row.cantaraCode || row.mappingConfidence < 0.7;
     })
     .map((row) => {
@@ -712,6 +726,13 @@ export function reconcileFinancials(args: {
   console.log(`[TTM] TTM summary: revenue=$${ttmSummary.totalRevenue.toLocaleString()}, GM=${ttmSummary.grossMarginPct?.toFixed(1) ?? "n/a"}%, EBITDA=$${ttmSummary.ebitdaPreRecast.toLocaleString()}`);
   const annualModel = buildAnnualModel(args.mappedPlRows, monthKeys, args.monthlyPl);
   console.log(`[TTM] Annual model: ${annualModel.years.length} years, ${annualModel.anomalies.length} anomalies`);
+
+  // DEBUG: check what mappedPlRows look like at this point
+  const mappedCount = args.mappedPlRows.filter(r => r.cantaraCode && r.cantaraCode !== "_EXCLUDED").length;
+  const unmappedCount = args.mappedPlRows.filter(r => !r.cantaraCode || r.mappingConfidence < 0.7).length;
+  const excludedCount = args.mappedPlRows.filter(r => r.cantaraCode === "_EXCLUDED").length;
+  console.log(`[RECONCILER-DEBUG] PL rows: ${args.mappedPlRows.length} total, ${mappedCount} mapped, ${unmappedCount} unmapped (conf<0.7), ${excludedCount} excluded`);
+  args.mappedPlRows.slice(0, 5).forEach(r => console.log(`[RECONCILER-DEBUG]   "${r.accountName}" → code=${r.cantaraCode} conf=${r.mappingConfidence?.toFixed(3)} method=${r.mappingMethod}`));
 
   const sections: Record<DataQualitySection, SectionReportItem[]> = {
     A: [
