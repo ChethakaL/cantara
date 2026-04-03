@@ -82,7 +82,10 @@ export function buildWorkingCapitalSummary(args: {
 
   const qualityItems: SectionReportItem[] = [];
 
-  if (ratio(days90Plus, totalAr) !== null && ratio(days90Plus, totalAr)! > 15) {
+  // SKIP ALL AR aging flags if no AR aging document was uploaded
+  const hasArAgingData = args.arAging.entries.length > 0 && totalAr > 0;
+
+  if (hasArAgingData && ratio(days90Plus, totalAr) !== null && ratio(days90Plus, totalAr)! > 15) {
     console.log(`[TTM] Section E: 90+ day AR = ${ratio(days90Plus, totalAr)!.toFixed(1)}% of total (threshold 15%)`);
     qualityItems.push({
       title: "90+ day AR concentration exceeds 15%",
@@ -92,8 +95,7 @@ export function buildWorkingCapitalSummary(args: {
     });
   }
 
-  // Only flag AR reconciliation if AR aging data was actually provided (not empty/placeholder)
-  if (args.arAging.entries.length > 0 && totalAr > 0 && Math.abs(varianceToBalanceSheetAr) > 500) {
+  if (hasArAgingData && Math.abs(varianceToBalanceSheetAr) > 500) {
     console.log(`[TTM] Section E: AR aging variance=$${varianceToBalanceSheetAr.toFixed(2)} (aging=$${totalAr.toLocaleString()}, BS=$${balanceSheetAr.toLocaleString()})`);
     qualityItems.push({
       title: "AR aging does not reconcile to balance sheet AR",
@@ -104,7 +106,7 @@ export function buildWorkingCapitalSummary(args: {
   }
 
   for (const customer of topCustomers) {
-    if ((customer.pctOfTotal ?? 0) > 20) {
+    if (hasArAgingData && (customer.pctOfTotal ?? 0) > 20) {
       console.log(`[TTM] Section E: customer concentration ${customer.customerName} = ${customer.pctOfTotal!.toFixed(1)}% ($${customer.total.toLocaleString()} of $${totalAr.toLocaleString()})`);
       qualityItems.push({
         title: `Customer concentration: ${customer.customerName} exceeds 20% of total AR`,

@@ -2070,7 +2070,19 @@ export async function runWs2RecastAnalysis(args: {
           : null;
 
         if (ownerExpensesText) {
-          const addbacks = await extractAddbacksWithLLM(ownerExpensesText, oneOffText, llmExtractionData.periods);
+          // Build P&L expense breakdown text so LLM can scan for additional personal/owner expenses
+          const plExpenseLines: string[] = [];
+          for (const annual of llmExtractionData.annualData) {
+            if (annual.expenseBreakdown?.length) {
+              plExpenseLines.push(`\n${annual.period}:`);
+              for (const exp of annual.expenseBreakdown) {
+                plExpenseLines.push(`  ${exp.category}: $${Math.abs(exp.amount).toLocaleString()}`);
+              }
+            }
+          }
+          const plExpenseData = plExpenseLines.length > 0 ? plExpenseLines.join("\n") : null;
+
+          const addbacks = await extractAddbacksWithLLM(ownerExpensesText, oneOffText, llmExtractionData.periods, plExpenseData);
           console.log(`[WS2-2] LLM addback extraction: ${addbacks.sourceA.length} Source A, ${addbacks.sourceB.length} Source B, ${addbacks.sourceC.length} Source C`);
 
           llmValuationResult = computeValuation(llmExtractionData, addbacks, {
