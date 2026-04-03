@@ -145,7 +145,7 @@ export function excelToText(buffer: Buffer, sheetName?: string): string {
     const sheet = workbook.Sheets[name];
     if (!sheet) continue;
 
-    const rows: string[][] = XLSX.utils.sheet_to_json<string[]>(sheet, {
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
       header: 1,
       defval: "",
       rawNumbers: true,

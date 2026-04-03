@@ -14,6 +14,7 @@ import { REVENUE_CODES } from "@/lib/ttm-agent/taxonomy";
 import {
   AgentDispatchTaskView,
   FlagResolutionAction,
+  FlagSeverity,
   InputDocumentSnapshot,
   PreparedDocumentInput,
   TtmAnalysisView,
@@ -2043,7 +2044,7 @@ export async function runWs2RecastAnalysis(args: {
     // ── LLM-only recast path (PRIMARY) — old deterministic is silent fallback ──
     let reportMarkdown: string;
     let metrics: ReturnType<typeof extractWs2RecastMetrics>;
-    let flagPayloads: Array<{ title: string; description: string; severity: "HIGH" | "MEDIUM" | "LOW"; payload: Record<string, unknown> }>;
+    let flagPayloads: Array<{ title: string; description: string; severity: FlagSeverity; payload: Record<string, unknown> }>;
     let llmValuationResult: ValuationResult | null = null;
 
     const llmExtractionData = (analysis.normalizedData as any)?.llmExtraction as ExtractedFinancials | undefined;
