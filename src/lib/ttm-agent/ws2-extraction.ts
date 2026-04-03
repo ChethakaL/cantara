@@ -1,12 +1,13 @@
 /**
- * WS2-2 Deterministic Extraction — v3 (clean rewrite)
+ * WS2-2 Deterministic Extraction — v4 (EBITDA + Valuation fixes)
  *
  * Reference files: Foothills Pet Resort + Grand Pet Hotel valuations
  *
  * METHODOLOGY:
- * Pre-Recast EBITDA = NonAdj Net Income from the P&L Analysis
+ * Pre-Recast = Raw Net Income from the P&L (NOT "Net Ordinary Income" unless "Net Income" missing)
+ *   - Uses the workbook's "Net Income" summary row
  *   - Includes pandemic relief (PPP/ERC)
- *   - If P&L Analysis not available: use WS2-1 ebitdaPreRecast (approximation)
+ *   - LTM: uses TTM summary netIncome (now computed in reconciler), else last FY's netIncome
  *
  * Source A = Owner personal expenses (non-payroll) from Owner Expenses Transaction Report
  * Source B = ALL owner payroll from Owner Expenses Transaction Report (full scope)
@@ -14,7 +15,9 @@
  * Owner Replacement Salary = negative deduction ($0 LTM, -$20K prior FY)
  *
  * Normalized EBITDA = Pre-Recast + Source A + Source B - Replacement - Source C
- * Valuation = Normalized EBITDA × Multiple
+ * 4-Wall EBITDA = Normalized EBITDA + Owner Replacement Salary
+ *   (adds back the replacement salary that was deducted in Normalized)
+ * Valuation = Normalized EBITDA x Multiple (default 4.5x)
  */
 
 import type { TtmAnalysisView, Ws2RecastAssumptions, PreparedDocumentInput } from "@/lib/ttm-agent/types";
@@ -37,7 +40,9 @@ export interface DeterministicSchedule {
   normLines: NormLine[];
   totalLtm: number; totalFy3: number; totalFy2: number; totalFy1: number;
   preRecastLtm: number; preRecastFy3: number; preRecastFy2: number; preRecastFy1: number;
-  normEbitdaLtm: number;
+  normEbitdaLtm: number; normEbitdaFy3: number; normEbitdaFy2: number; normEbitdaFy1: number;
+  fourWallLtm: number; fourWallFy3: number; fourWallFy2: number; fourWallFy1: number;
+  valuationLtm: number; valuationFy3: number; valuationFy2: number; valuationFy1: number;
   scheduleMarkdown: string;
 }
 
@@ -70,6 +75,7 @@ export async function buildDeterministicSchedule(args: {
   analysis: TtmAnalysisView;
   assumptions: Ws2RecastAssumptions;
   personalExpensesDoc: PreparedDocumentInput | undefined;
+  shareholderDoc?: PreparedDocumentInput | undefined;
   oneOffDoc: PreparedDocumentInput | undefined;
 }): Promise<DeterministicSchedule> {
   const { analysis, assumptions } = args;
@@ -90,25 +96,58 @@ export async function buildDeterministicSchedule(args: {
 
   // ── Parse inputs ─────────────────────────────────────────────────────
   const pe = parsePersonalExpenses(args.personalExpensesDoc, ttmMonths, fyRanges);
+
+  // If a separate shareholder remuneration doc is provided, parse it and merge
+  if (args.shareholderDoc?.textBlocks?.length) {
+    const shPe = parsePersonalExpenses(args.shareholderDoc, ttmMonths, fyRanges);
+    if (shPe.categories.length > 0) {
+      console.log(`[WS2-2] Merging ${shPe.categories.length} shareholder categories into personal expenses`);
+      pe.categories.push(...shPe.categories);
+      pe.totalTtm += shPe.totalTtm;
+      pe.totalFy3 += shPe.totalFy3;
+      pe.totalFy2 += shPe.totalFy2;
+      pe.totalFy1 += shPe.totalFy1;
+      if (shPe.dateRange.earliest && (!pe.dateRange.earliest || shPe.dateRange.earliest < pe.dateRange.earliest)) {
+        pe.dateRange.earliest = shPe.dateRange.earliest;
+      }
+      if (shPe.dateRange.latest && (!pe.dateRange.latest || shPe.dateRange.latest > pe.dateRange.latest)) {
+        pe.dateRange.latest = shPe.dateRange.latest;
+      }
+    }
+  }
+
   const oo = parseOneOffExpenses(args.oneOffDoc, ttmMonths);
 
   // ── Classify categories using LLM (with fallback) ───────────────────
   const classification = await classifyCategories(pe.categories);
   console.log(`[WS2-2] Classification: ${classification.sourceBCategories.size} Source B, ${classification.sourceACategories.size} Source A, ${classification.skipCategories.size} Skip`);
 
-  // ── STEP 2: Pre-Recast = Raw Net Income from P&L FY Total column ──────
+  // ── STEP 2: Pre-Recast = Raw Net Income from P&L ──────────────────────
   // Use the NET INCOME row from the P&L (includes Other Income like PPP/ERC).
-  // WS2-1's reconciler computes `netIncome` for each annual year from the
-  // workbook's "NET INCOME" summary row. For TTM, fall back to EBITDA if
-  // Net Income is not available (TTM summary doesn't store netIncome).
-  const preRecastFy1 = (annualYears[0] as any)?.netIncome ?? annualYears[0]?.ebitdaPreRecast ?? 0;
-  const preRecastFy2 = (annualYears[1] as any)?.netIncome ?? annualYears[1]?.ebitdaPreRecast ?? 0;
-  const preRecastFy3 = (annualYears[2] as any)?.netIncome ?? annualYears[2]?.ebitdaPreRecast ?? 0;
-  // LTM: if LTM = FY3 (no partial-year data), use same value. Otherwise fall back to EBITDA.
-  const preRecastLtm = preRecastFy3 !== 0 ? preRecastFy3 : (analysis.ttmSummary?.ebitdaPreRecast ?? 0);
+  // WS2-1's reconciler computes `netIncome` for each annual year AND for the
+  // TTM summary from the workbook's "Net Income" row (preferred) or
+  // "Net Ordinary Income" row (fallback).
+  //
+  // FY Pre-Recast: use netIncome directly from the annual model year.
+  // netIncome is already typed on AnnualModelYear — no `as any` cast needed.
+  // If netIncome is null, fall back to ebitdaPreRecast (approximation).
+  const preRecastFy1 = annualYears[0]?.netIncome ?? annualYears[0]?.ebitdaPreRecast ?? 0;
+  const preRecastFy2 = annualYears[1]?.netIncome ?? annualYears[1]?.ebitdaPreRecast ?? 0;
+  const preRecastFy3 = annualYears[2]?.netIncome ?? annualYears[2]?.ebitdaPreRecast ?? 0;
+
+  // LTM Pre-Recast: prefer the TTM summary's netIncome (computed consistently
+  // with the annual model in reconciler.ts). Fall back to the last available
+  // fiscal year's netIncome. When there are fewer than 3 fiscal years, this
+  // correctly uses whatever is available (e.g. FY1 if only 1 year of data).
+  const lastYear = annualYears[annualYears.length - 1];
+  const preRecastLtm =
+    analysis.ttmSummary?.netIncome ??
+    lastYear?.netIncome ??
+    lastYear?.ebitdaPreRecast ??
+    0;
 
   console.log(`[WS2-2] Pre-Recast (Net Income): LTM=${fmt$(preRecastLtm)} FY3=${fmt$(preRecastFy3)} FY2=${fmt$(preRecastFy2)} FY1=${fmt$(preRecastFy1)}`);
-  console.log(`[WS2-2] (Used netIncome: FY1=${!!(annualYears[0] as any)?.netIncome} FY2=${!!(annualYears[1] as any)?.netIncome} FY3=${!!(annualYears[2] as any)?.netIncome})`);
+  console.log(`[WS2-2] (Used netIncome: LTM=${analysis.ttmSummary?.netIncome != null} FY1=${annualYears[0]?.netIncome != null} FY2=${annualYears[1]?.netIncome != null} FY3=${annualYears[2]?.netIncome != null})`);
 
   // ── BUILD NORMALIZATION LINES ────────────────────────────────────────
   const normLines: NormLine[] = [];
@@ -187,16 +226,46 @@ export async function buildDeterministicSchedule(args: {
   const totalFy2 = normLines.reduce((s, l) => s + l.fy2, 0);
   const totalFy1 = normLines.reduce((s, l) => s + l.fy1, 0);
 
+  // Normalized EBITDA = Pre-Recast + Total Adjustments
+  // (Adjustments include Source A + Source B - Replacement - Source C)
   const normEbitdaLtm = preRecastLtm + totalLtm;
-  const normFy3 = preRecastFy3 + totalFy3;
-  const normFy2 = preRecastFy2 + totalFy2;
-  const normFy1 = preRecastFy1 + totalFy1;
-  const mult = assumptions.multipleMid ?? 0;
+  const normEbitdaFy3 = preRecastFy3 + totalFy3;
+  const normEbitdaFy2 = preRecastFy2 + totalFy2;
+  const normEbitdaFy1 = preRecastFy1 + totalFy1;
+
+  // 4-Wall EBITDA = Normalized EBITDA + Owner Replacement Salary
+  // This adds back the replacement salary that was deducted in Normalized.
+  // LTM replacement is $0, so 4-Wall LTM = Normalized LTM.
+  // For prior FYs, replacement was deducted as priorRepl (negative), so
+  // adding it back means subtracting that negative value.
+  const fourWallLtm = normEbitdaLtm; // LTM replacement = $0, so 4-Wall = Normalized
+  const fourWallFy3 = normEbitdaFy3 - priorRepl; // subtract the negative = add back
+  const fourWallFy2 = normEbitdaFy2 - priorRepl;
+  const fourWallFy1 = normEbitdaFy1 - priorRepl;
+
+  // Valuation = Normalized EBITDA x Multiple
+  const multLow = assumptions.multipleLow ?? 0;
+  const multMid = assumptions.multipleMid ?? 0;
+  const multHigh = assumptions.multipleHigh ?? 0;
+  const mult = multMid; // keep for backward compat
+  const valuationLtm = normEbitdaLtm * mult;
+  const valuationFy3 = normEbitdaFy3 * mult;
+  const valuationFy2 = normEbitdaFy2 * mult;
+  const valuationFy1 = normEbitdaFy1 * mult;
+  // Range valuations
+  const valRangeLtm = { low: normEbitdaLtm * multLow, mid: normEbitdaLtm * multMid, high: normEbitdaLtm * multHigh };
+  const valRangeFy3 = { low: normEbitdaFy3 * multLow, mid: normEbitdaFy3 * multMid, high: normEbitdaFy3 * multHigh };
+  const valRangeFy2 = { low: normEbitdaFy2 * multLow, mid: normEbitdaFy2 * multMid, high: normEbitdaFy2 * multHigh };
+  const valRangeFy1 = { low: normEbitdaFy1 * multLow, mid: normEbitdaFy1 * multMid, high: normEbitdaFy1 * multHigh };
+  const fmtRange = (r: { low: number; mid: number; high: number }) => `${fmt$(r.low)} – ${fmt$(r.high)}`;
+  const multRange = multLow > 0 && multHigh > 0 ? `${multLow.toFixed(1)}x – ${multHigh.toFixed(1)}x` : `${mult.toFixed(1)}x`;
 
   console.log(`[WS2-2] ═══════════════════════════════════════════════`);
   console.log(`[WS2-2] Pre-Recast:  LTM=${fmt$(preRecastLtm)} | ${fyLabels[2] ?? "FY3"}=${fmt$(preRecastFy3)} | ${fyLabels[1] ?? "FY2"}=${fmt$(preRecastFy2)} | ${fyLabels[0] ?? "FY1"}=${fmt$(preRecastFy1)}`);
   console.log(`[WS2-2] Adjustments: LTM=${fmt$(totalLtm)} | ${fyLabels[2] ?? "FY3"}=${fmt$(totalFy3)} | ${fyLabels[1] ?? "FY2"}=${fmt$(totalFy2)} | ${fyLabels[0] ?? "FY1"}=${fmt$(totalFy1)}`);
-  console.log(`[WS2-2] Normalized:  LTM=${fmt$(normEbitdaLtm)} | ${fyLabels[2] ?? "FY3"}=${fmt$(normFy3)} | ${fyLabels[1] ?? "FY2"}=${fmt$(normFy2)} | ${fyLabels[0] ?? "FY1"}=${fmt$(normFy1)}`);
+  console.log(`[WS2-2] Normalized:  LTM=${fmt$(normEbitdaLtm)} | ${fyLabels[2] ?? "FY3"}=${fmt$(normEbitdaFy3)} | ${fyLabels[1] ?? "FY2"}=${fmt$(normEbitdaFy2)} | ${fyLabels[0] ?? "FY1"}=${fmt$(normEbitdaFy1)}`);
+  console.log(`[WS2-2] 4-Wall:      LTM=${fmt$(fourWallLtm)} | ${fyLabels[2] ?? "FY3"}=${fmt$(fourWallFy3)} | ${fyLabels[1] ?? "FY2"}=${fmt$(fourWallFy2)} | ${fyLabels[0] ?? "FY1"}=${fmt$(fourWallFy1)}`);
+  console.log(`[WS2-2] Valuation:   LTM=${fmt$(valuationLtm)} | ${fyLabels[2] ?? "FY3"}=${fmt$(valuationFy3)} | ${fyLabels[1] ?? "FY2"}=${fmt$(valuationFy2)} | ${fyLabels[0] ?? "FY1"}=${fmt$(valuationFy1)}`);
   console.log(`[WS2-2] ═══════════════════════════════════════════════`);
   for (const l of normLines) {
     console.log(`[WS2-2]   ${l.id} ${l.description}: LTM=${fmt$(l.ltm)} ${fyLabels[2] ?? "FY3"}=${fmt$(l.fy3)} ${fyLabels[1] ?? "FY2"}=${fmt$(l.fy2)} ${fyLabels[0] ?? "FY1"}=${fmt$(l.fy1)}`);
@@ -207,17 +276,21 @@ export async function buildDeterministicSchedule(args: {
     `| # | Category | Item | Source | LTM | ${fyLabels[2] ?? "FY3"} | ${fyLabels[1] ?? "FY2"} | ${fyLabels[0] ?? "FY1"} | Status |`,
     `|---|---|---|---|---|---|---|---|---|`,
     `| — | — | Revenue | P&L | ${fmt$(analysis.ttmSummary?.totalRevenue ?? 0)} | ${fmt$(annualYears[2]?.totalRevenue ?? 0)} | ${fmt$(annualYears[1]?.totalRevenue ?? 0)} | ${fmt$(annualYears[0]?.totalRevenue ?? 0)} | — |`,
-    `| — | — | Net Income/EBITDA | Pre-Recast | ${fmt$(preRecastLtm)} | ${fmt$(preRecastFy3)} | ${fmt$(preRecastFy2)} | ${fmt$(preRecastFy1)} | — |`,
+    `| — | — | Net Income (Pre-Recast) | P&L | ${fmt$(preRecastLtm)} | ${fmt$(preRecastFy3)} | ${fmt$(preRecastFy2)} | ${fmt$(preRecastFy1)} | — |`,
     ...normLines.map(l => `| ${l.id} | ${l.category} | ${l.description} | ${l.glRef} | ${fmt$(l.ltm)} | ${fmt$(l.fy3)} | ${fmt$(l.fy2)} | ${fmt$(l.fy1)} | ${l.status} |`),
     `| — | **TOTAL ADJUSTMENTS** | | | **${fmt$(totalLtm)}** | **${fmt$(totalFy3)}** | **${fmt$(totalFy2)}** | **${fmt$(totalFy1)}** | |`,
-    `| — | **Revised Net Income/EBITDA** | | | **${fmt$(normEbitdaLtm)}** | **${fmt$(normFy3)}** | **${fmt$(normFy2)}** | **${fmt$(normFy1)}** | |`,
-    `| — | Multiple | | | ${Number(mult).toFixed(1)}x | ${Number(mult).toFixed(1)}x | ${Number(mult).toFixed(1)}x | ${Number(mult).toFixed(1)}x | |`,
-    `| — | **Valuation** | | | **${fmt$(normEbitdaLtm * mult)}** | **${fmt$(normFy3 * mult)}** | **${fmt$(normFy2 * mult)}** | **${fmt$(normFy1 * mult)}** | |`,
+    `| — | **Normalized EBITDA** | | | **${fmt$(normEbitdaLtm)}** | **${fmt$(normEbitdaFy3)}** | **${fmt$(normEbitdaFy2)}** | **${fmt$(normEbitdaFy1)}** | |`,
+    `| — | **4-Wall EBITDA** | | | **${fmt$(fourWallLtm)}** | **${fmt$(fourWallFy3)}** | **${fmt$(fourWallFy2)}** | **${fmt$(fourWallFy1)}** | |`,
+    `| — | Multiple | | | ${multRange} | ${multRange} | ${multRange} | ${multRange} | |`,
+    `| — | **Valuation** | | | **${fmtRange(valRangeLtm)}** | **${fmtRange(valRangeFy3)}** | **${fmtRange(valRangeFy2)}** | **${fmtRange(valRangeFy1)}** | |`,
   ].join("\n");
 
   return {
     normLines, totalLtm, totalFy3, totalFy2, totalFy1,
     preRecastLtm, preRecastFy3, preRecastFy2, preRecastFy1,
-    normEbitdaLtm, scheduleMarkdown: md,
+    normEbitdaLtm, normEbitdaFy3, normEbitdaFy2, normEbitdaFy1,
+    fourWallLtm, fourWallFy3, fourWallFy2, fourWallFy1,
+    valuationLtm, valuationFy3, valuationFy2, valuationFy1,
+    scheduleMarkdown: md,
   };
 }

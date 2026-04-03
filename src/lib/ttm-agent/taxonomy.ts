@@ -13,37 +13,37 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "REV-BOARD",
     category: "Boarding Revenue",
     type: "revenue",
-    aliases: ["boarding", "overnight boarding", "suite boarding", "kenneling", "lodging"],
+    aliases: ["boarding", "overnight boarding", "suite boarding", "kenneling", "lodging", "boarding & petsitting", "petsitting", "boarding revenue", "services revenue", "service revenue", "sales", "cash & check sales", "cash and check sales", "credit card income", "credit card sales"],
   },
   {
     code: "REV-DAY",
     category: "Daycare Revenue",
     type: "revenue",
-    aliases: ["daycare", "dog daycare", "day care", "half day daycare", "drop in"],
+    aliases: ["daycare", "dog daycare", "day care", "half day daycare", "drop in", "daycare & adventures", "adventures"],
   },
   {
     code: "REV-GROOM",
     category: "Grooming Revenue",
     type: "revenue",
-    aliases: ["grooming", "bath & brush", "bath and brush", "full groom", "groom commission income"],
+    aliases: ["grooming", "bath & brush", "bath and brush", "full groom", "groom commission income", "grooming revenue"],
   },
   {
     code: "REV-TRAIN",
     category: "Training Revenue",
     type: "revenue",
-    aliases: ["training", "group class", "private training", "board and train", "board & train"],
+    aliases: ["training", "group class", "private training", "board and train", "board & train", "evaluations", "walks jogs", "walks", "dog transport"],
   },
   {
     code: "REV-RETAIL",
     category: "Retail Revenue",
     type: "revenue",
-    aliases: ["retail", "merchandise", "food sales", "product sales"],
+    aliases: ["retail", "merchandise", "food sales", "product sales", "product revenue", "sales of product income", "product income", "product & other revenue"],
   },
   {
     code: "REV-TIPS",
     category: "Tips",
     type: "revenue",
-    aliases: ["tips", "paycheck tips", "cash tips", "tips received"],
+    aliases: ["tips", "paycheck tips", "cash tips", "tips received", "tip income"],
   },
   {
     code: "REV-MEM",
@@ -55,13 +55,13 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "REV-DISC",
     category: "Discounts and Refunds",
     type: "revenue",
-    aliases: ["discount", "discounts", "refund", "refunds", "promotional discounts"],
+    aliases: ["discount", "discounts", "refund", "refunds", "promotional discounts", "sales discounts", "service discounts", "additional discount"],
   },
   {
     code: "REV-OTHER",
     category: "Other Revenue",
     type: "revenue",
-    aliases: ["uncategorized income", "miscellaneous income", "other revenue", "other income"],
+    aliases: ["uncategorized income", "miscellaneous income", "other revenue", "other income", "interest income", "commission received", "reimbursed expense income", "uncategorized revenue", "after hours", "holiday fees"],
   },
 
   // ── COST OF GOODS SOLD ───────────────────────────────────────────────────
@@ -69,7 +69,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "COGS-SUPPLY",
     category: "Direct Service Supplies",
     type: "cogs",
-    aliases: ["grooming supplies", "boarding supplies", "service supplies", "shampoo", "bedding consumed"],
+    aliases: ["grooming supplies", "boarding supplies", "service supplies", "shampoo", "bedding consumed", "cleaning supplies cogs"],
   },
   {
     code: "COGS-RETAIL",
@@ -81,7 +81,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "COGS-OTHER",
     category: "Other COGS",
     type: "cogs",
-    aliases: ["other direct cost", "other cogs", "cost of sales"],
+    aliases: ["other direct cost", "other cogs", "cost of sales", "cost of goods sold", "damaged/lost goods", "damaged lost goods", "shipping cogs", "shipping - cogs"],
   },
 
   // ── OPERATING EXPENSES — LABOR ───────────────────────────────────────────
@@ -89,7 +89,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-LABOR-STAFF",
     category: "Staff / Direct Labor",
     type: "opex",
-    aliases: ["wages", "groom commission", "day labor", "hourly wages", "kennel staff", "staff payroll"],
+    aliases: ["wages", "groom commission", "day labor", "hourly wages", "kennel staff", "staff payroll", "payroll staff", "payroll staff wages", "payroll staff (wages)", "contactor and worker expenses", "contractor expenses", "worker expenses", "hiring and training", "payroll expenses"],
   },
   {
     code: "OPX-LABOR-MGMT",
@@ -102,19 +102,19 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     category: "Owner Compensation",
     type: "opex",
     addBack: true,
-    aliases: ["officer wages", "owner draw", "owner salary", "s corp distributions", "member distributions", "officer compensation", "s-corp health", "owner health insurance", "consulting fees owner"],
+    aliases: ["officer wages", "owner draw", "owner salary", "s corp distributions", "member distributions", "officer compensation", "s-corp health", "owner health insurance", "consulting fees owner", "payroll owner", "payroll owner wages", "payroll owner (wages)", "payroll - officer", "draw", "owner draws", "member draw"],
   },
   {
     code: "OPX-LABOR-TAX",
     category: "Payroll Taxes & Benefits",
     type: "opex",
-    aliases: ["employer taxes", "fica", "simple ira", "health insurance", "payroll tax", "bcbs", "benefits"],
+    aliases: ["employer taxes", "fica", "simple ira", "health insurance", "payroll tax", "bcbs", "benefits", "workers compensation", "workers comp premiums", "workers comp premiums - labour", "payroll fees", "payroll owner employer taxes", "payroll owner (employer taxes)", "payroll staff employer taxes", "payroll staff (employer taxes)", "payroll expenses - other"],
   },
   {
     code: "OPX-TIPS-OUT",
     category: "Tips Paid Out",
     type: "opex",
-    aliases: ["cash tips paid out", "tips paid out", "tip payout"],
+    aliases: ["cash tips paid out", "tips paid out", "tip payout", "payroll tips"],
   },
 
   // ── OPERATING EXPENSES — FACILITY ────────────────────────────────────────
@@ -122,7 +122,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-RENT",
     category: "Base Rent",
     type: "opex",
-    aliases: ["lease", "base rent", "rent"],
+    aliases: ["lease", "base rent", "rent", "rent expense", "rent expense - home office"],
   },
   {
     code: "OPX-RENT-NNN",
@@ -134,7 +134,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-UTIL",
     category: "Utilities (Business)",
     type: "opex",
-    aliases: ["electric", "gas", "water", "internet", "phone", "telecom", "utilities"],
+    aliases: ["electric", "gas", "water", "internet", "phone", "telecom", "utilities", "phone and internet", "cell phone expense", "cell phone"],
   },
   {
     code: "OPX-UTIL-OWNER",
@@ -149,19 +149,19 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-MKTG",
     category: "Marketing & Advertising",
     type: "opex",
-    aliases: ["advertising", "google ads", "facebook", "marketing", "direct mail", "periodical"],
+    aliases: ["advertising", "google ads", "facebook", "marketing", "direct mail", "periodical", "advertising and promotion", "promotion"],
   },
   {
     code: "OPX-INSUR",
     category: "Insurance",
     type: "opex",
-    aliases: ["insurance", "liability", "workers comp", "property insurance"],
+    aliases: ["insurance", "liability", "workers comp", "property insurance", "insurance expense"],
   },
   {
     code: "OPX-REPAIR",
     category: "Repairs & Maintenance (Business)",
     type: "opex",
-    aliases: ["repairs", "maintenance", "janitorial", "pest control", "waste removal", "building maintenance"],
+    aliases: ["repairs", "maintenance", "janitorial", "pest control", "waste removal", "building maintenance", "repairs and maintenance", "cleaners"],
   },
   {
     code: "OPX-REPAIR-OWNER",
@@ -174,7 +174,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-SUPPLY",
     category: "Supplies (Business)",
     type: "opex",
-    aliases: ["supplies", "caretaking supplies", "cleaning supplies", "office supplies"],
+    aliases: ["supplies", "caretaking supplies", "cleaning supplies", "office supplies", "general supplies", "facility supplies", "facility supplies - other", "uniforms"],
   },
   {
     code: "OPX-SUPPLY-OWNER",
@@ -187,13 +187,13 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-SOFT",
     category: "Software & Subscriptions",
     type: "opex",
-    aliases: ["software", "subscriptions", "pos", "gingr", "kennel booker", "saas"],
+    aliases: ["software", "subscriptions", "pos", "gingr", "kennel booker", "saas", "dues and subscriptions", "dues & subscriptions"],
   },
   {
     code: "OPX-PROF",
     category: "Professional Fees (Business)",
     type: "opex",
-    aliases: ["accounting", "legal", "payroll service", "bookkeeping", "professional fees", "cpa"],
+    aliases: ["accounting", "legal", "payroll service", "bookkeeping", "professional fees", "cpa", "legal expenses", "accounting expense"],
   },
   {
     code: "OPX-PROF-OWNER",
@@ -206,13 +206,13 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-BANK",
     category: "Bank & Merchant Fees",
     type: "opex",
-    aliases: ["square processing fees", "credit card processing", "bank charges", "merchant fees", "bank fees"],
+    aliases: ["square processing fees", "credit card processing", "bank charges", "merchant fees", "bank fees", "bank service charges"],
   },
   {
     code: "OPX-VET",
     category: "Emergency Vet (Business)",
     type: "opex",
-    aliases: ["emergency vet business", "boarded animal vet", "client pet vet expense"],
+    aliases: ["emergency vet business", "boarded animal vet", "client pet vet expense", "vet commission"],
   },
   {
     code: "OPX-VET-OWNER",
@@ -225,13 +225,13 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-DEPR",
     category: "Depreciation & Amortization",
     type: "opex",
-    aliases: ["depreciation expense", "amortization", "d&a", "depreciation"],
+    aliases: ["depreciation expense", "amortization", "d&a", "depreciation", "depreciation & amortization"],
   },
   {
     code: "OPX-INT",
     category: "Interest Expense",
     type: "opex",
-    aliases: ["interest expense", "loan interest", "interest"],
+    aliases: ["interest expense", "loan interest", "interest", "penalty and interest"],
   },
 
   // ── OPERATING EXPENSES — PERSONAL / OWNER (100% add-back) ───────────────
@@ -239,7 +239,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-MEALS",
     category: "Meals & Entertainment (Business)",
     type: "opex",
-    aliases: ["business meals", "staff meals", "client entertainment"],
+    aliases: ["business meals", "staff meals", "client entertainment", "meals and entertainment", "meals & entertainment"],
   },
   {
     code: "OPX-MEALS-OWNER",
@@ -252,7 +252,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-TRAVEL",
     category: "Travel (Business)",
     type: "opex",
-    aliases: ["business travel", "conference travel"],
+    aliases: ["business travel", "conference travel", "travel expense", "transportation & travel", "automobile expense", "vehicle expense"],
   },
   {
     code: "OPX-TRAVEL-OWNER",
@@ -266,7 +266,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     category: "Donations",
     type: "opex",
     addBack: true,
-    aliases: ["donations", "church", "non profit", "charitable", "sponsorship"],
+    aliases: ["donations", "church", "non profit", "charitable", "sponsorship", "charitable contributions"],
   },
   {
     code: "OPX-GIFTS",
@@ -287,7 +287,7 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     category: "Postage & Delivery (Personal)",
     type: "opex",
     addBack: true,
-    aliases: ["personal postage", "personal delivery", "personal shipping"],
+    aliases: ["personal postage", "personal delivery", "personal shipping", "shipping freight and delivery", "shipping, freight, and delivery"],
   },
   {
     code: "OPX-DUES-OWNER",
@@ -300,20 +300,20 @@ export const CANTARA_TAXONOMY: TaxonomyEntry[] = [
     code: "OPX-TAX",
     category: "Taxes & Licenses",
     type: "opex",
-    aliases: ["taxes & licenses", "permits", "licenses"],
+    aliases: ["taxes & licenses", "permits", "licenses", "corporate tax expense", "tax expense"],
   },
   {
     code: "OPX-ONEOFF",
     category: "One-Off Non-Recurring Expenses",
     type: "opex",
     addBack: true,
-    aliases: ["one-off", "non-recurring", "extraordinary", "leasehold improvement"],
+    aliases: ["one-off", "non-recurring", "extraordinary", "leasehold improvement", "leasehold improvements", "losses", "exchange gain or loss", "unrealized foreign ex gain/loss"],
   },
   {
     code: "OPX-OTHER",
     category: "Other Operating Expenses",
     type: "opex",
-    aliases: ["miscellaneous", "other expenses", "uncategorized expense"],
+    aliases: ["miscellaneous", "other expenses", "uncategorized expense", "uncategorized expenses", "miscellaneous expenses", "ask my accountant", "reconciliation discrepancies", "fixed costs - other", "removing credits/balances", "seminar"],
   },
 
   // ── WORKING CAPITAL ──────────────────────────────────────────────────────

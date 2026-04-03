@@ -473,7 +473,7 @@ export function buildWS2ReportAdapter(
         fy1: years[0]?.netIncome ?? 0,
         fy2: years[1]?.netIncome ?? 0,
         fy3: years[2]?.netIncome ?? 0,
-        ttm: years[2]?.netIncome ?? 0,
+        ttm: sum?.netIncome ?? years[2]?.netIncome ?? 0,
       },
     },
     workingCapital: mapWorkingCapital(analysis),

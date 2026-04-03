@@ -45,6 +45,14 @@ import {
   WorkbookOverrideSnapshot,
 } from "@/lib/ttm-agent/workbook-overrides";
 import { parseWorkbookOverrideSnapshotFromXlsx } from "@/lib/ttm-agent/workbook-overrides-xlsx";
+import {
+  excelToText,
+  extractFinancialsWithLLM,
+  extractAddbacksWithLLM,
+  computeValuation,
+  type ExtractedFinancials,
+  type ValuationResult,
+} from "@/lib/ttm-agent/llm-extraction";
 
 const WS2_BASELINE_SOURCE_AGENT_IDS = [
   "ws2_3_rev_vertical_v1",
@@ -615,6 +623,65 @@ export async function runTtmAgent(args: {
 
     const flattenedFlags = flattenFlagsForPersistence(reconciled.dataQualitySections);
 
+    // ── LLM-first extraction (PRIMARY path) ──────────────────────────────
+    // Run the LLM pipeline FIRST as the primary extraction step.
+    // The old deterministic pipeline above serves as a silent fallback for
+    // data the LLM might not extract (working capital, etc.).
+    let llmExtraction: ExtractedFinancials | null = null;
+    let llmSucceeded = false;
+    const llmFlags: Array<{ section: string; severity: string; title: string; description: string; payload: Record<string, unknown> }> = [];
+    try {
+      const plText = monthlyPlBuffer ? excelToText(monthlyPlBuffer) : null;
+      const bsText = monthlyBsBuffer ? excelToText(monthlyBsBuffer) : null;
+
+      if (plText) {
+        console.log(`[TTM] Running LLM financial extraction (PRIMARY path)...`);
+        llmExtraction = await extractFinancialsWithLLM(plText, bsText);
+        llmSucceeded = true;
+        console.log(`[TTM] LLM extraction complete (PRIMARY): ${llmExtraction.periods.length} periods, ${llmExtraction.glMapping.length} GL mappings, ${llmExtraction.notes.length} notes`);
+
+        // Generate HITL flags from LLM extraction
+        // Section A flags: GL mappings where Claude's confidence < 0.8
+        for (const mapping of llmExtraction.glMapping) {
+          if (mapping.confidence < 0.8) {
+            llmFlags.push({
+              section: "A",
+              severity: mapping.confidence < 0.5 ? "HIGH" : "MEDIUM",
+              title: `LLM GL mapping: low confidence for "${mapping.accountName}"`,
+              description: `Claude mapped "${mapping.accountName}" to ${mapping.cantaraCode} with confidence ${(mapping.confidence * 100).toFixed(0)}%. Admin should verify this mapping.`,
+              payload: {
+                source: "LLM_EXTRACTION",
+                accountName: mapping.accountName,
+                suggestedCantaraCode: mapping.cantaraCode,
+                confidence: mapping.confidence,
+              },
+            });
+          }
+        }
+
+        // Section E flags: Data quality warnings from Claude
+        for (const note of llmExtraction.notes) {
+          llmFlags.push({
+            section: "E",
+            severity: /critical|error|missing/i.test(note) ? "HIGH" : "LOW",
+            title: `LLM data quality note`,
+            description: note,
+            payload: {
+              source: "LLM_EXTRACTION",
+              noteText: note,
+            },
+          });
+        }
+
+        console.log(`[TTM] LLM extraction generated ${llmFlags.length} HITL flags (${llmFlags.filter(f => f.section === "A").length} GL mapping, ${llmFlags.filter(f => f.section === "E").length} data quality)`);
+      }
+    } catch (llmError) {
+      const llmMsg = llmError instanceof Error ? llmError.message : "Unknown LLM error";
+      console.warn(`[TTM] LLM extraction failed (falling back to deterministic pipeline): ${llmMsg}`);
+      llmSucceeded = false;
+      // LLM failure is non-fatal — fall back to the deterministic pipeline
+    }
+
     const saved = await (prisma as any).$transaction(async (tx: any) => {
       await tx.ttmAnalysis.update({
         where: { id: created.id },
@@ -629,6 +696,8 @@ export async function runTtmAgent(args: {
               accountantStatements: accountantStatements?.notes ?? [],
               arAging: arAging?.notes ?? [],
             },
+            ...(llmExtraction ? { llmExtraction } : {}),
+            primarySource: llmSucceeded ? "LLM" : "DETERMINISTIC",
           },
           structuredModel: reconciled.structuredModel,
           ttmSummary: reconciled.ttmSummary,
@@ -641,16 +710,46 @@ export async function runTtmAgent(args: {
         },
       });
 
-      if (flattenedFlags.length) {
-        await tx.ttmFlag.createMany({
-          data: flattenedFlags.map((flag) => ({
+      // When LLM succeeded: use ONLY LLM-generated flags. Suppress ALL old section A flags.
+      // Keep old sections B-E flags only for non-overlapping checks (working capital, etc.).
+      const useOldFlags = llmSucceeded
+        ? flattenedFlags.filter((flag) => flag.section !== "A") // suppress ALL old section A flags
+        : flattenedFlags; // no LLM — use all old flags
+
+      // When LLM succeeded, use LLM flags as primary + old B-E as supplementary
+      // When LLM failed, use only old deterministic flags
+      const allFlags = llmSucceeded
+        ? [
+            ...llmFlags.map((flag) => ({
+              analysisId: created.id,
+              section: flag.section,
+              severity: flag.severity,
+              title: flag.title,
+              description: flag.description,
+              payload: flag.payload,
+            })),
+            // Keep old B-E flags only for non-overlapping checks
+            ...useOldFlags.map((flag) => ({
+              analysisId: created.id,
+              section: flag.section,
+              severity: flag.severity,
+              title: flag.title,
+              description: flag.description,
+              payload: flag.payload,
+            })),
+          ]
+        : flattenedFlags.map((flag) => ({
             analysisId: created.id,
             section: flag.section,
             severity: flag.severity,
             title: flag.title,
             description: flag.description,
             payload: flag.payload,
-          })),
+          }));
+
+      if (allFlags.length) {
+        await tx.ttmFlag.createMany({
+          data: allFlags,
         });
       }
 
@@ -1325,6 +1424,7 @@ Annual Years: ${(args.analysis.annualModel?.years ?? []).map(y => `${y.fiscalYea
     analysis: args.analysis,
     assumptions: args.assumptions,
     personalExpensesDoc: personal ?? addbackDisclosure,
+    shareholderDoc: shareholder,
     oneOffDoc: nonRecurring ?? addbackDisclosure,
   });
 
@@ -1940,24 +2040,140 @@ export async function runWs2RecastAnalysis(args: {
   });
 
   try {
-    const rawReportMarkdown = await generateWs22Report(
-      await buildWs22PromptContent({
+    // ── LLM-only recast path (PRIMARY) — old deterministic is silent fallback ──
+    let reportMarkdown: string;
+    let metrics: ReturnType<typeof extractWs2RecastMetrics>;
+    let flagPayloads: Array<{ title: string; description: string; severity: "HIGH" | "MEDIUM" | "LOW"; payload: Record<string, unknown> }>;
+    let llmValuationResult: ValuationResult | null = null;
+
+    const llmExtractionData = (analysis.normalizedData as any)?.llmExtraction as ExtractedFinancials | undefined;
+    let usedLlmPath = false;
+
+    if (llmExtractionData && llmExtractionData.periods?.length > 0 && llmExtractionData.annualData?.length > 0) {
+      try {
+        console.log(`[WS2-2] Using LLM-ONLY recast path (${llmExtractionData.periods.length} periods from WS2-1 LLM extraction)`);
+
+        // Build owner expenses text from prepared documents for LLM addback extraction
+        const llmPreparedMap = buildPreparedDocumentMap(args.preparedDocuments);
+        const personalDoc = llmPreparedMap.get("personal_expenses_36m");
+        const nonRecurringDoc = llmPreparedMap.get("non_recurring_expenses_36m");
+        const addbackDoc = llmPreparedMap.get("addback_disclosure");
+
+        const ownerExpensesText = [personalDoc, addbackDoc]
+          .filter(Boolean)
+          .flatMap((doc) => (doc!.textBlocks ?? []).map((block) => `--- SHEET: ${block.sheetName} ---\n${block.text}`))
+          .join("\n\n") || null;
+
+        const oneOffText = nonRecurringDoc
+          ? (nonRecurringDoc.textBlocks ?? []).map((block) => `--- SHEET: ${block.sheetName} ---\n${block.text}`).join("\n\n")
+          : null;
+
+        if (ownerExpensesText) {
+          const addbacks = await extractAddbacksWithLLM(ownerExpensesText, oneOffText, llmExtractionData.periods);
+          console.log(`[WS2-2] LLM addback extraction: ${addbacks.sourceA.length} Source A, ${addbacks.sourceB.length} Source B, ${addbacks.sourceC.length} Source C`);
+
+          llmValuationResult = computeValuation(llmExtractionData, addbacks, {
+            multipleLow: normalizedAssumptions.multipleLow,
+            multipleMid: normalizedAssumptions.multipleMid,
+            multipleHigh: normalizedAssumptions.multipleHigh,
+            replacementSalary: normalizedAssumptions.replacementSalary ?? 20_000,
+          });
+          console.log(`[WS2-2] LLM valuation computed: Normalized EBITDA by period = ${JSON.stringify(llmValuationResult.normalizedEbitda)}`);
+
+          // LLM ValuationResult is the SOLE source of truth — no old deterministic schedule
+          const llmNormEbitda = llmValuationResult.normalizedEbitda["LTM"] ?? llmValuationResult.normalizedEbitda["FY3"] ?? null;
+          const llmValLow = llmValuationResult.valuation["LTM"]?.low ?? llmValuationResult.valuation["FY3"]?.low ?? null;
+          const llmValMid = llmValuationResult.valuation["LTM"]?.mid ?? llmValuationResult.valuation["FY3"]?.mid ?? null;
+          const llmValHigh = llmValuationResult.valuation["LTM"]?.high ?? llmValuationResult.valuation["FY3"]?.high ?? null;
+
+          metrics = {
+            startingEbitda: llmValuationResult.preRecast["LTM"] ?? llmValuationResult.preRecast["FY3"] ?? null,
+            normalizedEbitda: llmNormEbitda,
+            valuationLow: llmValLow,
+            valuationMid: llmValMid,
+            valuationHigh: llmValHigh,
+          } as any;
+
+          // Generate report markdown directly from LLM ValuationResult — skip old Claude report prompt
+          const periodKeys = Object.keys(llmValuationResult.normalizedEbitda);
+          const normLinesMd = llmValuationResult.normLines
+            .map((line) => {
+              const amounts = periodKeys.map((pk) => `$${((line.byPeriod?.[pk] ?? 0)).toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(" | ");
+              return `| ${line.description} | ${amounts} | ${line.source ?? ""} |`;
+            })
+            .join("\n");
+          const headerCols = periodKeys.join(" | ");
+          reportMarkdown = [
+            `## EBITDA RECAST SCHEDULE`,
+            ``,
+            `| Normalization Items | ${headerCols} | Source |`,
+            `|---|${periodKeys.map(() => "---:").join("|")}|---|`,
+            `| **Net Income (Pre-Recast)** | ${periodKeys.map((pk) => `**$${(llmValuationResult!.preRecast[pk] ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}**`).join(" | ")} | |`,
+            normLinesMd,
+            `| **Total Adjustments** | ${periodKeys.map((pk) => `**$${(llmValuationResult!.normLines.reduce((s, l) => s + (l.byPeriod?.[pk] ?? 0), 0)).toLocaleString("en-US", { maximumFractionDigits: 0 })}**`).join(" | ")} | |`,
+            `| **Revised Net Income / EBITDA** | ${periodKeys.map((pk) => `**$${(llmValuationResult!.normalizedEbitda[pk] ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}**`).join(" | ")} | |`,
+            ``,
+            `## PRELIMINARY VALUATION`,
+            ``,
+            `| Metric | ${headerCols} |`,
+            `|---|${periodKeys.map(() => "---:").join("|")}|`,
+            `| Normalized EBITDA | ${periodKeys.map((pk) => `$${(llmValuationResult!.normalizedEbitda[pk] ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(" | ")} |`,
+            `| 4-Wall EBITDA | ${periodKeys.map((pk) => `$${(llmValuationResult!.fourWallEbitda?.[pk] ?? llmValuationResult!.normalizedEbitda[pk] ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(" | ")} |`,
+            `| Multiple | ${normalizedAssumptions.multipleLow?.toFixed(1)}x – ${normalizedAssumptions.multipleHigh?.toFixed(1)}x |`,
+            `| Valuation (Low) | ${periodKeys.map((pk) => `$${(llmValuationResult!.valuation[pk]?.low ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(" | ")} |`,
+            `| Valuation (Mid) | ${periodKeys.map((pk) => `$${(llmValuationResult!.valuation[pk]?.mid ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(" | ")} |`,
+            `| Valuation (High) | ${periodKeys.map((pk) => `$${(llmValuationResult!.valuation[pk]?.high ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(" | ")} |`,
+          ].join("\n");
+
+          flagPayloads = [];
+
+          // Add LLM-specific flags for addback notes
+          for (const note of addbacks.notes) {
+            flagPayloads.push({
+              title: "LLM addback extraction note",
+              description: note,
+              severity: /critical|error|missing/i.test(note) ? "HIGH" : "LOW",
+              payload: { source: "LLM_ADDBACK_EXTRACTION", noteText: note },
+            });
+          }
+
+          usedLlmPath = true;
+          console.log(`[WS2-2] LLM-ONLY path succeeded: normalizedEbitda=${llmNormEbitda}, valuationMid=${llmValMid}`);
+        } else {
+          throw new Error("No owner expenses text available for LLM addback extraction");
+        }
+      } catch (llmRecastError) {
+        const llmMsg = llmRecastError instanceof Error ? llmRecastError.message : "Unknown LLM recast error";
+        console.warn(`[WS2-2] LLM recast failed (falling back to deterministic): ${llmMsg}`);
+        usedLlmPath = false;
+      }
+    } else if (llmExtractionData) {
+      console.log(`[WS2-2] LLM extraction exists but has no periods/annualData — falling back to deterministic`);
+    } else {
+      console.log(`[WS2-2] No LLM extraction data (pre-LLM run) — using deterministic path`);
+    }
+
+    // ── Deterministic fallback (ONLY used when LLM extraction is missing or failed) ──
+    if (!usedLlmPath) {
+      const rawReportMarkdown = await generateWs22Report(
+        await buildWs22PromptContent({
+          analysis,
+          assumptions: normalizedAssumptions,
+          preparedDocuments: args.preparedDocuments,
+        }),
+      );
+      const corrected = applyWs22SpecCorrections({
+        reportMarkdown: rawReportMarkdown,
         analysis,
         assumptions: normalizedAssumptions,
-        preparedDocuments: args.preparedDocuments,
-      }),
-    );
-    const corrected = applyWs22SpecCorrections({
-      reportMarkdown: rawReportMarkdown,
-      analysis,
-      assumptions: normalizedAssumptions,
-    });
-    const reportMarkdown = corrected.reportMarkdown;
-    const metrics = corrected.metrics;
-    const flagPayloads = [
-      ...extractWs2RecastFlagPayloads(reportMarkdown),
-      ...corrected.extraFlags,
-    ];
+      });
+      reportMarkdown = corrected.reportMarkdown;
+      metrics = corrected.metrics;
+      flagPayloads = [
+        ...extractWs2RecastFlagPayloads(reportMarkdown),
+        ...corrected.extraFlags,
+      ];
+    }
 
     // V3 Section 10: Default salary flag
     if (usedDefaultSalary) {
@@ -1982,6 +2198,7 @@ export async function runWs2RecastAnalysis(args: {
             baseValuationLow: metrics.valuationLow,
             baseValuationMid: metrics.valuationMid,
             baseValuationHigh: metrics.valuationHigh,
+            ...(llmValuationResult ? { llmValuationResult } : {}),
           },
           normalizedEbitda: metrics.normalizedEbitda,
           // Deterministic fallback: if Claude's report didn't yield valuation but we have EBITDA + multiples, calculate directly

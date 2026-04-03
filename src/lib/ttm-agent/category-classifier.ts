@@ -124,6 +124,8 @@ function fallbackClassification(categories: PersonalExpenseCategory[]): Classifi
     "paycheck tips", "cash tips paid out", "day labor", "simple ira", "taxes",
     "payroll taxes", "sick pay", "officer", "employer", "employees",
     "payroll expenses", "united healthcare", "bcbsaz", "dental", "medical", "vision",
+    "draw", "shareholder", "remuneration", "distribution", "owner draw",
+    "salary", "bonus", "compensation",
   ];
   const skipKeywords = ["reimbursements", "transaction report", "total"];
 

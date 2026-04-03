@@ -190,6 +190,8 @@ export interface TtmSummary {
   totalOpEx: number;
   ebitdaPreRecast: number;
   ebitdaMarginPct: number | null;
+  /** Net Income from workbook "Net Income" row (fallback: "Net Ordinary Income", then computed). */
+  netIncome: number | null;
 }
 
 export interface AnnualTrend {
