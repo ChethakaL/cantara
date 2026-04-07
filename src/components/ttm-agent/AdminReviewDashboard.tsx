@@ -85,12 +85,14 @@ export function AdminReviewDashboard({
   onUpdated,
   collapsed = false,
   onToggleCollapse,
+  normOverrides,
 }: {
   analysis: TtmAnalysisView
   actorName: string
   onUpdated: (analysis: TtmAnalysisView) => void
   collapsed?: boolean
   onToggleCollapse?: () => void
+  normOverrides?: Record<string, number>
 }) {
   const [notesByFlag, setNotesByFlag] = useState<Record<string, string>>({})
   const [codesByFlag, setCodesByFlag] = useState<Record<string, string>>({})
@@ -159,7 +161,7 @@ export function AdminReviewDashboard({
       logWs2ClientEvent('WS2-1 approve', { analysisId: analysis.id })
       const res = await fetch('/api/ttm-agent/hitl', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'approve', analysisId: analysis.id, actorName }),
+        body: JSON.stringify({ mode: 'approve', analysisId: analysis.id, actorName, userOverrides: normOverrides && Object.keys(normOverrides).length > 0 ? normOverrides : undefined }),
       })
       await logWs2Response('WS2-1 approve', res)
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed'))
