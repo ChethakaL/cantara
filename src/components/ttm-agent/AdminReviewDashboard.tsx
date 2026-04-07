@@ -56,6 +56,7 @@ function renderPayload(section: string, payload: Record<string, unknown>) {
       { label: 'Confidence', value: conf !== null ? `${conf}%` : '--' },
       { label: 'Candidates', value: candidates.map(c => cantaraLabel(c)).join(' | ') || 'None' },
       ...(range ? [{ label: 'Monthly Range', value: `${fmt$(range.min)} – ${fmt$(range.max)}` }] : []),
+      { label: 'Document', value: String(payload.sourceDocument ?? 'Unknown') },
       { label: 'Source', value: `${payload.sourceSheet ?? ''} row ${payload.sourceRow ?? ''}` },
       ...(payload.assignedCantaraCode ? [{ label: 'Admin Assignment', value: cantaraLabel(String(payload.assignedCantaraCode)) }] : []),
       { label: 'Guidance', value: String(payload.reviewerGuidance ?? '') },
@@ -339,6 +340,28 @@ export function AdminReviewDashboard({
                       <div className="flex gap-2 flex-wrap">
                         {current.section === 'A' ? (
                           <>
+                            {/* Accept Suggestion — one-click approve for LLM-suggested mappings */}
+                            {(() => {
+                              const conf = typeof flag.payload?.mappingConfidence === 'number' ? flag.payload.mappingConfidence : null
+                              const suggested = typeof flag.payload?.suggestedCode === 'string' ? flag.payload.suggestedCode : null
+                              if (conf !== null && conf >= 0.5 && suggested) {
+                                const suggestedEntry = CANTARA_TAXONOMY.find(e => e.code === suggested)
+                                const suggestedLabel = suggestedEntry ? suggestedEntry.code.split('-').pop() ?? suggestedEntry.code : suggested
+                                const confPct = Math.round(conf * 100)
+                                return (
+                                  <Button size="sm"
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                    disabled={savingFlag === flag.id}
+                                    onClick={() => {
+                                      setCodesByFlag(p => ({ ...p, [flag.id]: suggested }))
+                                      void submitAction(flag.id, 'RESOLVE', { assignedCantaraCode: suggested })
+                                    }}>
+                                    Accept: {suggestedLabel} ({confPct}%)
+                                  </Button>
+                                )
+                              }
+                              return null
+                            })()}
                             <Button size="sm" variant="outline" disabled={savingFlag === flag.id || !isCodeValid}
                               onClick={() => void submitAction(flag.id, 'RESOLVE', { assignedCantaraCode: code })}>
                               Confirm
@@ -356,15 +379,11 @@ export function AdminReviewDashboard({
                           <>
                             <Button size="sm" variant="outline" disabled={savingFlag === flag.id}
                               onClick={() => void submitAction(flag.id, 'RESOLVE')}>
-                              {current.section === 'B' || current.section === 'C' ? 'Mark Reviewed' : 'Resolve'}
-                            </Button>
-                            <Button size="sm" variant="outline" disabled={savingFlag === flag.id}
-                              onClick={() => void submitAction(flag.id, 'OVERRIDE')}>
-                              Override
+                              Acknowledge
                             </Button>
                             <Button size="sm" disabled={savingFlag === flag.id}
                               onClick={() => void submitAction(flag.id, 'ESCALATE_CLIENT')}>
-                              <Send className="w-3 h-3" /> Escalate
+                              <Send className="w-3 h-3" /> Escalate to Client
                             </Button>
                           </>
                         )}

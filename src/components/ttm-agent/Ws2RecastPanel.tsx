@@ -8,15 +8,14 @@ import { prepareWs2DocumentFromServer } from '@/lib/ttm-agent/browser-documents'
 import type { DocumentStatus } from '@/lib/store'
 import type { TtmAnalysisView, Ws2RecastAssumptions } from '@/lib/ttm-agent/types'
 
-const REQUIRED_RECAST_DOCS = [
-  { id: 'personal_expenses_36m', label: 'Personal Expenses List' },
-] as const
+const REQUIRED_RECAST_DOCS: Array<{ id: string; label: string }> = []
 
 const ADDBACK_DETAIL_DOCS: Array<{ id: string; label: string }> = []
 
 const OPTIONAL_RECAST_DOCS = [
-  { id: 'non_recurring_expenses_36m', label: 'Non-Recurring Expenses (optional)' },
-  { id: 'addback_disclosure', label: 'Add-Back Disclosure (optional)' },
+  { id: 'personal_expenses_36m', label: 'Personal Expenses List (Optional)' },
+  { id: 'non_recurring_expenses_36m', label: 'Non-Recurring Expenses (Optional)' },
+  { id: 'addback_disclosure', label: 'Add-Back Disclosure (Optional)' },
   { id: 'leases', label: 'Lease from WS1' },
   { id: 'owner_gm_assessment', label: 'Owner & GM Assessment from WS1' },
 ] as const

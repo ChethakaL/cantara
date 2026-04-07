@@ -9,8 +9,10 @@ export const TTM_OPTIONAL_DOCUMENT_IDS = [
   "ar_aging_detail",
 ] as const;
 
-/** WS2-2 requires personal expenses + one-off expenses */
-export const WS2_RECAST_REQUIRED_DOCUMENT_IDS = [
+/** WS2-2 has no hard-required documents — personal & non-recurring expenses are optional uploads */
+export const WS2_RECAST_REQUIRED_DOCUMENT_IDS = [] as const;
+
+export const WS2_RECAST_OPTIONAL_DOCUMENT_IDS = [
   "personal_expenses_36m",
   "non_recurring_expenses_36m",
 ] as const;
@@ -22,12 +24,12 @@ export const WS2_RECAST_LEGACY_DOCUMENT_IDS = [
   "tenant_improvements_36m",
 ] as const;
 
-export const WS2_RECAST_OPTIONAL_DOCUMENT_IDS = ["leases", "quickbooks_api", "owner_gm_assessment"] as const;
+export const WS2_RECAST_EXTRA_OPTIONAL_DOCUMENT_IDS = ["leases", "quickbooks_api", "owner_gm_assessment"] as const;
 
 export type TtmRequiredDocumentId = (typeof TTM_REQUIRED_DOCUMENT_IDS)[number];
 export type Ws2RecastRequiredDocumentId = (typeof WS2_RECAST_REQUIRED_DOCUMENT_IDS)[number];
 export type Ws2RecastLegacyDocumentId = (typeof WS2_RECAST_LEGACY_DOCUMENT_IDS)[number];
-export type Ws2RecastOptionalDocumentId = (typeof WS2_RECAST_OPTIONAL_DOCUMENT_IDS)[number];
+export type Ws2RecastOptionalDocumentId = (typeof WS2_RECAST_OPTIONAL_DOCUMENT_IDS)[number] | (typeof WS2_RECAST_EXTRA_OPTIONAL_DOCUMENT_IDS)[number];
 export type TtmOptionalDocumentId = "quickbooks_api";
 export type TtmDocumentId = TtmRequiredDocumentId | TtmOptionalDocumentId;
 export type Ws2DocumentId = TtmRequiredDocumentId | Ws2RecastRequiredDocumentId | Ws2RecastLegacyDocumentId | Ws2RecastOptionalDocumentId;

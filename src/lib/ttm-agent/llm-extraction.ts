@@ -46,6 +46,11 @@ export interface ExtractedFinancials {
     cantaraCode: string;
     confidence: number;
   }>;
+  extraordinaryRevenue?: Array<{
+    description: string;
+    amount: number;
+    period: string; // "FY1", "FY2", etc.
+  }>;
   notes: string[];
 }
 
@@ -101,7 +106,11 @@ const LLM_TEMPERATURE = 0;
 const LLM_MAX_TOKENS = 8192;
 
 function getClient(): Anthropic {
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not set. Cannot run LLM extraction.");
+  }
+  return new Anthropic({ apiKey });
 }
 
 /**
@@ -199,6 +208,8 @@ IMPORTANT RULES:
 - For TTM: use the trailing 12 months from the latest month with data.
 - Map every GL account name to a Cantara taxonomy code using the reference below.
 - For accounts you cannot confidently map, use the closest match and set confidence < 0.7.
+- Include ALL revenue in the total revenue figure — including extraordinary items such as PPP grants/loans forgiven, insurance proceeds, one-time government payments, EIDL grants, and any other non-recurring revenue.
+- Flag extraordinary revenue items separately in the "extraordinaryRevenue" array. These are revenue items that inflate top-line revenue but would not recur under normal operations (PPP, EIDL, insurance payouts, legal settlements received, one-time government grants, etc.).
 
 ${buildTaxonomyReference()}
 
@@ -224,6 +235,9 @@ Only return valid JSON matching the schema below. No markdown fences, no comment
   ],
   "ttmData": { "revenue": 0, "cogs": 0, "grossProfit": 0, "totalOpEx": 0, "netIncome": 0 } | null,
   "glMapping": [{ "accountName": "Boarding Income", "cantaraCode": "REV-BOARD", "confidence": 0.95 }],
+  "extraordinaryRevenue": [
+    { "description": "PPP Loan Forgiveness", "amount": 150000, "period": "FY2" }
+  ],
   "notes": ["any observations about data quality or assumptions made"]
 }`;
 
@@ -480,6 +494,30 @@ export function computeValuation(
       source: "SOURCE_C",
       byPeriod: { ...item.byPeriod },
     });
+  }
+
+  // Add extraordinary revenue items as Source C deductions (they inflate revenue and need normalizing out)
+  if (financials.extraordinaryRevenue && financials.extraordinaryRevenue.length > 0) {
+    for (const item of financials.extraordinaryRevenue) {
+      const byPeriod: Record<string, number> = {};
+      for (const period of periods) {
+        const addbackKey = mapPeriodToAddbackKey(period);
+        // Match the period label (e.g. "FY2") to the extraordinary item's period
+        byPeriod[addbackKey] = item.period === addbackKey ? -Math.abs(item.amount) : 0;
+      }
+      addbacks.sourceC.push({
+        category: "Extraordinary Revenue",
+        description: item.description,
+        classification: "SOURCE_C",
+        byPeriod,
+      });
+      normLines.push({
+        id: `C-EXTREV-${lineIdx++}`,
+        description: `Extraordinary Revenue: ${item.description}`,
+        source: "SOURCE_C",
+        byPeriod,
+      });
+    }
   }
 
   // Add Owner Replacement Salary as a normLine
