@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { actionTtmFlag, approveTtmAnalysis, TtmOrchestratorError } from "@/lib/ttm-agent/orchestrator";
+import { actionTtmFlag, approveTtmAnalysis, saveNormOverrides, TtmOrchestratorError } from "@/lib/ttm-agent/orchestrator";
 import { FlagResolutionAction } from "@/lib/ttm-agent/types";
 
 export async function POST(req: NextRequest) {
@@ -32,13 +32,31 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.mode === "approve") {
-      const { analysisId, actorName } = body as { analysisId: string; actorName?: string };
+      const { analysisId, actorName, userOverrides } = body as {
+        analysisId: string;
+        actorName?: string;
+        userOverrides?: Record<string, number>;
+      };
       if (!analysisId) {
         return new Response("analysisId is required", { status: 400 });
       }
 
-      const updated = await approveTtmAnalysis({ analysisId, actorName });
+      const updated = await approveTtmAnalysis({ analysisId, actorName, userOverrides });
       return NextResponse.json(updated);
+    }
+
+    if (body.mode === "save-overrides") {
+      const { analysisId, userOverrides } = body as {
+        analysisId: string;
+        userOverrides?: Record<string, number>;
+      };
+      if (!analysisId) {
+        return new Response("analysisId is required", { status: 400 });
+      }
+      if (userOverrides && Object.keys(userOverrides).length > 0) {
+        await saveNormOverrides({ analysisId, userOverrides });
+      }
+      return NextResponse.json({ ok: true });
     }
 
     return new Response("Unsupported HITL action", { status: 400 });

@@ -906,7 +906,11 @@ export async function actionTtmFlag(args: {
   return updated;
 }
 
-export async function approveTtmAnalysis(args: { analysisId: string; actorName?: string }) {
+export async function approveTtmAnalysis(args: {
+  analysisId: string;
+  actorName?: string;
+  userOverrides?: Record<string, number>;
+}) {
   const analysis = await (prisma as any).ttmAnalysis.findUnique({
     where: { id: args.analysisId },
     include: { flags: true, dispatchTasks: true },
@@ -922,6 +926,20 @@ export async function approveTtmAnalysis(args: { analysisId: string; actorName?:
   }
 
   const actorName = args.actorName || "Admin Pollack";
+
+  // Merge user overrides into normalizedData if provided
+  const normalizedDataUpdate =
+    args.userOverrides && Object.keys(args.userOverrides).length > 0
+      ? {
+          normalizedData: {
+            ...(typeof analysis.normalizedData === "object" && analysis.normalizedData !== null
+              ? analysis.normalizedData
+              : {}),
+            userOverrides: args.userOverrides,
+          },
+        }
+      : {};
+
   await (prisma as any).$transaction([
     (prisma as any).ttmAnalysis.update({
       where: { id: args.analysisId },
@@ -930,6 +948,7 @@ export async function approveTtmAnalysis(args: { analysisId: string; actorName?:
         hitlStatus: "APPROVED",
         approvedAt: new Date(),
         approvedByName: actorName,
+        ...normalizedDataUpdate,
       },
     }),
     // V3 Section 9: WS2-3 and WS2-4 release after WS2-1 approval.
@@ -952,6 +971,33 @@ export async function approveTtmAnalysis(args: { analysisId: string; actorName?:
     throw new TtmOrchestratorError("TTM analysis not found after approval.", 404);
   }
   return updated;
+}
+
+/** Persist normalization schedule overrides to normalizedData.userOverrides (fire-and-forget from UI) */
+export async function saveNormOverrides(args: {
+  analysisId: string;
+  userOverrides: Record<string, number>;
+}) {
+  const analysis = await (prisma as any).ttmAnalysis.findUnique({
+    where: { id: args.analysisId },
+  });
+  if (!analysis) {
+    throw new TtmOrchestratorError("TTM analysis not found.", 404);
+  }
+  const existing =
+    typeof analysis.normalizedData === "object" && analysis.normalizedData !== null
+      ? analysis.normalizedData
+      : {};
+
+  await (prisma as any).ttmAnalysis.update({
+    where: { id: args.analysisId },
+    data: {
+      normalizedData: {
+        ...existing,
+        userOverrides: args.userOverrides,
+      },
+    },
+  });
 }
 
 function preparedDocumentToText(preparedDocument: PreparedDocumentInput | undefined, emptyMessage: string) {
