@@ -80,44 +80,11 @@ export function buildWorkingCapitalSummary(args: {
       pctOfTotal: ratio(entry.total, totalAr),
     }));
 
+  // AR aging flags completely removed per client request — working capital data
+  // is still computed and returned but no flags are generated.
   const qualityItems: SectionReportItem[] = [];
 
-  // SKIP ALL AR aging flags if no AR aging document was uploaded
-  const hasArAgingData = args.arAging.entries.length > 0 && totalAr > 0;
-
-  if (hasArAgingData && ratio(days90Plus, totalAr) !== null && ratio(days90Plus, totalAr)! > 15) {
-    console.log(`[TTM] Section E: 90+ day AR = ${ratio(days90Plus, totalAr)!.toFixed(1)}% of total (threshold 15%)`);
-    qualityItems.push({
-      title: "90+ day AR concentration exceeds 15%",
-      severity: "HIGH",
-      description: `The 90+ day AR bucket is ${ratio(days90Plus, totalAr)!.toFixed(1)}% of total AR ($${days90Plus.toLocaleString()} of $${totalAr.toLocaleString()}).`,
-      payload: { totalAr, days90Plus, pct90Plus: ratio(days90Plus, totalAr), source: "AR Aging Detail" },
-    });
-  }
-
-  if (hasArAgingData && Math.abs(varianceToBalanceSheetAr) > 500) {
-    console.log(`[TTM] Section E: AR aging variance=$${varianceToBalanceSheetAr.toFixed(2)} (aging=$${totalAr.toLocaleString()}, BS=$${balanceSheetAr.toLocaleString()})`);
-    qualityItems.push({
-      title: "AR aging does not reconcile to balance sheet AR",
-      severity: "HIGH",
-      description: `AR aging total ($${totalAr.toLocaleString()}) differs from balance sheet AR ($${balanceSheetAr.toLocaleString()}) by $${varianceToBalanceSheetAr.toFixed(2)}.`,
-      payload: { totalAr, balanceSheetAr, varianceToBalanceSheetAr, sourceAging: "AR Aging Detail", sourceBalanceSheet: "Monthly Balance Sheet Excel" },
-    });
-  }
-
-  for (const customer of topCustomers) {
-    if (hasArAgingData && (customer.pctOfTotal ?? 0) > 20) {
-      console.log(`[TTM] Section E: customer concentration ${customer.customerName} = ${customer.pctOfTotal!.toFixed(1)}% ($${customer.total.toLocaleString()} of $${totalAr.toLocaleString()})`);
-      qualityItems.push({
-        title: `Customer concentration: ${customer.customerName} exceeds 20% of total AR`,
-        severity: "MEDIUM",
-        description: `${customer.customerName} represents ${customer.pctOfTotal!.toFixed(1)}% of total AR ($${customer.total.toLocaleString()} of $${totalAr.toLocaleString()}).`,
-        payload: { ...customer, totalAr, source: "AR Aging Detail" },
-      });
-    }
-  }
-
-  console.log(`[TTM] Working capital: NWC=$${netWorkingCapital.toLocaleString()}, AR=$${totalAr.toLocaleString()}, ${qualityItems.length} quality flags`);
+  console.log(`[TTM] Working capital: NWC=$${netWorkingCapital.toLocaleString()}, AR=$${totalAr.toLocaleString()}, 0 quality flags (AR flags disabled)`);
 
   return {
     workingCapital: {

@@ -51,6 +51,7 @@ import {
   extractAddbacksWithLLM,
   computeValuation,
   type ExtractedFinancials,
+  type ExtractedAddbacks,
   type ValuationResult,
 } from "@/lib/ttm-agent/llm-extraction";
 
@@ -652,7 +653,7 @@ export async function runTtmAgent(args: {
               payload: {
                 source: "LLM_EXTRACTION",
                 accountName: mapping.accountName,
-                suggestedCantaraCode: mapping.cantaraCode,
+                suggestedCode: mapping.cantaraCode,
                 confidence: mapping.confidence,
               },
             });
@@ -1989,13 +1990,13 @@ export async function runWs2RecastAnalysis(args: {
   }
 
   const preparedMap = buildPreparedDocumentMap(args.preparedDocuments);
-  const hasRequiredDocs =
+  const hasAnyAddbackDocs =
     preparedMap.has("personal_expenses_36m") ||
     preparedMap.has("non_recurring_expenses_36m") ||
     preparedMap.has("addback_disclosure"); // legacy fallback
 
-  if (!hasRequiredDocs) {
-    throw new TtmOrchestratorError("WS2-2 requires the Personal Expenses list and Non-Recurring Expenses file.", 400);
+  if (!hasAnyAddbackDocs) {
+    console.warn("[WS2-2] No addback documents uploaded — recast will run using only P&L-extracted data (no separate personal/non-recurring expense files).");
   }
 
   const existingRecords = await (prisma as any).ws2RecastAnalysis.findMany({
@@ -2068,7 +2069,7 @@ export async function runWs2RecastAnalysis(args: {
           ? (nonRecurringDoc.textBlocks ?? []).map((block) => `--- SHEET: ${block.sheetName} ---\n${block.text}`).join("\n\n")
           : null;
 
-        if (ownerExpensesText) {
+        {
           // Build P&L expense breakdown text so LLM can scan for additional personal/owner expenses
           const plExpenseLines: string[] = [];
           for (const annual of llmExtractionData.annualData) {
@@ -2081,8 +2082,20 @@ export async function runWs2RecastAnalysis(args: {
           }
           const plExpenseData = plExpenseLines.length > 0 ? plExpenseLines.join("\n") : null;
 
-          const addbacks = await extractAddbacksWithLLM(ownerExpensesText, oneOffText, llmExtractionData.periods, plExpenseData);
-          console.log(`[WS2-2] LLM addback extraction: ${addbacks.sourceA.length} Source A, ${addbacks.sourceB.length} Source B, ${addbacks.sourceC.length} Source C`);
+          let addbacks: ExtractedAddbacks;
+          if (ownerExpensesText) {
+            addbacks = await extractAddbacksWithLLM(ownerExpensesText, oneOffText, llmExtractionData.periods, plExpenseData);
+            console.log(`[WS2-2] LLM addback extraction: ${addbacks.sourceA.length} Source A, ${addbacks.sourceB.length} Source B, ${addbacks.sourceC.length} Source C`);
+          } else if (plExpenseData) {
+            // No personal expenses file — use only P&L-extracted data for addback scanning
+            console.log(`[WS2-2] No personal expenses file uploaded — running addback extraction from P&L data only`);
+            addbacks = await extractAddbacksWithLLM("(No owner/personal expenses file provided. Scan the P&L data below for any personal/owner expenses.)", oneOffText, llmExtractionData.periods, plExpenseData);
+            console.log(`[WS2-2] P&L-only addback extraction: ${addbacks.sourceA.length} Source A, ${addbacks.sourceB.length} Source B, ${addbacks.sourceC.length} Source C`);
+          } else {
+            // No addback documents and no P&L data — use empty addbacks
+            console.warn(`[WS2-2] No addback documents or P&L expense data — running with zero addbacks`);
+            addbacks = { sourceA: [], sourceB: [], sourceC: [], notes: ["No personal expenses or non-recurring expenses files were uploaded. Recast uses only base financials."] };
+          }
 
           llmValuationResult = computeValuation(llmExtractionData, addbacks, {
             multipleLow: normalizedAssumptions.multipleLow,
@@ -2151,8 +2164,6 @@ export async function runWs2RecastAnalysis(args: {
 
           usedLlmPath = true;
           console.log(`[WS2-2] LLM-ONLY path succeeded: normalizedEbitda=${llmNormEbitda}, valuationMid=${llmValMid}`);
-        } else {
-          throw new Error("No owner expenses text available for LLM addback extraction");
         }
       } catch (llmRecastError) {
         const llmMsg = llmRecastError instanceof Error ? llmRecastError.message : "Unknown LLM recast error";
