@@ -278,15 +278,6 @@ function buildAssumptionsSheet(report: WS2Report): XLSX.WorkSheet {
     [cell("Multiple — Mid Point"), ci ? inputCell(ci.multipleRangeMid, false) : cell("—"), cell("Most likely multiple for this business", { italic: true, color: C.MUTED })],
     [cell("Multiple — High End"), ci ? inputCell(ci.multipleRangeHigh, false) : cell("—"), cell("High end — used for optimistic scenario", { italic: true, color: C.MUTED })],
     [null],
-    [hdrCell("OWNER REPLACEMENT SALARY", true), hdrCell("Value"), hdrCell("Notes")],
-    [cell("Annual Replacement Salary"), ci ? inputCell(ci.replacementSalary) : cell("—"), cell(val?.replacementSalaryIsDefault ? "⚠ DEFAULT value used — confirm before sharing" : "Confirmed", { italic: true, color: val?.replacementSalaryIsDefault ? C.YELLOW_FG : C.MUTED })],
-    [null],
-    [hdrCell("FAIR MARKET RENT", true), hdrCell("Value"), hdrCell("Notes")],
-    [cell("Related-Party Ownership?"), cell(ci?.relatedPartyOwnership ? "YES" : "NO"), cell(ci?.relatedPartyOwnership ? "FMR adjustment required" : "No FMR adjustment needed — unrelated landlord", { italic: true, color: C.MUTED })],
-    [cell("FMR Estimate (annual)"), ci?.relatedPartyOwnership && ci.fmrEstimate ? inputCell(ci.fmrEstimate) : cell("N/A"), null],
-    [cell("Actual Rent Paid (from TTM P&L)"), actualRentPaid ? inputCell(actualRentPaid) : cell("N/A"), null],
-    [cell("FMR Adjustment"), val?.fmrAdjustment != null ? inputCell(val.fmrAdjustment) : cell("N/A"), null],
-    [null],
     [hdrCell("OVERRIDE LOG", true), hdrCell("Override Amount"), hdrCell("Reason / Timestamp")],
     ...(report.ws22?.recastSchedule.addBackItems
       .filter((i) => i.status === "CRAIG-OVERRIDE")
@@ -641,21 +632,6 @@ function buildWorkingCapitalSheet(report: WS2Report): XLSX.WorkSheet {
     [cell("Net Working Capital (Point-in-time)", { bold: true }), ebitdaCell(wc.netWorkingCapital), null],
     [cell("3-Month Trailing Average NWC", { bold: true }), ebitdaCell(wc.trailingThreeMonthAvgNWC), null],
     [cell("→ 3-Month Average NWC passed to Seller Net Proceeds Calculator", { italic: true, color: C.MUTED, size: 9 }), null, null],
-    [null],
-    [hdrCell("AR AGING SUMMARY", true), hdrCell("Amount"), hdrCell("% of AR")],
-    [cell("  Current"), inputCell(wc.arAgingBuckets.current), cell(wc.arAgingBuckets.total ? wc.arAgingBuckets.current / wc.arAgingBuckets.total : 0, { fmt: PCT_FMT })],
-    [cell("  1–30 Days"), inputCell(wc.arAgingBuckets.days1to30), cell(wc.arAgingBuckets.total ? wc.arAgingBuckets.days1to30 / wc.arAgingBuckets.total : 0, { fmt: PCT_FMT })],
-    [cell("  31–60 Days"), inputCell(wc.arAgingBuckets.days31to60), cell(wc.arAgingBuckets.total ? wc.arAgingBuckets.days31to60 / wc.arAgingBuckets.total : 0, { fmt: PCT_FMT })],
-    [cell("  61–90 Days"), inputCell(wc.arAgingBuckets.days61to90), cell(wc.arAgingBuckets.total ? wc.arAgingBuckets.days61to90 / wc.arAgingBuckets.total : 0, { fmt: PCT_FMT })],
-    [cell("  90+ Days", { color: wc.arAgingBuckets.total && wc.arAgingBuckets.days90plus / wc.arAgingBuckets.total > 0.15 ? C.RED_FG : C.BLACK }), inputCell(wc.arAgingBuckets.days90plus), cell(wc.arAgingBuckets.total ? wc.arAgingBuckets.days90plus / wc.arAgingBuckets.total : 0, { fmt: PCT_FMT, color: wc.arAgingBuckets.total && wc.arAgingBuckets.days90plus / wc.arAgingBuckets.total > 0.15 ? C.RED_FG : C.BLACK })],
-    [totalCell("Total AR"), totalCell(wc.arAgingBuckets.total), null],
-    [null],
-    [cell(`AR vs. Balance Sheet Variance: ${wc.arVarianceToBalanceSheet >= 0 ? "+" : ""}${wc.arVarianceToBalanceSheet.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}`, {
-      bold: Math.abs(wc.arVarianceToBalanceSheet) > 500,
-      color: Math.abs(wc.arVarianceToBalanceSheet) > 500 ? C.RED_FG : C.MUTED,
-      italic: true,
-      size: 9,
-    }), null, null],
   ];
 
   return buildSheet(rows, [36, 16, 14]);
