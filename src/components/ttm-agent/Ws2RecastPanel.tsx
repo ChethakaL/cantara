@@ -438,22 +438,18 @@ export function Ws2RecastPanel({
             <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
               <div className="rounded-2xl border border-slate-200 p-5">
                 <h4 className="text-sm font-semibold text-slate-800">Assumptions used</h4>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Replacement salary</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(latestRecast?.assumptions.replacementSalary ?? 0)}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Low multiple</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{formatMultiple(latestRecast?.assumptions.multipleLow)}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Related-party rent</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">{latestRecast?.assumptions.relatedPartyOwnership ? 'Yes' : 'No'}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Mid multiple</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{formatMultiple(latestRecast?.assumptions.multipleMid)}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">FMR estimate</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">
-                      {latestRecast?.assumptions.relatedPartyOwnership
-                        ? formatCurrency(latestRecast?.assumptions.fmrEstimate)
-                        : 'Not needed for this run'}
-                    </p>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">High multiple</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{formatMultiple(latestRecast?.assumptions.multipleHigh)}</p>
                   </div>
                 </div>
                 {latestRecast?.workbookUrl && (
@@ -489,18 +485,10 @@ export function Ws2RecastPanel({
               <div className="rounded-2xl border border-slate-200 p-5">
                 <h4 className="text-sm font-semibold text-slate-800">Admin inputs</h4>
                 <p className="mt-1 text-xs text-slate-500">Enter the EBITDA assumptions once, then run WS2-2. This becomes the working EBITDA and valuation range for the next stage.</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
                   <Input label="Low multiple" value={assumptions.multipleLow} onChange={(event) => setAssumptions((current) => ({ ...current, multipleLow: event.target.value }))} placeholder="3.5" />
                   <Input label="Mid multiple" value={assumptions.multipleMid} onChange={(event) => setAssumptions((current) => ({ ...current, multipleMid: event.target.value }))} placeholder="4.5" />
                   <Input label="High multiple" value={assumptions.multipleHigh} onChange={(event) => setAssumptions((current) => ({ ...current, multipleHigh: event.target.value }))} placeholder="5.5" />
-                  <Input label="Replacement salary" value={assumptions.replacementSalary} onChange={(event) => setAssumptions((current) => ({ ...current, replacementSalary: event.target.value }))} placeholder="$0 for LTM (Cantara default)" />
-                  <Input
-                    label="Related-party ownership"
-                    value={assumptions.relatedPartyOwnership}
-                    onChange={(event) => setAssumptions((current) => ({ ...current, relatedPartyOwnership: event.target.value.toLowerCase() === 'yes' ? 'yes' : 'no' }))}
-                    placeholder="yes or no"
-                  />
-                  <Input label="FMR estimate" value={assumptions.fmrEstimate} onChange={(event) => setAssumptions((current) => ({ ...current, fmrEstimate: event.target.value }))} placeholder="Only if related-party rent applies" />
                 </div>
                 <div className="mt-3">
                   <Textarea label="Admin notes" rows={2} value={assumptions.notes} onChange={(event) => setAssumptions((current) => ({ ...current, notes: event.target.value }))} placeholder="Why this multiple range or any rent / replacement salary context." />

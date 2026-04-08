@@ -56,8 +56,8 @@ export function Ws21ReviewWorkspace({
         normOverrides={overrides}
       />
 
-      {/* Normalization Schedule — shown after flags, before approval */}
-      {llmExtraction && !isApproved && (
+      {/* Normalization Schedule — shown after all flags are resolved and WS2-1 is approved */}
+      {llmExtraction && isApproved && (
         <Ws21NormSchedule
           extraction={llmExtraction}
           overrides={overrides}

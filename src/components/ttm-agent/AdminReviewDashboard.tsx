@@ -344,7 +344,7 @@ export function AdminReviewDashboard({
                           <>
                             {/* Accept Suggestion — one-click approve for LLM-suggested mappings */}
                             {(() => {
-                              const conf = typeof flag.payload?.mappingConfidence === 'number' ? flag.payload.mappingConfidence : null
+                              const conf = typeof flag.payload?.mappingConfidence === 'number' ? flag.payload.mappingConfidence : typeof flag.payload?.confidence === 'number' ? flag.payload.confidence : null
                               const suggested = typeof flag.payload?.suggestedCode === 'string' ? flag.payload.suggestedCode : null
                               if (conf !== null && conf >= 0.5 && suggested) {
                                 const suggestedEntry = CANTARA_TAXONOMY.find(e => e.code === suggested)

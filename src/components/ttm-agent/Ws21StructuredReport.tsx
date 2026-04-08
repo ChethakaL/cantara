@@ -250,8 +250,8 @@ export function Ws21StructuredReport({ analysis }: { analysis: TtmAnalysisView }
       {analysis.workingCapital && (
         <Card className="p-5">
           <div>
-            <h4 className="text-sm font-semibold text-slate-900">Working capital and AR aging</h4>
-            <p className="mt-1 text-xs text-slate-500">Month-end working capital baseline and receivables quality for the latest available period.</p>
+            <h4 className="text-sm font-semibold text-slate-900">Working capital</h4>
+            <p className="mt-1 text-xs text-slate-500">Month-end working capital baseline for the latest available period.</p>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 p-4">
@@ -267,7 +267,7 @@ export function Ws21StructuredReport({ analysis }: { analysis: TtmAnalysisView }
               <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(analysis.workingCapital.trailingThreeMonthAverageNwc)}</p>
             </div>
           </div>
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div className="mt-4">
             <div className="overflow-hidden rounded-2xl border border-slate-200">
               <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-semibold text-slate-700">Current assets and liabilities</p>
@@ -294,37 +294,6 @@ export function Ws21StructuredReport({ analysis }: { analysis: TtmAnalysisView }
                   <span className="text-slate-900">{formatCurrency(analysis.workingCapital.totalCurrentLiabilities)}</span>
                 </div>
               </div>
-            </div>
-
-            <div className="overflow-hidden rounded-2xl border border-slate-200">
-              <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-semibold text-slate-700">AR aging</p>
-              </div>
-              <table className="w-full border-collapse text-sm">
-                <thead className="bg-slate-900 text-white">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.18em]">Bucket</th>
-                    <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.18em]">Amount</th>
-                    <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.18em]">% of AR</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 bg-white">
-                  {[
-                    ['Current', analysis.workingCapital.arAging.current, analysis.workingCapital.arAging.pctCurrent],
-                    ['1-30 days', analysis.workingCapital.arAging.days1To30, analysis.workingCapital.arAging.pct1To30],
-                    ['31-60 days', analysis.workingCapital.arAging.days31To60, analysis.workingCapital.arAging.pct31To60],
-                    ['61-90 days', analysis.workingCapital.arAging.days61To90, analysis.workingCapital.arAging.pct61To90],
-                    ['90+ days', analysis.workingCapital.arAging.days90Plus, analysis.workingCapital.arAging.pct90Plus],
-                    ['Total AR', analysis.workingCapital.arAging.totalAr, 100],
-                  ].map(([label, value, pct]) => (
-                    <tr key={String(label)}>
-                      <td className="px-4 py-3 text-slate-800">{label}</td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-900">{formatCurrency(Number(value))}</td>
-                      <td className="px-4 py-3 text-right text-slate-700">{formatPct(Number(pct))}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           </div>
         </Card>

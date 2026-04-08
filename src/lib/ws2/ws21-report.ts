@@ -247,15 +247,6 @@ function renderWorkingCapital(summary: WorkingCapitalSummary | null) {
   );
   lines.push(`Net Working Capital: ${formatCurrency(summary.netWorkingCapital)}`);
   lines.push(`3-Month Average NWC: ${formatCurrency(summary.trailingThreeMonthAverageNwc)}`);
-  lines.push("");
-  appendSectionTable(lines, ["AR Aging Bucket", "Amount", "% of AR"], [
-    ["Current", formatCurrency(summary.arAging.current), formatPct(summary.arAging.pctCurrent)],
-    ["1-30 days", formatCurrency(summary.arAging.days1To30), formatPct(summary.arAging.pct1To30)],
-    ["31-60 days", formatCurrency(summary.arAging.days31To60), formatPct(summary.arAging.pct31To60)],
-    ["61-90 days", formatCurrency(summary.arAging.days61To90), formatPct(summary.arAging.pct61To90)],
-    ["90+ days", formatCurrency(summary.arAging.days90Plus), formatPct(summary.arAging.pct90Plus)],
-    ["Total AR", formatCurrency(summary.arAging.totalAr), "100.0%"],
-  ]);
 
   return lines;
 }
