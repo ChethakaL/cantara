@@ -2,12 +2,19 @@ export type AnalysisStatus = 'idle' | 'researching' | 'analyzing' | 'complete' |
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 export type SimilarityLevel = 'high' | 'medium' | 'low';
 
+export interface ManualCompetitorEntry {
+  name: string;
+  address?: string;
+  websiteUrl?: string;
+}
+
 export interface CompetitorAnalysisFormData {
   businessName: string;
   businessAddress: string;
   businessCategory: string;
   websiteUrl?: string;
   radiusMiles?: number;
+  manualCompetitors?: ManualCompetitorEntry[];
 }
 
 export interface PlaceLocation {

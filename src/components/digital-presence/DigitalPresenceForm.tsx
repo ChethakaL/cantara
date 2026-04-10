@@ -64,12 +64,14 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
 
     websiteUrl: '',
     googleBusinessProfileUrl: '',
+    googleBusinessLocations: '',
     facebookHandle: '',
     instagramHandle: '',
     tiktokHandle: '',
     youtubeHandle: '',
     bookingPlatformUrl: '',
     yelpUrl: '',
+    glassdoorUrl: '',
     otherReviewUrls: '',
   });
 
@@ -94,6 +96,7 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
       form.youtubeHandle ||
       form.bookingPlatformUrl ||
       form.yelpUrl ||
+      form.glassdoorUrl ||
       form.otherReviewUrls;
     if (!hasChannel) {
       newErrors.websiteUrl = 'Please provide at least one channel URL or handle';
@@ -154,7 +157,13 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
           value={form.googleBusinessProfileUrl}
           onChange={e => set('googleBusinessProfileUrl', e.target.value)}
         />
-        <p className="text-xs text-slate-400">Paste the Google Maps / Business Profile link for your listing.</p>
+        <Input
+          label="Additional Location Names (for multi-location businesses)"
+          placeholder="e.g. Rex Dog Hotel - Downtown, Rex Dog Hotel - Burnaby"
+          value={form.googleBusinessLocations}
+          onChange={e => set('googleBusinessLocations', e.target.value)}
+        />
+        <p className="text-xs text-slate-400">Paste the Google Maps / Business Profile link. For multi-location businesses, list additional location names separated by commas.</p>
       </FieldGroup>
 
       {/* Social Media */}
@@ -228,6 +237,12 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
           placeholder="https://www.yelp.com/biz/..."
           value={form.yelpUrl}
           onChange={e => set('yelpUrl', e.target.value)}
+        />
+        <Input
+          label="Glassdoor URL (optional)"
+          placeholder="https://www.glassdoor.com/..."
+          value={form.glassdoorUrl}
+          onChange={e => set('glassdoorUrl', e.target.value)}
         />
         <Input
           label="Other Review Sites (optional)"

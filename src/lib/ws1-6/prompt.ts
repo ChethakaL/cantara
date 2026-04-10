@@ -88,7 +88,9 @@ Produce a table listing every document uploaded, with columns:
 - Date (executed date or "Undated")
 - Completeness Flag (Complete / Appears Incomplete / Amendment Referenced but Not Uploaded)
 
-End this section with a "Coverage Gap" note if any Required document category was not uploaded.
+End this section with a "Documents Not Provided" note listing all standard employment document categories that were NOT uploaded. Standard categories include: Employment Agreements, Non-Compete/Non-Solicitation Agreements, Employee Handbook, Benefits Summary, Payroll Register, Org Chart, Independent Contractor Agreements, Offer Letters, Severance Agreements, Retirement Plan Documents, PTO Accrual Ledger, Workers' Comp Certificate/Loss Run, Workers' Compensation Claims, and State Employer Registration Documents. For each missing category, note: "[Document Type] — Not provided by seller. [Brief statement of what analysis is limited without this document.]" This information is critical for the buyer's due diligence team to understand gaps in disclosure.
+
+IMPORTANT: The seller may not have all or even most of these documents. This is common for small businesses. Analyze whatever documents are provided without requiring any minimum set. The report must be complete even if only one or two documents are uploaded.
 
 ---
 

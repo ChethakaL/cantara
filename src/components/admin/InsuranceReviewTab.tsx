@@ -36,6 +36,7 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
   const [document, setDocument] = useState<InsuranceDoc | null>(null)
   const [summary, setSummary] = useState<InsuranceSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [hasClaims, setHasClaims] = useState<'yes' | 'no' | null>(null)
   const adminEmail = getAdminEmail()
 
   const logDebug = (...args: unknown[]) => {
@@ -148,6 +149,10 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
         if (!mountedRef.current) return
         setDocument(data.document)
         setSummary(data.summary)
+        // Restore hasClaims state based on existing data
+        if (data.document || data.summary) {
+          setHasClaims('yes')
+        }
       } catch (err: any) {
         console.error('[InsuranceReviewTab] Load failed', err)
         if (!mountedRef.current) return
@@ -349,8 +354,8 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
                 <Bot className="w-4 h-4 text-amber-600" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">Insurance Review Agent</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Summarizes uploaded insurance claim PDFs for advisor review.</p>
+                <h3 className="text-sm font-semibold text-slate-800">Insurance Claim Review</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Review insurance claims from the last 24 months. Upload claim documents for AI-powered summary and resolution status.</p>
               </div>
             </div>
           </div>
@@ -429,9 +434,55 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {!document && (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center text-sm text-slate-400">
-          No insurance claim PDF uploaded yet. The admin can upload it directly here, then run the Insurance Review Agent.
+      {!document && hasClaims === null && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 space-y-5">
+          <div className="text-center space-y-2">
+            <h4 className="text-sm font-semibold text-slate-800">Insurance Claims Disclosure</h4>
+            <p className="text-sm text-slate-500">Have there been any insurance claims within the business over the last 24 months?</p>
+          </div>
+          <div className="flex items-center justify-center gap-4">
+            <button
+              onClick={() => setHasClaims('yes')}
+              className="px-8 py-3 rounded-xl border-2 border-slate-200 text-sm font-medium text-slate-700 hover:border-amber-400 hover:bg-amber-50 transition-all"
+            >
+              Yes
+            </button>
+            <button
+              onClick={() => setHasClaims('no')}
+              className="px-8 py-3 rounded-xl border-2 border-slate-200 text-sm font-medium text-slate-700 hover:border-emerald-400 hover:bg-emerald-50 transition-all"
+            >
+              No
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!document && hasClaims === 'no' && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center space-y-3">
+          <div className="mx-auto w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
+            <CheckCircle className="w-5 h-5 text-emerald-600" />
+          </div>
+          <p className="text-sm font-medium text-emerald-800">No insurance claims reported in the last 24 months.</p>
+          <p className="text-xs text-emerald-600">This will be noted in the due diligence summary.</p>
+          <button
+            onClick={() => setHasClaims(null)}
+            className="text-xs text-slate-500 hover:text-slate-700 underline"
+          >
+            Change answer
+          </button>
+        </div>
+      )}
+
+      {!document && hasClaims === 'yes' && (
+        <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/30 p-10 text-center text-sm text-slate-500 space-y-3">
+          <p className="font-medium text-slate-700">Please upload the insurance claim document(s) above.</p>
+          <p className="text-xs text-slate-400">The AI will review the claim, provide a summary, and indicate whether the claim has been resolved.</p>
+          <button
+            onClick={() => setHasClaims(null)}
+            className="text-xs text-slate-500 hover:text-slate-700 underline"
+          >
+            Change answer
+          </button>
         </div>
       )}
 
@@ -461,9 +512,16 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
               )}
 
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-                <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium mb-1">
-                  <CheckCircle className="w-4 h-4" />
-                  Insurance claim summary
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium">
+                    <CheckCircle className="w-4 h-4" />
+                    Insurance claim summary
+                  </div>
+                  {summary.status && (
+                    <Badge color={summary.status.toLowerCase().includes('resolved') || summary.status.toLowerCase().includes('closed') ? 'green' : 'gold'}>
+                      {summary.status}
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-sm text-slate-700 leading-relaxed">{summary.summary}</p>
               </div>
