@@ -17,12 +17,14 @@ export interface DigitalAssetFormData {
 
   websiteUrl?: string;
   googleBusinessProfileUrl?: string;
+  googleBusinessLocations?: string;
   facebookHandle?: string;
   instagramHandle?: string;
   tiktokHandle?: string;
   youtubeHandle?: string;
   bookingPlatformUrl?: string;
   yelpUrl?: string;
+  glassdoorUrl?: string;
   otherReviewUrls?: string;
 }
 

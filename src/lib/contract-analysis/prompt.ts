@@ -33,9 +33,12 @@ Produce output in this EXACT structure using these EXACT delimiters.
 
 List every contract identified in the uploaded documents.
 
-| # | Contract Type | Counterparty | Effective Date | Expiration Date | Auto-Renewal? | Annual Value | Risk Tier | Current Status |
-|---|---|---|---|---|---|---|---|---|
-| | | | | | | | | |
+| # | Contract Type | Counterparty | Effective Date | Expiration Date | Auto-Renewal? | Annual Value | Termination Clause | Termination Terms | Risk Tier | Current Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| | | | | | | | | | | |
+
+**Termination Clause** — state Yes or No. If yes, briefly describe the termination right (for cause, for convenience, mutual, etc.).
+**Termination Terms** — state the notice period, any termination fee or penalty, and any post-termination obligations (e.g., wind-down period, data return, transition assistance).
 
 **Risk Tier** — assign one of: 🔴 High / 🟡 Medium / 🟢 Low based on the combined M&A impact of the contract's assignment, change of control, exclusivity, and financial terms.
 

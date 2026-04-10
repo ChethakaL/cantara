@@ -8,10 +8,12 @@ import {
   Globe,
   Loader2,
   MapPin,
+  Plus,
   Search,
   Star,
   Store,
   Tag,
+  Trash2,
   TrendingUp,
 } from 'lucide-react';
 import { Badge, Button, Card, Input, Modal, Textarea, cn } from '@/components/ui';
@@ -21,6 +23,7 @@ import {
   CompetitorAnalysisReport,
   CompetitorReportItem,
   DiscoveredCompetitorItem,
+  ManualCompetitorEntry,
   PlaceLocation,
 } from '@/lib/competitor-analysis/types';
 import type { CompetitorAnalysis as SavedCompetitorAnalysis } from '@/lib/store';
@@ -1133,6 +1136,120 @@ function ReportView({
       </div>
 
       <ProfileCard report={report} />
+
+      {/* Google Review Comparison Chart */}
+      {report.competitors.length > 0 && (
+        <Card className="p-5 space-y-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Google Review Comparison</p>
+          <div className="space-y-3">
+            {/* Subject business */}
+            <div className="flex items-center gap-3">
+              <div className="w-36 text-xs font-medium text-slate-700 truncate flex items-center gap-1.5">
+                <Star className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                {report.clientProfile.name}
+              </div>
+              <div className="flex-1 flex items-center gap-2">
+                <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden relative">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${((report.clientProfile.rating ?? 0) / 5) * 100}%`,
+                      background: 'linear-gradient(90deg, #b8922a, #d4a843)',
+                    }}
+                  />
+                </div>
+                <span className="text-xs font-semibold text-slate-700 w-12 text-right tabular-nums">
+                  {report.clientProfile.rating?.toFixed(1) ?? 'N/A'}
+                </span>
+                <span className="text-xs text-slate-400 w-20 text-right tabular-nums">
+                  {formatNumber(report.clientProfile.reviewCount)} reviews
+                </span>
+              </div>
+            </div>
+            {/* Competitors */}
+            {report.competitors.map((comp, i) => (
+              <div key={comp.placeId ?? i} className="flex items-center gap-3">
+                <div className="w-36 text-xs text-slate-600 truncate flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 flex-shrink-0">{i + 1}</span>
+                  {comp.name}
+                </div>
+                <div className="flex-1 flex items-center gap-2">
+                  <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${((comp.rating ?? 0) / 5) * 100}%`,
+                        background: comp.rating !== null && comp.rating >= (report.clientProfile.rating ?? 0) ? '#f43f5e' : '#10b981',
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-700 w-12 text-right tabular-nums">
+                    {comp.rating?.toFixed(1) ?? 'N/A'}
+                  </span>
+                  <span className="text-xs text-slate-400 w-20 text-right tabular-nums">
+                    {formatNumber(comp.reviewCount)} reviews
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Service Offerings Comparison */}
+      {report.competitors.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Service Offerings Comparison</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 sticky left-0 bg-slate-50 z-10">Service</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600 min-w-[100px]">
+                    {report.clientProfile.name.length > 15 ? report.clientProfile.name.slice(0, 15) + '…' : report.clientProfile.name}
+                  </th>
+                  {report.competitors.slice(0, 6).map((comp, i) => (
+                    <th key={comp.placeId ?? i} className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 min-w-[100px]">
+                      {comp.name.length > 15 ? comp.name.slice(0, 15) + '…' : comp.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const allServices = new Set<string>();
+                  report.clientProfile.services.forEach(s => allServices.add(s.toLowerCase()));
+                  report.competitors.slice(0, 6).forEach(c => c.services.forEach(s => allServices.add(s.toLowerCase())));
+                  const serviceList = Array.from(allServices).sort();
+
+                  return serviceList.map(service => (
+                    <tr key={service} className="border-b border-slate-50">
+                      <td className="px-4 py-2.5 text-xs font-medium text-slate-700 capitalize sticky left-0 bg-white z-10">{service}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        {report.clientProfile.services.some(s => s.toLowerCase() === service)
+                          ? <span className="text-emerald-500 font-bold">&#10003;</span>
+                          : <span className="text-slate-200">—</span>
+                        }
+                      </td>
+                      {report.competitors.slice(0, 6).map((comp, i) => (
+                        <td key={comp.placeId ?? i} className="px-3 py-2.5 text-center">
+                          {comp.services.some(s => s.toLowerCase() === service)
+                            ? <span className="text-emerald-500 font-bold">&#10003;</span>
+                            : <span className="text-slate-200">—</span>
+                          }
+                        </td>
+                      ))}
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <ComparisonTable
         discoveredCompetitors={report.discoveredCompetitors}
         researchedCompetitors={report.competitors}
@@ -1162,12 +1279,14 @@ export default function CompetitorAnalysisTab({
   businessCategory,
   websiteUrl,
 }: Props) {
+  const emptyCompetitor = (): ManualCompetitorEntry => ({ name: '', address: '', websiteUrl: '' });
   const [form, setForm] = useState<CompetitorAnalysisFormData>({
     businessName,
     businessAddress,
     businessCategory: businessCategory?.trim() || DEFAULT_PET_CATEGORY,
     websiteUrl,
     radiusMiles: 5,
+    manualCompetitors: [emptyCompetitor()],
   });
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [report, setReport] = useState<CompetitorAnalysisReport | null>(null);
@@ -1235,6 +1354,32 @@ export default function CompetitorAnalysisTab({
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function updateCompetitor(index: number, field: keyof ManualCompetitorEntry, value: string) {
+    setForm((current) => {
+      const competitors = [...(current.manualCompetitors ?? [])];
+      competitors[index] = { ...competitors[index], [field]: value };
+      return { ...current, manualCompetitors: competitors };
+    });
+  }
+
+  function addCompetitor() {
+    setForm((current) => {
+      const competitors = [...(current.manualCompetitors ?? [])];
+      if (competitors.length < 5) {
+        competitors.push(emptyCompetitor());
+      }
+      return { ...current, manualCompetitors: competitors };
+    });
+  }
+
+  function removeCompetitor(index: number) {
+    setForm((current) => {
+      const competitors = [...(current.manualCompetitors ?? [])];
+      competitors.splice(index, 1);
+      return { ...current, manualCompetitors: competitors };
+    });
+  }
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
@@ -1257,7 +1402,7 @@ export default function CompetitorAnalysisTab({
         body: JSON.stringify({
           formData: {
             ...form,
-            radiusMiles: 5,
+            radiusMiles: form.radiusMiles ?? 5,
           },
         }),
       });
@@ -1429,10 +1574,10 @@ export default function CompetitorAnalysisTab({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Competitor Analysis Agent</p>
                 <h2 className="text-lg font-semibold text-slate-900 mt-1">Local Market Comparison</h2>
                 <p className="text-sm text-slate-500 mt-2 max-w-3xl">
-                  Searches for comparable businesses within a 5-mile radius, reviews public business listings and websites, and generates a professional report covering services, pricing visibility, ratings, and hours overlap.
+                  Searches for comparable businesses within a configurable radius, reviews public business listings and websites, and generates a professional report covering services, pricing visibility, ratings, and hours overlap.
                 </p>
               </div>
-              <Badge color="gold">5-mile radius</Badge>
+              <Badge color="gold">{form.radiusMiles ?? 5}-mile radius</Badge>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1455,14 +1600,113 @@ export default function CompetitorAnalysisTab({
               value={form.businessAddress}
               onChange={(event) => setField('businessAddress', event.target.value)}
               rows={3}
-              placeholder="123 Main St, Seattle, WA 98101"
+              placeholder="123 Main St, Vancouver, BC V6B 1A1"
             />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Search Radius</label>
+                <select
+                  value={form.radiusMiles ?? 5}
+                  onChange={(event) => setField('radiusMiles', Number(event.target.value))}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+                >
+                  <option value={1}>1 mile</option>
+                  <option value={2}>2 miles</option>
+                  <option value={3}>3 miles</option>
+                  <option value={5}>5 miles</option>
+                  <option value={10}>10 miles</option>
+                  <option value={15}>15 miles</option>
+                  <option value={20}>20 miles</option>
+                  <option value={25}>25 miles</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Pet Business Category</label>
+                <select
+                  value={form.businessCategory}
+                  onChange={(event) => setField('businessCategory', event.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+                >
+                  <option value="pet store">Pet Store (General)</option>
+                  <option value="pet boarding">Pet Boarding</option>
+                  <option value="pet daycare">Pet Daycare</option>
+                  <option value="pet grooming">Pet Grooming</option>
+                  <option value="pet boarding daycare">Boarding & Daycare</option>
+                  <option value="pet boarding grooming daycare">Boarding, Daycare & Grooming</option>
+                  <option value="dog training">Dog Training</option>
+                  <option value="veterinary care">Veterinary Care</option>
+                  <option value="pet resort">Pet Resort</option>
+                  <option value="dog hotel">Dog Hotel</option>
+                </select>
+                <p className="text-xs text-slate-400 mt-1">Select the primary service category to compare against.</p>
+              </div>
+            </div>
+
+            {/* Manual Competitors */}
+            <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-700">Top Competitors</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Enter up to 5 known competitors. The analysis will run on these specific businesses.</p>
+                </div>
+                {(form.manualCompetitors?.length ?? 0) < 5 && (
+                  <button
+                    type="button"
+                    onClick={addCompetitor}
+                    className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add
+                  </button>
+                )}
+              </div>
+              <div className="space-y-3">
+                {(form.manualCompetitors ?? []).map((comp, i) => (
+                  <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Competitor {i + 1}</p>
+                      {(form.manualCompetitors?.length ?? 0) > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeCompetitor(i)}
+                          className="text-slate-300 hover:text-rose-500 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <Input
+                        label="Business Name *"
+                        placeholder="e.g. Rex Dog Hotel"
+                        value={comp.name}
+                        onChange={(e) => updateCompetitor(i, 'name', e.target.value)}
+                      />
+                      <Input
+                        label="Address (optional)"
+                        placeholder="123 Main St, Vancouver, BC"
+                        value={comp.address ?? ''}
+                        onChange={(e) => updateCompetitor(i, 'address', e.target.value)}
+                      />
+                      <Input
+                        label="Website (optional)"
+                        placeholder="https://..."
+                        value={comp.websiteUrl ?? ''}
+                        onChange={(e) => updateCompetitor(i, 'websiteUrl', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-start gap-3">
                 <TrendingUp className="w-5 h-5 text-amber-500 mt-0.5" />
                 <div className="text-sm text-slate-600 leading-relaxed">
                   Save the same address and website in <span className="font-semibold text-slate-700">Client Management</span> so this agent opens prefilled for the client every time.
+                  {' '}If no competitors are entered, the agent will auto-discover nearby competitors within the search radius.
                 </div>
               </div>
             </div>

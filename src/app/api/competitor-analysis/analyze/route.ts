@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { buildCompetitorAnalysisReport } from '@/lib/competitor-analysis/claude-analyzer';
-import { findNearbyCompetitors, inferPetBusinessCategory, lookupSubjectBusiness } from '@/lib/competitor-analysis/google-places';
+import { findNearbyCompetitors, lookupSpecifiedCompetitors, inferPetBusinessCategory, lookupSubjectBusiness } from '@/lib/competitor-analysis/google-places';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
 import { CompetitorAnalysisFormData } from '@/lib/competitor-analysis/types';
 
@@ -73,29 +73,57 @@ export async function POST(req: NextRequest) {
           ? inferPetBusinessCategory(subjectLookup.subject)
           : formData.businessCategory.trim();
 
-        send({
-          type: 'progress',
-          phase: 'research',
-          message: `Searching for nearby ${resolvedCategory} competitors within ${formData.radiusMiles ?? 5} miles…`,
-        });
+        const hasManualCompetitors = formData.manualCompetitors && formData.manualCompetitors.filter(c => c.name.trim()).length > 0;
 
-        const nearby = await findNearbyCompetitors({
-          center: subjectLookup.center,
-          businessCategory: resolvedCategory,
-          apiKey: googleApiKey,
-          subjectPlaceId: subjectLookup.subject.placeId,
-          subjectName: subjectLookup.subject.name,
-          subjectAddress: subjectLookup.subject.address || subjectLookup.formattedAddress,
-          limit: 6,
-        });
+        let nearby: Awaited<ReturnType<typeof findNearbyCompetitors>>;
 
-        send({
-          type: 'progress',
-          phase: 'research',
-          message: nearby.competitors.length
-            ? `Found ${nearby.discoveredCompetitors} nearby competitors. Gathering website evidence for the strongest matches…`
-            : 'No nearby competitors were found from public location data. Building a report from the subject business profile only…',
-        });
+        if (hasManualCompetitors) {
+          const validCompetitors = formData.manualCompetitors!.filter(c => c.name.trim());
+          send({
+            type: 'progress',
+            phase: 'research',
+            message: `Looking up ${validCompetitors.length} specified competitor${validCompetitors.length === 1 ? '' : 's'}…`,
+          });
+
+          nearby = await lookupSpecifiedCompetitors({
+            competitors: validCompetitors,
+            center: subjectLookup.center,
+            apiKey: googleApiKey,
+          });
+
+          send({
+            type: 'progress',
+            phase: 'research',
+            message: nearby.competitors.length
+              ? `Found ${nearby.competitors.length} of ${validCompetitors.length} specified competitors. Gathering website evidence…`
+              : 'Could not locate any of the specified competitors. Building a report from the subject business profile only…',
+          });
+        } else {
+          send({
+            type: 'progress',
+            phase: 'research',
+            message: `Searching for nearby ${resolvedCategory} competitors within ${formData.radiusMiles ?? 5} miles…`,
+          });
+
+          nearby = await findNearbyCompetitors({
+            center: subjectLookup.center,
+            businessCategory: resolvedCategory,
+            apiKey: googleApiKey,
+            subjectPlaceId: subjectLookup.subject.placeId,
+            subjectName: subjectLookup.subject.name,
+            subjectAddress: subjectLookup.subject.address || subjectLookup.formattedAddress,
+            limit: 6,
+            radiusMiles: formData.radiusMiles ?? 5,
+          });
+
+          send({
+            type: 'progress',
+            phase: 'research',
+            message: nearby.competitors.length
+              ? `Found ${nearby.discoveredCompetitors} nearby competitors. Gathering website evidence for the strongest matches…`
+              : 'No nearby competitors were found from public location data. Building a report from the subject business profile only…',
+          });
+        }
 
         const subjectWebsiteResearch = await researchWebsite({
           websiteUrl: subjectLookup.subject.websiteUrl ?? formData.websiteUrl ?? null,

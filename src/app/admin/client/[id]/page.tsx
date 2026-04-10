@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, CalendarDays, FileSpreadsheet, Globe2,
-  ChevronDown, Bot, Users2,
+  ChevronDown, Bot, Users2, Calculator,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
@@ -21,6 +21,7 @@ import DigitalPresenceTab from '@/components/digital-presence/DigitalPresenceTab
 import CompetitorAnalysisTab from '@/components/competitor-analysis/CompetitorAnalysisTab'
 import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
 import EmployeeObligationsTab from '@/components/ws1-6/EmployeeObligationsTab'
+import NetProceedsCalculator from '@/components/net-proceeds/NetProceedsCalculator'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -48,7 +49,7 @@ const AGENT_TABS = [
   },
   {
     key: 'contract',
-    label: 'Contract Analysis',
+    label: 'Material Contracts',
     badge: null,
     icon: Briefcase,
   },
@@ -69,6 +70,12 @@ const AGENT_TABS = [
     label: 'Insurance Review Agent',
     badge: null,
     icon: FileText,
+  },
+  {
+    key: 'net-proceeds',
+    label: 'Net Proceeds Calculator',
+    badge: null,
+    icon: Calculator,
   },
 ] as const
 
@@ -431,6 +438,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'insurance' && (
               <InsuranceReviewTab clientId={client.id} />
+            )}
+            {activeTab === 'net-proceeds' && (
+              <NetProceedsCalculator clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />

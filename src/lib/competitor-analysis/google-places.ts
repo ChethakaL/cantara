@@ -7,6 +7,7 @@ import {
 
 const GOOGLE_MAPS_BASE = 'https://maps.googleapis.com/maps/api';
 const FIVE_MILES_IN_METERS = 8047;
+const MILES_TO_METERS = 1609.34;
 const REQUEST_TIMEOUT_MS = 20000;
 
 type GeocodeResponse = {
@@ -304,11 +305,15 @@ async function runNearbySearch(params: {
   apiKey: string;
   businessCategory: string;
   placeType: string | null;
+  radiusMiles?: number;
 }): Promise<DiscoveredPlace[]> {
+  const radiusMeters = params.radiusMiles
+    ? Math.round(params.radiusMiles * MILES_TO_METERS)
+    : FIVE_MILES_IN_METERS;
   const searchParams = new URLSearchParams({
     key: params.apiKey,
     location: `${params.center.lat},${params.center.lng}`,
-    radius: String(FIVE_MILES_IN_METERS),
+    radius: String(radiusMeters),
     keyword: params.businessCategory,
   });
 
@@ -394,12 +399,14 @@ export async function findNearbyCompetitors(args: {
   subjectName: string;
   subjectAddress: string;
   limit?: number;
+  radiusMiles?: number;
 }): Promise<{
   competitors: Array<BusinessPlaceProfile & { distanceMiles: number }>;
   discoveredCompetitors: number;
   discoveredItems: DiscoveredCompetitorItem[];
 }> {
   const placeType = inferGooglePlaceType(args.businessCategory);
+  const maxRadius = args.radiusMiles ?? 5;
 
   const searches = await Promise.all([
     runNearbySearch({
@@ -407,6 +414,7 @@ export async function findNearbyCompetitors(args: {
       apiKey: args.apiKey,
       businessCategory: args.businessCategory,
       placeType: null,
+      radiusMiles: maxRadius,
     }),
     placeType
       ? runNearbySearch({
@@ -414,13 +422,14 @@ export async function findNearbyCompetitors(args: {
           apiKey: args.apiKey,
           businessCategory: args.businessCategory,
           placeType,
+          radiusMiles: maxRadius,
         })
       : Promise.resolve([]),
   ]);
 
   const deduped = new Map<string, DiscoveredPlace>();
   for (const result of searches.flat()) {
-    if (result.distanceMiles > 5) continue;
+    if (result.distanceMiles > maxRadius) continue;
     if (isSameBusiness({
       candidate: result,
       subjectPlaceId: args.subjectPlaceId,
@@ -497,6 +506,73 @@ export async function findNearbyCompetitors(args: {
   return {
     competitors: detailed,
     discoveredCompetitors: discovered.length,
+    discoveredItems,
+  };
+}
+
+export async function lookupSpecifiedCompetitors(args: {
+  competitors: Array<{ name: string; address?: string; websiteUrl?: string }>;
+  center: PlaceLocation;
+  apiKey: string;
+}): Promise<{
+  competitors: Array<BusinessPlaceProfile & { distanceMiles: number }>;
+  discoveredCompetitors: number;
+  discoveredItems: DiscoveredCompetitorItem[];
+}> {
+  const results: Array<BusinessPlaceProfile & { distanceMiles: number }> = [];
+
+  for (const entry of args.competitors) {
+    if (!entry.name.trim()) continue;
+
+    const searchQuery = entry.address
+      ? `${entry.name} ${entry.address}`
+      : entry.name;
+
+    try {
+      const found = await findPlaceByText(searchQuery, args.apiKey);
+      if (!found?.placeId) {
+        console.warn(`[Competitor Lookup] Could not find: ${entry.name}`);
+        continue;
+      }
+
+      const details = await getPlaceDetails(found.placeId, args.apiKey);
+      if (!details) continue;
+
+      const distanceMiles = haversineMiles(args.center, details.location);
+
+      // Override websiteUrl if user provided one and Google didn't find one
+      if (entry.websiteUrl && !details.websiteUrl) {
+        details.websiteUrl = entry.websiteUrl;
+      }
+
+      results.push({ ...details, distanceMiles });
+    } catch (err) {
+      console.error(`[Competitor Lookup] Failed for "${entry.name}":`, err);
+    }
+  }
+
+  const discoveredItems: DiscoveredCompetitorItem[] = results.map((item) => ({
+    placeId: item.placeId,
+    name: item.name,
+    address: item.address,
+    location: item.location,
+    rating: item.rating,
+    reviewCount: item.reviewCount,
+    priceLevel: item.priceLevel,
+    websiteUrl: item.websiteUrl,
+    mapsUrl: item.mapsUrl,
+    phoneNumber: item.phoneNumber,
+    businessStatus: item.businessStatus,
+    openNow: item.openNow,
+    weekdayText: item.weekdayText,
+    primaryTypes: item.primaryTypes,
+    distanceMiles: item.distanceMiles,
+    isResearched: true,
+  }));
+
+  return {
+    competitors: results,
+    discoveredCompetitors: results.length,
     discoveredItems,
   };
 }

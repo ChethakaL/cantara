@@ -62,12 +62,20 @@ Analyse each channel based on the research data and produce a structured JSON re
 - 2: Outdated, poor mobile, missing service info
 - 1: Broken, very outdated, or negligible web presence
 
-**Google Business Profile (1–5)**
+**Google Business Profile (1–5)** — THIS IS THE MOST IMPORTANT REVIEW CHANNEL
 - 5: 4.5+ stars, 50+ reviews, active (< 1 month), complete profile with photos
 - 4: 4+ stars, 20+ reviews, mostly complete
 - 3: 3.5–4 stars or < 20 reviews or inactive 1–3 months
 - 2: < 3.5 stars or very few reviews or very incomplete
 - 1: Not found, 1 or 2 reviews, or very negative
+
+**MANDATORY Google Reviews Deep-Dive**: For Google Business Profile, you MUST report ALL of the following in keyMetrics:
+- "Total Reviews": Absolute number of reviews (e.g. "47 reviews")
+- "Overall Rating": Overall star score (e.g. "4.3 stars")
+- "Recent Review Activity": How frequently reviews are posted in the last 3–6 months (e.g. "~3 reviews/month", "Last review 2 months ago")
+- "Recent Review Quality": Sentiment of recent reviews — are recent reviews mostly positive (4–5 stars) or trending negative?
+- "Negative Review Response": Does the business respond to poor reviews (1–2 stars)? Are responses professional and timely? (e.g. "Owner responds to all negative reviews within 48h" or "No responses to negative reviews found")
+- If the business has MULTIPLE LOCATIONS, report each location separately with its own review count, rating, and recency data. Use the format "Location: [name] — [rating], [count] reviews"
 
 **Social Media — Facebook/Instagram/TikTok/YouTube (1–5 each)**
 - 5: Large following (1k+ FB/IG, 500+ TikTok/YT), posts weekly, strong engagement, on-brand
@@ -89,6 +97,12 @@ Analyse each channel based on the research data and produce a structured JSON re
 - 3: Mixed reviews or low volume
 - 2: Below 3.5 avg or many negative patterns
 - 1: Overwhelmingly negative or no reputation online
+
+**Glassdoor / Employer Reputation**: If Glassdoor data is found in the research results, include it in the Online Reputation channel assessment with keyMetrics for:
+- "Glassdoor Rating": Overall employer rating (e.g. "3.8/5")
+- "Glassdoor Reviews": Number of employee reviews
+- "Glassdoor Recommend": % who recommend to a friend
+If no Glassdoor data is found, include a keyMetric: "Glassdoor": "No profile found — search for employer reviews recommended"
 
 ### Traffic Light Mapping:
 - Score 4–5 → "green"

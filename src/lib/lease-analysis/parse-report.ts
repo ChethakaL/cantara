@@ -1,9 +1,10 @@
-import { 
-  LeaseReport, 
-  SnapshotRow, 
-  FindingSection, 
-  Flag, 
-  DocumentInventoryItem 
+import {
+  LeaseReport,
+  SnapshotRow,
+  RentScheduleRow,
+  FindingSection,
+  Flag,
+  DocumentInventoryItem
 } from "./types";
 
 export function parseReport(markdown: string): LeaseReport {
@@ -12,6 +13,7 @@ export function parseReport(markdown: string): LeaseReport {
   return {
     raw: markdown,
     snapshotTable: parseSnapshotTable(sections["PART 1"] ?? ""),
+    rentSchedule: parseRentSchedule(sections["PART 2"] ?? ""),
     detailedFindings: parseDetailedFindings(sections["PART 2"] ?? ""),
     redFlags: parseFlags(sections["PART 3"] ?? "", "red"),
     orangeFlags: parseFlags(sections["PART 3"] ?? "", "orange"),
@@ -76,6 +78,45 @@ function parseSnapshotTable(text: string): SnapshotRow[] {
     finding: r[1] ?? "",
     sourceSection: r[2] ?? "",
   }));
+}
+
+function parseRentSchedule(text: string): RentScheduleRow[] {
+  // Extract section 2.3 RENT from Part 2
+  const sectionMatch = text.match(/### 2\.3\s+RENT[\s\S]*?(?=### 2\.\d|$)/i);
+  if (!sectionMatch) return [];
+
+  const section = sectionMatch[0];
+
+  // Find the rent schedule table — look for table with Lease Year / Per Annum / Per Month headers
+  const tableRegion = section.match(
+    /\|[^\n]*(?:Lease\s*Year|Period|Year)[^\n]*\|[\s\S]*?(?=\n\n|\n(?!\|)|$)/i
+  );
+  if (!tableRegion) return [];
+
+  const lines = tableRegion[0].split("\n").filter(l => l.includes("|"));
+  const rows: RentScheduleRow[] = [];
+
+  for (const line of lines) {
+    if (line.match(/^\|?[-|\s]+\|?$/)) continue; // separator
+    const cells = line.split("|").map(c => c.trim()).filter(c => c !== "");
+
+    // Skip header row
+    const isHeader = cells.some(c =>
+      /lease\s*year|period|per\s*annum|per\s*month|months/i.test(c)
+    );
+    if (isHeader) continue;
+
+    if (cells.length >= 3) {
+      rows.push({
+        leaseYear: cells[0] ?? "",
+        months: cells[1] ?? "",
+        perAnnum: cells.length >= 4 ? cells[2] ?? "" : "",
+        perMonth: cells.length >= 4 ? cells[3] ?? "" : cells[2] ?? "",
+      });
+    }
+  }
+
+  return rows;
 }
 
 function parseDetailedFindings(text: string): FindingSection[] {

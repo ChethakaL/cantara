@@ -7,9 +7,17 @@ export interface LeaseDocument {
   sizeBytes: number;
 }
 
+export interface RentScheduleRow {
+  leaseYear: string;
+  months: string;
+  perAnnum: string;
+  perMonth: string;
+}
+
 export interface LeaseReport {
   raw: string;                          // full streamed markdown
   snapshotTable: SnapshotRow[];
+  rentSchedule: RentScheduleRow[];
   detailedFindings: FindingSection[];
   redFlags: Flag[];
   orangeFlags: Flag[];

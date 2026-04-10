@@ -51,7 +51,7 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
       {/* Report header */}
       <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap bg-slate-50/30">
         <div>
-          <h4 className="font-semibold text-slate-800">Contract Analysis Report</h4>
+          <h4 className="font-semibold text-slate-800">Material Contracts Report</h4>
           <p className="text-xs text-slate-400 mt-0.5">
             {fileName} · Generated {new Date(report.generatedAt).toLocaleString()}
           </p>

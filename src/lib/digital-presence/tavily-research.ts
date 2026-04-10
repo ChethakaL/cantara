@@ -130,11 +130,19 @@ export async function researchAllChannels(
       label: 'Google Business Profile',
       run: async () => {
         const queries = [
-          `"${businessName}" Google reviews rating${ctx}`,
+          `"${businessName}" Google reviews rating number of reviews${ctx}`,
+          `"${businessName}" Google reviews recent negative response${ctx}`,
           `"${businessName}" Google Business Profile photos completeness`,
         ];
+        // Multi-location: search each additional location
+        if (formData.googleBusinessLocations) {
+          const locations = formData.googleBusinessLocations.split(',').map(l => l.trim()).filter(Boolean);
+          for (const loc of locations) {
+            queries.push(`"${loc}" Google reviews rating number of reviews`);
+          }
+        }
         const all: TavilySearchResult[] = [];
-        for (const q of queries) all.push(...await tavilySearch(q, apiKey));
+        for (const q of queries) all.push(...await tavilySearch(q, apiKey, 'advanced'));
         return { channelType: 'google_business', inputUrl: formData.googleBusinessProfileUrl, searchQueries: queries, results: deduplicateResults(all) };
       },
     });
@@ -235,7 +243,7 @@ export async function researchAllChannels(
   }
 
   // ── Online Reputation ──────────────────────────────────────────────────────
-  if (formData.yelpUrl || formData.otherReviewUrls) {
+  if (formData.yelpUrl || formData.glassdoorUrl || formData.otherReviewUrls) {
     tasks.push({
       channelType: 'online_reputation',
       label: 'Online Reputation',
@@ -248,9 +256,32 @@ export async function researchAllChannels(
           const yelpHost = stripProtocol(formData.yelpUrl);
           queries.push(`site:${yelpHost}`);
         }
+        if (formData.glassdoorUrl) {
+          const glassdoorHost = stripProtocol(formData.glassdoorUrl);
+          queries.push(`site:${glassdoorHost}`);
+        } else {
+          // Auto-search Glassdoor even if not provided
+          queries.push(`"${businessName}" Glassdoor reviews employer rating${ctx}`);
+        }
         const all: TavilySearchResult[] = [];
         for (const q of queries) all.push(...await tavilySearch(q, apiKey));
         return { channelType: 'online_reputation', inputUrl: formData.yelpUrl, searchQueries: queries, results: deduplicateResults(all) };
+      },
+    });
+  } else {
+    // Always search for reputation even if no URLs provided
+    tasks.push({
+      channelType: 'online_reputation',
+      label: 'Online Reputation',
+      run: async () => {
+        const queries: string[] = [
+          `"${businessName}" Yelp reviews rating${ctx}`,
+          `"${businessName}" Glassdoor reviews employer rating${ctx}`,
+          `"${businessName}" online reviews reputation${ctx}`,
+        ];
+        const all: TavilySearchResult[] = [];
+        for (const q of queries) all.push(...await tavilySearch(q, apiKey));
+        return { channelType: 'online_reputation', inputUrl: undefined, searchQueries: queries, results: deduplicateResults(all) };
       },
     });
   }

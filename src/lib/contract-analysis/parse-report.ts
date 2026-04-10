@@ -95,6 +95,8 @@ function parseMarkdownTable(text: string): string[][] {
         lower === "expiration date" ||
         lower === "auto-renewal?" ||
         lower === "current status" ||
+        lower === "termination clause" ||
+        lower === "termination terms" ||
         lower === "type" ||
         lower === "execution status" ||
         lower === "document" ||
@@ -120,6 +122,27 @@ function parseSnapshotTable(text: string): SnapshotRow[] {
   const rows = parseMarkdownTable(text);
 
   return rows.map((row, index) => {
+    if (row.length >= 9) {
+      // New format with termination clause columns
+      const contractNumber = row[0] || `#${index + 1}`;
+      const contractType = row[1] || "Unknown contract";
+      const counterparty = row[2] || "Unknown counterparty";
+      const effectiveDate = row[3] || "Not found";
+      const expirationDate = row[4] || "Not found";
+      const autoRenewal = row[5] || "Unknown";
+      const annualValue = row[6] || "Not found";
+      const terminationClause = row[7] || "Not found";
+      const terminationTerms = row[8] || "Not found";
+      const riskTier = row[9] || "Unknown";
+      const currentStatus = row[10] || "Unknown";
+
+      return {
+        field: `${contractNumber} ${contractType}`.trim(),
+        finding: `${counterparty} | Effective: ${effectiveDate} | Expiration: ${expirationDate} | Auto-Renewal: ${autoRenewal} | Value: ${annualValue} | Termination: ${terminationClause} — ${terminationTerms}`,
+        sourceSection: `${riskTier} | Status: ${currentStatus}`,
+      };
+    }
+
     if (row.length >= 7) {
       const contractNumber = row[0] || `#${index + 1}`;
       const contractType = row[1] || "Unknown contract";
