@@ -23,8 +23,8 @@ export async function POST(req: NextRequest) {
       if (!analysisId) {
         return new Response("analysisId is required", { status: 400 });
       }
-      if (!Array.isArray(preparedDocuments) || preparedDocuments.length === 0) {
-        return new Response("preparedDocuments is required", { status: 400 });
+      if (!Array.isArray(preparedDocuments)) {
+        return new Response("preparedDocuments must be an array", { status: 400 });
       }
 
       const updated = await runWs2RecastAnalysis({
