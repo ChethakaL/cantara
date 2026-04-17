@@ -27,6 +27,23 @@ type InsuranceDoc = {
   reviewStatus?: string | null
 }
 
+function formatClaimStatus(status: string | null | undefined): { label: string; color: string; badgeColor: 'red' | 'gold' | 'blue' | 'green' | 'slate' } {
+  switch (status?.toLowerCase()) {
+    case 'denied':
+      return { label: 'Denied', color: 'text-red-700 bg-red-50 border-red-200', badgeColor: 'red' }
+    case 'in_process':
+      return { label: 'In Process', color: 'text-amber-700 bg-amber-50 border-amber-200', badgeColor: 'gold' }
+    case 'paid_in_part':
+      return { label: 'Paid in Part', color: 'text-blue-700 bg-blue-50 border-blue-200', badgeColor: 'blue' }
+    case 'paid_in_full':
+      return { label: 'Paid in Full', color: 'text-emerald-700 bg-emerald-50 border-emerald-200', badgeColor: 'green' }
+    case 'pending':
+      return { label: 'Pending', color: 'text-slate-700 bg-slate-50 border-slate-200', badgeColor: 'slate' }
+    default:
+      return { label: 'Unknown', color: 'text-slate-700 bg-slate-50 border-slate-200', badgeColor: 'slate' }
+  }
+}
+
 export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
@@ -496,7 +513,7 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
           <div className="flex items-center gap-2 text-sm text-slate-700">
             <FileText className="w-4 h-4 text-slate-400" />
             <span>{document.fileName}</span>
-            {summary?.status && <Badge color="blue">{summary.status}</Badge>}
+            {summary?.status && <Badge color={formatClaimStatus(summary.status).badgeColor}>{formatClaimStatus(summary.status).label}</Badge>}
           </div>
           {summary ? (
             <div className="space-y-4">
@@ -518,17 +535,29 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
                     Insurance claim summary
                   </div>
                   {summary.status && (
-                    <Badge color={summary.status.toLowerCase().includes('resolved') || summary.status.toLowerCase().includes('closed') ? 'green' : 'gold'}>
-                      {summary.status}
+                    <Badge color={formatClaimStatus(summary.status).badgeColor}>
+                      {formatClaimStatus(summary.status).label}
                     </Badge>
                   )}
                 </div>
                 <p className="text-sm text-slate-700 leading-relaxed">{summary.summary}</p>
+                {summary.status && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Claim Status:</span>
+                    <Badge color={formatClaimStatus(summary.status).badgeColor} className="text-sm px-3 py-1">
+                      {formatClaimStatus(summary.status).label}
+                    </Badge>
+                  </div>
+                )}
               </div>
 
               {hasStructuredFields ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className={`rounded-xl border p-3 ${formatClaimStatus(summary.status).color}`}>
+                      <p className="text-[11px] uppercase tracking-wide opacity-70">Claim Status</p>
+                      <p className="text-sm font-semibold mt-1">{formatClaimStatus(summary.status).label}</p>
+                    </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="text-[11px] uppercase tracking-wide text-slate-400">Incident Date</p>
                       <p className="text-sm text-slate-700 mt-1">{summary.incidentDate || 'Unknown'}</p>

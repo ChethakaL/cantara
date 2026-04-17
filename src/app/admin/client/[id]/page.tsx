@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, CalendarDays, FileSpreadsheet, Globe2,
-  ChevronDown, Bot, Users2, Calculator,
+  ChevronDown, Bot, Users2, Calculator, Sparkles,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
@@ -22,6 +22,7 @@ import CompetitorAnalysisTab from '@/components/competitor-analysis/CompetitorAn
 import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
 import EmployeeObligationsTab from '@/components/ws1-6/EmployeeObligationsTab'
 import NetProceedsCalculator from '@/components/net-proceeds/NetProceedsCalculator'
+import TeaserGeneratorTab from '@/components/teaser/TeaserGeneratorTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -76,6 +77,12 @@ const AGENT_TABS = [
     label: 'Net Proceeds Calculator',
     badge: null,
     icon: Calculator,
+  },
+  {
+    key: 'teaser',
+    label: 'Deal Teaser Generator',
+    badge: null,
+    icon: Sparkles,
   },
 ] as const
 
@@ -441,6 +448,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'net-proceeds' && (
               <NetProceedsCalculator clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'teaser' && (
+              <TeaserGeneratorTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />

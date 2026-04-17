@@ -230,7 +230,7 @@ function parseFlags(text: string, type: "red" | "orange" | "green"): Flag[] {
       const get = (label: string) => {
         const escapedLabel = label.replace(/[ \s&]+/g, "\\s*(?:&|and)?\\s*");
         const re = new RegExp(
-          `(?:\\*\\*)?${escapedLabel}(?:\\*\\*)?(?::|\\*+)?\\s*([\\s\\S]*?)(?=\\n\\s*(?:\\*\\*)?(?:Issue|Why|Source|Quote)[a-z\\s&]*\\b|$)`,
+          `(?:\\*\\*)?${escapedLabel}(?:\\*\\*)?(?::|\\*+)?\\s*([\\s\\S]*?)(?=\\n\\s*(?:\\*\\*)?(?:Issue|Why|Suggested|Source|Quote|Contract)[a-z\\s&]*\\b|$)`,
           "i",
         );
 
@@ -248,6 +248,7 @@ function parseFlags(text: string, type: "red" | "orange" | "green"): Flag[] {
         riskLevel: type,
         issue: get("Issue"),
         whyItMatters: get("Why It Matters"),
+        suggestedAction: get("Suggested Action") || undefined,
         sourceSection: get("Contract & Source") || get("Source & Quote") || get("Source"),
       };
     })

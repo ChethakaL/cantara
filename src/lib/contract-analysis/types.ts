@@ -38,6 +38,7 @@ export interface Flag {
   issue: string;
   whyItMatters: string;
   sourceSection: string;
+  suggestedAction?: string;
 }
 
 export interface ContractRiskCard {

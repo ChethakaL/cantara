@@ -161,6 +161,7 @@ function FlagGroup({
           title: 'text-rose-800',
           text: 'text-rose-700',
           source: 'text-rose-600',
+          actionWrap: 'bg-rose-100/60 border-rose-200 text-rose-800',
         }
       : tone === 'amber'
         ? {
@@ -168,12 +169,14 @@ function FlagGroup({
             title: 'text-amber-800',
             text: 'text-amber-700',
             source: 'text-amber-600',
+            actionWrap: 'bg-amber-100/60 border-amber-200 text-amber-800',
           }
         : {
             wrap: 'bg-emerald-50 border-emerald-100',
             title: 'text-emerald-800',
             text: 'text-emerald-700',
             source: 'text-emerald-600',
+            actionWrap: 'bg-emerald-100/60 border-emerald-200 text-emerald-800',
           }
 
   return (
@@ -190,6 +193,12 @@ function FlagGroup({
               <p className={`text-sm mb-2 ${styles.text}`}>
                 <strong>Impact:</strong> {flag.whyItMatters}
               </p>
+            )}
+            {flag.suggestedAction && (
+              <div className={`text-sm mb-2 rounded-lg border ${styles.actionWrap} px-3 py-2 flex items-start gap-2`}>
+                <span className="shrink-0 mt-0.5">&#9889;</span>
+                <p><strong>Action Required:</strong> {flag.suggestedAction}</p>
+              </div>
             )}
             {flag.sourceSection && (
               <p className={`text-xs font-mono ${styles.source}`}>

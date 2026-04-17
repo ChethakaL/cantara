@@ -107,8 +107,8 @@ export function LeaseReport({
 
       {/* Section content */}
       <div className="p-6 min-h-[400px]">
-        {activeTab === 'summary' && <SnapshotTable rows={report.snapshotTable} rentSchedule={report.rentSchedule} />}
-        {activeTab === 'findings' && <DetailedFindings findings={report.detailedFindings} raw={report.raw} />}
+        {activeTab === 'summary' && <SnapshotTable rows={report.snapshotTable} />}
+        {activeTab === 'findings' && <DetailedFindings findings={report.detailedFindings} raw={report.raw} rentSchedule={report.rentSchedule} />}
         {activeTab === 'flags' && (
           <FlagAnalysis
             red={report.redFlags}

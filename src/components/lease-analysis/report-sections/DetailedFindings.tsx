@@ -2,15 +2,16 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FindingSection } from '../../../lib/lease-analysis/types'
+import { FindingSection, RentScheduleRow } from '../../../lib/lease-analysis/types'
 import { Badge } from '@/components/ui'
 
 interface Props {
   findings: FindingSection[]
   raw: string
+  rentSchedule?: RentScheduleRow[]
 }
 
-export function DetailedFindings({ findings, raw }: Props) {
+export function DetailedFindings({ findings, raw, rentSchedule }: Props) {
   const [selected, setSelected] = useState(findings[0]?.id ?? '')
   const current = findings.find(f => f.id === selected)
 
@@ -24,6 +25,34 @@ export function DetailedFindings({ findings, raw }: Props) {
   }
 
   return (
+    <div className="space-y-6">
+      {rentSchedule && rentSchedule.length > 0 && (
+        <div className="mb-6">
+          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-3">Rent Schedule</h4>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/50">
+                  <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500">Lease Year</th>
+                  <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500">Months</th>
+                  <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500">Per Annum</th>
+                  <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500">Per Month</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rentSchedule.map((row, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <td className="py-2.5 px-3 text-xs font-medium text-slate-600">{row.leaseYear}</td>
+                    <td className="py-2.5 px-3 text-xs text-slate-600">{row.months}</td>
+                    <td className="py-2.5 px-3 text-sm text-slate-800 text-right font-mono">{row.perAnnum}</td>
+                    <td className="py-2.5 px-3 text-sm text-slate-800 text-right font-mono">{row.perMonth}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     <div className="flex gap-6 h-[calc(100vh-320px)] min-h-[500px]">
       {/* Sidebar Navigation */}
       <div className="w-56 shrink-0 flex flex-col gap-1 overflow-y-auto pr-2 custom-scrollbar border-r border-slate-100">
@@ -78,6 +107,7 @@ export function DetailedFindings({ findings, raw }: Props) {
           </div>
         )}
       </div>
+    </div>
     </div>
   )
 }
