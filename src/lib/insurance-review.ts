@@ -41,9 +41,11 @@ Review the uploaded insurance claim PDF and return ONLY valid JSON with this exa
   "incidentCause": "<short phrase or Unknown>",
   "amountClaimed": "<currency amount or Unknown>",
   "amountRequested": "<currency amount or Unknown>",
-  "status": "<submitted|approved|partially_approved|denied|paid|pending|unknown>",
+  "status": "<denied|in_process|paid_in_part|paid_in_full|pending|unknown>",
   "keyFacts": ["<fact 1>", "<fact 2>", "<fact 3>"]
 }
+
+For 'status', determine the current resolution status of the claim: 'denied' if the claim was rejected, 'in_process' if still being reviewed/processed, 'paid_in_part' if partially paid/settled, 'paid_in_full' if fully paid/settled, 'pending' if submitted but no decision yet, 'unknown' if status cannot be determined.
 
 Rules:
 - Base the answer only on the provided PDF.

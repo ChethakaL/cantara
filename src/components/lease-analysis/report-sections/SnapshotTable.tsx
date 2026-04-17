@@ -1,13 +1,12 @@
 'use client'
-import { SnapshotRow, RentScheduleRow } from '../../../lib/lease-analysis/types'
+import { SnapshotRow } from '../../../lib/lease-analysis/types'
 import { normalizeSummaryRows } from '@/lib/lease-analysis/report-utils'
 
 interface Props {
   rows: SnapshotRow[]
-  rentSchedule?: RentScheduleRow[]
 }
 
-export function SnapshotTable({ rows, rentSchedule }: Props) {
+export function SnapshotTable({ rows }: Props) {
   const normalizedRows = normalizeSummaryRows(rows || [])
 
   if (!normalizedRows.length) {
@@ -39,33 +38,6 @@ export function SnapshotTable({ rows, rentSchedule }: Props) {
         </table>
       </div>
 
-      {rentSchedule && rentSchedule.length > 0 && (
-        <div>
-          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-3">Rent Schedule</h4>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500">Lease Year</th>
-                  <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500">Months</th>
-                  <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500">Per Annum</th>
-                  <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500">Per Month</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rentSchedule.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="py-2.5 px-3 text-xs font-medium text-slate-600">{row.leaseYear}</td>
-                    <td className="py-2.5 px-3 text-xs text-slate-600">{row.months}</td>
-                    <td className="py-2.5 px-3 text-sm text-slate-800 text-right font-mono">{row.perAnnum}</td>
-                    <td className="py-2.5 px-3 text-sm text-slate-800 text-right font-mono">{row.perMonth}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -221,6 +221,14 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
 
   return (
     <div className="space-y-6">
+      <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3">
+        <svg className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+        </svg>
+        <p className="text-xs leading-relaxed text-blue-800">
+          Resolved flags are incorporated into the final lease analysis summary. Once all flags are reviewed, the report can be exported with flag resolutions included.
+        </p>
+      </div>
       {(adminMode ? red.length > 0 : red.some(isVisibleFlag)) && (
         <section>
           <div className="flex items-center gap-2 mb-3">

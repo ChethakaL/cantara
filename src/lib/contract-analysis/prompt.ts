@@ -142,6 +142,7 @@ Issues that could block or materially impair a business sale, impose unexpected 
 **Format:**
 **Issue:** [Plain English statement]
 **Why It Matters:** [Specific M&A or operational impact — quantify where possible]
+**Suggested Action:** [A specific, concrete action the buyer or advisor must take — e.g., "Request written consent from landlord before closing", "Negotiate removal of exclusivity clause before signing SPA", "Obtain payoff letter and UCC-3 termination statement from lender"]
 **Contract & Source:** [Contract name, section citation, and verbatim sentence]
 
 ---
@@ -174,6 +175,7 @@ Not immediately disqualifying but must be addressed, quantified, or negotiated b
 **Format:**
 **Issue:** [Plain English statement]
 **Why It Matters:** [Impact on transaction or operations]
+**Suggested Action:** [A specific, concrete action the buyer or advisor should take — e.g., "Calendar the non-renewal notice deadline and send notice by [date] if buyer intends to exit", "Request complete exhibits and schedules from seller's counsel"]
 **Contract & Source:** [Contract name, section citation, and verbatim sentence]
 
 ---
@@ -204,6 +206,7 @@ Provisions that reduce buyer risk, provide flexibility, or increase acquisition 
 **Format:**
 **Issue:** [Plain English statement]
 **Why It Matters:** [How this benefits the buyer]
+**Suggested Action:** [Optional — a concrete step to leverage this favorable provision, e.g., "No action required — buyer inherits favorable terms", "Confirm assignment consent timeline with counterparty to lock in these terms"]
 **Contract & Source:** [Contract name, section citation, and verbatim sentence]
 
 ---
