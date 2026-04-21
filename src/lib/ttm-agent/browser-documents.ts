@@ -93,7 +93,7 @@ function convertMultiSheetExcelToText(buffer: ArrayBuffer, fileLabel: string): s
 /**
  * V3 Section 4.3 — convertSingleSheetExcelToText
  *
- * Converts a single-sheet Excel file (Accountant Statements, AR Aging).
+ * Converts a single-sheet Excel file (Accountant Statements, Add-Back Disclosure).
  */
 function convertSingleSheetExcelToText(buffer: ArrayBuffer, fileLabel: string): string {
   const workbook = XLSX.read(buffer, { type: 'array' })
@@ -120,7 +120,6 @@ const FILE_LABELS: Record<string, string> = {
   monthly_pl_excel: 'Monthly P&L — 3 Fiscal Years',
   monthly_bs_excel: 'Monthly Balance Sheet — 3 Fiscal Years',
   accountant_statements: 'Accountant-Prepared Financial Statements — 3 Fiscal Years',
-  ar_aging_detail: 'Accounts Receivable Aging Detail',
   addback_disclosure: 'Seller Add-Back Disclosure (Items 2.1–2.5 and 3.2)',
   owner_gm_assessment: 'Owner & GM Assessment Output',
 }
@@ -133,7 +132,7 @@ const MULTI_SHEET_DOCUMENT_IDS = ['monthly_pl_excel', 'monthly_bs_excel']
 /**
  * V3 single-sheet financial documents: all others
  */
-const SINGLE_SHEET_DOCUMENT_IDS = ['accountant_statements', 'ar_aging_detail', 'addback_disclosure', 'owner_gm_assessment']
+const SINGLE_SHEET_DOCUMENT_IDS = ['accountant_statements', 'addback_disclosure', 'owner_gm_assessment']
 
 export async function prepareWs2DocumentFromServer(args: {
   clientId: string
@@ -172,7 +171,7 @@ export async function prepareWs2DocumentFromServer(args: {
     return prepared
   }
 
-  // V3 Section 4.3: Single-sheet documents (accountant, AR aging, add-back disclosure)
+  // V3 Section 4.3: Single-sheet documents (accountant, add-back disclosure)
   if (isExcel && SINGLE_SHEET_DOCUMENT_IDS.includes(args.documentId)) {
     const fileLabel = FILE_LABELS[args.documentId] || args.fileName
     const fullText = convertSingleSheetExcelToText(buffer, fileLabel)

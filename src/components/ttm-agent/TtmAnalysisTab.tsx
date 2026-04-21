@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, FileSpreadsheet, Loader2, Play, RefreshCw, ShieldAlert, Download } from 'lucide-react'
+import { FileSpreadsheet, Loader2, Play, RefreshCw, ShieldAlert, Download } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
 import { Badge, Button, Card } from '@/components/ui'
@@ -29,14 +29,6 @@ type Ws2SectionKey =
   | 'ws24-report'
   | 'ws25-report'
   | 'ws210-report'
-
-type TimelineNavItem = {
-  key: Ws2SectionKey
-  openKey: Ws2SectionKey
-  href: string
-  label: string
-  meta: string
-}
 
 const DEFAULT_SECTION_STATE: Record<Ws2SectionKey, boolean> = {
   'ws21-pack': false,
@@ -66,7 +58,6 @@ export function TtmAnalysisTab({
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null)
   const [loadingAnalyses, setLoadingAnalyses] = useState(true)
   const [running, setRunning] = useState(false)
-  const [rerunningWs22, setRerunningWs22] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [collapsedSections, setCollapsedSections] = useState<Record<Ws2SectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const [baselineBuildState, setBaselineBuildState] = useState<{
@@ -161,44 +152,6 @@ export function TtmAnalysisTab({
     }))
   }
 
-  const setAllSections = (collapsed: boolean) => {
-    setCollapsedSections({
-      'ws21-pack': collapsed,
-      'ws21-report': collapsed,
-      'ws21-trends': collapsed,
-      'ws21-working-capital': collapsed,
-      'ws21-review': collapsed,
-      'ws22-recast': collapsed,
-      'ws23-report': collapsed,
-      'ws24-report': collapsed,
-      'ws25-report': collapsed,
-      'ws210-report': collapsed,
-    })
-  }
-
-  const navigateToSection = (item: TimelineNavItem) => {
-    const targetId = item.href.replace(/^#/, '')
-
-    setCollapsedSections({
-      'ws21-pack': true,
-      'ws21-report': true,
-      'ws21-trends': true,
-      'ws21-working-capital': true,
-      'ws21-review': true,
-      'ws22-recast': true,
-      'ws23-report': true,
-      'ws24-report': true,
-      'ws25-report': true,
-      'ws210-report': true,
-      [item.openKey]: false,
-    })
-
-    window.setTimeout(() => {
-      window.history.replaceState(null, '', item.href)
-      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 50)
-  }
-
   const runAgent = async () => {
     setRunning(true)
     setError(null)
@@ -285,62 +238,6 @@ export function TtmAnalysisTab({
       !hasStyledBaselineReport,
   )
   const showWs21Workspace = Boolean(activeAnalysis && !ws21Approved && !hasStyledBaselineReport)
-  const ws22Href = hasStyledBaselineReport ? '#ws210-ebitda' : '#ws22-recast'
-  const ws23Href = hasStyledBaselineReport ? '#ws210-revenue' : derivedByAgent.get('ws2_3_rev_vertical_v1') ? '#ws23-report-detail' : '#ws23-report'
-  const ws24Href = hasStyledBaselineReport ? '#ws210-benchmarks' : derivedByAgent.get('ws2_4_benchmark_v1') ? '#ws24-report-detail' : '#ws24-report'
-  const ws25Href = hasStyledBaselineReport ? '#ws210-labor' : derivedByAgent.get('ws2_5_labor_v1') ? '#ws25-report-detail' : '#ws25-report'
-  const ws210Href = derivedByAgent.get('ws2_10_report_generator_v1') ? '#ws210-report-detail' : '#ws210-report'
-  const navItems: TimelineNavItem[] = activeAnalysis
-    ? [
-        {
-          key: 'ws21-pack' as const,
-          openKey: hasStyledBaselineReport || ws21Approved ? 'ws210-report' as const : 'ws21-pack' as const,
-          href: hasStyledBaselineReport ? '#ws210-pl-summary' : ws21Approved ? '#ws210-report' : '#ws21-pack',
-          label: 'WS2-1 Analysis',
-          meta: hasStyledBaselineReport
-            ? 'P&L + data quality'
-            : ws21Approved
-              ? 'Approved'
-            : `${activeAnalysis.flags.filter((flag) => flag.resolutionStatus !== 'ACTIONED').length} open`,
-        },
-        {
-          key: 'ws22-recast' as const,
-          openKey: hasStyledBaselineReport ? 'ws210-report' : 'ws22-recast',
-          href: ws22Href,
-          label: 'WS2-2 EBITDA',
-          meta: latestRecast?.status ?? 'Not Run',
-        },
-        {
-          key: 'ws23-report' as const,
-          openKey: hasStyledBaselineReport ? 'ws210-report' : 'ws23-report',
-          href: ws23Href,
-          label: 'WS2-3 Revenue',
-          meta: derivedByAgent.get('ws2_3_rev_vertical_v1')?.status ?? 'Not Run',
-        },
-        {
-          key: 'ws24-report' as const,
-          openKey: hasStyledBaselineReport ? 'ws210-report' : 'ws24-report',
-          href: ws24Href,
-          label: 'WS2-4 Benchmarks',
-          meta: derivedByAgent.get('ws2_4_benchmark_v1')?.status ?? 'Not Run',
-        },
-        {
-          key: 'ws25-report' as const,
-          openKey: hasStyledBaselineReport ? 'ws210-report' : 'ws25-report',
-          href: ws25Href,
-          label: 'WS2-5 Labor',
-          meta: derivedByAgent.get('ws2_5_labor_v1')?.status ?? 'Not Run',
-        },
-        {
-          key: 'ws210-report' as const,
-          openKey: 'ws210-report' as const,
-          href: ws210Href,
-          label: 'Baseline Valuation Report',
-          meta: derivedByAgent.get('ws2_10_report_generator_v1')?.status ?? 'Not Run',
-        },
-      ]
-    : []
-
   useEffect(() => {
     if (!activeAnalysis || !shouldAutoBuildBaseline) return
 
@@ -575,7 +472,7 @@ export function TtmAnalysisTab({
           <div className="mt-4 rounded-xl border border-slate-200 p-4">
             <p className="text-xs uppercase tracking-wide text-slate-400">Run Status</p>
             <p className="mt-2 text-sm text-slate-700">
-              {readyToRun ? 'All required WS2-1 source documents are present.' : 'Upload all four WS2-1 source documents before running the agent.'}
+              {readyToRun ? 'All required WS2-1 source documents are present.' : 'Upload all required WS2-1 source documents before running the agent.'}
             </p>
             <p className="mt-2 text-xs text-slate-500">
               QuickBooks remains optional. Section B will stay marked as skipped until that connection exists.
@@ -584,112 +481,8 @@ export function TtmAnalysisTab({
         </Card>
       </div>
 
-      
-      {/* {analyses.length > 1 && (
-        <div className="flex gap-2 flex-wrap">
-          {analyses.map((analysis) => (
-            <button
-              key={analysis.id}
-              onClick={() => setActiveAnalysisId(analysis.id)}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
-                activeAnalysis?.id === analysis.id ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'
-              }`}
-            >
-              Run #{analysis.version}
-              <span className="ml-2 text-slate-400">{new Date(analysis.createdAt).toLocaleDateString()}</span>
-            </button>
-          ))}
-        </div>
-      )}
-       */}
-
       {activeAnalysis ? (
-        <div className="grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
-          <aside className="xl:sticky xl:top-24 xl:self-start">
-            <Card className="p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-800">WS2 Timeline</h4>
-                  <p className="text-xs text-slate-400 mt-1">Jump to any stage and collapse the rest.</p>
-                </div>
-              </div>
-              <div className="mt-4 space-y-2">
-                {navItems.map((item, index) => (
-                  <div key={item.key} className="rounded-xl border border-slate-200 transition hover:border-amber-300 hover:bg-amber-50">
-                    <button
-                      type="button"
-                      onClick={() => navigateToSection(item)}
-                      className="flex w-full items-start gap-3 px-3 py-3 text-left"
-                    >
-                      <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
-                        {index + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-800">{item.label}</p>
-                        <p className="mt-1 text-xs text-slate-500">{item.meta}</p>
-                      </div>
-                    </button>
-                    {item.key === 'ws22-recast' && activeAnalysis?.status === 'APPROVED' && (
-                      <div className="px-3 pb-3 pt-0">
-                        <button
-                          type="button"
-                          className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            console.log('[WS2-2 Rerun] Button clicked')
-                            setRerunningWs22(true)
-                            try {
-                              const docIds = ['addback_disclosure', 'shareholder_remuneration_36m', 'personal_expenses_36m', 'non_recurring_expenses_36m', 'tenant_improvements_36m', 'leases', 'owner_gm_assessment'] as const
-                              const uploadedIds = docIds.filter(id => documentStatuses[id]?.fileName)
-                              console.log('[WS2-2 Rerun] Preparing docs:', uploadedIds)
-                              const docs = await Promise.all(
-                                uploadedIds.map(id => prepareWs2DocumentFromServer({ clientId, documentId: id as any, fileName: documentStatuses[id]?.fileName || id }))
-                              )
-                              console.log('[WS2-2 Rerun] Docs prepared:', docs.length)
-                              const assumptions = activeAnalysis?.recastAnalyses?.[0]?.assumptions
-                              if (!assumptions) { alert('No assumptions found from previous WS2-2 run. Check that WS2-2 was run at least once.'); setRerunningWs22(false); return }
-                              console.log('[WS2-2 Rerun] Calling API with analysisId:', activeAnalysis!.id)
-                              const res = await fetch('/api/ttm-agent/recast', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ mode: 'run', analysisId: activeAnalysis!.id, assumptions, preparedDocuments: docs }),
-                              })
-                              console.log('[WS2-2 Rerun] API response status:', res.status)
-                              if (res.ok) {
-                                const data = await res.json()
-                                handleUpdatedAnalysis(data)
-                                alert('WS2-2 re-run complete! Refresh the page to see updated results.')
-                              } else {
-                                const errText = await res.text()
-                                alert('WS2-2 failed: ' + errText)
-                              }
-                            } catch (err) {
-                              console.error('[WS2-2 Rerun] Error:', err)
-                              alert('Error: ' + (err instanceof Error ? err.message : String(err)))
-                            }
-                            setRerunningWs22(false)
-                          }}
-                        >
-                          {rerunningWs22 ? '⏳ Running WS2-2...' : 'Re-run WS2-2'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 grid gap-2">
-                <Button size="sm" variant="outline" onClick={() => setAllSections(true)}>
-                  Collapse All
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setAllSections(false)}>
-                  Expand All
-                </Button>
-              </div>
-            </Card>
-          </aside>
-
-          <div className="space-y-6">
+        <div className="space-y-6">
           <section id="ws210-report" className="scroll-mt-24">
           <BaselineValuationReportPanel
             clientName={clientName}
@@ -746,7 +539,42 @@ export function TtmAnalysisTab({
           )}
           </>
           )}
-          </div>
+
+          {/* GL Mapping Reference */}
+          {activeAnalysis.normalizedData?.mappedPlRows && Array.isArray(activeAnalysis.normalizedData.mappedPlRows) && (activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>).length > 0 && (
+            <Card className="p-5 mt-6">
+              <h4 className="text-sm font-semibold text-slate-800 mb-4">GL Code Mapping Reference</h4>
+              <p className="text-xs text-slate-400 mb-3">Finalized mapping of source GL codes to Cantara categories used in the analysis.</p>
+              <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="border-b border-slate-200 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-2">GL Code</th>
+                      <th className="px-3 py-2">Description</th>
+                      <th className="px-3 py-2">Cantara Category</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>)
+                      .filter((row) => row.accountCode)
+                      .map((row, i) => (
+                        <tr key={`${row.accountCode}-${i}`}>
+                          <td className="px-3 py-1.5 text-slate-500 font-mono text-xs">{row.accountCode ?? '—'}</td>
+                          <td className="px-3 py-1.5 text-slate-700">{row.accountName}</td>
+                          <td className="px-3 py-1.5 text-slate-500">{row.cantaraCode ?? 'UNMAPPED'}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">
+                            {typeof row.total === 'number' && Number.isFinite(row.total)
+                              ? `$${Math.round(row.total).toLocaleString()}`
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
         </div>
       ) : loadingAnalyses ? (
         <Card className="p-8">
@@ -757,7 +585,7 @@ export function TtmAnalysisTab({
         </Card>
       ) : (
         <Card className="p-8 text-center text-sm text-slate-400">
-          No WS2-1 runs yet. Upload the four required valuation documents in the client Collection flow, then run the agent here.
+          No WS2-1 runs yet. Upload the required valuation documents in the client Collection flow, then run the agent here.
         </Card>
       )}
     </div>

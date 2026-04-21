@@ -72,15 +72,6 @@ export interface WorkingCapital {
   totalCurrentLiabilities: number;
   netWorkingCapital: number;
   trailingThreeMonthAvgNWC: number;
-  arAgingBuckets: {
-    current: number;
-    days1to30: number;
-    days31to60: number;
-    days61to90: number;
-    days90plus: number;
-    total: number;
-  };
-  arVarianceToBalanceSheet: number;
 }
 
 // ── Data Quality ──────────────────────────────────────────────────────────────

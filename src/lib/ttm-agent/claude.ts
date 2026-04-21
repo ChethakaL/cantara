@@ -144,9 +144,6 @@ function buildDeterministicTtmSummary(payload: Record<string, unknown>): TtmAgen
 
   const netWorkingCapital = asNumber(workingCapital?.netWorkingCapital);
   const trailingNwc = asNumber(workingCapital?.trailingThreeMonthAverageNwc);
-  const arAging = asRecord(workingCapital?.arAging);
-  const arVariance = asNumber(arAging?.varianceToBalanceSheetAr);
-  const arReconciles = typeof arAging?.reconcilesToBalanceSheet === "boolean" ? arAging.reconcilesToBalanceSheet : null;
 
   const ownerComp = (ttmSummary?.opExByCategory && Array.isArray(ttmSummary.opExByCategory)
     ? (ttmSummary.opExByCategory as unknown[])
@@ -199,9 +196,6 @@ function buildDeterministicTtmSummary(payload: Record<string, unknown>): TtmAgen
   if (netWorkingCapital !== null) {
     anomalyNotes.push(`Net working capital at the latest month-end is ${formatCurrency(netWorkingCapital)} with a 3-month average of ${formatCurrency(trailingNwc)}.`);
   }
-  if (arReconciles === false && arVariance !== null) {
-    anomalyNotes.push(`AR aging does not reconcile to the balance sheet; variance is ${formatCurrency(arVariance)}.`);
-  }
   for (const anomaly of anomalies.slice(0, 2)) {
     anomalyNotes.push(anomaly);
   }
@@ -211,7 +205,7 @@ function buildDeterministicTtmSummary(payload: Record<string, unknown>): TtmAgen
     `Section counts: A=${counts.A}, B=${counts.B}, C=${counts.C}, D=${counts.D}, E=${counts.E}.`,
   ];
   if (counts.C > 0 || counts.E > 0) {
-    qualitySummaryParts.push("Primary review areas are accountant-statement variances and AR aging / working-capital checks.");
+    qualitySummaryParts.push("Primary review areas are accountant-statement variances and working-capital checks.");
   }
 
   return {

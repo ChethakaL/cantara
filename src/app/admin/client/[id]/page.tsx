@@ -1,10 +1,10 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
-  Landmark, Briefcase, CalendarDays, FileSpreadsheet, Globe2,
+  Landmark, Briefcase, FileSpreadsheet, Globe2,
   ChevronDown, Bot, Users2, Calculator, Sparkles,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -15,7 +15,8 @@ import AdminChat from '@/components/admin/AdminChat'
 import AdditionalRequirementsAdmin from '@/components/admin/AdditionalRequirements'
 import ClientManager from '@/components/admin/ClientManager'
 import AdminDocumentsView from '@/components/admin/AdminDocuments'
-import MeetingsTab from '@/components/admin/MeetingsTab'
+import SalesProcessReviewTab from '@/components/sales-review/SalesProcessReviewTab'
+import MeetingNotesTab from '@/components/meeting-notes/MeetingNotesTab'
 import { TtmAnalysisTab } from '@/components/ttm-agent/TtmAnalysisTab'
 import DigitalPresenceTab from '@/components/digital-presence/DigitalPresenceTab'
 import CompetitorAnalysisTab from '@/components/competitor-analysis/CompetitorAnalysisTab'
@@ -30,60 +31,21 @@ import type { Client } from '@/lib/store'
 // ── Tab definitions ──────────────────────────────────────────────────────────
 
 const AGENT_TABS = [
-  {
-    key: 'ttm',
-    label: 'Valuation Agent',
-    badge: '5 Agents',
-    icon: FileSpreadsheet,
-  },
-  {
-    key: 'lease',
-    label: 'Lease Analysis',
-    badge: null,
-    icon: Landmark,
-  },
-  {
-    key: 'employee-obligations',
-    label: 'Employee Obligations Agent',
-    badge: null,
-    icon: Users2,
-  },
-  {
-    key: 'contract',
-    label: 'Material Contracts',
-    badge: null,
-    icon: Briefcase,
-  },
-  {
-    key: 'digital',
-    label: 'Digital Presence',
-    badge: null,
-    icon: Globe2,
-  },
-  {
-    key: 'competitor',
-    label: 'Competitor Analysis Agent',
-    badge: null,
-    icon: Bot,
-  },
-  {
-    key: 'insurance',
-    label: 'Insurance Review Agent',
-    badge: null,
-    icon: FileText,
-  },
-  {
-    key: 'net-proceeds',
-    label: 'Net Proceeds Calculator',
-    badge: null,
-    icon: Calculator,
-  },
-  {
-    key: 'teaser',
-    label: 'Deal Teaser Generator',
-    badge: null,
-    icon: Sparkles,
-  },
+  // Valuation
+  { key: 'ttm', label: 'Valuation Agent', badge: '6 Agents' as const, icon: FileSpreadsheet, group: 'Valuation' },
+  // WS1 — Risk & Legal
+  { key: 'lease', label: 'Lease Analysis', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
+  { key: 'contract', label: 'Material Contracts', badge: null, icon: Briefcase, group: 'WS1 — Risk & Legal' },
+  { key: 'employee-obligations', label: 'Employee Obligations', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'insurance', label: 'Insurance Review', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
+  // WS2 — Performance
+  { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
+  { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
+  { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
+  { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
+  // M&A
+  { key: 'net-proceeds', label: 'Net Proceeds Calculator', badge: null, icon: Calculator, group: 'M&A Sale Process' },
+  { key: 'teaser', label: 'Deal Teaser Generator', badge: null, icon: Sparkles, group: 'M&A Sale Process' },
 ] as const
 
 type AgentKey = typeof AGENT_TABS[number]['key']
@@ -91,8 +53,7 @@ type AgentKey = typeof AGENT_TABS[number]['key']
 const STANDARD_TABS = [
   { key: 'manage', label: 'Client Management', icon: Settings },
   { key: 'documents', label: 'Documents', icon: FileText },
-  { key: 'meetings', label: 'Meetings', icon: CalendarDays },
-  { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
+{ key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
 ] as const
 
@@ -157,38 +118,44 @@ function AgentsDropdown({
         }}
         className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden min-w-[220px]"
       >
-        <div className="px-3 pt-2.5 pb-1">
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-            {AGENT_TABS.length} Agents
-          </p>
-        </div>
-        {AGENT_TABS.map(agent => {
-          const Icon = agent.icon
-          const isActive = activeTab === agent.key
-          return (
-            <button
-              key={agent.key}
-              onClick={() => { onSelect(agent.key); setOpen(false) }}
-              className={cn(
-                'w-full flex items-center gap-2.5 px-3 py-2.5 text-xs transition-colors',
-                isActive
-                  ? 'bg-amber-50 text-amber-700 font-semibold'
-                  : 'text-slate-600 hover:bg-slate-50'
-              )}
-            >
-              <Icon className={cn('w-3.5 h-3.5 flex-shrink-0', isActive ? 'text-amber-500' : 'text-slate-400')} />
-              <span className="flex-1 text-left">{agent.label}</span>
-              {agent.badge && (
-                <span
-                  className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
-                  style={{ background: 'linear-gradient(135deg,#b8922a,#d4a843)', color: '#fff' }}
+        {(() => {
+          let lastGroup = ''
+          return AGENT_TABS.map(agent => {
+            const Icon = agent.icon
+            const isActive = activeTab === agent.key
+            const showHeader = agent.group !== lastGroup
+            lastGroup = agent.group
+            return (
+              <div key={agent.key}>
+                {showHeader && (
+                  <div className="px-3 pt-3 pb-1 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                    {agent.group}
+                  </div>
+                )}
+                <button
+                  onClick={() => { onSelect(agent.key); setOpen(false) }}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2.5 text-xs transition-colors',
+                    isActive
+                      ? 'bg-amber-50 text-amber-700 font-semibold'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  )}
                 >
-                  {agent.badge}
-                </span>
-              )}
-            </button>
-          )
-        })}
+                  <Icon className={cn('w-3.5 h-3.5 flex-shrink-0', isActive ? 'text-amber-500' : 'text-slate-400')} />
+                  <span className="flex-1 text-left">{agent.label}</span>
+                  {agent.badge && (
+                    <span
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                      style={{ background: 'linear-gradient(135deg,#b8922a,#d4a843)', color: '#fff' }}
+                    >
+                      {agent.badge}
+                    </span>
+                  )}
+                </button>
+              </div>
+            )
+          })
+        })()}
       </motion.div>
     </AnimatePresence>,
     document.body
@@ -228,22 +195,9 @@ function AgentsDropdown({
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
   const { id } = params
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [client, setClient] = useState<Client | null>(null)
   const [activeTab, setActiveTab] = useState<TabKey>('manage')
   const adminName = getAdminName()
-
-  useEffect(() => {
-    const tab = searchParams.get('tab')
-    if (!tab) return
-    const allowedTabs = new Set<string>([
-      ...STANDARD_TABS.map((item) => item.key),
-      ...AGENT_TABS.map((item) => item.key),
-    ])
-    if (allowedTabs.has(tab)) {
-      setActiveTab(tab as TabKey)
-    }
-  }, [searchParams])
 
   useEffect(() => {
     if (getCurrentRole() !== 'admin') { router.push('/login/admin'); return }
@@ -406,7 +360,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           >
             {activeTab === 'manage' && <ClientManager client={client} onSaved={setClient} />}
             {activeTab === 'documents' && <AdminDocumentsView client={client} onClientUpdated={setClient} />}
-            {activeTab === 'meetings' && <MeetingsTab clientId={client.id} clientName={client.name} />}
             {activeTab === 'ttm' && (
               <TtmAnalysisTab
                 clientId={client.id}
@@ -432,7 +385,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <ContractAnalysisTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'digital' && (
-              <DigitalPresenceTab clientId={client.id} clientName={client.name} />
+              <DigitalPresenceTab clientId={client.id} clientName={client.name} clientWebsite={client.websiteUrl} />
             )}
             {activeTab === 'competitor' && (
               <CompetitorAnalysisTab
@@ -445,6 +398,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'insurance' && (
               <InsuranceReviewTab clientId={client.id} />
+            )}
+            {activeTab === 'sales-process-review' && (
+              <SalesProcessReviewTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'meeting-notes' && (
+              <MeetingNotesTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'net-proceeds' && (
               <NetProceedsCalculator clientId={client.id} clientName={client.name} />

@@ -26,15 +26,17 @@ let _logId = 0;
 interface Props {
   clientId: string;
   clientName: string;
+  clientWebsite?: string;
 }
 
-export default function DigitalPresenceTab({ clientId, clientName }: Props) {
+export default function DigitalPresenceTab({ clientId, clientName, clientWebsite }: Props) {
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [report, setReport] = useState<DigitalPresenceReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [currentPhase, setCurrentPhase] = useState<'research' | 'analyze' | null>(null);
   const [researchProgress, setResearchProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [lastFormData, setLastFormData] = useState<DigitalAssetFormData | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   function appendLog(entry: Omit<LogEntry, 'id'>) {
@@ -43,6 +45,7 @@ export default function DigitalPresenceTab({ clientId, clientName }: Props) {
   }
 
   async function handleSubmit(formData: DigitalAssetFormData) {
+    setLastFormData(formData);
     setStatus('researching');
     setError(null);
     setReport(null);
@@ -112,6 +115,17 @@ export default function DigitalPresenceTab({ clientId, clientName }: Props) {
     setLog([]);
     setCurrentPhase(null);
     setResearchProgress(null);
+    // Note: lastFormData is preserved so the form re-populates
+  }
+
+  function handleRerun() {
+    // Go back to form view with data preserved
+    setStatus('idle');
+    setReport(null);
+    setError(null);
+    setLog([]);
+    setCurrentPhase(null);
+    setResearchProgress(null);
   }
 
   const isLoading = status === 'researching' || status === 'analyzing';
@@ -128,9 +142,9 @@ export default function DigitalPresenceTab({ clientId, clientName }: Props) {
         )}>
           <div className="flex items-center gap-2">
             <div className={cn('w-1.5 h-1.5 rounded-full', isLoading ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500')} />
-            {status === 'researching' && 'Gathering web data…'}
-            {status === 'analyzing' && 'Scoring & analysing…'}
-            {status === 'complete' && `Analysis complete · Overall: ${report?.overallScore.toFixed(1)}/5`}
+            {status === 'researching' && 'Gathering web data\u2026'}
+            {status === 'analyzing' && 'Scoring & analysing\u2026'}
+            {status === 'complete' && 'Analysis complete'}
           </div>
           {isLoading && researchProgress && (
             <span className="tabular-nums">{researchProgress.completed} / {researchProgress.total} channels</span>
@@ -138,12 +152,18 @@ export default function DigitalPresenceTab({ clientId, clientName }: Props) {
         </div>
       )}
 
-      {/* Idle → form */}
+      {/* Idle -> form */}
       {status === 'idle' && (
-        <DigitalPresenceForm onSubmit={handleSubmit} loading={false} />
+        <DigitalPresenceForm
+          onSubmit={handleSubmit}
+          loading={false}
+          initialData={lastFormData ?? undefined}
+          clientName={clientName}
+          clientWebsite={clientWebsite}
+        />
       )}
 
-      {/* Loading → live log */}
+      {/* Loading -> live log */}
       {isLoading && (
         <div className="space-y-4">
           <div className="flex items-center gap-3">
@@ -162,8 +182,8 @@ export default function DigitalPresenceTab({ clientId, clientName }: Props) {
               </p>
               <p className="text-xs text-slate-400">
                 {currentPhase === 'research'
-                  ? 'Searching across all provided channels…'
-                  : 'Scoring each channel and generating scorecard…'}
+                  ? 'Searching across all provided channels\u2026'
+                  : 'Scoring each channel and generating scorecard\u2026'}
               </p>
             </div>
           </div>
@@ -201,7 +221,7 @@ export default function DigitalPresenceTab({ clientId, clientName }: Props) {
                       'text-amber-500': entry.phase === 'research',
                       'text-blue-500': entry.phase === 'analyze',
                     })}>
-                      {entry.phase === 'research' ? '◉' : '▶'}
+                      {entry.phase === 'research' ? '\u25C9' : '\u25B6'}
                     </span>
                     <span className="text-slate-600 leading-snug">{entry.message}</span>
                   </div>
@@ -212,7 +232,7 @@ export default function DigitalPresenceTab({ clientId, clientName }: Props) {
           )}
 
           <p className="text-center text-xs text-slate-400">
-            This may take 60–120 seconds depending on channels submitted.
+            This may take 60\u2013120 seconds depending on channels submitted.
           </p>
         </div>
       )}
@@ -228,14 +248,14 @@ export default function DigitalPresenceTab({ clientId, clientName }: Props) {
             </div>
           </div>
           <button onClick={handleReset} className="text-sm text-amber-600 hover:underline">
-            ← Try again
+            &larr; Try again
           </button>
         </div>
       )}
 
-      {/* Complete → scorecard */}
+      {/* Complete -> scorecard */}
       {status === 'complete' && report && (
-        <DigitalPresenceScorecard report={report} onReset={handleReset} />
+        <DigitalPresenceScorecard report={report} onReset={handleReset} onRerun={handleRerun} />
       )}
     </div>
   );

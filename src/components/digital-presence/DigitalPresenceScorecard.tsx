@@ -1,11 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import {
   Globe,
   MapPin,
   Facebook,
   Instagram,
-  Youtube,
   Music2,
   CalendarCheck,
   Star,
@@ -17,13 +17,17 @@ import {
   Download,
   BarChart3,
   Package,
+  Pencil,
+  Check,
+  RefreshCw,
 } from 'lucide-react';
-import { DigitalPresenceReport, ChannelAssessment, ChannelType, TrafficLight } from '@/lib/digital-presence/types';
+import { DigitalPresenceReport, ChannelAssessment, ChannelType, TrafficLight, KeyMetric } from '@/lib/digital-presence/types';
 import { Badge, Card, cn } from '@/components/ui';
 
 interface Props {
   report: DigitalPresenceReport;
   onReset: () => void;
+  onRerun: () => void;
 }
 
 const CHANNEL_ICONS: Record<ChannelType, React.ReactNode> = {
@@ -32,7 +36,7 @@ const CHANNEL_ICONS: Record<ChannelType, React.ReactNode> = {
   facebook: <Facebook className="w-4 h-4" />,
   instagram: <Instagram className="w-4 h-4" />,
   tiktok: <Music2 className="w-4 h-4" />,
-  youtube: <Youtube className="w-4 h-4" />,
+  youtube: <Star className="w-4 h-4" />,
   booking_platform: <CalendarCheck className="w-4 h-4" />,
   online_reputation: <Star className="w-4 h-4" />,
 };
@@ -48,7 +52,7 @@ const CHANNEL_COLORS: Record<ChannelType, string> = {
   online_reputation: 'text-amber-500 bg-amber-50',
 };
 
-function TrafficLightBadge({ light, score }: { light: TrafficLight; score: number }) {
+function TrafficLightBadge({ light }: { light: TrafficLight }) {
   const cfg = {
     green: { dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', label: 'Good' },
     amber: { dot: 'bg-amber-400', text: 'text-amber-700', bg: 'bg-amber-50 border-amber-200', label: 'Fair' },
@@ -58,20 +62,8 @@ function TrafficLightBadge({ light, score }: { light: TrafficLight; score: numbe
   return (
     <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold', cfg.bg, cfg.text)}>
       <span className={cn('w-2 h-2 rounded-full', cfg.dot)} />
-      {score}/5 · {cfg.label}
+      {cfg.label}
     </span>
-  );
-}
-
-function ScoreBar({ score }: { score: number }) {
-  const pct = ((score - 1) / 4) * 100;
-  const color = score >= 4 ? '#10b981' : score >= 3 ? '#f59e0b' : '#f43f5e';
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
-      </div>
-    </div>
   );
 }
 
@@ -81,7 +73,34 @@ function FlagIcon({ severity }: { severity: 'critical' | 'warning' | 'positive' 
   return <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />;
 }
 
-function ChannelCard({ channel }: { channel: ChannelAssessment }) {
+function EditableMetric({ metric, editing, onSave }: { metric: KeyMetric; editing: boolean; onSave: (value: string) => void }) {
+  const [val, setVal] = useState(metric.value);
+
+  if (!editing) {
+    return (
+      <div className="bg-slate-50 rounded-lg px-2.5 py-1.5">
+        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">{metric.label}</p>
+        <p className="text-xs font-semibold text-slate-700 mt-0.5">{metric.value}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-amber-50/50 rounded-lg px-2.5 py-1.5 border border-amber-200">
+      <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">{metric.label}</p>
+      <input
+        type="text"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={() => onSave(val)}
+        onKeyDown={e => { if (e.key === 'Enter') { onSave(val); (e.target as HTMLInputElement).blur(); } }}
+        className="w-full text-xs font-semibold text-slate-700 mt-0.5 bg-white border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+      />
+    </div>
+  );
+}
+
+function ChannelCard({ channel, editMode, onMetricUpdate }: { channel: ChannelAssessment; editMode: boolean; onMetricUpdate: (channelType: ChannelType, metricIndex: number, value: string) => void }) {
   const iconStyle = CHANNEL_COLORS[channel.channelType] ?? 'text-slate-500 bg-slate-100';
   const criticalFlags = channel.flags.filter(f => f.severity === 'critical');
   const warningFlags = channel.flags.filter(f => f.severity === 'warning');
@@ -105,22 +124,20 @@ function ChannelCard({ channel }: { channel: ChannelAssessment }) {
                 className="text-xs text-slate-400 hover:text-amber-600 flex items-center gap-1 transition-colors"
               >
                 {channel.url.replace(/^https?:\/\//, '').slice(0, 40)}
-                {channel.url.length > 40 ? '…' : ''}
+                {channel.url.length > 40 ? '\u2026' : ''}
                 <ExternalLink className="w-2.5 h-2.5" />
               </a>
             )}
           </div>
         </div>
-        <TrafficLightBadge light={channel.trafficLight} score={channel.score} />
+        <TrafficLightBadge light={channel.trafficLight} />
       </div>
-
-      <ScoreBar score={channel.score} />
 
       {/* Confidence notice */}
       {channel.dataConfidence === 'low' && (
         <div className="flex items-start gap-1.5 text-xs text-slate-400 bg-slate-50 rounded-lg px-3 py-2">
           <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-          <span>Limited public data found — score is a best estimate based on available information.</span>
+          <span>Limited public data found -- score is a best estimate based on available information.</span>
         </div>
       )}
 
@@ -140,10 +157,12 @@ function ChannelCard({ channel }: { channel: ChannelAssessment }) {
       {channel.keyMetrics.length > 0 && (
         <div className="grid grid-cols-2 gap-1.5">
           {channel.keyMetrics.map((m, i) => (
-            <div key={i} className="bg-slate-50 rounded-lg px-2.5 py-1.5">
-              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">{m.label}</p>
-              <p className="text-xs font-semibold text-slate-700 mt-0.5">{m.value}</p>
-            </div>
+            <EditableMetric
+              key={i}
+              metric={m}
+              editing={editMode}
+              onSave={(value) => onMetricUpdate(channel.channelType, i, value)}
+            />
           ))}
         </div>
       )}
@@ -175,34 +194,6 @@ function ChannelCard({ channel }: { channel: ChannelAssessment }) {
   );
 }
 
-function OverallScoreCircle({ score, light }: { score: number; light: TrafficLight }) {
-  const color = light === 'green' ? '#10b981' : light === 'amber' ? '#f59e0b' : '#f43f5e';
-  const bgColor = light === 'green' ? 'bg-emerald-50' : light === 'amber' ? 'bg-amber-50' : 'bg-rose-50';
-  const label = light === 'green' ? 'Strong Presence' : light === 'amber' ? 'Moderate Presence' : 'Weak Presence';
-  return (
-    <div className={cn('flex flex-col items-center justify-center rounded-2xl p-6 text-center', bgColor)}>
-      <svg width="80" height="80" viewBox="0 0 80 80" className="mb-2">
-        <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="8" />
-        <circle
-          cx="40" cy="40" r="34"
-          fill="none"
-          stroke={color}
-          strokeWidth="8"
-          strokeDasharray={`${((score - 1) / 4) * 213.6} 213.6`}
-          strokeLinecap="round"
-          transform="rotate(-90 40 40)"
-          style={{ transition: 'stroke-dasharray 1s ease' }}
-        />
-        <text x="40" y="40" textAnchor="middle" dominantBaseline="middle" className="text-2xl font-bold" fill={color} style={{ fontSize: 20, fontWeight: 700 }}>
-          {score.toFixed(1)}
-        </text>
-      </svg>
-      <p className="text-sm font-semibold text-slate-700">{label}</p>
-      <p className="text-xs text-slate-400 mt-0.5">Overall Score / 5</p>
-    </div>
-  );
-}
-
 function handleExportJSON(report: DigitalPresenceReport) {
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -213,28 +204,77 @@ function handleExportJSON(report: DigitalPresenceReport) {
   URL.revokeObjectURL(url);
 }
 
-export default function DigitalPresenceScorecard({ report, onReset }: Props) {
-  const criticalCount = report.channels.reduce((acc, ch) => acc + ch.flags.filter(f => f.severity === 'critical').length, 0);
-  const greenCount = report.channels.filter(ch => ch.trafficLight === 'green').length;
-  const redCount = report.channels.filter(ch => ch.trafficLight === 'red').length;
+export default function DigitalPresenceScorecard({ report, onReset, onRerun }: Props) {
+  const [editMode, setEditMode] = useState(false);
+  const [editedReport, setEditedReport] = useState<DigitalPresenceReport>(report);
+  const [assetEditMode, setAssetEditMode] = useState(false);
+  const [excludedAssets, setExcludedAssets] = useState<Set<number>>(new Set());
+
+  const currentReport = editedReport;
+  const criticalCount = currentReport.channels.reduce((acc, ch) => acc + ch.flags.filter(f => f.severity === 'critical').length, 0);
+  const greenCount = currentReport.channels.filter(ch => ch.trafficLight === 'green').length;
+  const redCount = currentReport.channels.filter(ch => ch.trafficLight === 'red').length;
+
+  function handleMetricUpdate(channelType: ChannelType, metricIndex: number, value: string) {
+    setEditedReport(prev => ({
+      ...prev,
+      channels: prev.channels.map(ch => {
+        if (ch.channelType !== channelType) return ch;
+        const updatedMetrics = [...ch.keyMetrics];
+        updatedMetrics[metricIndex] = { ...updatedMetrics[metricIndex], value };
+        return { ...ch, keyMetrics: updatedMetrics };
+      }),
+    }));
+  }
+
+  function toggleAssetExclusion(index: number) {
+    setExcludedAssets(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-6">
       {/* Header bar */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">{report.businessName}</h2>
+          <h2 className="text-lg font-bold text-slate-800">{currentReport.businessName}</h2>
           <p className="text-xs text-slate-400">
-            Digital Presence Report · Generated {new Date(report.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
+            Digital Presence Report &middot; Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => handleExportJSON(report)}
+            onClick={() => setEditMode(m => !m)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors',
+              editMode
+                ? 'border-amber-300 bg-amber-50 text-amber-700'
+                : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+            )}
+          >
+            {editMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+            {editMode ? 'Done Editing' : 'Edit Results'}
+          </button>
+          <button
+            onClick={() => handleExportJSON(currentReport)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
             Export JSON
+          </button>
+          <button
+            onClick={onRerun}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-700 hover:bg-amber-100 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Re-run Analysis
           </button>
           <button
             onClick={onReset}
@@ -245,56 +285,62 @@ export default function DigitalPresenceScorecard({ report, onReset }: Props) {
         </div>
       </div>
 
-      {/* Overall score + summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <OverallScoreCircle score={report.overallScore} light={report.overallTrafficLight} />
-
-        <div className="sm:col-span-2 space-y-3">
-          {/* Stat pills */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-emerald-50 rounded-xl p-3 text-center">
-              <p className="text-xl font-bold text-emerald-600">{greenCount}</p>
-              <p className="text-[10px] text-emerald-500 mt-0.5 font-medium uppercase tracking-wide">Green Channels</p>
-            </div>
-            <div className="bg-amber-50 rounded-xl p-3 text-center">
-              <p className="text-xl font-bold text-amber-500">{report.channels.filter(c => c.trafficLight === 'amber').length}</p>
-              <p className="text-[10px] text-amber-500 mt-0.5 font-medium uppercase tracking-wide">Amber Channels</p>
-            </div>
-            <div className="bg-rose-50 rounded-xl p-3 text-center">
-              <p className="text-xl font-bold text-rose-500">{redCount}</p>
-              <p className="text-[10px] text-rose-400 mt-0.5 font-medium uppercase tracking-wide">Red Channels</p>
-            </div>
-          </div>
-
-          {/* Executive Summary */}
-          <div className="bg-slate-50 rounded-xl p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-slate-400" />
-              <p className="text-xs font-semibold text-slate-600 uppercase tracking-widest">Executive Summary</p>
-            </div>
-            <p className="text-sm text-slate-700 leading-relaxed">{report.executiveSummary}</p>
-          </div>
-
-          {/* M&A Notes */}
-          {report.maReadinessNotes && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 flex items-start gap-2.5">
-              <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-xs font-semibold text-amber-700 mb-0.5">M&A Readiness Note</p>
-                <p className="text-xs text-amber-700 leading-relaxed">{report.maReadinessNotes}</p>
-              </div>
-            </div>
-          )}
-
-          {criticalCount > 0 && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 flex items-center gap-2">
-              <XCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
-              <p className="text-xs text-rose-600 font-medium">
-                {criticalCount} critical issue{criticalCount > 1 ? 's' : ''} found across all channels
-              </p>
-            </div>
-          )}
+      {/* Edit mode banner */}
+      {editMode && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3">
+          <Pencil className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-700 leading-relaxed">
+            Edit mode is active. Click on any metric value to update it manually. Changes are saved in real-time.
+          </p>
         </div>
+      )}
+
+      {/* Summary stats + executive summary (no overall score circle) */}
+      <div className="space-y-3">
+        {/* Stat pills */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-emerald-50 rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-emerald-600">{greenCount}</p>
+            <p className="text-[10px] text-emerald-500 mt-0.5 font-medium uppercase tracking-wide">Good Channels</p>
+          </div>
+          <div className="bg-amber-50 rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-amber-500">{currentReport.channels.filter(c => c.trafficLight === 'amber').length}</p>
+            <p className="text-[10px] text-amber-500 mt-0.5 font-medium uppercase tracking-wide">Fair Channels</p>
+          </div>
+          <div className="bg-rose-50 rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-rose-500">{redCount}</p>
+            <p className="text-[10px] text-rose-400 mt-0.5 font-medium uppercase tracking-wide">Poor Channels</p>
+          </div>
+        </div>
+
+        {/* Executive Summary */}
+        <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-slate-400" />
+            <p className="text-xs font-semibold text-slate-600 uppercase tracking-widest">Executive Summary</p>
+          </div>
+          <p className="text-sm text-slate-700 leading-relaxed">{currentReport.executiveSummary}</p>
+        </div>
+
+        {/* M&A Notes */}
+        {currentReport.maReadinessNotes && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 flex items-start gap-2.5">
+            <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-amber-700 mb-0.5">M&A Readiness Note</p>
+              <p className="text-xs text-amber-700 leading-relaxed">{currentReport.maReadinessNotes}</p>
+            </div>
+          </div>
+        )}
+
+        {criticalCount > 0 && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
+            <p className="text-xs text-rose-600 font-medium">
+              {criticalCount} critical issue{criticalCount > 1 ? 's' : ''} found across all channels
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Channel Cards */}
@@ -304,71 +350,106 @@ export default function DigitalPresenceScorecard({ report, onReset }: Props) {
           Channel Scorecard
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {report.channels.map((channel, i) => (
-            <ChannelCard key={i} channel={channel} />
+          {currentReport.channels.map((channel, i) => (
+            <ChannelCard
+              key={i}
+              channel={channel}
+              editMode={editMode}
+              onMetricUpdate={handleMetricUpdate}
+            />
           ))}
         </div>
       </div>
 
       {/* Digital Asset Inventory */}
-      {report.digitalAssetInventory.length > 0 && (
+      {currentReport.digitalAssetInventory.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <Package className="w-4 h-4 text-slate-400" />
-            Digital Asset Inventory
-            <Badge color="slate" className="text-[10px]">M&A Sale Package</Badge>
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+              <Package className="w-4 h-4 text-slate-400" />
+              Digital Asset Inventory
+              <Badge color="slate" className="text-[10px]">M&A Sale Package</Badge>
+            </h3>
+            <button
+              onClick={() => setAssetEditMode(m => !m)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors',
+                assetEditMode
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+              )}
+            >
+              {assetEditMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+              {assetEditMode ? 'Done' : 'Edit'}
+            </button>
+          </div>
           <Card className="overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
+                  {assetEditMode && (
+                    <th className="text-center px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide w-12">Include</th>
+                  )}
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Asset</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">URL</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Score</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Notes</th>
                 </tr>
               </thead>
               <tbody>
-                {report.digitalAssetInventory.map((item, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-3 text-xs font-medium text-slate-700">{item.assetType}</td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
-                      {item.url && item.url !== 'N/A' ? (
-                        <a
-                          href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-amber-600 hover:underline flex items-center gap-1"
-                        >
-                          {item.url.replace(/^https?:\/\//, '').slice(0, 32)}{item.url.length > 40 && '…'}
-                          <ExternalLink className="w-2.5 h-2.5" />
-                        </a>
-                      ) : (
-                        <span className="text-xs text-slate-300">—</span>
+                {currentReport.digitalAssetInventory.map((item, i) => {
+                  const isExcluded = excludedAssets.has(i);
+                  return (
+                    <tr
+                      key={i}
+                      className={cn(
+                        'border-b border-slate-50 transition-colors',
+                        isExcluded ? 'opacity-40 bg-slate-50' : 'hover:bg-slate-50/50'
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusPill status={item.status} />
-                    </td>
-                    <td className="px-4 py-3">
-                      {item.score ? (
-                        <span className={cn(
-                          'text-xs font-bold',
-                          item.score >= 4 ? 'text-emerald-600' : item.score >= 3 ? 'text-amber-500' : 'text-rose-500'
-                        )}>
-                          {item.score}/5
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-300">—</span>
+                    >
+                      {assetEditMode && (
+                        <td className="text-center px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={!isExcluded}
+                            onChange={() => toggleAssetExclusion(i)}
+                            className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                          />
+                        </td>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-500 hidden md:table-cell max-w-xs truncate">{item.notes}</td>
-                  </tr>
-                ))}
+                      <td className={cn('px-4 py-3 text-xs font-medium', isExcluded ? 'text-slate-400 line-through' : 'text-slate-700')}>
+                        {item.assetType}
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell">
+                        {item.url && item.url !== 'N/A' ? (
+                          <a
+                            href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-amber-600 hover:underline flex items-center gap-1"
+                          >
+                            {item.url.replace(/^https?:\/\//, '').slice(0, 32)}{item.url.length > 40 && '\u2026'}
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        ) : (
+                          <span className="text-xs text-slate-300">&mdash;</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusPill status={item.status} />
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500 hidden md:table-cell max-w-xs truncate">{item.notes}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </Card>
+          {excludedAssets.size > 0 && (
+            <p className="text-xs text-slate-400 mt-2">
+              {excludedAssets.size} asset{excludedAssets.size > 1 ? 's' : ''} excluded from report.
+            </p>
+          )}
         </div>
       )}
 
@@ -376,7 +457,7 @@ export default function DigitalPresenceScorecard({ report, onReset }: Props) {
       <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 flex items-start gap-2.5">
         <Info className="w-4 h-4 text-slate-300 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-slate-400 leading-relaxed">
-          This report is based on publicly available web data gathered via AI-powered research. Data accuracy may vary — some channels may have limited public visibility. Scores are estimates to guide further due diligence, not guarantees. Always verify key metrics directly with the seller.
+          This report is based on publicly available web data gathered via AI-powered research. Data accuracy may vary -- some channels may have limited public visibility. Scores are estimates to guide further due diligence, not guarantees. Always verify key metrics directly with the seller.
         </p>
       </div>
     </div>

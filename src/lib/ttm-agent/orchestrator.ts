@@ -6,8 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { mapLedgerRows } from "@/lib/ttm-agent/mapping";
 import { parseAccountantStatementsDocument, parseAccountantStatementsPreparedDocument } from "@/lib/ttm-agent/parsers/accountant-statements";
-import { parseArAgingWorkbook, parseArAgingWorkbookFromPrepared, parseMonthlyWorkbook, parseMonthlyWorkbookFromPrepared } from "@/lib/ttm-agent/parsers/excel";
-import type { ParsedArAging } from "@/lib/ttm-agent/types";
+import { parseMonthlyWorkbook, parseMonthlyWorkbookFromPrepared } from "@/lib/ttm-agent/parsers/excel";
 import { buildDataQualityReport, flattenFlagsForPersistence } from "@/lib/ttm-agent/report-builder";
 import { reconcileFinancials } from "@/lib/ttm-agent/reconciler";
 import { REVENUE_CODES } from "@/lib/ttm-agent/taxonomy";
@@ -375,7 +374,6 @@ function buildWs21PromptContent(args: {
   monthlyBs: PreparedDocumentInput;
   accountant: PreparedDocumentInput;
   accountantStatements: Awaited<ReturnType<typeof parseAccountantStatementsPreparedDocument>>;
-  arAging: PreparedDocumentInput;
 }) {
   // V3 Section 4.3: The client-side conversion already adds === INPUT FILE: === headers
   // and === SHEET: === separators. We pass the text blocks through directly.
@@ -386,16 +384,12 @@ function buildWs21PromptContent(args: {
     .map((block) => block.text)
     .join("\n\n");
   const accountantText = formatAccountantPreparedText(args.accountant, args.accountantStatements);
-  const arText = (args.arAging.textBlocks ?? [])
-    .map((block) => block.text)
-    .join("\n\n");
 
   // V3 Section 4.3: buildWS21MessageContent exact format
   return [
     { type: "text" as const, text: plText || `=== INPUT FILE: Monthly P&L — 3 Fiscal Years ===\nNo P&L data available.` },
     { type: "text" as const, text: bsText || `=== INPUT FILE: Monthly Balance Sheet — 3 Fiscal Years ===\nNo balance sheet data available.` },
     { type: "text" as const, text: accountantText.startsWith("===") ? accountantText : `=== INPUT FILE: Accountant-Prepared Financial Statements — 3 Fiscal Years ===\n${accountantText}` },
-    { type: "text" as const, text: arText.startsWith("===") ? arText : `=== INPUT FILE: Accounts Receivable Aging Detail ===\n${arText}` },
     { type: "text" as const, text: "Please analyze the above financial data and produce the TTM Financial Analysis Report as specified in your instructions." },
   ];
 }
@@ -532,22 +526,6 @@ export async function runTtmAgent(args: {
       console.log("[TTM] No accountant statements uploaded — skipping cross-reference");
     }
 
-    // Optional: AR Aging
-    const arAgingDocRecord = await loadOptionalDocument(args.clientId, "ar_aging_detail");
-    let arAging: ParsedArAging | null = null;
-    if (arAgingDocRecord) {
-      try {
-        const arAgingBuffer = await safeReadDocumentBuffer(arAgingDocRecord.localPath);
-        const preparedArAging = preparedMap.get("ar_aging_detail" as any);
-        arAging = arAgingBuffer
-          ? parseArAgingWorkbook(arAgingBuffer)
-          : preparedArAging ? parseArAgingWorkbookFromPrepared(preparedArAging) : null;
-        if (arAging) console.log(`[TTM] Parsed AR aging: ${arAging.entries.length} customer entries`);
-      } catch (e) { console.log(`[TTM] AR aging skipped: ${(e as Error).message}`); }
-    } else {
-      console.log("[TTM] No AR aging uploaded — skipping");
-    }
-
     // V3 Section 10: Fewer than 24 months → proceed but flag PARTIAL DATA
     const isPartialData = monthlyPl.monthKeys.length < 24;
     if (isPartialData) {
@@ -582,7 +560,6 @@ export async function runTtmAgent(args: {
     const wcResult = buildWorkingCapitalSummary({
       mappedBalanceSheetRows: mappedBsRows,
       balanceSheetMonths: monthlyBs.monthKeys,
-      arAging: arAging ?? { headerRowIndex: 0, sourceSheet: "", entries: [], notes: ["AR aging not provided"] },
     });
 
     reconciled.dataQualitySections.E.push(...wcResult.qualityItems);
@@ -696,7 +673,6 @@ export async function runTtmAgent(args: {
               monthlyPl: monthlyPl.notes,
               monthlyBs: monthlyBs.notes,
               accountantStatements: accountantStatements?.notes ?? [],
-              arAging: arAging?.notes ?? [],
             },
             ...(llmExtraction ? { llmExtraction } : {}),
             primarySource: llmSucceeded ? "LLM" : "DETERMINISTIC",

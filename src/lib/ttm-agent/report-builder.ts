@@ -5,7 +5,7 @@ const SECTION_TITLES: Record<DataQualitySection, string> = {
   B: "Section B - QB vs. Excel Discrepancies",
   C: "Section C - Accountant Statement vs. Monthly P&L Discrepancies",
   D: "Section D - Period & Coverage Issues",
-  E: "Section E - AR Aging Flags",
+  E: "Section E - Working Capital Flags",
 };
 
 export function buildDataQualityReport(sectionItems: Record<DataQualitySection, SectionReportItem[]>) {

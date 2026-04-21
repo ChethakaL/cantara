@@ -680,7 +680,7 @@ export function Ws2RecastPanel({
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       <tr>
-                        <td className="px-4 py-4 font-semibold text-slate-900" colSpan={3}>EBITDA (Pre-Recast)</td>
+                        <td className="px-4 py-4 font-semibold text-slate-900" colSpan={3}>EBITDA (Pre-Normalized)</td>
                         <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastRow?.ttmAmount)}</td>
                         {hasMultiYear && <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastRow?.fy3Amount)}</td>}
                         {hasMultiYear && <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastRow?.fy2Amount)}</td>}

@@ -52,13 +52,6 @@ export function BaselineValuationReportPanel({
   const dispatchTask = analysis.dispatchTasks.find((task) => task.agentId === 'ws2_10_report_generator_v1')
   const released = !dispatchTask || dispatchTask.status === 'RELEASED'
   const disabled = analysis.status !== 'APPROVED' || !released || !approvedRecast || !sourceReportsComplete
-  const stagePreview = !report
-  const sourceStatuses = [
-    { label: 'WS2-2 EBITDA', status: approvedRecast ? 'Approved' : analysis.recastAnalyses?.[0]?.status ?? 'Not run' },
-    { label: 'WS2-3 Revenue', status: (analysis.derivedReports ?? []).find((item) => item.agentId === 'ws2_3_rev_vertical_v1')?.status ?? 'Not run' },
-    { label: 'WS2-4 Benchmarks', status: (analysis.derivedReports ?? []).find((item) => item.agentId === 'ws2_4_benchmark_v1')?.status ?? 'Not run' },
-    { label: 'WS2-5 Labor', status: (analysis.derivedReports ?? []).find((item) => item.agentId === 'ws2_5_labor_v1')?.status ?? 'Not run' },
-  ]
 
   const runReport = async () => {
     setRunning(true)
@@ -159,23 +152,17 @@ export function BaselineValuationReportPanel({
   }
 
   const controls = (
-    <Card className="p-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h4 className="text-sm font-semibold text-slate-800">Baseline Valuation Report</h4>
-            <p className="text-xs text-slate-400 mt-1">
-              Report-first UI assembled after approved WS2-2 and completed WS2-3/WS2-4/WS2-5.
-            </p>
-          </div>
+    <Card className="p-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <Badge color="gold">Internal Only</Badge>
-            <Badge color={report?.status === 'COMPLETE' ? 'green' : released ? 'blue' : 'gold'}>
-              {report?.status ?? (released ? 'Ready to Run' : 'Blocked')}
-            </Badge>
+            {report?.status === 'COMPLETE' && <Badge color="green">Report Ready</Badge>}
+          </div>
+          <div className="flex items-center gap-2">
             {onToggleCollapse && (
               <Button size="sm" variant="outline" onClick={onToggleCollapse}>
                 {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                {collapsed ? 'Expand Report' : 'Collapse Report'}
+                {collapsed ? 'Expand' : 'Collapse'}
               </Button>
             )}
             <Button size="sm" onClick={() => void runReport()} disabled={disabled || running}>
@@ -197,72 +184,22 @@ export function BaselineValuationReportPanel({
           </div>
         </div>
 
-        {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
-
-        {collapsed ? (
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">Status</p>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{report?.status ?? 'Not Run'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">WS2-2 Approved</p>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{approvedRecast ? 'Yes' : 'No'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">WS2-3/4/5 Complete</p>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{sourceReportsComplete ? 'Yes' : 'No'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">Release Gate</p>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{released ? 'Released' : 'Blocked'}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">Status</p>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{report?.status ?? 'Not Run'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">WS2-2 Approved</p>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{approvedRecast ? 'Yes' : 'No'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">WS2-3/4/5 Complete</p>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{sourceReportsComplete ? 'Yes' : 'No'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">Release Gate</p>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{released ? 'Released' : 'Blocked'}</p>
-            </div>
-          </div>
-        )}
+        {error && <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
       </Card>
   )
 
-  const preview = null // Removed — WS2-2 panel now appears directly after WS2-1 approval
-
   return (
     <div className="space-y-4">
-      {!collapsed && displayRecast ? (
-        <>
-          <Ws2WorkbookView
-            analysis={analysis}
-            recast={displayRecast}
-            clientName={clientName}
-            onExportXlsx={onExportXlsx}
-          />
-
-          {controls}
-
-        </>
-      ) : (
-        <>
-          {preview}
-          {controls}
-        </>
+      {!collapsed && displayRecast && (
+        <Ws2WorkbookView
+          analysis={analysis}
+          recast={displayRecast}
+          clientName={clientName}
+          onExportXlsx={onExportXlsx}
+        />
       )}
+
+      {controls}
       <Modal
         open={Boolean(pendingSnapshot)}
         onClose={() => {

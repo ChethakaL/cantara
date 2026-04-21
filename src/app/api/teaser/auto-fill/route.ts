@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { TeaserInputData } from '@/lib/teaser/types'
+import { generateTeaserWithAI, ClientContext } from '@/lib/teaser/ai-autofill'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -15,58 +16,115 @@ export async function POST(req: NextRequest) {
     // ── 1. Load client profile ──────────────────────────────────────────
     const client = await (prisma as any).clientProfile.findUnique({
       where: { id: clientId },
-      include: {
-        Branches: true,
-        TeamMembers: true,
-        AdvisorProfiles: true,
-      },
     })
     if (!client) {
       return new Response('Client not found', { status: 404 })
     }
 
     // ── 2. Load latest TTM analysis (WS2-1) ────────────────────────────
-    const latestAnalysis = await (prisma as any).ttmAnalysis.findFirst({
-      where: { clientId },
-      orderBy: { version: 'desc' },
-    })
+    let latestAnalysis: any = null
+    try {
+      latestAnalysis = await (prisma as any).ttmAnalysis.findFirst({
+        where: { clientId },
+        orderBy: { version: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── 3. Load latest recast (WS2-2) ──────────────────────────────────
     let recast: any = null
     if (latestAnalysis) {
-      recast = await (prisma as any).ws2RecastAnalysis.findFirst({
-        where: { ttmAnalysisId: latestAnalysis.id },
-        orderBy: { version: 'desc' },
-      })
+      try {
+        recast = await (prisma as any).ws2RecastAnalysis.findFirst({
+          where: { ttmAnalysisId: latestAnalysis.id },
+          orderBy: { version: 'desc' },
+        })
+      } catch { /* table may not exist yet */ }
     }
 
     // ── 4. Load latest lease analysis ───────────────────────────────────
-    const leaseReport = await prisma.leaseAnalysis.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
+    let leaseReport: any = null
+    try {
+      leaseReport = await prisma.leaseAnalysis.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── 5. Load latest competitor analysis ──────────────────────────────
-    const competitorReport = await (prisma as any).competitorAnalysis.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
+    let competitorReport: any = null
+    try {
+      competitorReport = await (prisma as any).competitorAnalysis.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── 6. Load latest employee obligations report ──────────────────────
-    const employeeReport = await (prisma as any).employeeObligationsReport.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
+    let employeeReport: any = null
+    try {
+      employeeReport = await (prisma as any).employeeObligationsReport.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── 7. Load insurance review document ───────────────────────────────
-    const insuranceDoc = await (prisma as any).clientDocument.findFirst({
-      where: { clientId, documentId: 'insurance_claims_12m' },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        aiReviewSummary: true,
-        aiReviewStatus: true,
-      },
-    })
+    let insuranceDoc: any = null
+    try {
+      insuranceDoc = await (prisma as any).clientDocument.findFirst({
+        where: { clientId, documentId: 'insurance_claims_12m' },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          aiReviewSummary: true,
+          aiReviewStatus: true,
+        },
+      })
+    } catch { /* table may not exist yet */ }
+
+    // ── 8. Load digital presence report ───────────────────────────────
+    let digitalPresence: any = null
+    try {
+      digitalPresence = await (prisma as any).digitalPresenceReport.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
+
+    // ── AI-powered auto-fill (falls back to static logic below) ────────
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        const aiContext: ClientContext = {
+          clientProfile: client,
+          ttmAnalysis: latestAnalysis,
+          recast,
+          leaseReport,
+          competitorReport,
+          digitalPresence,
+          insuranceDoc,
+          employeeReport,
+        }
+        const autoFilled = await generateTeaserWithAI(aiContext)
+        return NextResponse.json({
+          autoFilled,
+          sources: {
+            client: true,
+            ttmAnalysis: !!latestAnalysis,
+            recast: !!recast,
+            lease: !!leaseReport,
+            competitor: !!competitorReport,
+            digitalPresence: !!digitalPresence,
+            employeeObligations: !!employeeReport,
+            insurance: !!insuranceDoc,
+            aiGenerated: true,
+          },
+        })
+      } catch (aiError: any) {
+        console.warn('AI teaser generation failed, falling back to static:', aiError?.message)
+        // Fall through to static logic below
+      }
+    }
+
+    // ── Static fallback ────────────────────────────────────────────────
 
     // ── Helpers ─────────────────────────────────────────────────────────
     const formatCurrency = (v: number | null | undefined) => {
@@ -158,6 +216,7 @@ export async function POST(req: NextRequest) {
       clientProfile: '',
       staffOperations: '',
       realEstate: leaseInfo ? `Leased facility. ${leaseInfo}` : '',
+      technology: 'Modern booking & POS platform in place. CRM and review management tools active. Digital marketing channels established. Operational tech stack transferable to new owner.',
       permitsZoning:
         'Fully compliant with all local land use and zoning regulations. All required operating permits and licenses current and in good standing.',
 
@@ -230,8 +289,8 @@ export async function POST(req: NextRequest) {
         insurance: !!insuranceDoc,
       },
     })
-  } catch (error) {
-    console.error('Teaser auto-fill error:', error)
-    return new Response('Internal Server Error', { status: 500 })
+  } catch (error: any) {
+    console.error('Teaser auto-fill error:', error?.message ?? error, error?.stack ?? '')
+    return new Response(error?.message ?? 'Internal Server Error', { status: 500 })
   }
 }

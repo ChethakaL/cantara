@@ -14,6 +14,7 @@ export interface TeaserInputData {
   clientProfile: string
   staffOperations: string
   realEstate: string
+  technology: string
   permitsZoning: string
 
   // Financial Highlights
@@ -66,6 +67,7 @@ export const DEFAULT_TEASER_INPUT: TeaserInputData = {
   clientProfile: '',
   staffOperations: '',
   realEstate: '',
+  technology: '',
   permitsZoning: '',
   annualRevenue: '',
   revenueGrowth: '',

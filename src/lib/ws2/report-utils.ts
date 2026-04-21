@@ -1393,7 +1393,6 @@ function buildLaborAnalysisTab(ws25: Ws2DerivedReportView | null) {
 
 function buildWorkingCapitalTab(ttm: TtmAnalysisView) {
   const wc = ttm.workingCapital;
-  const ar = wc?.arAging;
 
   const rows: Array<Array<string | number | null>> = [
     ["Working Capital Analysis"],
@@ -1423,19 +1422,6 @@ function buildWorkingCapitalTab(ttm: TtmAnalysisView) {
     [],
     ["3-MONTH AVERAGE NWC", wc?.trailingThreeMonthAverageNwc ?? null],
     ["(Used in Seller Net Proceeds Calculator)"],
-  );
-
-  // AR Aging
-  rows.push(
-    [],
-    ["AR AGING SUMMARY"],
-    ["Current", ar?.current ?? null, fmtPct(ar?.pctCurrent)],
-    ["1-30 days", ar?.days1To30 ?? null, fmtPct(ar?.pct1To30)],
-    ["31-60 days", ar?.days31To60 ?? null, fmtPct(ar?.pct31To60)],
-    ["61-90 days", ar?.days61To90 ?? null, fmtPct(ar?.pct61To90)],
-    ["90+ days", ar?.days90Plus ?? null, fmtPct(ar?.pct90Plus)],
-    ["TOTAL AR", ar?.totalAr ?? null],
-    ["BS Reconciliation", ar?.reconcilesToBalanceSheet ? "RECONCILED ✓" : `GAP: ${fmtCurrencyStr(ar?.varianceToBalanceSheetAr)} ⚠`],
     [],
     [`→ 3-Month Average NWC of ${fmtCurrencyStr(wc?.trailingThreeMonthAverageNwc)} passed to Seller Net Proceeds Calculator.`],
   );
@@ -1467,7 +1453,7 @@ function buildDataQualityReportTab(ttm: TtmAnalysisView) {
     { code: "B", title: "SECTION B — QB vs. EXCEL DISCREPANCIES" },
     { code: "C", title: "SECTION C — ACCOUNTANT STATEMENT DISCREPANCIES" },
     { code: "D", title: "SECTION D — PERIOD & COVERAGE ISSUES" },
-    { code: "E", title: "SECTION E — AR AGING FLAGS" },
+    { code: "E", title: "SECTION E — WORKING CAPITAL FLAGS" },
   ];
 
   for (const section of sections) {

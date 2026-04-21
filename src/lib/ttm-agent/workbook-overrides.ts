@@ -88,14 +88,6 @@ export type WorkbookOverrideSnapshot = {
     totalCurrentLiabilities?: number
     netWorkingCapital?: number
     trailingThreeMonthAvgNWC?: number
-    arAgingBuckets?: {
-      current?: number
-      days1to30?: number
-      days31to60?: number
-      days61to90?: number
-      days90plus?: number
-      total?: number
-    }
   }
 }
 
@@ -254,7 +246,6 @@ export function buildWorkbookOverrideSnapshot(report: WS2Report): WorkbookOverri
       totalCurrentLiabilities: report.ws21.workingCapital.totalCurrentLiabilities,
       netWorkingCapital: report.ws21.workingCapital.netWorkingCapital,
       trailingThreeMonthAvgNWC: report.ws21.workingCapital.trailingThreeMonthAvgNWC,
-      arAgingBuckets: { ...report.ws21.workingCapital.arAgingBuckets },
     },
   }
 }
@@ -367,10 +358,6 @@ export function applyWorkbookOverrideSnapshot(report: WS2Report, snapshot: Workb
     next.ws21.workingCapital = {
       ...next.ws21.workingCapital,
       ...snapshot.workingCapital,
-      arAgingBuckets: {
-        ...next.ws21.workingCapital.arAgingBuckets,
-        ...(snapshot.workingCapital.arAgingBuckets ?? {}),
-      },
     }
   }
 
@@ -468,12 +455,8 @@ export function diffWorkbookOverrideSnapshots(current: WorkbookOverrideSnapshot,
   pushNumber('Labor Analysis', 'Summary', 'Buyer-adjusted labor %', current.ws25?.buyerAdjustedLaborPct, next.ws25?.buyerAdjustedLaborPct)
 
   for (const [field, value] of Object.entries(next.workingCapital ?? {})) {
-    if (field === 'arAgingBuckets' || typeof value !== 'number') continue
+    if (typeof value !== 'number') continue
     pushNumber('Working Capital', 'Current balance sheet', field, (current.workingCapital as Record<string, unknown> | undefined)?.[field] as number | undefined, value)
-  }
-
-  for (const [field, value] of Object.entries(next.workingCapital?.arAgingBuckets ?? {})) {
-    pushNumber('Working Capital', 'AR aging', field, current.workingCapital?.arAgingBuckets?.[field as keyof NonNullable<WorkbookOverrideSnapshot['workingCapital']>['arAgingBuckets']], value)
   }
 
   return changes

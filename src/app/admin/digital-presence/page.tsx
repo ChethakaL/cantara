@@ -34,6 +34,7 @@ export default function DigitalPresencePage() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [currentPhase, setCurrentPhase] = useState<'research' | 'analyze' | null>(null);
   const [researchProgress, setResearchProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [lastFormData, setLastFormData] = useState<DigitalAssetFormData | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   function appendLog(entry: Omit<LogEntry, 'id'>) {
@@ -46,6 +47,7 @@ export default function DigitalPresencePage() {
   }
 
   async function handleSubmit(formData: DigitalAssetFormData) {
+    setLastFormData(formData);
     setStatus('researching');
     setError(null);
     setReport(null);
@@ -127,6 +129,16 @@ export default function DigitalPresencePage() {
     setResearchProgress(null);
   }
 
+  function handleRerun() {
+    setStatus('idle');
+    setReport(null);
+    setError(null);
+    setLog([]);
+    setCurrentPhase(null);
+    setResearchProgress(null);
+    // lastFormData is preserved so the form re-populates
+  }
+
   const isLoading = status === 'researching' || status === 'analyzing';
 
   return (
@@ -175,12 +187,8 @@ export default function DigitalPresencePage() {
               </span>
             )}
             {status === 'complete' && report && (
-              <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full border', {
-                'bg-emerald-50 text-emerald-700 border-emerald-200': report.overallTrafficLight === 'green',
-                'bg-amber-50 text-amber-700 border-amber-200': report.overallTrafficLight === 'amber',
-                'bg-rose-50 text-rose-700 border-rose-200': report.overallTrafficLight === 'red',
-              })}>
-                Overall: {report.overallScore.toFixed(1)}/5
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                Analysis Complete
               </span>
             )}
           </div>
@@ -188,7 +196,7 @@ export default function DigitalPresencePage() {
           <div className="p-6">
             {/* Idle: show form */}
             {status === 'idle' && (
-              <DigitalPresenceForm onSubmit={handleSubmit} loading={false} />
+              <DigitalPresenceForm onSubmit={handleSubmit} loading={false} initialData={lastFormData ?? undefined} />
             )}
 
             {/* Loading: show live log */}
@@ -294,7 +302,7 @@ export default function DigitalPresencePage() {
 
             {/* Complete: show scorecard */}
             {status === 'complete' && report && (
-              <DigitalPresenceScorecard report={report} onReset={handleReset} />
+              <DigitalPresenceScorecard report={report} onReset={handleReset} onRerun={handleRerun} />
             )}
           </div>
         </div>
