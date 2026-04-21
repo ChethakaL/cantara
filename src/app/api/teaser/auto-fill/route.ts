@@ -15,58 +15,70 @@ export async function POST(req: NextRequest) {
     // ── 1. Load client profile ──────────────────────────────────────────
     const client = await (prisma as any).clientProfile.findUnique({
       where: { id: clientId },
-      include: {
-        Branches: true,
-        TeamMembers: true,
-        AdvisorProfiles: true,
-      },
     })
     if (!client) {
       return new Response('Client not found', { status: 404 })
     }
 
     // ── 2. Load latest TTM analysis (WS2-1) ────────────────────────────
-    const latestAnalysis = await (prisma as any).ttmAnalysis.findFirst({
-      where: { clientId },
-      orderBy: { version: 'desc' },
-    })
+    let latestAnalysis: any = null
+    try {
+      latestAnalysis = await (prisma as any).ttmAnalysis.findFirst({
+        where: { clientId },
+        orderBy: { version: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── 3. Load latest recast (WS2-2) ──────────────────────────────────
     let recast: any = null
     if (latestAnalysis) {
-      recast = await (prisma as any).ws2RecastAnalysis.findFirst({
-        where: { ttmAnalysisId: latestAnalysis.id },
-        orderBy: { version: 'desc' },
-      })
+      try {
+        recast = await (prisma as any).ws2RecastAnalysis.findFirst({
+          where: { ttmAnalysisId: latestAnalysis.id },
+          orderBy: { version: 'desc' },
+        })
+      } catch { /* table may not exist yet */ }
     }
 
     // ── 4. Load latest lease analysis ───────────────────────────────────
-    const leaseReport = await prisma.leaseAnalysis.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
+    let leaseReport: any = null
+    try {
+      leaseReport = await prisma.leaseAnalysis.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── 5. Load latest competitor analysis ──────────────────────────────
-    const competitorReport = await (prisma as any).competitorAnalysis.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
+    let competitorReport: any = null
+    try {
+      competitorReport = await (prisma as any).competitorAnalysis.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── 6. Load latest employee obligations report ──────────────────────
-    const employeeReport = await (prisma as any).employeeObligationsReport.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
+    let employeeReport: any = null
+    try {
+      employeeReport = await (prisma as any).employeeObligationsReport.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── 7. Load insurance review document ───────────────────────────────
-    const insuranceDoc = await (prisma as any).clientDocument.findFirst({
-      where: { clientId, documentId: 'insurance_claims_12m' },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        aiReviewSummary: true,
-        aiReviewStatus: true,
-      },
-    })
+    let insuranceDoc: any = null
+    try {
+      insuranceDoc = await (prisma as any).clientDocument.findFirst({
+        where: { clientId, documentId: 'insurance_claims_12m' },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          aiReviewSummary: true,
+          aiReviewStatus: true,
+        },
+      })
+    } catch { /* table may not exist yet */ }
 
     // ── Helpers ─────────────────────────────────────────────────────────
     const formatCurrency = (v: number | null | undefined) => {
@@ -230,8 +242,8 @@ export async function POST(req: NextRequest) {
         insurance: !!insuranceDoc,
       },
     })
-  } catch (error) {
-    console.error('Teaser auto-fill error:', error)
-    return new Response('Internal Server Error', { status: 500 })
+  } catch (error: any) {
+    console.error('Teaser auto-fill error:', error?.message ?? error, error?.stack ?? '')
+    return new Response(error?.message ?? 'Internal Server Error', { status: 500 })
   }
 }
