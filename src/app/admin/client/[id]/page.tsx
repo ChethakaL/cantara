@@ -24,6 +24,10 @@ import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
 import EmployeeObligationsTab from '@/components/ws1-6/EmployeeObligationsTab'
 import NetProceedsCalculator from '@/components/net-proceeds/NetProceedsCalculator'
 import TeaserGeneratorTab from '@/components/teaser/TeaserGeneratorTab'
+import ProfessionalAdvisorsTab from '@/components/advisors/ProfessionalAdvisorsTab'
+import VendorDirectoryTab from '@/components/vendor-directory/VendorDirectoryTab'
+import OrgChartReviewTab from '@/components/org-chart/OrgChartReviewTab'
+import LitigationSearchTab from '@/components/litigation-search/LitigationSearchTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -38,6 +42,10 @@ const AGENT_TABS = [
   { key: 'contract', label: 'Material Contracts', badge: null, icon: Briefcase, group: 'WS1 — Risk & Legal' },
   { key: 'employee-obligations', label: 'Employee Obligations', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'insurance', label: 'Insurance Review', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
+  { key: 'advisors', label: 'Professional Advisors', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
+  { key: 'org-chart', label: 'Org Chart Review', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'litigation', label: 'Litigation & Liens', badge: null, icon: AlertCircle, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
@@ -398,6 +406,18 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'insurance' && (
               <InsuranceReviewTab clientId={client.id} />
+            )}
+            {activeTab === 'advisors' && (
+              <ProfessionalAdvisorsTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'vendor-directory' && (
+              <VendorDirectoryTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'org-chart' && (
+              <OrgChartReviewTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'litigation' && (
+              <LitigationSearchTab clientId={client.id} clientName={client.company || client.name} businessAddress={client.businessAddress} />
             )}
             {activeTab === 'sales-process-review' && (
               <SalesProcessReviewTab clientId={client.id} clientName={client.name} />

@@ -1,0 +1,437 @@
+'use client'
+
+import React, { useState, useRef, useCallback } from 'react'
+import { Card, Badge, Button, cn } from '@/components/ui'
+import {
+  Search, Upload, FileText, AlertTriangle, Shield, ShieldAlert, ShieldCheck,
+  ChevronDown, ChevronUp, ExternalLink, Calendar, Loader2, X, FileUp,
+} from 'lucide-react'
+import type { LitigationSearchResult } from '@/lib/litigation-search/search'
+
+// ── US States ────────────────────────────────────────────────────────────────
+
+const US_STATES = [
+  'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut',
+  'Delaware','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa',
+  'Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan',
+  'Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire',
+  'New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio',
+  'Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina','South Dakota',
+  'Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia',
+  'Wisconsin','Wyoming',
+]
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const RISK_CONFIG = {
+  high:   { color: 'red'   as const, icon: ShieldAlert, label: 'High Risk',  bg: 'bg-red-50',    border: 'border-red-200',    text: 'text-red-700' },
+  medium: { color: 'gold'  as const, icon: AlertTriangle, label: 'Medium Risk', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
+  low:    { color: 'blue'  as const, icon: Shield, label: 'Low Risk',    bg: 'bg-blue-50',   border: 'border-blue-200',   text: 'text-blue-700' },
+  clear:  { color: 'green' as const, icon: ShieldCheck, label: 'Clear',       bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' },
+}
+
+const TYPE_LABELS: Record<string, { label: string; color: 'red' | 'gold' | 'blue' | 'slate' }> = {
+  litigation: { label: 'Litigation', color: 'red' },
+  lien:       { label: 'Lien',       color: 'gold' },
+  judgment:   { label: 'Judgment',   color: 'red' },
+  ucc_filing: { label: 'UCC Filing', color: 'blue' },
+  bankruptcy: { label: 'Bankruptcy', color: 'red' },
+  other:      { label: 'Other',      color: 'slate' },
+}
+
+// ── Finding card ─────────────────────────────────────────────────────────────
+
+function FindingCard({ finding }: { finding: LitigationSearchResult['findings'][number] }) {
+  const typeInfo = TYPE_LABELS[finding.type] || TYPE_LABELS.other
+  const sevInfo = RISK_CONFIG[finding.severity] || RISK_CONFIG.low
+
+  return (
+    <div className="border border-slate-200 rounded-xl p-4 hover:border-slate-300 transition-colors">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge color={typeInfo.color}>{typeInfo.label}</Badge>
+          <Badge color={sevInfo.color}>{sevInfo.label}</Badge>
+        </div>
+        {finding.date && (
+          <span className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap">
+            <Calendar className="w-3 h-3" />
+            {finding.date}
+          </span>
+        )}
+      </div>
+      <h4 className="text-sm font-semibold text-slate-800 mb-1">{finding.title}</h4>
+      <p className="text-xs text-slate-500 leading-relaxed mb-2">{finding.description}</p>
+      {finding.source && (
+        <div className="flex items-center gap-1 text-xs text-blue-600">
+          <ExternalLink className="w-3 h-3" />
+          {finding.source.startsWith('http') ? (
+            <a href={finding.source} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[300px]">
+              {finding.source}
+            </a>
+          ) : (
+            <span className="text-slate-400">{finding.source}</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Results section ──────────────────────────────────────────────────────────
+
+function ResultsSection({ title, result }: { title: string; result: LitigationSearchResult }) {
+  const [showSearches, setShowSearches] = useState(false)
+  const risk = RISK_CONFIG[result.riskLevel] || RISK_CONFIG.low
+  const RiskIcon = risk.icon
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
+        <span className="text-[10px] text-slate-400">
+          {new Date(result.generatedAt).toLocaleString()}
+        </span>
+      </div>
+
+      {/* Risk badge */}
+      <div className={cn('flex items-center gap-3 p-4 rounded-xl border', risk.bg, risk.border)}>
+        <RiskIcon className={cn('w-5 h-5', risk.text)} />
+        <div>
+          <p className={cn('text-sm font-bold', risk.text)}>{risk.label}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {result.findings.length === 0 ? 'No public records found' : `${result.findings.length} finding${result.findings.length !== 1 ? 's' : ''}`}
+          </p>
+        </div>
+      </div>
+
+      {/* Summary */}
+      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+        <p className="text-xs text-slate-600 leading-relaxed">{result.summary}</p>
+      </div>
+
+      {/* Findings */}
+      {result.findings.length > 0 && (
+        <div className="space-y-3">
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Findings</h4>
+          {result.findings.map((f, i) => (
+            <FindingCard key={i} finding={f} />
+          ))}
+        </div>
+      )}
+
+      {/* Searches performed */}
+      {result.searchesPerformed.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowSearches(!showSearches)}
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            {showSearches ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            {result.searchesPerformed.length} searches performed
+          </button>
+          {showSearches && (
+            <ul className="mt-2 space-y-1 pl-4">
+              {result.searchesPerformed.map((s, i) => (
+                <li key={i} className="text-xs text-slate-400 list-disc">{s}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
+
+interface LitigationSearchTabProps {
+  clientId: string
+  clientName: string
+  businessAddress?: string
+}
+
+export default function LitigationSearchTab({ clientId, clientName, businessAddress }: LitigationSearchTabProps) {
+  // Search form state
+  const [businessName, setBusinessName] = useState(clientName)
+  const [ownerName, setOwnerName] = useState('')
+  const [state, setState] = useState('')
+  const [county, setCounty] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [searchResult, setSearchResult] = useState<LitigationSearchResult | null>(null)
+  const [searchError, setSearchError] = useState('')
+
+  // Upload state
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [docResult, setDocResult] = useState<LitigationSearchResult | null>(null)
+  const [docError, setDocError] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Search handler ─────────────────────────────────────────────────────────
+
+  const handleSearch = useCallback(async () => {
+    if (!businessName.trim() || !state) return
+    setSearching(true)
+    setSearchError('')
+    setSearchResult(null)
+
+    try {
+      const res = await fetch('/api/litigation-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessName: businessName.trim(), ownerName: ownerName.trim(), state, county: county.trim() }),
+      })
+      if (!res.ok) {
+        const msg = await res.text()
+        throw new Error(msg || `Error ${res.status}`)
+      }
+      const data: LitigationSearchResult = await res.json()
+      setSearchResult(data)
+    } catch (err: any) {
+      setSearchError(err.message || 'Search failed')
+    } finally {
+      setSearching(false)
+    }
+  }, [businessName, ownerName, state, county])
+
+  // ── Upload handler ─────────────────────────────────────────────────────────
+
+  const handleAnalyze = useCallback(async () => {
+    if (!uploadFile) return
+    setAnalyzing(true)
+    setDocError('')
+    setDocResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadFile)
+
+      const res = await fetch('/api/litigation-search', {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) {
+        const msg = await res.text()
+        throw new Error(msg || `Error ${res.status}`)
+      }
+      const data: LitigationSearchResult = await res.json()
+      setDocResult(data)
+    } catch (err: any) {
+      setDocError(err.message || 'Analysis failed')
+    } finally {
+      setAnalyzing(false)
+    }
+  }, [uploadFile])
+
+  // ── Drag & drop ────────────────────────────────────────────────────────────
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file && (file.type === 'application/pdf' || file.type.startsWith('image/'))) {
+      setUploadFile(file)
+    }
+  }, [])
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) setUploadFile(file)
+  }, [])
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-lg font-bold text-slate-800 tracking-tight">Litigation & Lien Search</h2>
+        <p className="text-xs text-slate-400 mt-1">
+          Search public records and analyze uploaded documents for litigation, liens, judgments, UCC filings, and bankruptcy.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ── Web Search Section ──────────────────────────────────────────────── */}
+        <Card className="p-5 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Search className="w-4 h-4 text-amber-600" />
+            <h3 className="text-sm font-bold text-slate-800">Public Records Search</h3>
+          </div>
+
+          {/* Business Name */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Business Name</label>
+            <input
+              type="text"
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+              placeholder="Business name"
+            />
+          </div>
+
+          {/* Owner Name */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Owner Name(s)</label>
+            <input
+              type="text"
+              value={ownerName}
+              onChange={(e) => setOwnerName(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+              placeholder="e.g. John Smith"
+            />
+          </div>
+
+          {/* State */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">State</label>
+            <select
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 bg-white"
+            >
+              <option value="">Select state...</option>
+              {US_STATES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* County */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">County <span className="text-slate-300">(optional)</span></label>
+            <input
+              type="text"
+              value={county}
+              onChange={(e) => setCounty(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+              placeholder="e.g. Los Angeles"
+            />
+          </div>
+
+          {/* Search button */}
+          <Button
+            onClick={handleSearch}
+            disabled={searching || !businessName.trim() || !state}
+            className="w-full justify-center"
+          >
+            {searching ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Searching public records...
+              </>
+            ) : (
+              <>
+                <Search className="w-4 h-4" />
+                Search Public Records
+              </>
+            )}
+          </Button>
+
+          {searchError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600">
+              {searchError}
+            </div>
+          )}
+        </Card>
+
+        {/* ── Document Upload Section ─────────────────────────────────────────── */}
+        <Card className="p-5 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <FileText className="w-4 h-4 text-amber-600" />
+            <h3 className="text-sm font-bold text-slate-800">Document Analysis</h3>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            Upload court records, lien reports, or UCC search results for AI analysis.
+          </p>
+
+          {/* Drop zone */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              'border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors',
+              dragOver
+                ? 'border-amber-400 bg-amber-50/50'
+                : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+            )}
+          >
+            <FileUp className={cn('w-8 h-8 mx-auto mb-2', dragOver ? 'text-amber-500' : 'text-slate-300')} />
+            <p className="text-xs text-slate-500 font-medium">
+              {dragOver ? 'Drop file here' : 'Drag & drop or click to upload'}
+            </p>
+            <p className="text-[10px] text-slate-400 mt-1">PDF or image files</p>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,image/*"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+
+          {/* Selected file */}
+          {uploadFile && (
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              <FileText className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              <span className="text-xs text-slate-600 truncate flex-1">{uploadFile.name}</span>
+              <button
+                onClick={() => { setUploadFile(null); setDocResult(null) }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Analyze button */}
+          <Button
+            onClick={handleAnalyze}
+            disabled={analyzing || !uploadFile}
+            variant="outline"
+            className="w-full justify-center"
+          >
+            {analyzing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Analyzing document...
+              </>
+            ) : (
+              <>
+                <Upload className="w-4 h-4" />
+                Analyze Document
+              </>
+            )}
+          </Button>
+
+          {docError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600">
+              {docError}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* ── Results ─────────────────────────────────────────────────────────── */}
+      {(searchResult || docResult) && (
+        <Card className="p-6 space-y-8">
+          {searchResult && (
+            <ResultsSection title="Web Search Results" result={searchResult} />
+          )}
+          {searchResult && docResult && (
+            <hr className="border-slate-100" />
+          )}
+          {docResult && (
+            <ResultsSection title="Document Analysis Results" result={docResult} />
+          )}
+        </Card>
+      )}
+    </div>
+  )
+}
