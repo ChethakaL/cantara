@@ -539,6 +539,42 @@ export function TtmAnalysisTab({
           )}
           </>
           )}
+
+          {/* GL Mapping Reference */}
+          {activeAnalysis.normalizedData?.mappedPlRows && Array.isArray(activeAnalysis.normalizedData.mappedPlRows) && (activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>).length > 0 && (
+            <Card className="p-5 mt-6">
+              <h4 className="text-sm font-semibold text-slate-800 mb-4">GL Code Mapping Reference</h4>
+              <p className="text-xs text-slate-400 mb-3">Finalized mapping of source GL codes to Cantara categories used in the analysis.</p>
+              <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="border-b border-slate-200 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-2">GL Code</th>
+                      <th className="px-3 py-2">Description</th>
+                      <th className="px-3 py-2">Cantara Category</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>)
+                      .filter((row) => row.accountCode)
+                      .map((row, i) => (
+                        <tr key={`${row.accountCode}-${i}`}>
+                          <td className="px-3 py-1.5 text-slate-500 font-mono text-xs">{row.accountCode ?? '—'}</td>
+                          <td className="px-3 py-1.5 text-slate-700">{row.accountName}</td>
+                          <td className="px-3 py-1.5 text-slate-500">{row.cantaraCode ?? 'UNMAPPED'}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">
+                            {typeof row.total === 'number' && Number.isFinite(row.total)
+                              ? `$${Math.round(row.total).toLocaleString()}`
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
         </div>
       ) : loadingAnalyses ? (
         <Card className="p-8">

@@ -21,11 +21,14 @@ export interface DigitalAssetFormData {
   facebookHandle?: string;
   instagramHandle?: string;
   tiktokHandle?: string;
-  youtubeHandle?: string;
   bookingPlatformUrl?: string;
   yelpUrl?: string;
+  nextdoorUrl?: string;
+
+  // Business Reputation
+  linkedinUrl?: string;
   glassdoorUrl?: string;
-  otherReviewUrls?: string;
+  bbbUrl?: string;
 }
 
 export interface TavilySearchResult {

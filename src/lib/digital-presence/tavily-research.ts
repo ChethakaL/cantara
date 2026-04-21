@@ -205,25 +205,6 @@ export async function researchAllChannels(
     });
   }
 
-  // ── YouTube ────────────────────────────────────────────────────────────────
-  if (formData.youtubeHandle) {
-    const url = normaliseHandle(formData.youtubeHandle, 'youtube');
-    const handle = formData.youtubeHandle.replace(/^@/, '');
-    tasks.push({
-      channelType: 'youtube',
-      label: 'YouTube',
-      run: async () => {
-        const queries = [
-          `"${businessName}" YouTube channel subscribers videos${ctx}`,
-          `site:youtube.com "@${handle}"`,
-        ];
-        const all: TavilySearchResult[] = [];
-        for (const q of queries) all.push(...await tavilySearch(q, apiKey));
-        return { channelType: 'youtube', inputUrl: url, searchQueries: queries, results: deduplicateResults(all) };
-      },
-    });
-  }
-
   // ── Booking Platform ───────────────────────────────────────────────────────
   if (formData.bookingPlatformUrl) {
     const host = stripProtocol(formData.bookingPlatformUrl);
@@ -242,8 +223,8 @@ export async function researchAllChannels(
     });
   }
 
-  // ── Online Reputation ──────────────────────────────────────────────────────
-  if (formData.yelpUrl || formData.glassdoorUrl || formData.otherReviewUrls) {
+  // ── Online Reputation (Yelp, NextDoor) ─────────────────────────────────────
+  if (formData.yelpUrl || formData.nextdoorUrl) {
     tasks.push({
       channelType: 'online_reputation',
       label: 'Online Reputation',
@@ -256,12 +237,10 @@ export async function researchAllChannels(
           const yelpHost = stripProtocol(formData.yelpUrl);
           queries.push(`site:${yelpHost}`);
         }
-        if (formData.glassdoorUrl) {
-          const glassdoorHost = stripProtocol(formData.glassdoorUrl);
-          queries.push(`site:${glassdoorHost}`);
-        } else {
-          // Auto-search Glassdoor even if not provided
-          queries.push(`"${businessName}" Glassdoor reviews employer rating${ctx}`);
+        if (formData.nextdoorUrl) {
+          const nextdoorHost = stripProtocol(formData.nextdoorUrl);
+          queries.push(`site:${nextdoorHost}`);
+          queries.push(`"${businessName}" NextDoor recommendations${ctx}`);
         }
         const all: TavilySearchResult[] = [];
         for (const q of queries) all.push(...await tavilySearch(q, apiKey));
@@ -276,12 +255,42 @@ export async function researchAllChannels(
       run: async () => {
         const queries: string[] = [
           `"${businessName}" Yelp reviews rating${ctx}`,
-          `"${businessName}" Glassdoor reviews employer rating${ctx}`,
           `"${businessName}" online reviews reputation${ctx}`,
         ];
         const all: TavilySearchResult[] = [];
         for (const q of queries) all.push(...await tavilySearch(q, apiKey));
         return { channelType: 'online_reputation', inputUrl: undefined, searchQueries: queries, results: deduplicateResults(all) };
+      },
+    });
+  }
+
+  // ── Business Reputation (LinkedIn, Glassdoor, BBB) ────────────────────────
+  if (formData.linkedinUrl || formData.glassdoorUrl || formData.bbbUrl) {
+    tasks.push({
+      channelType: 'online_reputation' as ChannelType,
+      label: 'Business Reputation',
+      run: async () => {
+        const queries: string[] = [];
+        if (formData.linkedinUrl) {
+          const linkedinHost = stripProtocol(formData.linkedinUrl);
+          queries.push(`site:${linkedinHost}`);
+          queries.push(`"${businessName}" LinkedIn company employees${ctx}`);
+        }
+        if (formData.glassdoorUrl) {
+          const glassdoorHost = stripProtocol(formData.glassdoorUrl);
+          queries.push(`site:${glassdoorHost}`);
+        } else {
+          queries.push(`"${businessName}" Glassdoor reviews employer rating${ctx}`);
+        }
+        if (formData.bbbUrl) {
+          const bbbHost = stripProtocol(formData.bbbUrl);
+          queries.push(`site:${bbbHost}`);
+        } else {
+          queries.push(`"${businessName}" BBB Better Business Bureau rating accreditation${ctx}`);
+        }
+        const all: TavilySearchResult[] = [];
+        for (const q of queries) all.push(...await tavilySearch(q, apiKey));
+        return { channelType: 'online_reputation' as ChannelType, inputUrl: formData.linkedinUrl ?? formData.glassdoorUrl ?? formData.bbbUrl, searchQueries: queries, results: deduplicateResults(all) };
       },
     });
   }

@@ -779,6 +779,13 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
               <ResultRow label="9. = Net Cash to Seller at Closing (Pre-Tax)" value={calc.netCashAtClosingPreTax} bold highlight />
               <div className="my-1" />
 
+              {calc.cashAtClosing > 0 && (
+                <>
+                  <SectionDivider />
+                  <ResultRow label="+ Estimated Cash at Closing" value={calc.cashAtClosing} source="Seller's accountant estimate" />
+                </>
+              )}
+
               <SectionDivider />
 
               {/* 10. Estimated Taxes */}

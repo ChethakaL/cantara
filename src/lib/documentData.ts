@@ -43,13 +43,6 @@ export const VALUATION_DOCS: DocumentDef[] = [
     workstreams: ['ws1', 'ws2', 'both', 'ma'],
   },
   {
-    id: 'ar_aging_detail',
-    name: 'AR Aging Detail',
-    description: 'Current accounts receivable aging detail export in Excel format.',
-    type: 'required',
-    workstreams: ['ws1', 'ws2', 'both', 'ma'],
-  },
-  {
     id: 'addback_disclosure',
     name: 'File 5 — Seller Add-Back Disclosure',
     description: 'Consolidated add-back disclosure: owner/officer compensation, personal expenses, non-recurring expenses, and tenant improvements over 36 months with GL cross-references.',
@@ -111,7 +104,6 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
     documents: [
       { id: 'tax_returns_3yr', name: 'Business Tax Returns (3 years)', description: 'Last 3 years of filed business tax returns.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'], parentOnly: false },
       { id: 'balance_sheet', name: 'Balance Sheet (current + 2 prior years)', description: 'Current and prior two years balance sheets.', type: 'required', workstreams: ['ws2', 'both', 'ma'] },
-      { id: 'accounts_receivable', name: 'Accounts Receivable Aging', description: 'Current A/R aging report.', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'accounts_payable', name: 'Accounts Payable Aging', description: 'Current A/P aging report.', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'bank_statements', name: 'Bank Statements (12 months)', description: 'Last 12 months of business bank statements.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'loan_docs', name: 'Loan Documents / Line of Credit', description: 'Any outstanding loans or lines of credit.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },

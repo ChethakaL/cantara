@@ -51,7 +51,7 @@ interface Props {
 
 let nextLogId = 0;
 let googleMapsScriptPromise: Promise<void> | null = null;
-const DEFAULT_PET_CATEGORY = 'pet store';
+const DEFAULT_PET_CATEGORY = 'pet resort';
 
 function priceLevelLabel(level: number | null | undefined): string {
   return 'Not published';
@@ -679,7 +679,6 @@ function ComparisonTable({
   if (!discoveredCompetitors.length) return null;
   const PAGE_SIZE = 8;
   const [page, setPage] = useState(1);
-  const [priceModalCompetitor, setPriceModalCompetitor] = useState<CompetitorReportItem | null>(null);
   const researchedById = new Map(researchedCompetitors.map((competitor) => [competitor.placeId ?? '', competitor]));
   const totalPages = Math.max(1, Math.ceil(discoveredCompetitors.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -699,9 +698,7 @@ function ComparisonTable({
               <th className="px-5 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Business</th>
               <th className="px-4 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Distance</th>
               <th className="px-4 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Similarity</th>
-              <th className="px-4 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Rating</th>
-              <th className="px-4 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Price</th>
-              <th className="px-4 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Hours</th>
+              <th className="px-4 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Google Rating</th>
               <th className="px-5 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Key Read</th>
               <th className="px-5 py-3 text-left font-semibold uppercase tracking-[0.16em] text-[10px]">Action</th>
             </tr>
@@ -735,22 +732,6 @@ function ComparisonTable({
                 <td className="px-4 py-4 text-slate-700">
                   {competitor.rating ?? 'Not found'}
                   <span className="block text-xs text-slate-400 mt-1">{formatNumber(competitor.reviewCount)} reviews</span>
-                </td>
-                <td className="px-4 py-4 text-slate-700">
-                  {researched ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPriceModalCompetitor(researched)}
-                    >
-                      View prices
-                    </Button>
-                  ) : (
-                    'Not researched'
-                  )}
-                </td>
-                <td className="px-4 py-4 text-slate-700">
-                  {competitor.openNow === null ? 'Not found' : competitor.openNow ? 'Open now' : 'Closed now'}
                 </td>
                 <td className="px-5 py-4 text-slate-600 leading-relaxed">{researched?.similaritySummary ?? '-'}</td>
                 <td className="px-5 py-4">
@@ -797,100 +778,11 @@ function ComparisonTable({
           </div>
         </div>
       )}
-      <Modal
-        open={Boolean(priceModalCompetitor)}
-        onClose={() => setPriceModalCompetitor(null)}
-        title={priceModalCompetitor ? `${priceModalCompetitor.name} pricing evidence` : 'Pricing evidence'}
-        sizeClassName="max-w-2xl"
-      >
-        {priceModalCompetitor && (
-          <div className="space-y-4">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing status</p>
-              <p className="mt-2 text-sm text-slate-700">
-                {pricingStatusFromPoints(priceModalCompetitor.pricePoints)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing read</p>
-              <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                {priceModalCompetitor.pricingComparison}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Public price evidence</p>
-              {priceModalCompetitor.priceEvidence?.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {priceModalCompetitor.priceEvidence.map((item, index) => (
-                    <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      {item.label}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-2 text-sm text-slate-500">
-                  No public product price evidence is currently saved for this business.
-                </p>
-              )}
-            </div>
-            {priceModalCompetitor.priceEvidence?.some((item) => item.url) && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing pages</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {priceModalCompetitor.priceEvidence
-                    .filter((item) => item.url)
-                    .slice(0, 4)
-                    .map((item, index) => (
-                      <a
-                        key={`${item.url}-${index}`}
-                        href={item.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:border-slate-300"
-                      >
-                        {item.pageTitle || cleanSourceLabel(item.url!)}
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    ))}
-                </div>
-              </div>
-            )}
-            <div className="flex flex-wrap items-center gap-3 pt-1">
-              {priceModalCompetitor.websiteUrl && (
-                <a
-                  href={priceModalCompetitor.websiteUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-amber-700 hover:text-amber-800"
-                >
-                  <Globe className="w-4 h-4" />
-                  Website
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              )}
-              {priceModalCompetitor.mapsUrl && (
-                <a
-                  href={priceModalCompetitor.mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-800"
-                >
-                  <MapPin className="w-4 h-4" />
-                  Map listing
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
     </Card>
   );
 }
 
 function CompetitorCard({ competitor, index }: { competitor: CompetitorReportItem; index: number }) {
-  const [showPriceModal, setShowPriceModal] = useState(false);
-  const publishedPriceCount = competitor.priceEvidence?.length ?? 0;
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-start justify-between gap-4">
@@ -905,7 +797,6 @@ function CompetitorCard({ competitor, index }: { competitor: CompetitorReportIte
             <span className="inline-flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {competitor.address}</span>
             <span className="inline-flex items-center gap-1.5"><Store className="w-4 h-4" /> {formatDistance(competitor.distanceMiles)}</span>
             <span className="inline-flex items-center gap-1.5"><Star className="w-4 h-4" /> {competitor.rating ?? 'Not found'}</span>
-            <span className="inline-flex items-center gap-1.5"><Tag className="w-4 h-4" /> {pricingStatusFromPoints(competitor.pricePoints)}</span>
           </div>
         </div>
         <Badge color={competitor.similarityLevel === 'high' ? 'red' : competitor.similarityLevel === 'medium' ? 'gold' : 'blue'}>
@@ -914,46 +805,22 @@ function CompetitorCard({ competitor, index }: { competitor: CompetitorReportIte
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="space-y-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Competitive Read</p>
-            <p className="text-sm text-slate-700 leading-relaxed mt-2">{competitor.similaritySummary}</p>
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Services</p>
-            <p className="text-sm text-slate-700 leading-relaxed mt-2">{competitor.serviceComparison}</p>
-            {competitor.services.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {competitor.services.map((service, serviceIndex) => (
-                  <span key={serviceIndex} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600">
-                    {service}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Competitive Read</p>
+          <p className="text-sm text-slate-700 leading-relaxed mt-2">{competitor.similaritySummary}</p>
         </div>
-
-        <div className="space-y-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing</p>
-            <p className="text-sm text-slate-700 leading-relaxed mt-2">{competitor.pricingComparison}</p>
-            {publishedPriceCount > 0 && (
-              <div className="mt-3 flex items-center gap-3">
-                <p className="text-sm text-slate-600">
-                  {publishedPriceCount} public price point{publishedPriceCount === 1 ? '' : 's'} found.
-                </p>
-                <Button variant="outline" size="sm" onClick={() => setShowPriceModal(true)}>
-                  View prices
-                </Button>
-              </div>
-            )}
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Hours & Reputation</p>
-            <p className="text-sm text-slate-700 leading-relaxed mt-2">{competitor.hoursComparison}</p>
-            <p className="text-sm text-slate-600 leading-relaxed mt-2">{competitor.reputationComparison}</p>
-          </div>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Services</p>
+          <p className="text-sm text-slate-700 leading-relaxed mt-2">{competitor.serviceComparison}</p>
+          {competitor.services.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {competitor.services.map((service, serviceIndex) => (
+                <span key={serviceIndex} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600">
+                  {service}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -992,61 +859,6 @@ function CompetitorCard({ competitor, index }: { competitor: CompetitorReportIte
         <span className="text-xs text-slate-400">Website evidence confidence: {competitor.websiteConfidence}</span>
       </div>
 
-      <Modal
-        open={showPriceModal}
-        onClose={() => setShowPriceModal(false)}
-        title={`${competitor.name} pricing evidence`}
-        sizeClassName="max-w-2xl"
-      >
-        <div className="space-y-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing status</p>
-            <p className="mt-2 text-sm text-slate-700">{pricingStatusFromPoints(competitor.pricePoints)}</p>
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing read</p>
-            <p className="mt-2 text-sm leading-relaxed text-slate-700">{competitor.pricingComparison}</p>
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Public price evidence</p>
-            {competitor.priceEvidence?.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {competitor.priceEvidence.map((item, evidenceIndex) => (
-                  <div key={evidenceIndex} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                    {item.label}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-slate-500">
-                No public product price evidence is currently saved for this business.
-              </p>
-            )}
-          </div>
-          {competitor.priceEvidence?.some((item) => item.url) && (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Pricing pages</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {competitor.priceEvidence
-                  .filter((item) => item.url)
-                  .slice(0, 6)
-                  .map((item, evidenceIndex) => (
-                    <a
-                      key={`${item.url}-${evidenceIndex}`}
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:border-slate-300"
-                    >
-                      {item.pageTitle || cleanSourceLabel(item.url!)}
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </Modal>
     </Card>
   );
 }
@@ -1135,7 +947,7 @@ function ReportView({
         <SummaryList title="Recommended Actions" items={report.recommendations} />
       </div>
 
-      <ProfileCard report={report} />
+      {/* Subject Business section removed — displayed in other sections */}
 
       {/* Google Review Comparison Chart */}
       {report.competitors.length > 0 && (
@@ -1210,7 +1022,7 @@ function ReportView({
                   <th className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600 min-w-[100px]">
                     {report.clientProfile.name.length > 15 ? report.clientProfile.name.slice(0, 15) + '…' : report.clientProfile.name}
                   </th>
-                  {report.competitors.slice(0, 6).map((comp, i) => (
+                  {report.competitors.slice(0, 5).map((comp, i) => (
                     <th key={comp.placeId ?? i} className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 min-w-[100px]">
                       {comp.name.length > 15 ? comp.name.slice(0, 15) + '…' : comp.name}
                     </th>
@@ -1219,12 +1031,9 @@ function ReportView({
               </thead>
               <tbody>
                 {(() => {
-                  const allServices = new Set<string>();
-                  report.clientProfile.services.forEach(s => allServices.add(s.toLowerCase()));
-                  report.competitors.slice(0, 6).forEach(c => c.services.forEach(s => allServices.add(s.toLowerCase())));
-                  const serviceList = Array.from(allServices).sort();
+                  const serviceOrder = ['dog boarding', 'dog daycare', 'dog grooming', 'dog training', 'cat boarding'];
 
-                  return serviceList.map(service => (
+                  return serviceOrder.map(service => (
                     <tr key={service} className="border-b border-slate-50">
                       <td className="px-4 py-2.5 text-xs font-medium text-slate-700 capitalize sticky left-0 bg-white z-10">{service}</td>
                       <td className="px-3 py-2.5 text-center">
@@ -1233,7 +1042,7 @@ function ReportView({
                           : <span className="text-slate-200">—</span>
                         }
                       </td>
-                      {report.competitors.slice(0, 6).map((comp, i) => (
+                      {report.competitors.slice(0, 5).map((comp, i) => (
                         <td key={comp.placeId ?? i} className="px-3 py-2.5 text-center">
                           {comp.services.some(s => s.toLowerCase() === service)
                             ? <span className="text-emerald-500 font-bold">&#10003;</span>
@@ -1574,7 +1383,7 @@ export default function CompetitorAnalysisTab({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Competitor Analysis Agent</p>
                 <h2 className="text-lg font-semibold text-slate-900 mt-1">Local Market Comparison</h2>
                 <p className="text-sm text-slate-500 mt-2 max-w-3xl">
-                  Searches for comparable businesses within a configurable radius, reviews public business listings and websites, and generates a professional report covering services, pricing visibility, ratings, and hours overlap.
+                  Searches for comparable businesses within a configurable radius, reviews public business listings and websites, and generates a professional report covering services, ratings, and competitive positioning.
                 </p>
               </div>
               <Badge color="gold">{form.radiusMiles ?? 5}-mile radius</Badge>
@@ -1600,7 +1409,7 @@ export default function CompetitorAnalysisTab({
               value={form.businessAddress}
               onChange={(event) => setField('businessAddress', event.target.value)}
               rows={3}
-              placeholder="123 Main St, Vancouver, BC V6B 1A1"
+              placeholder="123 Main Street, Phoenix, AZ 85001"
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1622,24 +1431,34 @@ export default function CompetitorAnalysisTab({
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Pet Business Category</label>
-                <select
-                  value={form.businessCategory}
-                  onChange={(event) => setField('businessCategory', event.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
-                >
-                  <option value="pet store">Pet Store (General)</option>
-                  <option value="pet boarding">Pet Boarding</option>
-                  <option value="pet daycare">Pet Daycare</option>
-                  <option value="pet grooming">Pet Grooming</option>
-                  <option value="pet boarding daycare">Boarding & Daycare</option>
-                  <option value="pet boarding grooming daycare">Boarding, Daycare & Grooming</option>
-                  <option value="dog training">Dog Training</option>
-                  <option value="veterinary care">Veterinary Care</option>
-                  <option value="pet resort">Pet Resort</option>
-                  <option value="dog hotel">Dog Hotel</option>
-                </select>
-                <p className="text-xs text-slate-400 mt-1">Select the primary service category to compare against.</p>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Business Categories</label>
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                  {[
+                    { value: 'pet resort', label: 'Pet resort (includes dog and cat boarding and dog daycare)' },
+                    { value: 'dog grooming', label: 'Dog grooming' },
+                    { value: 'dog training', label: 'Dog training' },
+                  ].map((option) => {
+                    const categories = form.businessCategory.split(',').map(s => s.trim()).filter(Boolean);
+                    const isChecked = categories.includes(option.value);
+                    return (
+                      <label key={option.value} className="flex items-center gap-2.5 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            const next = isChecked
+                              ? categories.filter(c => c !== option.value)
+                              : [...categories, option.value];
+                            setField('businessCategory', next.join(', '));
+                          }}
+                          className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+                        />
+                        <span className="text-sm text-slate-700 group-hover:text-slate-900">{option.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Select all categories that apply to this business.</p>
               </div>
             </div>
 
@@ -1741,7 +1560,7 @@ export default function CompetitorAnalysisTab({
                 <p className="text-xs text-slate-400 mt-1">
                   {currentPhase === 'research'
                     ? 'Checking nearby businesses, public listing details, and website evidence.'
-                    : 'Comparing services, pricing visibility, ratings, and operating-hour overlap.'}
+                    : 'Comparing services, ratings, and competitive positioning.'}
                 </p>
               </div>
             </div>

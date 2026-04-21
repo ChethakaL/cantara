@@ -140,7 +140,7 @@ function buildRows(extraction: LlmExtraction): TableRow[] {
   // Net Income
   rows.push({
     key: 'net_income',
-    label: 'Net Income (Pre-Recast)',
+    label: 'Net Income (Pre-Normalized)',
     kind: 'subtotal',
     values: periods.map((p) => p.netIncome),
   })

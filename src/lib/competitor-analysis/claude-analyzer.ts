@@ -18,9 +18,6 @@ interface ClaudeOverlayResponse {
   clientProfile?: {
     serviceSummary?: string;
     services?: string[];
-    pricingSummary?: string;
-    pricePoints?: string[];
-    hoursSummary?: string;
     reputationSummary?: string;
     websiteConfidence?: 'high' | 'medium' | 'low';
   };
@@ -30,11 +27,8 @@ interface ClaudeOverlayResponse {
     similarityScore?: number;
     similaritySummary?: string;
     serviceComparison?: string;
-    pricingComparison?: string;
-    hoursComparison?: string;
     reputationComparison?: string;
     services?: string[];
-    pricePoints?: string[];
     strengths?: string[];
     gaps?: string[];
     websiteConfidence?: 'high' | 'medium' | 'low';
@@ -84,7 +78,6 @@ function buildWebsiteSection(label: string, research: WebsiteResearchData | null
   return [
     `${label}:`,
     `Confidence: ${research.confidence}`,
-    summarizePriceEvidence(research) ? `Price evidence: ${summarizePriceEvidence(research)}` : null,
     research.error ? `Research note: ${research.error}` : null,
     snippets || 'No usable snippets found.',
   ].filter(Boolean).join('\n');
@@ -134,7 +127,6 @@ Subject business public profile:
 - Address: ${args.subject.address || args.formData.businessAddress}
 - Rating: ${args.subject.rating ?? 'Not found'}
 - Review count: ${args.subject.reviewCount ?? 'Not found'}
-- Price level: ${args.subject.priceLevel ?? 'Not found'}
 - Open now: ${args.subject.openNow === null ? 'Not found' : args.subject.openNow ? 'Yes' : 'No'}
 - Business status: ${args.subject.businessStatus ?? 'Not found'}
 - Website: ${args.subject.websiteUrl ?? 'Not found'}
@@ -146,12 +138,14 @@ ${buildWebsiteSection('Subject business website research', args.subjectWebsiteRe
 Nearby competitors:
 ${competitorsBlock || 'No competitors were found.'}
 
+The service categories to focus on are: Dog boarding, Dog daycare, Dog grooming, Dog training, Cat boarding.
+For each business, determine which of these five services they offer based on public evidence.
+
 Task:
 1. Compare the subject business against the nearby competitors using public data only.
-2. Infer service overlap, pricing transparency, operating-hour overlap, and reputation positioning.
-3. If a website does not clearly publish prices, say so directly. Do not invent prices.
-4. Keep the tone professional, precise, and suitable for an advisor-facing report.
-5. Keep all string fields compact. Prefer one sentence per field.
+2. Infer service overlap and reputation positioning. Do NOT analyze or compare pricing — pricing is handled by a separate analysis agent.
+3. Keep the tone professional, precise, and suitable for an advisor-facing report.
+4. Keep all string fields compact. Prefer one sentence per field.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -163,9 +157,6 @@ Return ONLY valid JSON with this exact structure:
   "clientProfile": {
     "serviceSummary": "string",
     "services": ["string"],
-    "pricingSummary": "string",
-    "pricePoints": ["string"],
-    "hoursSummary": "string",
     "reputationSummary": "string",
     "websiteConfidence": "high|medium|low"
   },
@@ -176,11 +167,8 @@ Return ONLY valid JSON with this exact structure:
       "similarityScore": 1,
       "similaritySummary": "string",
       "serviceComparison": "string",
-      "pricingComparison": "string",
-      "hoursComparison": "string",
       "reputationComparison": "string",
       "services": ["string"],
-      "pricePoints": ["string"],
       "strengths": ["string"],
       "gaps": ["string"],
       "websiteConfidence": "high|medium|low"
@@ -192,12 +180,12 @@ Rules:
 - Keep every statement tied to the supplied public evidence.
 - Do not mention data providers, search tools, APIs, or model names.
 - Do not output markdown.
+- Do NOT include any pricing analysis, price points, or pricing comparisons. Pricing is handled separately.
 - Use short, concrete bullet-style strings inside arrays.
 - "similarityScore" must be 1 to 5, where 5 means very direct substitute.
-- If pricing is not visible, say "No public pricing located" or similar rather than guessing.
-- Do not treat Google or listing price-level symbols such as $, $$, $$$ as published pricing. Only describe pricing as published when exact public website pricing was actually found.
+- For the "services" array, use only from: "Dog boarding", "Dog daycare", "Dog grooming", "Dog training", "Cat boarding".
 - Keep the total response very compact.
-- Use at most 3 services and at most 3 pricePoints per business.
+- Use at most 5 services per business (one per category).
   `.trim();
 }
 
@@ -279,7 +267,8 @@ export async function buildCompetitorAnalysisReport(args: {
       'Return a shorter JSON response now.',
       'Use at most 2 short takeaways, 2 short recommendations, and at most 3 competitors.',
       'Every summary field should be one short sentence.',
-      'Use at most 2 services and 2 pricePoints per business.',
+      'Use at most 5 services per business (from: Dog boarding, Dog daycare, Dog grooming, Dog training, Cat boarding).',
+      'Do NOT include any pricing fields.',
       'Return valid JSON only.',
     ].join('\n');
 
@@ -304,36 +293,28 @@ export async function buildCompetitorAnalysisReport(args: {
     ...args.subject,
     serviceSummary: parsed.clientProfile?.serviceSummary ?? 'Public sources did not clearly describe the full service mix.',
     services: parsed.clientProfile?.services ?? [],
-    pricingSummary: parsed.clientProfile?.pricingSummary
-      ?? (args.subjectWebsiteResearch?.pricePoints?.length ? 'Public product pricing was located on the website.' : 'No detailed public pricing was confirmed.'),
-    pricePoints: dedupePricePoints([
-      ...(parsed.clientProfile?.pricePoints ?? []),
-      ...(args.subjectWebsiteResearch?.pricePoints ?? []),
-    ]),
-    priceEvidence: args.subjectWebsiteResearch?.priceEvidence ?? [],
-    hoursSummary: parsed.clientProfile?.hoursSummary ?? 'Public hours information was limited.',
+    pricingSummary: '',
+    pricePoints: [],
+    priceEvidence: [],
+    hoursSummary: '',
     reputationSummary: parsed.clientProfile?.reputationSummary ?? 'Public reputation signals were limited.',
     websiteConfidence: parsed.clientProfile?.websiteConfidence ?? args.subjectWebsiteResearch?.confidence ?? 'low',
   };
 
   const competitors: CompetitorReportItem[] = args.competitors.map((competitor) => {
     const overlay = overlayByPlaceId.get(competitor.placeId ?? '');
-    const pricePoints = dedupePricePoints([
-      ...(overlay?.pricePoints ?? []),
-      ...(args.competitorWebsiteResearch[competitor.placeId ?? '']?.pricePoints ?? []),
-    ]);
     return {
       ...competitor,
       similarityLevel: overlay?.similarityLevel ?? 'medium',
       similarityScore: Math.max(1, Math.min(5, Math.round(overlay?.similarityScore ?? 3))),
       similaritySummary: overlay?.similaritySummary ?? 'This business operates in a related local market, but public evidence was limited.',
       serviceComparison: overlay?.serviceComparison ?? 'Service overlap could not be fully verified from public sources.',
-      pricingComparison: normalizePricingComparison(overlay?.pricingComparison, pricePoints.length > 0),
-      hoursComparison: overlay?.hoursComparison ?? 'Hours overlap could not be fully verified from public sources.',
+      pricingComparison: '',
+      hoursComparison: '',
       reputationComparison: overlay?.reputationComparison ?? 'Reputation comparison is based on public rating and review signals.',
       services: overlay?.services ?? [],
-      pricePoints,
-      priceEvidence: args.competitorWebsiteResearch[competitor.placeId ?? '']?.priceEvidence ?? [],
+      pricePoints: [],
+      priceEvidence: [],
       strengths: overlay?.strengths ?? [],
       gaps: overlay?.gaps ?? [],
       websiteConfidence: overlay?.websiteConfidence ?? args.competitorWebsiteResearch[competitor.placeId ?? '']?.confidence ?? 'low',
@@ -363,7 +344,7 @@ export async function buildCompetitorAnalysisReport(args: {
       closestCompetitorDistanceMiles: closest ? Number(closest.distanceMiles.toFixed(2)) : null,
       highSimilarityCount: competitors.filter((item) => item.similarityLevel === 'high').length,
       competitorsWithWebsite: competitors.filter((item) => Boolean(item.websiteUrl)).length,
-      competitorsWithPriceSignals: competitors.filter((item) => item.pricePoints.length > 0).length,
+      competitorsWithPriceSignals: 0,
     },
     clientProfile,
     discoveredCompetitors: competitors.map((item) => ({
@@ -427,22 +408,18 @@ export async function buildSingleCompetitorReport(args: {
   }
 
   const overlay = parsed.competitors?.[0];
-  const pricePoints = dedupePricePoints([
-    ...(overlay?.pricePoints ?? []),
-    ...(args.competitorWebsiteResearch?.pricePoints ?? []),
-  ]);
   return {
     ...args.competitor,
     similarityLevel: overlay?.similarityLevel ?? 'medium',
     similarityScore: Math.max(1, Math.min(5, Math.round(overlay?.similarityScore ?? 3))),
     similaritySummary: overlay?.similaritySummary ?? 'This business operates in a related local market, but public evidence was limited.',
     serviceComparison: overlay?.serviceComparison ?? 'Service overlap could not be fully verified from public sources.',
-    pricingComparison: normalizePricingComparison(overlay?.pricingComparison, pricePoints.length > 0),
-    hoursComparison: overlay?.hoursComparison ?? 'Hours overlap could not be fully verified from public sources.',
+    pricingComparison: '',
+    hoursComparison: '',
     reputationComparison: overlay?.reputationComparison ?? 'Reputation comparison is based on public rating and review signals.',
     services: overlay?.services ?? [],
-    pricePoints,
-    priceEvidence: args.competitorWebsiteResearch?.priceEvidence ?? [],
+    pricePoints: [],
+    priceEvidence: [],
     strengths: overlay?.strengths ?? [],
     gaps: overlay?.gaps ?? [],
     websiteConfidence: overlay?.websiteConfidence ?? args.competitorWebsiteResearch?.confidence ?? 'low',

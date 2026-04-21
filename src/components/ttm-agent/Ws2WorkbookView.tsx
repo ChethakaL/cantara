@@ -42,13 +42,12 @@ function negClass(value: number | null | undefined): string {
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
 
-type TabId = 'valuation' | 'pl-summary' | 'normalization' | 'key-metrics' | 'revenue' | 'benchmarks' | 'labor'
+type TabId = 'valuation' | 'pl-summary' | 'normalization' | 'revenue' | 'benchmarks' | 'labor'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'valuation', label: 'Valuation' },
   { id: 'pl-summary', label: 'P&L / 4-Wall EBITDA' },
   { id: 'normalization', label: 'Normalization Items' },
-  { id: 'key-metrics', label: 'Key Metrics' },
   { id: 'revenue', label: 'Revenue Analysis' },
   { id: 'benchmarks', label: 'Expense Benchmarks' },
   { id: 'labor', label: 'Labor Analysis' },
@@ -599,7 +598,7 @@ export function Ws2WorkbookView({
               />
               <tr><td colSpan={colCount} className="h-1" /></tr>
               <DataRow
-                label="Net Income / EBITDA (Pre-Recast)"
+                label="Net Income / EBITDA (Pre-Normalized)"
                 values={periods.map((p) => getPreRecast(p.key))}
               />
               <tr><td colSpan={colCount} className="h-1" /></tr>
@@ -957,73 +956,7 @@ export function Ws2WorkbookView({
 
   // ── TAB: Key Metrics ───────────────────────────────────────────────────
 
-  function KeyMetricsTab() {
-    const pl = ws2Report.ws21.annualPL
-    const metrics: { label: string; values: (number | null)[]; kind: 'currency' | 'pct' }[] = [
-      { label: 'Revenue', values: periods.map((p) => totals[p.key].revenue), kind: 'currency' },
-      { label: 'Revenue growth %', values: [null, ...[pl.yoyRevenueGrowth.fy2toFy3, pl.yoyRevenueGrowth.fy1toFy2, null]], kind: 'pct' },
-      { label: 'Normalized EBITDA', values: periods.map((p) => totals[p.key].normalizedEbitda), kind: 'currency' },
-      { label: 'Normalized EBITDA Margin', values: periods.map((p) => totals[p.key].revenue ? totals[p.key].normalizedEbitda / totals[p.key].revenue : null), kind: 'pct' },
-      { label: 'Gross Profit', values: [pl.grossProfit.ttm, pl.grossProfit.fy3, pl.grossProfit.fy2, pl.grossProfit.fy1], kind: 'currency' },
-      { label: 'Gross Margin', values: [pl.grossMargin.ttm, pl.grossMargin.fy3, pl.grossMargin.fy2, pl.grossMargin.fy1], kind: 'pct' },
-      { label: 'Total OpEx', values: [pl.totalOpex.ttm, pl.totalOpex.fy3, pl.totalOpex.fy2, pl.totalOpex.fy1], kind: 'currency' },
-      { label: 'Pre-Recast EBITDA', values: periods.map((p) => getPreRecast(p.key)), kind: 'currency' },
-      { label: 'Pre-Recast EBITDA Margin', values: [pl.ebitdaMargin.ttm, pl.ebitdaMargin.fy3, pl.ebitdaMargin.fy2, pl.ebitdaMargin.fy1], kind: 'pct' },
-    ]
-
-    const kmOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('km:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
-
-    return (
-      <div className="space-y-4">
-        {kmOverrideCount > 0 && (
-          <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2">
-            <span className="text-sm text-amber-800">
-              {kmOverrideCount} key metric cell(s) overridden.
-            </span>
-            <Button size="sm" variant="outline" onClick={() => setTabOverrides((prev) => {
-              const next = { ...prev }
-              for (const k of Object.keys(next)) { if (k.startsWith('km:')) delete next[k] }
-              return next
-            })}>
-              Reset key metric edits
-            </Button>
-          </div>
-        )}
-        <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
-          <table className="min-w-full border-collapse">
-            <thead><PeriodHeaders /></thead>
-            <tbody className="divide-y divide-slate-100">
-              <SectionHeader label="Normalized Key Metrics" />
-              {metrics.map((m) => {
-                // Currency rows are editable; percentage rows remain read-only
-                if (m.kind === 'currency') {
-                  const rowId = `km:${m.label}`
-                  return (
-                    <EditableDataRow
-                      key={m.label}
-                      rowId={rowId}
-                      label={m.label}
-                      values={m.values}
-                    />
-                  )
-                }
-                return (
-                  <tr key={m.label}>
-                    <td className="sticky left-0 z-10 bg-white px-4 py-1.5 text-sm text-slate-400">{m.label}</td>
-                    {m.values.map((v, i) => (
-                      <td key={periods[i]?.key ?? i} className="px-4 py-1.5 text-right text-xs tabular-nums text-slate-400">
-                        {acctPct(v)}
-                      </td>
-                    ))}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )
-  }
+  // Key Metrics tab removed
 
   // ── TAB: Revenue Analysis (WS2-3) ─────────────────────────────────────
 
@@ -1574,7 +1507,6 @@ export function Ws2WorkbookView({
       {activeTab === 'valuation' && <ValuationTab />}
       {activeTab === 'pl-summary' && <PlSummaryTab />}
       {activeTab === 'normalization' && <NormalizationTab />}
-      {activeTab === 'key-metrics' && <KeyMetricsTab />}
       {activeTab === 'revenue' && <RevenueTab />}
       {activeTab === 'benchmarks' && <BenchmarksTab />}
       {activeTab === 'labor' && <LaborTab />}

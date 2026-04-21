@@ -174,6 +174,7 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
     { key: 'clientProfile' as const, label: 'Client Profile' },
     { key: 'staffOperations' as const, label: 'Staff & Operations' },
     { key: 'realEstate' as const, label: 'Real Estate' },
+    { key: 'technology' as const, label: 'Technology' },
     { key: 'permitsZoning' as const, label: 'Permits & Zoning' },
   ]
 
@@ -265,14 +266,29 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
       {/* Section 5: Investment Highlights */}
       <Card className="p-5 space-y-4">
         <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Investment Highlights</p>
+
+        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-2">Business Strengths (1-2)</p>
         <div className="space-y-4">
-          {data.investmentHighlights.map((h, i) => (
+          {data.investmentHighlights.slice(0, 2).map((h, i) => (
             <div key={i} className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-2">
               <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-slate-800 text-amber-400 flex items-center justify-center text-xs font-bold">{i + 1}</span>
-                <Input label="" placeholder="Highlight title" value={h.title} onChange={e => setHighlight(i, 'title', e.target.value)} className="flex-1" />
+                <span className="w-6 h-6 rounded-lg bg-slate-800 text-amber-400 flex items-center justify-center text-xs font-bold">0{i + 1}</span>
+                <Input label="" placeholder="Strength title" value={h.title} onChange={e => setHighlight(i, 'title', e.target.value)} className="flex-1" />
               </div>
               <Textarea placeholder="Description..." value={h.description} onChange={e => setHighlight(i, 'description', e.target.value)} rows={2} />
+            </div>
+          ))}
+        </div>
+
+        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-2">Growth Opportunities (3-5)</p>
+        <div className="space-y-4">
+          {data.investmentHighlights.slice(2).map((h, i) => (
+            <div key={i} className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-slate-800 text-amber-400 flex items-center justify-center text-xs font-bold">0{i + 3}</span>
+                <Input label="" placeholder="Opportunity title" value={h.title} onChange={e => setHighlight(i + 2, 'title', e.target.value)} className="flex-1" />
+              </div>
+              <Textarea placeholder="Description..." value={h.description} onChange={e => setHighlight(i + 2, 'description', e.target.value)} rows={2} />
             </div>
           ))}
         </div>

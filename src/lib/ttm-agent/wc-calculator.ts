@@ -1,4 +1,4 @@
-import { ParsedArAging, SectionReportItem, WorkingCapitalSummary } from "@/lib/ttm-agent/types";
+import { SectionReportItem, WorkingCapitalSummary } from "@/lib/ttm-agent/types";
 import { getCategoryLabel } from "@/lib/ttm-agent/taxonomy";
 import { MappedLedgerRow } from "@/lib/ttm-agent/types";
 
@@ -17,15 +17,9 @@ function valueForCodeAtMonth(rows: MappedLedgerRow[], code: string, month: strin
   );
 }
 
-function ratio(value: number, total: number) {
-  if (!total) return null;
-  return (value / total) * 100;
-}
-
 export function buildWorkingCapitalSummary(args: {
   mappedBalanceSheetRows: MappedLedgerRow[];
   balanceSheetMonths: string[];
-  arAging: ParsedArAging;
 }) {
   const latestMonth = args.balanceSheetMonths[args.balanceSheetMonths.length - 1];
   if (!latestMonth) {
@@ -62,29 +56,9 @@ export function buildWorkingCapitalSummary(args: {
     return safeNumber(assets - liabilities);
   });
 
-  const totalAr = safeNumber(args.arAging.entries.reduce((sum, entry) => sum + safeNumber(entry.total), 0));
-  const current = safeNumber(args.arAging.entries.reduce((sum, entry) => sum + safeNumber(entry.current), 0));
-  const days1To30 = safeNumber(args.arAging.entries.reduce((sum, entry) => sum + safeNumber(entry.days1To30), 0));
-  const days31To60 = safeNumber(args.arAging.entries.reduce((sum, entry) => sum + safeNumber(entry.days31To60), 0));
-  const days61To90 = safeNumber(args.arAging.entries.reduce((sum, entry) => sum + safeNumber(entry.days61To90), 0));
-  const days90Plus = safeNumber(args.arAging.entries.reduce((sum, entry) => sum + safeNumber(entry.days90Plus), 0));
-  const balanceSheetAr = valueForCodeAtMonth(args.mappedBalanceSheetRows, "WC-AR", latestMonth);
-  const varianceToBalanceSheetAr = safeNumber(totalAr - balanceSheetAr);
-
-  const topCustomers = [...args.arAging.entries]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5)
-    .map((entry) => ({
-      customerName: entry.customerName,
-      total: safeNumber(entry.total),
-      pctOfTotal: ratio(entry.total, totalAr),
-    }));
-
-  // AR aging flags completely removed per client request — working capital data
-  // is still computed and returned but no flags are generated.
   const qualityItems: SectionReportItem[] = [];
 
-  console.log(`[TTM] Working capital: NWC=$${netWorkingCapital.toLocaleString()}, AR=$${totalAr.toLocaleString()}, 0 quality flags (AR flags disabled)`);
+  console.log(`[TTM] Working capital: NWC=$${netWorkingCapital.toLocaleString()}, 0 quality flags`);
 
   return {
     workingCapital: {
@@ -97,22 +71,6 @@ export function buildWorkingCapitalSummary(args: {
       trailingThreeMonthAverageNwc: trailingValues.length
         ? safeNumber(trailingValues.reduce((sum, value) => sum + safeNumber(value), 0) / trailingValues.length)
         : null,
-      arAging: {
-        totalAr,
-        current,
-        days1To30,
-        days31To60,
-        days61To90,
-        days90Plus,
-        pctCurrent: ratio(current, totalAr),
-        pct1To30: ratio(days1To30, totalAr),
-        pct31To60: ratio(days31To60, totalAr),
-        pct61To90: ratio(days61To90, totalAr),
-        pct90Plus: ratio(days90Plus, totalAr),
-        topCustomers,
-        reconcilesToBalanceSheet: Math.abs(varianceToBalanceSheetAr) <= 500,
-        varianceToBalanceSheetAr,
-      },
     } satisfies WorkingCapitalSummary,
     qualityItems,
   };

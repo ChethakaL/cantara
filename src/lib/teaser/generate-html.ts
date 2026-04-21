@@ -65,7 +65,9 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 
   /* Investment highlights */
   .highlights { margin: 24px 0; }
-  .highlight-item { display: flex; gap: 20px; padding: 24px 0; border-bottom: 1px solid #f1f5f9; }
+  .highlights-section-label { font-size: 10px; text-transform: uppercase; letter-spacing: 3px; color: #f59e0b; font-weight: 700; padding: 16px 0 8px; border-top: 2px solid #e2e8f0; margin-top: 8px; }
+  .highlights-section-label:first-child { border-top: none; margin-top: 0; }
+  .highlight-item { display: flex; gap: 20px; padding: 20px 0; border-bottom: 1px solid #f1f5f9; }
   .highlight-item:last-child { border-bottom: none; }
   .highlight-num { width: 36px; height: 36px; background: #1a2332; color: #f59e0b; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; flex-shrink: 0; }
   .highlight-content h4 { font-size: 14px; font-weight: 700; color: #1e293b; margin-bottom: 6px; }
@@ -136,8 +138,9 @@ export function generateTeaserHtml(data: TeaserInputData): string {
       <div class="value">${escapeHtml(data.serviceModel)}</div>
     </div>
     <div class="snapshot-cell">
-      <div class="label">Facility Capacity</div>
+      <div class="label">Total Capacity</div>
       <div class="value">${escapeHtml(data.facilityCapacity)}</div>
+      <div class="detail">Variety of enclosure sizes &middot; Multiple service zones</div>
     </div>
     <div class="snapshot-cell">
       <div class="label">Process Stage</div>
@@ -177,6 +180,10 @@ export function generateTeaserHtml(data: TeaserInputData): string {
       <p>${escapeHtml(data.realEstate)}</p>
     </div>
     <div class="overview-card">
+      <h4>Technology</h4>
+      <p>${escapeHtml(data.technology)}</p>
+    </div>
+    <div class="overview-card">
       <h4>Permits & Zoning</h4>
       <p>${escapeHtml(data.permitsZoning)}</p>
     </div>
@@ -212,12 +219,12 @@ export function generateTeaserHtml(data: TeaserInputData): string {
         <td>Revenue Growth</td>
         <td>2-Year Trend</td>
         <td>Positive year-over-year trajectory across all service lines</td>
-        <td>${escapeHtml(data.revenueGrowth)}</td>
+        <td>${escapeHtml(data.revenueGrowth || 'Disclosed post-NDA')}</td>
       </tr>
       <tr>
         <td>Normalized EBITDA</td>
         <td>TTM</td>
-        <td>Owner add-backs applied - Normalization schedule in CIM</td>
+        <td>Owner add-backs applied &middot; Normalization schedule provided in CIM</td>
         <td>${escapeHtml(data.normalizedEbitda)}</td>
       </tr>
       <tr>
@@ -261,16 +268,27 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 
 <div class="page-break"></div>
 
-<!-- 05 — INVESTMENT HIGHLIGHTS -->
+<!-- 04 — INVESTMENT HIGHLIGHTS -->
 <div class="section">
-  <div class="section-number">05</div>
+  <div class="section-number">04</div>
   <div class="section-header">Investment Highlights</div>
   <h2>Why This Opportunity</h2>
 
   <div class="highlights">
-    ${data.investmentHighlights.filter(h => h.title).map((h, i) => `
+    <div class="highlights-section-label">Business Strengths</div>
+    ${data.investmentHighlights.slice(0, 2).filter(h => h.title).map((h, i) => `
     <div class="highlight-item">
-      <div class="highlight-num">${i + 1}</div>
+      <div class="highlight-num">0${i + 1}</div>
+      <div class="highlight-content">
+        <h4>${escapeHtml(h.title)}</h4>
+        <p>${escapeHtml(h.description)}</p>
+      </div>
+    </div>`).join('')}
+
+    <div class="highlights-section-label">Growth Opportunities</div>
+    ${data.investmentHighlights.slice(2).filter(h => h.title).map((h, i) => `
+    <div class="highlight-item">
+      <div class="highlight-num">0${i + 3}</div>
       <div class="highlight-content">
         <h4>${escapeHtml(h.title)}</h4>
         <p>${escapeHtml(h.description)}</p>
@@ -281,9 +299,9 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 
 <div class="page-break"></div>
 
-<!-- NEXT STEPS -->
+<!-- 05 — NEXT STEPS -->
 <div class="section">
-  <div class="section-number">06</div>
+  <div class="section-number">05</div>
   <div class="section-header">Next Steps</div>
 
   <div class="next-steps">

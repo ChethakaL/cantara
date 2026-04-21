@@ -1,4 +1,4 @@
-/** WS2-1 requires only P&L + BS. Accountant statements and AR aging are optional. */
+/** WS2-1 requires only P&L + BS. Accountant statements are optional. */
 export const TTM_REQUIRED_DOCUMENT_IDS = [
   "monthly_pl_excel",
   "monthly_bs_excel",
@@ -6,7 +6,6 @@ export const TTM_REQUIRED_DOCUMENT_IDS = [
 
 export const TTM_OPTIONAL_DOCUMENT_IDS = [
   "accountant_statements",
-  "ar_aging_detail",
 ] as const;
 
 /** WS2-2 has no hard-required documents — personal & non-recurring expenses are optional uploads */
@@ -119,23 +118,6 @@ export interface ParsedAccountantStatements {
   notes: string[];
 }
 
-export interface ArAgingEntry {
-  customerName: string;
-  current: number;
-  days1To30: number;
-  days31To60: number;
-  days61To90: number;
-  days90Plus: number;
-  total: number;
-}
-
-export interface ParsedArAging {
-  headerRowIndex: number;
-  sourceSheet: string;
-  entries: ArAgingEntry[];
-  notes: string[];
-}
-
 export interface SectionReportItem {
   title: string;
   severity: FlagSeverity;
@@ -242,22 +224,6 @@ export interface WorkingCapitalSummary {
   totalCurrentLiabilities: number;
   netWorkingCapital: number;
   trailingThreeMonthAverageNwc: number | null;
-  arAging: {
-    totalAr: number;
-    current: number;
-    days1To30: number;
-    days31To60: number;
-    days61To90: number;
-    days90Plus: number;
-    pctCurrent: number | null;
-    pct1To30: number | null;
-    pct31To60: number | null;
-    pct61To90: number | null;
-    pct90Plus: number | null;
-    topCustomers: Array<{ customerName: string; total: number; pctOfTotal: number | null }>;
-    reconcilesToBalanceSheet: boolean;
-    varianceToBalanceSheetAr: number;
-  };
 }
 
 export interface TtmAgentSummary {

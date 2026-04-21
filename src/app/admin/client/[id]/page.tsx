@@ -385,7 +385,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <ContractAnalysisTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'digital' && (
-              <DigitalPresenceTab clientId={client.id} clientName={client.name} />
+              <DigitalPresenceTab clientId={client.id} clientName={client.name} clientWebsite={client.websiteUrl} />
             )}
             {activeTab === 'competitor' && (
               <CompetitorAnalysisTab

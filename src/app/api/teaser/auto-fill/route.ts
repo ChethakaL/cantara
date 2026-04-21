@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { TeaserInputData } from '@/lib/teaser/types'
+import { generateTeaserWithAI, ClientContext } from '@/lib/teaser/ai-autofill'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -79,6 +80,51 @@ export async function POST(req: NextRequest) {
         },
       })
     } catch { /* table may not exist yet */ }
+
+    // ── 8. Load digital presence report ───────────────────────────────
+    let digitalPresence: any = null
+    try {
+      digitalPresence = await (prisma as any).digitalPresenceReport.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      })
+    } catch { /* table may not exist yet */ }
+
+    // ── AI-powered auto-fill (falls back to static logic below) ────────
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        const aiContext: ClientContext = {
+          clientProfile: client,
+          ttmAnalysis: latestAnalysis,
+          recast,
+          leaseReport,
+          competitorReport,
+          digitalPresence,
+          insuranceDoc,
+          employeeReport,
+        }
+        const autoFilled = await generateTeaserWithAI(aiContext)
+        return NextResponse.json({
+          autoFilled,
+          sources: {
+            client: true,
+            ttmAnalysis: !!latestAnalysis,
+            recast: !!recast,
+            lease: !!leaseReport,
+            competitor: !!competitorReport,
+            digitalPresence: !!digitalPresence,
+            employeeObligations: !!employeeReport,
+            insurance: !!insuranceDoc,
+            aiGenerated: true,
+          },
+        })
+      } catch (aiError: any) {
+        console.warn('AI teaser generation failed, falling back to static:', aiError?.message)
+        // Fall through to static logic below
+      }
+    }
+
+    // ── Static fallback ────────────────────────────────────────────────
 
     // ── Helpers ─────────────────────────────────────────────────────────
     const formatCurrency = (v: number | null | undefined) => {
@@ -170,6 +216,7 @@ export async function POST(req: NextRequest) {
       clientProfile: '',
       staffOperations: '',
       realEstate: leaseInfo ? `Leased facility. ${leaseInfo}` : '',
+      technology: 'Modern booking & POS platform in place. CRM and review management tools active. Digital marketing channels established. Operational tech stack transferable to new owner.',
       permitsZoning:
         'Fully compliant with all local land use and zoning regulations. All required operating permits and licenses current and in good standing.',
 

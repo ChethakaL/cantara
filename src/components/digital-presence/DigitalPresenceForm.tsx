@@ -1,12 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Globe,
   MapPin,
   Facebook,
   Instagram,
-  Youtube,
   Music2,
   CalendarCheck,
   Star,
@@ -14,6 +13,9 @@ import {
   ChevronUp,
   Loader2,
   Search,
+  Building2,
+  Briefcase,
+  Info,
 } from 'lucide-react';
 import { Button, Input, cn } from '@/components/ui';
 import { DigitalAssetFormData } from '@/lib/digital-presence/types';
@@ -21,6 +23,9 @@ import { DigitalAssetFormData } from '@/lib/digital-presence/types';
 interface Props {
   onSubmit: (data: DigitalAssetFormData) => void;
   loading: boolean;
+  initialData?: Partial<DigitalAssetFormData>;
+  clientName?: string;
+  clientWebsite?: string;
 }
 
 interface FieldGroupProps {
@@ -58,22 +63,36 @@ function FieldGroup({ icon, label, color, children, defaultOpen = true }: FieldG
   );
 }
 
-export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
-  const [form, setForm] = useState<DigitalAssetFormData>({
-    businessName: '',
+const EMPTY_FORM: DigitalAssetFormData = {
+  businessName: '',
+  websiteUrl: '',
+  googleBusinessProfileUrl: '',
+  googleBusinessLocations: '',
+  facebookHandle: '',
+  instagramHandle: '',
+  tiktokHandle: '',
+  bookingPlatformUrl: '',
+  yelpUrl: '',
+  nextdoorUrl: '',
+  linkedinUrl: '',
+  glassdoorUrl: '',
+  bbbUrl: '',
+};
 
-    websiteUrl: '',
-    googleBusinessProfileUrl: '',
-    googleBusinessLocations: '',
-    facebookHandle: '',
-    instagramHandle: '',
-    tiktokHandle: '',
-    youtubeHandle: '',
-    bookingPlatformUrl: '',
-    yelpUrl: '',
-    glassdoorUrl: '',
-    otherReviewUrls: '',
+export default function DigitalPresenceForm({ onSubmit, loading, initialData, clientName, clientWebsite }: Props) {
+  const [form, setForm] = useState<DigitalAssetFormData>({
+    ...EMPTY_FORM,
+    ...initialData,
   });
+
+  // Pre-populate from client props if fields are empty
+  useEffect(() => {
+    setForm(f => ({
+      ...f,
+      businessName: f.businessName || clientName || '',
+      websiteUrl: f.websiteUrl || clientWebsite || '',
+    }));
+  }, [clientName, clientWebsite]);
 
   const [errors, setErrors] = useState<Partial<Record<keyof DigitalAssetFormData, string>>>({});
 
@@ -93,11 +112,12 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
       form.facebookHandle ||
       form.instagramHandle ||
       form.tiktokHandle ||
-      form.youtubeHandle ||
       form.bookingPlatformUrl ||
       form.yelpUrl ||
+      form.nextdoorUrl ||
+      form.linkedinUrl ||
       form.glassdoorUrl ||
-      form.otherReviewUrls;
+      form.bbbUrl;
     if (!hasChannel) {
       newErrors.websiteUrl = 'Please provide at least one channel URL or handle';
     }
@@ -113,6 +133,14 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Pre-populated notice */}
+      <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50/50 px-4 py-3">
+        <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+        <p className="text-xs text-blue-700 leading-relaxed">
+          Fields are pre-populated from client data. Review and confirm before running.
+        </p>
+      </div>
+
       {/* Business Info */}
       <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
         <p className="text-xs font-semibold text-amber-700 uppercase tracking-widest">Business Details</p>
@@ -200,15 +228,6 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
               onChange={e => set('tiktokHandle', e.target.value)}
             />
           </div>
-          <div className="flex items-end gap-2">
-            <Youtube className="w-4 h-4 text-rose-600 mb-2.5 flex-shrink-0" />
-            <Input
-              label="YouTube Channel"
-              placeholder="@handle or channel URL"
-              value={form.youtubeHandle}
-              onChange={e => set('youtubeHandle', e.target.value)}
-            />
-          </div>
         </div>
       </FieldGroup>
 
@@ -220,10 +239,11 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
       >
         <Input
           label="Booking Platform URL"
-          placeholder="e.g. Mindbody, Fresha, Vagaro, Square, Booksy, Acuity"
+          placeholder="e.g. Gingr, PawPartner, PetExec, Pawfinity, MoeGo"
           value={form.bookingPlatformUrl}
           onChange={e => set('bookingPlatformUrl', e.target.value)}
         />
+        <p className="text-xs text-slate-400">Examples: Gingr, PawPartner, PetExec, Pawfinity, MoeGo</p>
       </FieldGroup>
 
       {/* Reviews */}
@@ -239,16 +259,39 @@ export default function DigitalPresenceForm({ onSubmit, loading }: Props) {
           onChange={e => set('yelpUrl', e.target.value)}
         />
         <Input
-          label="Glassdoor URL (optional)"
+          label="NextDoor URL"
+          placeholder="https://nextdoor.com/pages/..."
+          value={form.nextdoorUrl}
+          onChange={e => set('nextdoorUrl', e.target.value)}
+        />
+      </FieldGroup>
+
+      {/* Business Reputation */}
+      <FieldGroup
+        icon={<Briefcase className="w-3.5 h-3.5 text-indigo-600" />}
+        label="Business Reputation"
+        color="bg-indigo-50"
+      >
+        <div className="flex items-end gap-2">
+          <Building2 className="w-4 h-4 text-blue-700 mb-2.5 flex-shrink-0" />
+          <Input
+            label="LinkedIn URL"
+            placeholder="https://www.linkedin.com/company/..."
+            value={form.linkedinUrl}
+            onChange={e => set('linkedinUrl', e.target.value)}
+          />
+        </div>
+        <Input
+          label="Glassdoor URL"
           placeholder="https://www.glassdoor.com/..."
           value={form.glassdoorUrl}
           onChange={e => set('glassdoorUrl', e.target.value)}
         />
         <Input
-          label="Other Review Sites (optional)"
-          placeholder="Trustpilot, Houzz, Tripadvisor, etc. — separate with commas"
-          value={form.otherReviewUrls}
-          onChange={e => set('otherReviewUrls', e.target.value)}
+          label="BBB (Better Business Bureau) URL"
+          placeholder="https://www.bbb.org/..."
+          value={form.bbbUrl}
+          onChange={e => set('bbbUrl', e.target.value)}
         />
       </FieldGroup>
 

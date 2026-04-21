@@ -216,7 +216,7 @@ function buildProfitabilityRows(report: ReturnType<typeof buildWS2ReportAdapter>
     { label: 'Gross Profit', fy1: annualPL.grossProfit.fy1 ?? null, fy2: annualPL.grossProfit.fy2 ?? null, fy3: annualPL.grossProfit.fy3 ?? null, ttm: annualPL.grossProfit.ttm ?? null, kind: 'currency' },
     { label: 'Gross Margin', fy1: annualPL.grossMargin.fy1 ?? null, fy2: annualPL.grossMargin.fy2 ?? null, fy3: annualPL.grossMargin.fy3 ?? null, ttm: annualPL.grossMargin.ttm ?? null, kind: 'percent' },
     { label: 'Total OpEx', fy1: annualPL.totalOpex.fy1 ?? null, fy2: annualPL.totalOpex.fy2 ?? null, fy3: annualPL.totalOpex.fy3 ?? null, ttm: annualPL.totalOpex.ttm ?? null, kind: 'currency' },
-    { label: '4-Wall EBITDA (Pre-Recast)', fy1: annualPL.ebitdaPreRecast.fy1 ?? null, fy2: annualPL.ebitdaPreRecast.fy2 ?? null, fy3: annualPL.ebitdaPreRecast.fy3 ?? null, ttm: annualPL.ebitdaPreRecast.ttm ?? null, kind: 'currency' },
+    { label: '4-Wall EBITDA (Pre-Normalized)', fy1: annualPL.ebitdaPreRecast.fy1 ?? null, fy2: annualPL.ebitdaPreRecast.fy2 ?? null, fy3: annualPL.ebitdaPreRecast.fy3 ?? null, ttm: annualPL.ebitdaPreRecast.ttm ?? null, kind: 'currency' },
     { label: 'EBITDA Margin', fy1: annualPL.ebitdaMargin.fy1 ?? null, fy2: annualPL.ebitdaMargin.fy2 ?? null, fy3: annualPL.ebitdaMargin.fy3 ?? null, ttm: annualPL.ebitdaMargin.ttm ?? null, kind: 'percent' },
   ]
 }
@@ -428,7 +428,7 @@ export function ValuationDashboard({
     : null
   const revenueTouched = recentWorkbookChanges.some((change) => change.label === 'Total Revenue')
   const grossMarginTouched = recentWorkbookChanges.some((change) => change.label === 'Gross Margin')
-  const ebitdaTouched = recentWorkbookChanges.some((change) => change.label === '4-Wall EBITDA (Pre-Recast)' || change.label === 'EBITDA Margin')
+  const ebitdaTouched = recentWorkbookChanges.some((change) => change.label === '4-Wall EBITDA (Pre-Normalized)' || change.label === 'EBITDA Margin')
 
   return (
     <div className="space-y-6">
@@ -493,7 +493,7 @@ export function ValuationDashboard({
               <p className="mt-1 text-sm text-slate-500">Stable 3-year</p>
             </div>
             <div className={cn('p-5', ebitdaTouched && 'bg-emerald-50 ring-1 ring-inset ring-emerald-300')}>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">4-Wall EBITDA (Pre-Recast)</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">4-Wall EBITDA (Pre-Normalized)</p>
               <p className="mt-2 text-2xl font-semibold">{formatCurrency(preRecastEbitda)}</p>
               <p className="mt-1 text-sm text-slate-500">{formatPct(ws2Report.ws21.annualPL.ebitdaMargin.ttm ?? null)} margin</p>
             </div>
@@ -511,7 +511,7 @@ export function ValuationDashboard({
       <div className="grid gap-6">
         <ReportCard
           id="ws210-pl-summary"
-          title="3-Year Annual P&L Summary (Pre-Recast)"
+          title="3-Year Annual P&L Summary (Pre-Normalized)"
           badge={<span className="rounded border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">WS2-1 Approved</span>}
         >
           <div className="overflow-x-auto">
@@ -572,12 +572,12 @@ export function ValuationDashboard({
 
       <ReportCard
         id="ws210-ebitda"
-        title="WS2-2 EBITDA Recast & Valuation — TTM"
+        title="WS2-2 EBITDA Normalization & LTM Valuation"
         badge={<span className="rounded border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">WS2-2 Admin Approved</span>}
       >
         <div className="rounded-2xl border border-slate-200 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
-            <h4 className="text-[13px] font-bold uppercase tracking-[0.2em] text-slate-700">Preliminary Valuation Range</h4>
+            <h4 className="text-[13px] font-bold uppercase tracking-[0.2em] text-slate-700">LTM Valuation — Preliminary Range</h4>
             <span className="rounded border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Internal Only</span>
           </div>
 
@@ -600,7 +600,7 @@ export function ValuationDashboard({
           </div>
 
           <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">
-            Based on LTM Normalized EBITDA of <span className="font-semibold text-slate-900">{formatCurrency(normalizedEbitda)}</span>. Revenue changing {latestTrend?.revenueYoYPct != null ? formatSignedPct(latestTrend.revenueYoYPct) : 'n/a'} YoY. Pre-recast EBITDA was {formatCurrency(preRecastEbitda)} ({formatPct(ws2Report.ws21.annualPL.ebitdaMargin.ttm ?? null)}); total add-backs of {formatCurrency(totalAddBacks)}.
+            Based on LTM Normalized EBITDA of <span className="font-semibold text-slate-900">{formatCurrency(normalizedEbitda)}</span>. Revenue changing {latestTrend?.revenueYoYPct != null ? formatSignedPct(latestTrend.revenueYoYPct) : 'n/a'} YoY. Pre-normalized EBITDA was {formatCurrency(preRecastEbitda)} ({formatPct(ws2Report.ws21.annualPL.ebitdaMargin.ttm ?? null)}); total add-backs of {formatCurrency(totalAddBacks)}.
           </div>
         </div>
 
@@ -641,7 +641,7 @@ export function ValuationDashboard({
             </thead>
             <tbody className="divide-y divide-slate-100">
               <tr>
-                <td className="px-4 py-4 font-semibold text-slate-900" colSpan={3}>EBITDA (Pre-Recast)</td>
+                <td className="px-4 py-4 font-semibold text-slate-900" colSpan={3}>EBITDA (Pre-Normalized)</td>
                 <td className="px-4 py-4 text-right font-semibold text-slate-900">{formatCurrency(preRecastEbitda)}</td>
                 {hasMultiYearAddBacks && (
                   <>
@@ -716,16 +716,20 @@ export function ValuationDashboard({
           {ws23 ? (
             <>
               <div className="grid gap-4 md:grid-cols-2">
-                {ws23.verticals.slice(0, 4).map((vertical: VerticalRow) => (
+                {ws23.verticals.slice(0, 4).map((vertical: VerticalRow) => {
+                  // If concentration >70%, health should be at least YELLOW
+                  const effectiveHealth: TrafficLight = vertical.ttmPct > 0.70 && vertical.health === 'GREEN' ? 'YELLOW' : vertical.health
+                  return (
                   <div key={vertical.name} className="border-b border-slate-200 pb-4">
                     <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">{vertical.name}</p>
                     <p className="mt-2 text-3xl font-semibold text-slate-900">{formatPct(vertical.ttmPct)}</p>
                     <p className="mt-1 text-sm text-slate-700">{formatCurrency(vertical.ttmDollar)}</p>
-                    <p className={cn('mt-1 text-sm', getTrafficTone(vertical.health))}>
+                    <p className={cn('mt-1 text-sm', getTrafficTone(effectiveHealth))}>
                       FY2→FY3: {formatSignedPct(vertical.yoyFy2toFy3)}
                     </p>
                   </div>
-                ))}
+                  )
+                })}
               </div>
               {(ws23.concentrationFlags[0] || ws23.businessModelFlag) && (
                 <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-900">

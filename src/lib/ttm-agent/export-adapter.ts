@@ -358,11 +358,6 @@ function mapAccountantDiscrepancies(analysis: TtmAnalysisView) {
 function mapWorkingCapital(analysis: TtmAnalysisView) {
   const wc = analysis.workingCapital
   const byCode = Object.fromEntries((wc?.currentAssets ?? []).concat(wc?.currentLiabilities ?? []).map((row) => [row.code, row.value])) as Record<string, number>
-  const rounded61To90 = Math.round(wc?.arAging.days61To90 ?? 0)
-  const rounded90Plus = Math.round(wc?.arAging.days90Plus ?? 0)
-  const looksLikeLegacyBucketShift = rounded90Plus === 0 && (wc?.arAging.days61To90 ?? 0) % 1 !== 0 && rounded61To90 > 0
-  const ar61To90 = looksLikeLegacyBucketShift ? 0 : rounded61To90
-  const ar90Plus = looksLikeLegacyBucketShift ? rounded61To90 : rounded90Plus
   return {
     asOfDate: wc?.month ?? 'Current',
     cash: Math.round(byCode['WC-CASH'] ?? 0),
@@ -376,15 +371,6 @@ function mapWorkingCapital(analysis: TtmAnalysisView) {
     totalCurrentLiabilities: Math.round(wc?.totalCurrentLiabilities ?? 0),
     netWorkingCapital: Math.round(wc?.netWorkingCapital ?? 0),
     trailingThreeMonthAvgNWC: Math.round(wc?.trailingThreeMonthAverageNwc ?? 0),
-    arAgingBuckets: {
-      current: Math.round(wc?.arAging.current ?? 0),
-      days1to30: Math.round(wc?.arAging.days1To30 ?? 0),
-      days31to60: Math.round(wc?.arAging.days31To60 ?? 0),
-      days61to90: ar61To90,
-      days90plus: ar90Plus,
-      total: Math.round(wc?.arAging.totalAr ?? 0),
-    },
-    arVarianceToBalanceSheet: Math.round(wc?.arAging.varianceToBalanceSheetAr ?? 0),
   }
 }
 

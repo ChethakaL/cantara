@@ -5,12 +5,12 @@ import { researchWebsite } from '@/lib/competitor-analysis/website-research';
 import { CompetitorAnalysisFormData } from '@/lib/competitor-analysis/types';
 
 export const maxDuration = 180;
-const DEFAULT_PET_CATEGORY = 'pet store';
+const DEFAULT_PET_CATEGORY = 'pet resort';
 
 function isGenericPetCategory(category: string | undefined): boolean {
   const normalized = (category ?? '').trim().toLowerCase();
   return !normalized
-    || normalized === DEFAULT_PET_CATEGORY
+    || normalized === 'pet store'
     || normalized === 'pet-related business'
     || normalized === 'pet related business'
     || normalized === 'pet business'
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
         send({
           type: 'progress',
           phase: 'analyze',
-          message: 'Synthesizing the competitor comparison, pricing notes, hours overlap, and market positioning…',
+          message: 'Synthesizing the competitor comparison, service overlap, and market positioning…',
         });
 
         const report = await buildCompetitorAnalysisReport({

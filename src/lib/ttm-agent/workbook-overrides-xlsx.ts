@@ -275,14 +275,6 @@ export function parseWorkbookOverrideSnapshotFromXlsx(buffer: Buffer): WorkbookO
       totalCurrentLiabilities: wcLookup('Total Current Liabilities'),
       netWorkingCapital: wcLookup('Net Working Capital (Point-in-time)'),
       trailingThreeMonthAvgNWC: wcLookup('3-Month Trailing Average NWC'),
-      arAgingBuckets: {
-        current: wcLookupIndented('Current'),
-        days1to30: wcLookupIndented('1–30 Days'),
-        days31to60: wcLookupIndented('31–60 Days'),
-        days61to90: wcLookupIndented('61–90 Days'),
-        days90plus: wcLookupIndented('90+ Days'),
-        total: wcLookup('Total AR'),
-      },
     },
   }
 }

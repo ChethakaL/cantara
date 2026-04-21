@@ -199,6 +199,15 @@ export function computeRevenueByVertical(analysis: TtmAnalysisView): RevenueByVe
     .filter(r => !allMappedCodes.has(r.code) && r.value !== 0)
     .map(r => ({ name: r.category ?? r.code, code: r.code, ltm: r.value }));
 
+  // If any single vertical has >70% concentration, its health should be at least YELLOW
+  // to prevent inconsistency where concentration is flagged critical but health shows GREEN
+  for (const v of verticals) {
+    if (v.ltmPct > 0.70 && v.health === "GREEN") {
+      v.health = "YELLOW";
+      v.healthNote = `${v.healthNote} (high concentration: ${(v.ltmPct * 100).toFixed(0)}%)`;
+    }
+  }
+
   console.log(`[WS2-3] Revenue by Vertical: ${verticals.length} verticals, B+D=${(boardingDaycareConcentration.ltm * 100).toFixed(0)}%, ${concentrationFlags.length} flags`);
 
   return {

@@ -43,10 +43,12 @@ export async function POST(req: NextRequest) {
     formData.facebookHandle ||
     formData.instagramHandle ||
     formData.tiktokHandle ||
-    formData.youtubeHandle ||
     formData.bookingPlatformUrl ||
     formData.yelpUrl ||
-    formData.otherReviewUrls;
+    formData.nextdoorUrl ||
+    formData.linkedinUrl ||
+    formData.glassdoorUrl ||
+    formData.bbbUrl;
 
   if (!hasAtLeastOneChannel) {
     return new Response(
@@ -77,9 +79,9 @@ export async function POST(req: NextRequest) {
           formData.facebookHandle,
           formData.instagramHandle,
           formData.tiktokHandle,
-          formData.youtubeHandle,
           formData.bookingPlatformUrl,
-          formData.yelpUrl || formData.otherReviewUrls,
+          formData.yelpUrl || formData.nextdoorUrl,
+          formData.linkedinUrl || formData.glassdoorUrl || formData.bbbUrl,
         ].filter(Boolean).length;
 
         send({
