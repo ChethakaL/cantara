@@ -9,9 +9,6 @@ import { buildLeaseAnalysisSystemPrompt } from "@/lib/lease-analysis/prompt";
 
 export const maxDuration = 300; // 5 min — large PDFs need time
 
-// Next.js App Router: increase max request body size for multi-file base64 uploads
-export const maxRequestBodySize = '100mb';
-
 const MAX_UPSTREAM_ATTEMPTS = 3;
 const UPSTREAM_RETRY_DELAYS_MS = [1000, 2500];
 type LeaseMessageStream = AsyncIterable<any> & { controller: { abort: () => void } };
