@@ -28,6 +28,7 @@ interface Props {
   report: DigitalPresenceReport;
   onReset: () => void;
   onRerun: () => void;
+  onEdit?: (channelType: string, metricIndex: number, value: string) => void;
 }
 
 const CHANNEL_ICONS: Record<ChannelType, React.ReactNode> = {
@@ -204,7 +205,7 @@ function handleExportJSON(report: DigitalPresenceReport) {
   URL.revokeObjectURL(url);
 }
 
-export default function DigitalPresenceScorecard({ report, onReset, onRerun }: Props) {
+export default function DigitalPresenceScorecard({ report, onReset, onRerun, onEdit }: Props) {
   const [editMode, setEditMode] = useState(false);
   const [editedReport, setEditedReport] = useState<DigitalPresenceReport>(report);
   const [assetEditMode, setAssetEditMode] = useState(false);
@@ -225,6 +226,8 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun }: P
         return { ...ch, keyMetrics: updatedMetrics };
       }),
     }));
+    // Persist the override so re-run preserves it
+    onEdit?.(channelType, metricIndex, value);
   }
 
   function toggleAssetExclusion(index: number) {

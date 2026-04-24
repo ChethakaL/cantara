@@ -4,6 +4,7 @@ const nextConfig = {
   output: 'standalone',
   experimental: {
     serverComponentsExternalPackages: ['pdf-parse'],
+    serverActionsBodySizeLimit: '100mb',
   },
 }
 

@@ -24,12 +24,12 @@ interface OtherCostItem {
 interface NetProceedsState {
   enterpriseValuation: string
   estimatedCashAtClosing: string
+  otherSellerCashObligations: string
   monthsToClose: string
   debtInstruments: DebtInstrument[]
   actualWorkingCapital: string
   targetWorkingCapital: string
   deferredRevenue: string
-  precloseDistribution: string
   // Deferred consideration
   escrowHoldback: string
   sellerNote: string
@@ -42,11 +42,12 @@ interface NetProceedsState {
   accounting: string
   managementBonuses: string
   payrollTaxOnBonuses: string
-  rwInsurancePremium: string
   otherCosts: OtherCostItem[]
   // Tax
   federalTaxRate: string
   stateTaxRate: string
+  federalTaxMode: 'percent' | 'dollar'
+  stateTaxMode: 'percent' | 'dollar'
 }
 
 // ---------------------------------------------------------------------------
@@ -64,12 +65,12 @@ function makeOtherCost(): OtherCostItem {
 const DEFAULT_STATE: NetProceedsState = {
   enterpriseValuation: '',
   estimatedCashAtClosing: '',
+  otherSellerCashObligations: '',
   monthsToClose: '',
   debtInstruments: [makeDebtInstrument()],
   actualWorkingCapital: '',
   targetWorkingCapital: '',
   deferredRevenue: '',
-  precloseDistribution: '',
   escrowHoldback: '',
   sellerNote: '',
   earnout: '',
@@ -80,10 +81,11 @@ const DEFAULT_STATE: NetProceedsState = {
   accounting: '',
   managementBonuses: '',
   payrollTaxOnBonuses: '',
-  rwInsurancePremium: '',
   otherCosts: [],
   federalTaxRate: '',
   stateTaxRate: '',
+  federalTaxMode: 'percent',
+  stateTaxMode: 'percent',
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +120,7 @@ function ResultRow({
   source,
   bold,
   highlight,
+  highlightYellow,
   negative,
   indent,
 }: {
@@ -126,6 +129,7 @@ function ResultRow({
   source?: string
   bold?: boolean
   highlight?: boolean
+  highlightYellow?: boolean
   negative?: boolean
   indent?: boolean
 }) {
@@ -133,23 +137,41 @@ function ResultRow({
     <div
       className={cn(
         'flex items-center justify-between py-2.5 px-4',
-        highlight ? 'bg-amber-50 rounded-xl border border-amber-200 my-1 mx-2' : 'border-b border-slate-50',
+        highlightYellow
+          ? 'bg-yellow-100 rounded-xl border border-yellow-300 my-1 mx-2'
+          : highlight
+            ? 'bg-amber-50 rounded-xl border border-amber-200 my-1 mx-2'
+            : 'border-b border-slate-50',
         bold && 'font-semibold',
         indent && 'pl-8'
       )}
     >
       <div className="flex-1">
-        <p className={cn('text-sm', bold ? 'text-slate-900' : 'text-slate-700', indent && 'text-xs')}>{label}</p>
+        <p
+          className={cn(
+            'text-sm',
+            highlightYellow
+              ? 'text-yellow-800 text-base font-bold'
+              : bold
+                ? 'text-slate-900'
+                : 'text-slate-700',
+            indent && 'text-xs'
+          )}
+        >
+          {label}
+        </p>
         {source && <p className="text-[10px] text-slate-400 mt-0.5">{source}</p>}
       </div>
       <p
         className={cn(
           'text-sm font-mono tabular-nums',
-          highlight
-            ? 'text-amber-700 text-base font-bold'
-            : negative || value < 0
-              ? 'text-rose-600'
-              : 'text-slate-800'
+          highlightYellow
+            ? 'text-yellow-800 text-base font-bold'
+            : highlight
+              ? 'text-amber-700 text-base font-bold'
+              : negative || value < 0
+                ? 'text-rose-600'
+                : 'text-slate-800'
         )}
       >
         {formatUSD(value)}
@@ -171,6 +193,43 @@ function SectionDivider() {
 }
 
 // ---------------------------------------------------------------------------
+// Tax Mode Toggle
+// ---------------------------------------------------------------------------
+
+function TaxModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: 'percent' | 'dollar'
+  onChange: (mode: 'percent' | 'dollar') => void
+}) {
+  return (
+    <div className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 text-[10px] font-medium overflow-hidden">
+      <button
+        type="button"
+        onClick={() => onChange('percent')}
+        className={cn(
+          'px-2 py-1 transition-colors',
+          mode === 'percent' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'
+        )}
+      >
+        %
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('dollar')}
+        className={cn(
+          'px-2 py-1 transition-colors',
+          mode === 'dollar' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'
+        )}
+      >
+        $
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -184,6 +243,10 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
 
   // Simple field setter
   function set(key: keyof Omit<NetProceedsState, 'debtInstruments' | 'otherCosts'>, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function setTaxMode(key: 'federalTaxMode' | 'stateTaxMode', value: 'percent' | 'dollar') {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -225,6 +288,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
   const calc = useMemo(() => {
     const ev = parseNum(form.enterpriseValuation)
     const cashAtClosing = parseNum(form.estimatedCashAtClosing)
+    const otherObligations = parseNum(form.otherSellerCashObligations)
     const monthsToClose = parseNum(form.monthsToClose)
 
     // Debt schedule
@@ -242,8 +306,8 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
     const wcAdjustment = actualWC - targetWC
     const deferredRevenue = parseNum(form.deferredRevenue)
 
-    // Base purchase price
-    const basePurchasePrice = ev + wcAdjustment + deferredRevenue
+    // Base purchase price (now includes cash at closing and other obligations)
+    const basePurchasePrice = ev + cashAtClosing + wcAdjustment + deferredRevenue - otherObligations
 
     // Deferred / withheld consideration
     const escrow = parseNum(form.escrowHoldback)
@@ -256,40 +320,62 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
     // Cash consideration at close (pre-tax)
     const cashConsiderationPreTax = basePurchasePrice - totalWithheld
 
-    // Transaction costs
+    // Transaction costs (no R&W Insurance)
     const legal = parseNum(form.legalFees)
     const advisory = parseNum(form.advisoryFee)
     const acct = parseNum(form.accounting)
     const bonuses = parseNum(form.managementBonuses)
     const payrollTax = parseNum(form.payrollTaxOnBonuses)
-    const rwInsurance = parseNum(form.rwInsurancePremium)
     const otherCostsTotal = form.otherCosts.reduce((sum, c) => sum + parseNum(c.amount), 0)
-    const totalTransactionCosts = legal + advisory + acct + bonuses + payrollTax + rwInsurance + otherCostsTotal
+    const totalTransactionCosts = legal + advisory + acct + bonuses + payrollTax + otherCostsTotal
 
     // Net cash to seller at closing (pre-tax)
     const netCashAtClosingPreTax = cashConsiderationPreTax - totalDebt - totalTransactionCosts
 
-    // Taxes
-    const fedRate = parseNum(form.federalTaxRate) / 100
-    const stateRate = parseNum(form.stateTaxRate) / 100
-    const combinedRate = fedRate + stateRate
-    // Gain basis: net cash pre-tax + deferred. Simplified: apply combined rate to total proceeds.
-    const totalPreTaxProceeds = netCashAtClosingPreTax + cashAtClosing
-    const estimatedTaxes = totalPreTaxProceeds * combinedRate
+    // Taxes: support % or $ mode
+    const fedRateInput = parseNum(form.federalTaxRate)
+    const stateRateInput = parseNum(form.stateTaxRate)
+
+    const fedTaxAmount = form.federalTaxMode === 'dollar'
+      ? fedRateInput
+      : netCashAtClosingPreTax * (fedRateInput / 100)
+    const stateTaxAmount = form.stateTaxMode === 'dollar'
+      ? stateRateInput
+      : netCashAtClosingPreTax * (stateRateInput / 100)
+    const estimatedTaxesAtClose = fedTaxAmount + stateTaxAmount
+
+    // Combined rate for deferred tax calc (only meaningful in percent mode)
+    const fedRatePercent = form.federalTaxMode === 'percent' ? fedRateInput / 100 : 0
+    const stateRatePercent = form.stateTaxMode === 'percent' ? stateRateInput / 100 : 0
+    const combinedRate = fedRatePercent + stateRatePercent
 
     // Post-tax cash at closing
-    const netCashPostTax = netCashAtClosingPreTax - estimatedTaxes
+    const netCashPostTax = netCashAtClosingPreTax - estimatedTaxesAtClose
 
-    // Pre-close distribution
-    const precloseDistribution = parseNum(form.precloseDistribution)
+    // Taxes on deferred/withheld
+    // If fixed dollar, don't double-count
+    const deferredTaxAmount = (form.federalTaxMode === 'dollar' && form.stateTaxMode === 'dollar')
+      ? 0
+      : totalWithheld * combinedRate
+    const netDeferredPostTax = totalWithheld - deferredTaxAmount
 
     // Memo totals
-    const totalNetProceedsPreTax = netCashAtClosingPreTax + totalWithheld + precloseDistribution
-    const estimatedAfterTaxProceeds = totalNetProceedsPreTax - estimatedTaxes
+    const totalNetProceedsPreTax = netCashAtClosingPreTax + totalWithheld
+    const totalEstimatedTaxes = estimatedTaxesAtClose + deferredTaxAmount
+    const estimatedTotalProceedsPostTax = totalNetProceedsPreTax - totalEstimatedTaxes
+
+    // Tax label helpers
+    const fedTaxLabel = form.federalTaxMode === 'dollar'
+      ? formatUSD(fedRateInput)
+      : `${fedRateInput}%`
+    const stateTaxLabel = form.stateTaxMode === 'dollar'
+      ? formatUSD(stateRateInput)
+      : `${stateRateInput}%`
 
     return {
       ev,
       cashAtClosing,
+      otherObligations,
       monthsToClose,
       debtDetails,
       totalDebt,
@@ -310,18 +396,23 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
       acct,
       bonuses,
       payrollTax,
-      rwInsurance,
       otherCostsTotal,
       totalTransactionCosts,
       netCashAtClosingPreTax,
-      fedRate,
-      stateRate,
+      fedRateInput,
+      stateRateInput,
+      fedTaxAmount,
+      stateTaxAmount,
+      estimatedTaxesAtClose,
       combinedRate,
-      estimatedTaxes,
       netCashPostTax,
-      precloseDistribution,
+      deferredTaxAmount,
+      netDeferredPostTax,
       totalNetProceedsPreTax,
-      estimatedAfterTaxProceeds,
+      totalEstimatedTaxes,
+      estimatedTotalProceedsPostTax,
+      fedTaxLabel,
+      stateTaxLabel,
     }
   }, [form])
 
@@ -337,12 +428,15 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
       '--- Enterprise Valuation ---',
       `Enterprise Value (EV),${formatUSD(calc.ev)}`,
       '',
-      '--- Tax Inputs ---',
-      `Federal Tax Rate,${(calc.fedRate * 100).toFixed(1)}%`,
-      `State Tax Rate,${(calc.stateRate * 100).toFixed(1)}%`,
-      '',
       '--- Estimated Cash at Closing ---',
       `Estimated Cash at Closing,${formatUSD(calc.cashAtClosing)}`,
+      '',
+      '--- Other Seller Cash Obligations ---',
+      `Other Seller Cash Obligations,${formatUSD(calc.otherObligations)}`,
+      '',
+      '--- Tax Inputs ---',
+      `Federal Tax (${form.federalTaxMode === 'percent' ? 'Rate' : 'Amount'}),${calc.fedTaxLabel}`,
+      `State Tax (${form.stateTaxMode === 'percent' ? 'Rate' : 'Amount'}),${calc.stateTaxLabel}`,
       '',
       '--- Debt Schedule ---',
       `Estimated Months to Close,${calc.monthsToClose}`,
@@ -371,34 +465,33 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
     lines.push(`Advisory Fee,${formatUSD(calc.advisory)}`)
     lines.push(`Accounting,${formatUSD(calc.acct)}`)
     lines.push(`Management Bonuses,${formatUSD(calc.bonuses)}`)
-    lines.push(`Payroll Tax on Bonuses,${formatUSD(calc.payrollTax)}`)
-    lines.push(`R&W Insurance Premium,${formatUSD(calc.rwInsurance)}`)
+    lines.push(`Payroll Taxes on Management Bonuses,${formatUSD(calc.payrollTax)}`)
     for (const c of form.otherCosts) {
       lines.push(`${c.description || 'Other'},${formatUSD(parseNum(c.amount))}`)
     }
     lines.push(`Total Transaction Costs,${formatUSD(calc.totalTransactionCosts)}`)
     lines.push('')
-    lines.push('--- Pre-close Cash Distribution ---')
-    lines.push(`Pre-close Cash Distribution,${formatUSD(calc.precloseDistribution)}`)
-    lines.push('')
     lines.push('--- Net Proceeds Summary ---')
     lines.push(`Enterprise Value (EV),${formatUSD(calc.ev)}`)
+    lines.push(`+ Estimated Cash at Closing,${formatUSD(calc.cashAtClosing)}`)
     lines.push(`+ Working Capital Adjustment,${formatUSD(calc.wcAdjustment)}`)
     lines.push(`+ Deferred Revenue / Prepaid Adj,${formatUSD(calc.deferredRevenue)}`)
+    lines.push(`- Other Seller Cash Obligations,${formatUSD(calc.otherObligations)}`)
     lines.push(`= Base Purchase Price,${formatUSD(calc.basePurchasePrice)}`)
     lines.push(`- Total Withheld/Deferred,${formatUSD(calc.totalWithheld)}`)
     lines.push(`= Cash Consideration at Close (Pre-Tax),${formatUSD(calc.cashConsiderationPreTax)}`)
     lines.push(`- Total Debt Payoffs,${formatUSD(calc.totalDebt)}`)
     lines.push(`- Total Transaction Costs,${formatUSD(calc.totalTransactionCosts)}`)
     lines.push(`= Net Cash to Seller at Closing (Pre-Tax),${formatUSD(calc.netCashAtClosingPreTax)}`)
-    lines.push(`- Estimated Taxes (Fed ${(calc.fedRate * 100).toFixed(1)}% + State ${(calc.stateRate * 100).toFixed(1)}%),${formatUSD(calc.estimatedTaxes)}`)
-    lines.push(`= Estimated Cash to Seller (Post-Tax),${formatUSD(calc.netCashPostTax)}`)
+    lines.push(`- Estimated Taxes on Cash at Closing (Fed ${calc.fedTaxLabel} + State ${calc.stateTaxLabel}),${formatUSD(calc.estimatedTaxesAtClose)}`)
+    lines.push(`= Estimated Cash to Seller at Closing (Post-Tax),${formatUSD(calc.netCashPostTax)}`)
     lines.push('')
     lines.push('--- Memo ---')
     lines.push(`Total Withheld/Deferred (recap),${formatUSD(calc.totalWithheld)}`)
-    lines.push(`Pre-close Cash Distribution,${formatUSD(calc.precloseDistribution)}`)
-    lines.push(`Total Net Proceeds Pre-Tax,${formatUSD(calc.totalNetProceedsPreTax)}`)
-    lines.push(`Estimated After-Tax Proceeds,${formatUSD(calc.estimatedAfterTaxProceeds)}`)
+    lines.push(`- Estimated Taxes on Withheld/Deferred,${formatUSD(calc.deferredTaxAmount)}`)
+    lines.push(`= Estimated Cash to Seller on Withheld/Deferred (Post-Tax),${formatUSD(calc.netDeferredPostTax)}`)
+    lines.push(`Total Net Proceeds Pre-Tax (incl. Deferred),${formatUSD(calc.totalNetProceedsPreTax)}`)
+    lines.push(`= Estimated Total Proceeds on Sale (Post-Tax),${formatUSD(calc.estimatedTotalProceedsPostTax)}`)
 
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -423,7 +516,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             <div>
               <h3 className="text-sm font-semibold text-slate-800">Seller Net Proceeds Calculator</h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Cantara Seller Net Proceeds Template v8 — detailed waterfall from enterprise value to estimated after-tax proceeds.
+                Cantara Seller Net Proceeds Template v9 — detailed waterfall from enterprise value to estimated after-tax proceeds.
               </p>
             </div>
           </div>
@@ -447,7 +540,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
         {/* INPUT PANEL                                                      */}
         {/* ================================================================ */}
         <div className="space-y-5">
-          {/* Enterprise Valuation */}
+          {/* 1. Enterprise Valuation */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
               <DollarSign className="w-3.5 h-3.5" />
@@ -462,30 +555,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             <p className="text-[10px] text-slate-400">Default: mid-range of valuation output</p>
           </Card>
 
-          {/* Tax Inputs */}
-          <Card className="p-4 space-y-3">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-              <Percent className="w-3.5 h-3.5" />
-              Tax Inputs
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                label="Federal Tax Rate (%)"
-                placeholder="20"
-                value={form.federalTaxRate}
-                onChange={(e) => set('federalTaxRate', e.target.value)}
-              />
-              <Input
-                label="State Tax Rate (%)"
-                placeholder="5"
-                value={form.stateTaxRate}
-                onChange={(e) => set('stateTaxRate', e.target.value)}
-              />
-            </div>
-            <p className="text-[10px] text-slate-400">Manual input by seller&apos;s accountant</p>
-          </Card>
-
-          {/* Estimated Cash at Closing */}
+          {/* 2. Estimated Cash at Closing */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Estimated Cash at Closing</p>
             <Input
@@ -497,7 +567,62 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             <p className="text-[10px] text-slate-400">Manual input by seller&apos;s accountant</p>
           </Card>
 
-          {/* Debt Schedule */}
+          {/* 3. Other Seller Cash Obligations */}
+          <Card className="p-4 space-y-3">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Other Seller Cash Obligations</p>
+            <Input
+              label="Other Seller Cash Obligations (USD)"
+              placeholder="50,000"
+              value={form.otherSellerCashObligations}
+              onChange={(e) => set('otherSellerCashObligations', e.target.value)}
+            />
+            <p className="text-[10px] text-slate-400">Items like tenant improvements that the seller must pay (deducted from cash)</p>
+          </Card>
+
+          {/* 4. Tax Inputs */}
+          <Card className="p-4 space-y-3">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+              <Percent className="w-3.5 h-3.5" />
+              Tax Inputs
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-slate-600">
+                    Federal Tax {form.federalTaxMode === 'percent' ? 'Rate (%)' : 'Amount ($)'}
+                  </label>
+                  <TaxModeToggle
+                    mode={form.federalTaxMode}
+                    onChange={(m) => setTaxMode('federalTaxMode', m)}
+                  />
+                </div>
+                <Input
+                  placeholder={form.federalTaxMode === 'percent' ? '20' : '500,000'}
+                  value={form.federalTaxRate}
+                  onChange={(e) => set('federalTaxRate', e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-slate-600">
+                    State Tax {form.stateTaxMode === 'percent' ? 'Rate (%)' : 'Amount ($)'}
+                  </label>
+                  <TaxModeToggle
+                    mode={form.stateTaxMode}
+                    onChange={(m) => setTaxMode('stateTaxMode', m)}
+                  />
+                </div>
+                <Input
+                  placeholder={form.stateTaxMode === 'percent' ? '5' : '100,000'}
+                  value={form.stateTaxRate}
+                  onChange={(e) => set('stateTaxRate', e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400">Manual input by seller&apos;s accountant. Toggle between % rate or $ fixed amount.</p>
+          </Card>
+
+          {/* 5. Debt Schedule */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Debt Schedule</p>
             <Input
@@ -558,7 +683,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             </Button>
           </Card>
 
-          {/* Working Capital */}
+          {/* 6. Working Capital */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Working Capital</p>
             <div className="grid grid-cols-2 gap-3">
@@ -583,7 +708,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             />
           </Card>
 
-          {/* Consideration Withheld / Deferred */}
+          {/* 7. Consideration Withheld / Deferred */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Consideration Withheld / Deferred</p>
             <div className="grid grid-cols-2 gap-3">
@@ -620,7 +745,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             />
           </Card>
 
-          {/* Transaction Costs */}
+          {/* 8. Transaction Costs (no R&W Insurance) */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Transaction Costs</p>
             <div className="grid grid-cols-2 gap-3">
@@ -634,20 +759,11 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
                 onChange={(e) => set('managementBonuses', e.target.value)}
               />
               <Input
-                label="Payroll Taxes on Bonuses"
+                label="Payroll Taxes on Management Bonuses"
                 placeholder="10,000"
                 value={form.payrollTaxOnBonuses}
                 onChange={(e) => set('payrollTaxOnBonuses', e.target.value)}
               />
-              <div>
-                <Input
-                  label="R&W Insurance Premium"
-                  placeholder="25,000"
-                  value={form.rwInsurancePremium}
-                  onChange={(e) => set('rwInsurancePremium', e.target.value)}
-                />
-                <p className="text-[10px] text-slate-400 mt-1">(if seller-paid)</p>
-              </div>
             </div>
 
             {/* Dynamic other costs */}
@@ -681,18 +797,6 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
               Add cost
             </Button>
           </Card>
-
-          {/* Pre-close Cash Distribution */}
-          <Card className="p-4 space-y-3">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Pre-close Cash Distribution</p>
-            <Input
-              label="Pre-close Cash Distribution ($)"
-              placeholder="100,000"
-              value={form.precloseDistribution}
-              onChange={(e) => set('precloseDistribution', e.target.value)}
-            />
-            <p className="text-[10px] text-slate-400">Cash swept / distributed prior to closing</p>
-          </Card>
         </div>
 
         {/* ================================================================ */}
@@ -707,40 +811,46 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
               {/* 1. Enterprise Value */}
               <ResultRow label="1. Enterprise Value (EV)" value={calc.ev} source="Mid-range valuation" bold />
 
-              {/* 2. Working Capital Adjustment */}
+              {/* 2. Estimated Cash at Closing */}
+              <ResultRow label="2. + Estimated Cash at Closing" value={calc.cashAtClosing} source="Seller's accountant estimate" />
+
+              {/* 3. Working Capital Adjustment */}
               <ResultRow
-                label="2. + Working Capital Adjustment"
+                label="3. + Working Capital Adjustment"
                 value={calc.wcAdjustment}
                 source={`Closing WC ${formatUSD(calc.actualWC)} − Target WC ${formatUSD(calc.targetWC)}`}
               />
 
-              {/* 3. Deferred Revenue / Prepaid Adj */}
-              <ResultRow label="3. + Deferred Revenue / Prepaid Adjustment" value={calc.deferredRevenue} />
+              {/* 4. Deferred Revenue / Prepaid Adj */}
+              <ResultRow label="4. + Deferred Revenue / Prepaid Adjustment" value={calc.deferredRevenue} />
+
+              {/* 5. Other Seller Cash Obligations */}
+              <ResultRow label="5. − Other Seller Cash Obligations" value={-calc.otherObligations} negative />
 
               <SectionDivider />
 
-              {/* 4. Base Purchase Price */}
-              <ResultRow label="4. = Base Purchase Price" value={calc.basePurchasePrice} bold />
+              {/* 6. Base Purchase Price */}
+              <ResultRow label="6. = Base Purchase Price" value={calc.basePurchasePrice} bold />
 
               <SectionDivider />
 
-              {/* 5. Total Withheld/Deferred */}
+              {/* Withheld / Deferred */}
               <SectionHeader>Withheld / Deferred Consideration</SectionHeader>
               {calc.escrow > 0 && <ResultRow label="Escrow / Holdback" value={calc.escrow} indent />}
               {calc.sellerNote > 0 && <ResultRow label="Seller Note (Principal)" value={calc.sellerNote} indent />}
               {calc.earnout > 0 && <ResultRow label="Earnout / Contingent Consideration" value={calc.earnout} indent />}
               {calc.rollover > 0 && <ResultRow label="Rollover Equity / Reinvestment" value={calc.rollover} indent />}
               {calc.otherDeferred > 0 && <ResultRow label="Other Deferred Consideration" value={calc.otherDeferred} indent />}
-              <ResultRow label="5. − Total Withheld/Deferred" value={-calc.totalWithheld} bold negative />
+              <ResultRow label="7. − Total Withheld/Deferred" value={-calc.totalWithheld} bold negative />
 
               <SectionDivider />
 
-              {/* 6. Cash Consideration at Close (Pre-Tax) */}
-              <ResultRow label="6. = Cash Consideration at Close (Pre-Tax)" value={calc.cashConsiderationPreTax} bold />
+              {/* 8. Cash Consideration at Close (Pre-Tax) */}
+              <ResultRow label="8. = Cash Consideration at Close (Pre-Tax)" value={calc.cashConsiderationPreTax} bold />
 
               <SectionDivider />
 
-              {/* 7. Total Debt Payoffs */}
+              {/* Debt Payoffs */}
               <SectionHeader>Debt Payoffs at Closing</SectionHeader>
               {calc.debtDetails.map(
                 (d) =>
@@ -754,52 +864,44 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
                     />
                   )
               )}
-              <ResultRow label="7. − Total Debt Payoffs" value={-calc.totalDebt} bold negative />
+              <ResultRow label="9. − Total Debt Payoffs" value={-calc.totalDebt} bold negative />
 
               <SectionDivider />
 
-              {/* 8. Total Transaction Costs */}
+              {/* Transaction Costs */}
               <SectionHeader>Transaction Costs</SectionHeader>
               {calc.legal > 0 && <ResultRow label="Legal Fees" value={calc.legal} indent />}
               {calc.advisory > 0 && <ResultRow label="Advisory Fee" value={calc.advisory} indent />}
               {calc.acct > 0 && <ResultRow label="Accounting" value={calc.acct} indent />}
               {calc.bonuses > 0 && <ResultRow label="Management Bonuses" value={calc.bonuses} indent />}
-              {calc.payrollTax > 0 && <ResultRow label="Payroll Taxes on Bonuses" value={calc.payrollTax} indent />}
-              {calc.rwInsurance > 0 && <ResultRow label="R&W Insurance Premium" value={calc.rwInsurance} indent />}
+              {calc.payrollTax > 0 && <ResultRow label="Payroll Taxes on Management Bonuses" value={calc.payrollTax} indent />}
               {form.otherCosts.map((c) => {
                 const amt = parseNum(c.amount)
                 return amt > 0 ? <ResultRow key={c.id} label={c.description || 'Other'} value={amt} indent /> : null
               })}
-              <ResultRow label="8. − Total Transaction Costs" value={-calc.totalTransactionCosts} bold negative />
+              <ResultRow label="10. − Total Transaction Costs" value={-calc.totalTransactionCosts} bold negative />
 
               <SectionDivider />
 
-              {/* 9. Net Cash to Seller at Closing (Pre-Tax) */}
+              {/* 11. Net Cash to Seller at Closing (Pre-Tax) */}
               <div className="my-1" />
-              <ResultRow label="9. = Net Cash to Seller at Closing (Pre-Tax)" value={calc.netCashAtClosingPreTax} bold highlight />
+              <ResultRow label="11. = Net Cash to Seller at Closing (Pre-Tax)" value={calc.netCashAtClosingPreTax} bold highlight />
               <div className="my-1" />
-
-              {calc.cashAtClosing > 0 && (
-                <>
-                  <SectionDivider />
-                  <ResultRow label="+ Estimated Cash at Closing" value={calc.cashAtClosing} source="Seller's accountant estimate" />
-                </>
-              )}
 
               <SectionDivider />
 
-              {/* 10. Estimated Taxes */}
+              {/* 12. Estimated Taxes on Cash at Closing */}
               <ResultRow
-                label={`10. − Estimated Taxes (Fed ${(calc.fedRate * 100).toFixed(1)}% + State ${(calc.stateRate * 100).toFixed(1)}%)`}
-                value={-calc.estimatedTaxes}
+                label={`12. − Estimated Taxes on Cash at Closing (Fed ${calc.fedTaxLabel} + State ${calc.stateTaxLabel})`}
+                value={-calc.estimatedTaxesAtClose}
                 negative
               />
 
               <SectionDivider />
 
-              {/* 11. Estimated Cash to Seller (Post-Tax) */}
+              {/* 13. Estimated Cash to Seller at Closing (Post-Tax) */}
               <div className="my-1" />
-              <ResultRow label="11. = Estimated Cash to Seller (Post-Tax)" value={calc.netCashPostTax} bold highlight />
+              <ResultRow label="13. = Estimated Cash to Seller at Closing (Post-Tax)" value={calc.netCashPostTax} bold highlight />
               <div className="my-1" />
 
               <SectionDivider />
@@ -807,9 +909,17 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
               {/* Memo Lines */}
               <SectionHeader>Memo</SectionHeader>
               <ResultRow label="Total Withheld/Deferred (recap)" value={calc.totalWithheld} indent />
-              <ResultRow label="Pre-close Cash Distribution" value={calc.precloseDistribution} indent />
-              <ResultRow label="Total Net Proceeds Pre-Tax" value={calc.totalNetProceedsPreTax} bold />
-              <ResultRow label="Estimated After-Tax Proceeds" value={calc.estimatedAfterTaxProceeds} bold />
+              <ResultRow label="− Estimated Taxes on Withheld/Deferred" value={-calc.deferredTaxAmount} indent negative />
+              <ResultRow label="= Estimated Cash to Seller on Withheld/Deferred (Post-Tax)" value={calc.netDeferredPostTax} indent bold />
+
+              <SectionDivider />
+
+              <ResultRow label="Total Net Proceeds Pre-Tax (incl. Deferred)" value={calc.totalNetProceedsPreTax} bold />
+
+              <SectionDivider />
+
+              <div className="my-1" />
+              <ResultRow label="= Estimated Total Proceeds on Sale (Post-Tax)" value={calc.estimatedTotalProceedsPostTax} bold highlightYellow />
               <div className="py-2" />
             </div>
           </Card>

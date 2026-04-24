@@ -173,8 +173,8 @@ function mergeResearchedCompetitor(report: CompetitorAnalysisReport, competitor:
 }
 
 function buildStaticMapUrl(report: CompetitorAnalysisReport): string {
-  const points = report.competitors
-    .slice(0, 8)
+  const points = report.discoveredCompetitors
+    .slice(0, 20)
     .map((competitor, index) => `${competitor.location.lat},${competitor.location.lng},${index + 1}`)
     .join(';');
 
@@ -886,6 +886,45 @@ function ReportView({
   onResearch: (competitor: DiscoveredCompetitorItem) => void;
   researchingPlaceId: string | null;
 }) {
+  const [serviceEditMode, setServiceEditMode] = useState(false);
+  // Build initial service overrides from report data
+  const buildInitialOverrides = () => {
+    const overrides: Record<string, Record<string, boolean>> = {};
+    const serviceOrder = ['dog boarding', 'dog daycare', 'dog grooming', 'dog training', 'cat boarding'];
+    // subject
+    overrides['__subject__'] = {};
+    serviceOrder.forEach(service => {
+      overrides['__subject__'][service] = report.clientProfile.services.some(s => s.toLowerCase() === service);
+    });
+    // competitors
+    report.competitors.slice(0, 5).forEach((comp) => {
+      const key = comp.placeId ?? comp.name;
+      overrides[key] = {};
+      serviceOrder.forEach(service => {
+        overrides[key][service] = comp.services.some(s => s.toLowerCase() === service);
+      });
+    });
+    return overrides;
+  };
+  const [serviceOverrides, setServiceOverrides] = useState<Record<string, Record<string, boolean>>>(buildInitialOverrides);
+
+  function toggleServiceOverride(entityKey: string, service: string) {
+    setServiceOverrides(prev => ({
+      ...prev,
+      [entityKey]: {
+        ...prev[entityKey],
+        [service]: !(prev[entityKey]?.[service] ?? false),
+      },
+    }));
+  }
+
+  function getServiceCheck(entityKey: string, service: string, fallback: boolean): boolean {
+    if (serviceOverrides[entityKey] && service in serviceOverrides[entityKey]) {
+      return serviceOverrides[entityKey][service];
+    }
+    return fallback;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -941,11 +980,6 @@ function ReportView({
             <p className="text-sm text-slate-700 leading-7 mt-3">{report.positioningSummary}</p>
           </div>
       </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <SummaryList title="Key Takeaways" items={report.keyTakeaways} />
-        <SummaryList title="Recommended Actions" items={report.recommendations} />
-      </div>
 
       {/* Subject Business section removed — displayed in other sections */}
 
@@ -1011,9 +1045,25 @@ function ReportView({
       {/* Service Offerings Comparison */}
       {report.competitors.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Service Offerings Comparison</p>
+            <button
+              onClick={() => setServiceEditMode(m => !m)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors',
+                serviceEditMode
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+              )}
+            >
+              {serviceEditMode ? '✓ Done' : '✎ Edit'}
+            </button>
           </div>
+          {serviceEditMode && (
+            <div className="px-5 py-2 bg-amber-50/50 border-b border-amber-100 text-xs text-amber-700">
+              Click any cell to toggle the checkmark on or off.
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
@@ -1036,20 +1086,30 @@ function ReportView({
                   return serviceOrder.map(service => (
                     <tr key={service} className="border-b border-slate-50">
                       <td className="px-4 py-2.5 text-xs font-medium text-slate-700 capitalize sticky left-0 bg-white z-10">{service}</td>
-                      <td className="px-3 py-2.5 text-center">
-                        {report.clientProfile.services.some(s => s.toLowerCase() === service)
+                      <td
+                        className={cn("px-3 py-2.5 text-center", serviceEditMode && "cursor-pointer hover:bg-amber-50/50")}
+                        onClick={serviceEditMode ? () => toggleServiceOverride('__subject__', service) : undefined}
+                      >
+                        {getServiceCheck('__subject__', service, report.clientProfile.services.some(s => s.toLowerCase() === service))
                           ? <span className="text-emerald-500 font-bold">&#10003;</span>
                           : <span className="text-slate-200">—</span>
                         }
                       </td>
-                      {report.competitors.slice(0, 5).map((comp, i) => (
-                        <td key={comp.placeId ?? i} className="px-3 py-2.5 text-center">
-                          {comp.services.some(s => s.toLowerCase() === service)
-                            ? <span className="text-emerald-500 font-bold">&#10003;</span>
-                            : <span className="text-slate-200">—</span>
-                          }
-                        </td>
-                      ))}
+                      {report.competitors.slice(0, 5).map((comp, i) => {
+                        const compKey = comp.placeId ?? comp.name;
+                        return (
+                          <td
+                            key={comp.placeId ?? i}
+                            className={cn("px-3 py-2.5 text-center", serviceEditMode && "cursor-pointer hover:bg-amber-50/50")}
+                            onClick={serviceEditMode ? () => toggleServiceOverride(compKey, service) : undefined}
+                          >
+                            {getServiceCheck(compKey, service, comp.services.some(s => s.toLowerCase() === service))
+                              ? <span className="text-emerald-500 font-bold">&#10003;</span>
+                              : <span className="text-slate-200">—</span>
+                            }
+                          </td>
+                        );
+                      })}
                     </tr>
                   ));
                 })()}

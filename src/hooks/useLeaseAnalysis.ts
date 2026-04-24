@@ -22,8 +22,8 @@ export function useLeaseAnalysis(clientId?: string) {
       return;
     }
     
-    if (documents.length + pdfFiles.length > 5) {
-      setError("Maximum 5 documents per analysis.");
+    if (documents.length + pdfFiles.length > 10) {
+      setError("Maximum 10 documents per analysis.");
       return;
     }
 

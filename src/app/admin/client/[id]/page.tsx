@@ -28,6 +28,7 @@ import ProfessionalAdvisorsTab from '@/components/advisors/ProfessionalAdvisorsT
 import VendorDirectoryTab from '@/components/vendor-directory/VendorDirectoryTab'
 import OrgChartReviewTab from '@/components/org-chart/OrgChartReviewTab'
 import LitigationSearchTab from '@/components/litigation-search/LitigationSearchTab'
+import EmployeeCompTab from '@/components/employee-comp/EmployeeCompTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -46,6 +47,7 @@ const AGENT_TABS = [
   { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
   { key: 'org-chart', label: 'Org Chart Review', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'litigation', label: 'Litigation & Liens', badge: null, icon: AlertCircle, group: 'WS1 — Risk & Legal' },
+  { key: 'employee-comp', label: 'Compensation Report', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
@@ -418,6 +420,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'litigation' && (
               <LitigationSearchTab clientId={client.id} clientName={client.company || client.name} businessAddress={client.businessAddress} />
+            )}
+            {activeTab === 'employee-comp' && (
+              <EmployeeCompTab clientId={client.id} clientName={client.company || client.name} />
             )}
             {activeTab === 'sales-process-review' && (
               <SalesProcessReviewTab clientId={client.id} clientName={client.name} />

@@ -29,6 +29,13 @@ interface Props {
   clientWebsite?: string;
 }
 
+// Type for tracking manual metric overrides across re-runs
+interface ManualOverride {
+  channelType: string;
+  metricIndex: number;
+  value: string;
+}
+
 export default function DigitalPresenceTab({ clientId, clientName, clientWebsite }: Props) {
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [report, setReport] = useState<DigitalPresenceReport | null>(null);
@@ -37,11 +44,37 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
   const [currentPhase, setCurrentPhase] = useState<'research' | 'analyze' | null>(null);
   const [researchProgress, setResearchProgress] = useState<{ completed: number; total: number } | null>(null);
   const [lastFormData, setLastFormData] = useState<DigitalAssetFormData | null>(null);
+  const [manualOverrides, setManualOverrides] = useState<ManualOverride[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   function appendLog(entry: Omit<LogEntry, 'id'>) {
     setLog(prev => [...prev, { ...entry, id: ++_logId }]);
     setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  }
+
+  function applyOverridesToReport(baseReport: DigitalPresenceReport, overrides: ManualOverride[]): DigitalPresenceReport {
+    if (overrides.length === 0) return baseReport;
+    return {
+      ...baseReport,
+      channels: baseReport.channels.map(ch => {
+        const channelOverrides = overrides.filter(o => o.channelType === ch.channelType);
+        if (channelOverrides.length === 0) return ch;
+        const updatedMetrics = [...ch.keyMetrics];
+        for (const override of channelOverrides) {
+          if (override.metricIndex < updatedMetrics.length) {
+            updatedMetrics[override.metricIndex] = { ...updatedMetrics[override.metricIndex], value: override.value };
+          }
+        }
+        return { ...ch, keyMetrics: updatedMetrics };
+      }),
+    };
+  }
+
+  function handleEdit(channelType: string, metricIndex: number, value: string) {
+    setManualOverrides(prev => {
+      const filtered = prev.filter(o => !(o.channelType === channelType && o.metricIndex === metricIndex));
+      return [...filtered, { channelType, metricIndex, value }];
+    });
   }
 
   async function handleSubmit(formData: DigitalAssetFormData) {
@@ -95,7 +128,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
             }
             appendLog({ phase: ev.phase, message: ev.message });
           } else if (event.type === 'complete') {
-            setReport(event.report);
+            setReport(applyOverridesToReport(event.report, manualOverrides));
             setStatus('complete');
           } else if (event.type === 'error') {
             throw new Error(event.error ?? 'Analysis failed.');
@@ -255,7 +288,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
 
       {/* Complete -> scorecard */}
       {status === 'complete' && report && (
-        <DigitalPresenceScorecard report={report} onReset={handleReset} onRerun={handleRerun} />
+        <DigitalPresenceScorecard report={report} onReset={handleReset} onRerun={handleRerun} onEdit={handleEdit} />
       )}
     </div>
   );
