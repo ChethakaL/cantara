@@ -9,6 +9,9 @@ import { buildLeaseAnalysisSystemPrompt } from "@/lib/lease-analysis/prompt";
 
 export const maxDuration = 300; // 5 min — large PDFs need time
 
+// Next.js App Router: increase max request body size for multi-file base64 uploads
+export const maxRequestBodySize = '100mb';
+
 const MAX_UPSTREAM_ATTEMPTS = 3;
 const UPSTREAM_RETRY_DELAYS_MS = [1000, 2500];
 type LeaseMessageStream = AsyncIterable<any> & { controller: { abort: () => void } };
@@ -59,7 +62,7 @@ export async function POST(req: NextRequest) {
           try {
             activeStream = await client.messages.stream({
               model: "claude-sonnet-4-20250514", // Exactly as specified in architecture.md
-              max_tokens: 8000,
+              max_tokens: 16000,
               temperature: 0,
               system: systemPrompt,
               messages: [{ role: "user", content: userContent }],

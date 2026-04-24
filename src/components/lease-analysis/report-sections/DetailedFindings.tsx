@@ -24,35 +24,11 @@ export function DetailedFindings({ findings, raw, rentSchedule }: Props) {
     )
   }
 
+  const isRentFinding = (id: string, title: string) =>
+    id === '2.3' || /rent/i.test(title);
+
   return (
     <div className="space-y-6">
-      {rentSchedule && rentSchedule.length > 0 && (
-        <div className="mb-6">
-          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-3">Rent Schedule</h4>
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500">Lease Year</th>
-                  <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500">Months</th>
-                  <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500">Per Annum</th>
-                  <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500">Per Month</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rentSchedule.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="py-2.5 px-3 text-xs font-medium text-slate-600">{row.leaseYear}</td>
-                    <td className="py-2.5 px-3 text-xs text-slate-600">{row.months}</td>
-                    <td className="py-2.5 px-3 text-sm text-slate-800 text-right font-mono">{row.perAnnum}</td>
-                    <td className="py-2.5 px-3 text-sm text-slate-800 text-right font-mono">{row.perMonth}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     <div className="flex gap-6 h-[calc(100vh-320px)] min-h-[500px]">
       {/* Sidebar Navigation */}
       <div className="w-56 shrink-0 flex flex-col gap-1 overflow-y-auto pr-2 custom-scrollbar border-r border-slate-100">
@@ -83,12 +59,12 @@ export function DetailedFindings({ findings, raw, rentSchedule }: Props) {
               <Badge color="slate" className="text-[10px] uppercase tracking-wider text-slate-400 border-slate-200">Analysis Section</Badge>
             </div>
             <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
-              <div className="prose prose-sm prose-slate max-w-none 
-                prose-p:leading-relaxed 
-                prose-headings:text-slate-800 
-                prose-strong:text-slate-900 
-                prose-table:border prose-table:border-slate-100 
-                prose-th:bg-slate-50 prose-th:px-3 prose-th:py-2 
+              <div className="prose prose-sm prose-slate max-w-none
+                prose-p:leading-relaxed
+                prose-headings:text-slate-800
+                prose-strong:text-slate-900
+                prose-table:border prose-table:border-slate-100
+                prose-th:bg-slate-50 prose-th:px-3 prose-th:py-2
                 prose-td:px-3 prose-td:py-2
                 prose-blockquote:border-l-amber-300 prose-blockquote:bg-amber-50/20 prose-blockquote:py-1 prose-blockquote:px-4 prose-blockquote:rounded-r-lg
                 prose-code:text-amber-700 prose-code:bg-amber-50/50 prose-code:px-1 prose-code:rounded">
@@ -96,6 +72,34 @@ export function DetailedFindings({ findings, raw, rentSchedule }: Props) {
                   {current.content}
                 </ReactMarkdown>
               </div>
+              {/* Rent schedule appears only within the Rents finding */}
+              {rentSchedule && rentSchedule.length > 0 && isRentFinding(current.id, current.title) && (
+                <div className="mt-8 border-t border-slate-100 pt-6">
+                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-3">Rent Schedule</h4>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50/50">
+                          <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500">Lease Year</th>
+                          <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500">Months</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500">Per Annum</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500">Per Month</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rentSchedule.map((row, i) => (
+                          <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
+                            <td className="py-2.5 px-3 text-xs font-medium text-slate-600">{row.leaseYear}</td>
+                            <td className="py-2.5 px-3 text-xs text-slate-600">{row.months}</td>
+                            <td className="py-2.5 px-3 text-sm text-slate-800 text-right font-mono">{row.perAnnum}</td>
+                            <td className="py-2.5 px-3 text-sm text-slate-800 text-right font-mono">{row.perMonth}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         ) : (
