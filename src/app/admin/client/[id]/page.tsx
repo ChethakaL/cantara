@@ -102,7 +102,11 @@ function AgentsDropdown({
       if (panel?.contains(target)) return
       setOpen(false)
     }
-    function handleScroll() { setOpen(false) }
+    function handleScroll(e: Event) {
+      const panel = document.getElementById('agents-dropdown-panel')
+      if (panel?.contains(e.target as Node)) return
+      setOpen(false)
+    }
     document.addEventListener('mousedown', handleOutside)
     window.addEventListener('scroll', handleScroll, true)
     return () => {
@@ -126,7 +130,7 @@ function AgentsDropdown({
           left: rect.left,
           zIndex: 9999,
         }}
-        className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden min-w-[220px]"
+        className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-y-auto min-w-[220px] max-h-[70vh]"
       >
         {(() => {
           let lastGroup = ''
