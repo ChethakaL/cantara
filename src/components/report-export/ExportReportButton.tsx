@@ -6,9 +6,10 @@ import { Button } from '@/components/ui'
 interface Props {
   html: string
   fileName: string
+  label?: string
 }
 
-export function ExportReportButton({ html, fileName }: Props) {
+export function ExportReportButton({ html, fileName, label }: Props) {
   const handlePrint = () => {
     const win = window.open('', '_blank')
     if (!win) return
@@ -35,7 +36,7 @@ export function ExportReportButton({ html, fileName }: Props) {
       </Button>
       <Button size="sm" onClick={handlePrint}>
         <Printer className="w-3.5 h-3.5" />
-        Export PDF
+        {label || 'Export PDF'}
       </Button>
     </div>
   )
