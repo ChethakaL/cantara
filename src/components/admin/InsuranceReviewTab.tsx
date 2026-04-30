@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bot, CheckCircle, FileText, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { Badge, Button } from '@/components/ui'
 import { getAdminEmail } from '@/lib/store'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildInsuranceReportHtml } from '@/lib/report-export/build-insurance-report'
 
 interface InsuranceSummary {
   summary: string
@@ -43,7 +45,7 @@ function formatClaimStatus(status: string | null | undefined): { label: string; 
   }
 }
 
-export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
+export default function InsuranceReviewTab({ clientId, clientName = 'Client' }: { clientId: string; clientName?: string }) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -283,6 +285,13 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
                   </div>
                 </div>
               )}
+
+              <div className="flex justify-end mb-2">
+                <ExportReportButton
+                  html={buildInsuranceReportHtml(summary, document?.fileName ?? 'insurance-claim', clientName)}
+                  fileName={`insurance-review-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+                />
+              </div>
 
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
                 <div className="flex items-center justify-between mb-1">

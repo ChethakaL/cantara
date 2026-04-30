@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { FileText, AlertTriangle, Folder } from 'lucide-react'
 import { Card, Badge } from '@/components/ui'
 import { ContractReport as IContractReport } from '../../lib/contract-analysis/types'
@@ -8,6 +8,8 @@ import { DetailedFindings } from './report-sections/DetailedFindings'
 import { FlagAnalysis } from './report-sections/FlagAnalysis'
 import { DocumentInventoryReport } from './report-sections/DocumentInventoryReport'
 import { ReportExportBar } from './ReportExportBar'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildContractReportHtml } from '@/lib/report-export/build-contract-report'
 
 interface Props {
   report: IContractReport
@@ -26,6 +28,7 @@ const REPORT_TABS = [
 
 export function ContractReport({ report, fileName, clientName, onNewAnalysis, onDelete }: Props) {
   const [activeTab, setActiveTab] = useState('snapshot')
+  const reportHtml = useMemo(() => buildContractReportHtml(report, clientName), [report, clientName])
 
   const flagCounts = {
     red: (report.redFlags || []).length,
@@ -64,9 +67,14 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
             <Badge color="green">🟢 {flagCounts.green} Green</Badge>
           </div>
           <div className="w-px h-4 bg-slate-200 mx-1" />
-          <ReportExportBar 
-            reportMarkdown={report.raw} 
-            clientName={clientName} 
+          <ExportReportButton
+            html={reportHtml}
+            fileName={`contract-analysis-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+          />
+          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <ReportExportBar
+            reportMarkdown={report.raw}
+            clientName={clientName}
             onNewAnalysis={onNewAnalysis}
             onDelete={onDelete}
           />

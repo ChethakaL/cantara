@@ -107,8 +107,8 @@ export default function AdminDashboard() {
               const Icon = stat.icon
               return (
                 <Card key={stat.label} className="p-5 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(184,146,42,0.08)' }}>
-                    <Icon className="w-5 h-5" style={{ color: '#b8922a' }} />
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(202,161,95,0.08)' }}>
+                    <Icon className="w-5 h-5" style={{ color: '#CAA15F' }} />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-slate-800">{stat.value}</p>
@@ -123,7 +123,7 @@ export default function AdminDashboard() {
           <div className="relative mb-6">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
-              className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-slate-200 bg-white outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all"
+              className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-cantara-beige bg-cantara-white outline-none focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 transition-all"
               placeholder="Search clients by name, company, or email…"
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -152,7 +152,7 @@ export default function AdminDashboard() {
 
           {loadingClients && (
             <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
-              <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+              <Loader2 className="w-6 h-6 animate-spin text-cantara-gold" />
               <span>Loading clients...</span>
             </div>
           )}
@@ -203,19 +203,19 @@ function ClientCard({ client, delay }: { client: Client; delay: number }) {
       transition={{ delay, duration: 0.3 }}
     >
       <Link href={`/admin/client/${client.id}`}>
-        <Card className="p-5 hover:shadow-md transition-all hover:border-amber-200 cursor-pointer group">
+        <Card className="p-5 hover:shadow-md transition-all hover:border-cantara-gold/30 cursor-pointer group">
           <div className="flex items-start justify-between mb-3">
             <div className="min-w-0">
-              <p className="font-semibold text-slate-800 text-sm group-hover:text-amber-700 transition-colors">{client.name}</p>
+              <p className="font-semibold text-slate-800 text-sm group-hover:text-cantara-navy transition-colors">{client.name}</p>
               <p className="text-xs text-slate-400 mt-0.5 truncate">{client.company || client.email}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0 ml-2">
               {unread > 0 && (
-                <span className="w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ background: '#b8922a' }}>
+                <span className="w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ background: '#D37141' }}>
                   {unread}
                 </span>
               )}
-              <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-amber-400 transition-colors" />
+              <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-cantara-gold transition-colors" />
             </div>
           </div>
 
@@ -235,7 +235,7 @@ function ClientCard({ client, delay }: { client: Client; delay: number }) {
           )}
 
           {!client.workstream && (
-            <div className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 flex items-center gap-2">
+            <div className="text-xs rounded-lg px-3 py-2 flex items-center gap-2" style={{ color: '#D37141', background: 'rgba(211,113,65,0.08)' }}>
               <AlertCircle className="w-3.5 h-3.5" />
               Needs workstream assignment
             </div>

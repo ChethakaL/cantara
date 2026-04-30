@@ -17,11 +17,19 @@ module.exports = {
           900: '#0d1829',
           800: '#111e35',
           700: '#162240',
-        }
+        },
+        cantara: {
+          navy: '#21263C',
+          sun: '#F1E6BB',
+          terracotta: '#D37141',
+          gold: '#CAA15F',
+          beige: '#F4F0ED',
+          white: '#FEFEFE',
+        },
       },
       fontFamily: {
         serif: ['Georgia', 'serif'],
-        sans: ['system-ui', 'sans-serif'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
       }
     },
   },

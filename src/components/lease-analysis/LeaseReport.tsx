@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { FileText, AlertTriangle, Folder } from 'lucide-react'
 import { Card, Badge } from '@/components/ui'
 import { LeaseReport as ILeaseReport } from '../../lib/lease-analysis/types'
@@ -9,6 +9,8 @@ import { FlagAnalysis } from './report-sections/FlagAnalysis'
 import { DocumentInventoryReport } from './report-sections/DocumentInventoryReport'
 import { ReportExportBar } from './ReportExportBar'
 import { getVisibleFlags } from '@/lib/lease-analysis/report-utils'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildLeaseReportHtml } from '@/lib/report-export/build-lease-report'
 
 interface Props {
   report: ILeaseReport
@@ -37,6 +39,7 @@ export function LeaseReport({
   adminMode = false,
 }: Props) {
   const [activeTab, setActiveTab] = useState('summary')
+  const reportHtml = useMemo(() => buildLeaseReportHtml(report, clientName), [report, clientName])
 
   const flagCounts = {
     red: getVisibleFlags(report.redFlags || []).length,
@@ -71,9 +74,14 @@ export function LeaseReport({
             <Badge color="green">🟢 {flagCounts.green} Green</Badge>
           </div>
           <div className="w-px h-4 bg-slate-200 mx-1" />
-          <ReportExportBar 
-            reportMarkdown={report.raw} 
-            clientName={clientName} 
+          <ExportReportButton
+            html={reportHtml}
+            fileName={`lease-analysis-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+          />
+          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <ReportExportBar
+            reportMarkdown={report.raw}
+            clientName={clientName}
             onNewAnalysis={onNewAnalysis}
             onDelete={onDelete}
           />

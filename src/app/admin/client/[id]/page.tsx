@@ -411,7 +411,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               />
             )}
             {activeTab === 'insurance' && (
-              <InsuranceReviewTab clientId={client.id} />
+              <InsuranceReviewTab clientId={client.id} clientName={client.company || client.name} />
             )}
             {activeTab === 'advisors' && (
               <ProfessionalAdvisorsTab clientId={client.id} clientName={client.company || client.name} />
