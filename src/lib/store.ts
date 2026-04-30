@@ -22,6 +22,7 @@ export interface AdvisorProfile {
 
 export interface SectionSubmission {
   submittedAt: string
+  [key: string]: unknown
 }
 
 export interface Branch {

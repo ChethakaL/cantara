@@ -75,7 +75,7 @@ export function buildLeaseAddendumHtml(report: LeaseReport, clientName: string):
         title: 'Document Inventory',
         content: buildHtmlTable(
           ['Document', 'Type', 'Date', 'Status'],
-          report.documentInventory.map(d => [d.name, d.type || '', d.date || '', d.status || '']),
+          report.documentInventory.map(d => [d.document, d.documentType || '', d.date || '', d.status || '']),
         ),
       }]
     : []

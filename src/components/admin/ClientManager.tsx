@@ -81,9 +81,16 @@ export default function ClientManager({ client: initial, onSaved }: {
     const existingSections = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object')
       ? client.sectionSubmissions
       : {}
-    const mergedSectionSubmissions = {
-      ...existingSections,
-      owner2: showOwner2 ? { name: owner2.name, email: owner2.email, phone: owner2.phone } : undefined,
+    const mergedSectionSubmissions = { ...existingSections }
+    if (showOwner2) {
+      mergedSectionSubmissions.owner2 = {
+        submittedAt: (existingSections.owner2 as any)?.submittedAt || now,
+        name: owner2.name,
+        email: owner2.email,
+        phone: owner2.phone,
+      }
+    } else {
+      delete mergedSectionSubmissions.owner2
     }
 
     const updated = {
