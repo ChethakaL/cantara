@@ -92,6 +92,7 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
         <div>
           <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Contract Analysis</h3>
           <p className="text-xs text-slate-400 mt-0.5">Upload business contracts to evaluate saleability, counterparty restrictions, and buyer risk</p>
+          <p className="text-xs text-slate-400 mt-1">Material contracts can also be uploaded in the Documents tab.</p>
         </div>
         {analyses.length > 0 && (
           <Button variant="outline" size="sm" className="gap-2" onClick={clearAll}>

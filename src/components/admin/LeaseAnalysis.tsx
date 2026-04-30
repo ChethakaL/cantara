@@ -115,6 +115,7 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
         <div>
           <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Lease Analysis</h3>
           <p className="text-xs text-slate-400 mt-0.5">Upload lease PDFs to run full M&A due diligence analysis</p>
+          <p className="text-xs text-slate-400 mt-1">Lease documents can also be uploaded in the Documents tab.</p>
         </div>
         {analyses.length > 0 && (
           <Button variant="outline" size="sm" className="gap-2" onClick={beginNewAnalysis}>

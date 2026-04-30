@@ -237,6 +237,7 @@ export default function OrgChartReviewTab({
       <div>
         <h2 className="text-lg font-semibold text-slate-800">Org Chart Upload &amp; Review</h2>
         <p className="text-xs text-slate-400 mt-0.5">Upload an org chart to analyze key-person dependencies and transition readiness for {clientName}</p>
+        <p className="text-xs text-slate-400 mt-1">Org charts can also be uploaded in the Documents tab.</p>
       </div>
 
       {/* Dropzone */}

@@ -250,6 +250,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
         <p className="text-xs text-slate-400 mt-1">
           Search public records and analyze uploaded documents for litigation, liens, judgments, UCC filings, and bankruptcy.
         </p>
+        <p className="text-xs text-slate-400 mt-1">Lien search and court record documents can also be uploaded in the Documents tab.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

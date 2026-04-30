@@ -372,6 +372,7 @@ export default function EmployeeCompTab({
         <p className="text-xs text-slate-400 mt-0.5">
           Extract and manage employee compensation data for {clientName}
         </p>
+        <p className="text-xs text-slate-400 mt-1">Payroll and compensation reports can also be uploaded in the Documents tab.</p>
       </div>
 
       {/* Summary cards (always visible once we have data) */}

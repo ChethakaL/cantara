@@ -122,6 +122,11 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
       { id: 'software_subscriptions', name: 'Software Subscriptions / PMS List', description: 'List of all software tools and subscriptions used.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'vendor_contracts', name: 'Vendor / Supplier Contracts', description: 'Key vendor and supplier agreements.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'insurance_policies', name: 'Insurance Policies (all active)', description: 'All active business insurance policies.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
+      { id: 'material_contracts', name: 'Material Contracts (over $5K/yr)', description: 'All material contracts, vendor agreements, and supplier contracts exceeding $5,000 per year.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
+      { id: 'sales_process_transcript', name: 'Sales Call Transcript / Recording', description: 'Transcript or recording from discovery or sales calls for process review.', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
+      { id: 'meeting_notes', name: 'Meeting Notes / Call Notes', description: 'Freeform meeting notes or call transcripts for AI-powered report generation.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
+      { id: 'employee_comp_payroll', name: 'Payroll / Compensation Report', description: 'Payroll export or compensation report with employee names, titles, rates, and benefit classes.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
+      { id: 'litigation_search_docs', name: 'Lien Search / Court Records', description: 'Formal lien search results, title reports, or court record documents from attorney or title company.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
     ],
   },
   {
