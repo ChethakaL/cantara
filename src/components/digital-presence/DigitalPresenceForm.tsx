@@ -104,7 +104,7 @@ export default function DigitalPresenceForm({ onSubmit, loading, initialData, cl
   function validate(): boolean {
     const newErrors: typeof errors = {};
     if (!form.businessName.trim()) {
-      newErrors.businessName = 'Business name is required';
+      newErrors.businessName = 'Client name is required';
     }
     const hasChannel =
       form.websiteUrl ||
@@ -146,8 +146,8 @@ export default function DigitalPresenceForm({ onSubmit, loading, initialData, cl
         <p className="text-xs font-semibold text-amber-700 uppercase tracking-widest">Business Details</p>
         <div className="grid grid-cols-1 gap-3">
           <Input
-            label="Business Name *"
-            placeholder="e.g. Bliss Day Spa"
+            label="Client Name *"
+            placeholder="e.g. Desert Haven Pet Resort"
             value={form.businessName}
             onChange={e => set('businessName', e.target.value)}
             error={errors.businessName}
