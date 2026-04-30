@@ -39,6 +39,10 @@ export interface Flag {
   whyItMatters: string;
   sourceSection: string;
   suggestedAction?: string;
+  reviewStatus?: 'relevant' | 'questionable' | 'not_applicable'
+  reviewNotes?: string
+  reevaluatedAt?: string
+  reevaluationReasoning?: string
 }
 
 export interface ContractRiskCard {

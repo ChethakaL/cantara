@@ -5,11 +5,11 @@ import { Card, Badge } from '@/components/ui'
 import { ContractReport as IContractReport } from '../../lib/contract-analysis/types'
 import { SnapshotTable } from './report-sections/SnapshotTable'
 import { DetailedFindings } from './report-sections/DetailedFindings'
-import { FlagAnalysis } from './report-sections/FlagAnalysis'
+import { FlagAnalysis, getVisibleFlags } from './report-sections/FlagAnalysis'
 import { DocumentInventoryReport } from './report-sections/DocumentInventoryReport'
 import { ReportExportBar } from './ReportExportBar'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
-import { buildContractReportHtml } from '@/lib/report-export/build-contract-report'
+import { buildContractSummaryHtml, buildContractAddendumHtml } from '@/lib/report-export/build-contract-report'
 
 interface Props {
   report: IContractReport
@@ -17,6 +17,8 @@ interface Props {
   clientName: string
   onNewAnalysis: () => void
   onDelete?: () => void
+  onReportUpdated?: (report: IContractReport) => Promise<void>
+  adminMode?: boolean
 }
 
 const REPORT_TABS = [
@@ -26,14 +28,15 @@ const REPORT_TABS = [
   { key: 'documents', label: 'Documents', icon: Folder },
 ]
 
-export function ContractReport({ report, fileName, clientName, onNewAnalysis, onDelete }: Props) {
+export function ContractReport({ report, fileName, clientName, onNewAnalysis, onDelete, onReportUpdated, adminMode = false }: Props) {
   const [activeTab, setActiveTab] = useState('snapshot')
-  const reportHtml = useMemo(() => buildContractReportHtml(report, clientName), [report, clientName])
+  const summaryHtml = useMemo(() => buildContractSummaryHtml(report, clientName), [report, clientName])
+  const addendumHtml = useMemo(() => buildContractAddendumHtml(report, clientName), [report, clientName])
 
   const flagCounts = {
-    red: (report.redFlags || []).length,
-    orange: (report.orangeFlags || []).length,
-    green: (report.greenFlags || []).length,
+    red: getVisibleFlags(report.redFlags || []).length,
+    orange: getVisibleFlags(report.orangeFlags || []).length,
+    green: getVisibleFlags(report.greenFlags || []).length,
   }
   const perContractFlagCount = (report.contractRiskCards || []).reduce(
     (sum, card) => sum + card.redFlags.length + card.orangeFlags.length + card.greenFlags.length,
@@ -59,7 +62,7 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
             {fileName} · Generated {new Date(report.generatedAt).toLocaleString()}
           </p>
         </div>
-        
+
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Badge color="red">🔴 {flagCounts.red} Red</Badge>
@@ -68,8 +71,14 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
           </div>
           <div className="w-px h-4 bg-slate-200 mx-1" />
           <ExportReportButton
-            html={reportHtml}
-            fileName={`contract-analysis-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+            html={summaryHtml}
+            fileName={`contract-summary-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+            label="Summary PDF"
+          />
+          <ExportReportButton
+            html={addendumHtml}
+            fileName={`contract-addendum-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+            label="Risk Cards Addendum"
           />
           <div className="w-px h-4 bg-slate-200 mx-1" />
           <ReportExportBar
@@ -109,13 +118,24 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
       {/* Section content */}
       <div className="p-6 min-h-[400px]">
         {activeTab === 'snapshot' && <SnapshotTable rows={report.snapshotTable} />}
-        {activeTab === 'findings' && <DetailedFindings findings={report.detailedFindings} raw={report.raw} />}
+        {activeTab === 'findings' && (
+          <DetailedFindings
+            findings={report.detailedFindings}
+            raw={report.raw}
+            report={report}
+            adminMode={adminMode}
+            onReportUpdated={onReportUpdated}
+          />
+        )}
         {activeTab === 'flags' && (
           <FlagAnalysis
             riskCards={report.contractRiskCards || []}
             red={report.redFlags}
             orange={report.orangeFlags}
             green={report.greenFlags}
+            report={report}
+            adminMode={adminMode}
+            onReportUpdated={onReportUpdated}
           />
         )}
         {activeTab === 'documents' && <DocumentInventoryReport rows={report.documentInventory} />}

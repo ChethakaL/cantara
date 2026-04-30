@@ -3,9 +3,10 @@ import { useState, useCallback, useEffect } from 'react'
 import { FileText, Plus } from 'lucide-react'
 import { Button, Card, Modal } from '@/components/ui'
 import type { ContractAnalysis } from '@/lib/store'
-import { deleteContractAnalysis, getContractAnalyses, saveContractAnalysis } from '@/lib/store'
+import { deleteContractAnalysis, getContractAnalyses, saveContractAnalysis, updateContractAnalysis } from '@/lib/store'
 import { useContractAnalysis } from '@/hooks/useContractAnalysis'
 import { parseReport } from '@/lib/contract-analysis/parse-report'
+import type { ContractReport as ContractReportData } from '@/lib/contract-analysis/types'
 import { ContractUploader } from '../contract-analysis/ContractUploader'
 import { AnalysisProgress } from '../contract-analysis/AnalysisProgress'
 import { ContractReport } from '../contract-analysis/ContractReport'
@@ -52,6 +53,20 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
       setDeleteOpen(false)
     }
   }
+
+  const handleReportUpdated = useCallback(async (nextReport: ContractReportData) => {
+    if (!activeAnalysis?.id) return
+
+    const updated = await updateContractAnalysis(activeAnalysis.id, {
+      report: nextReport.raw,
+      parsed: nextReport,
+    })
+
+    setActiveAnalysis(updated)
+    setAnalyses((current) => current.map((analysis) => (
+      analysis.id === updated.id ? updated : analysis
+    )))
+  }, [activeAnalysis])
 
   useEffect(() => {
     loadAnalyses().then((data) => {
@@ -148,6 +163,8 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
             clientName={clientName}
             onNewAnalysis={clearAll}
             onDelete={activeAnalysis ? () => setDeleteOpen(true) : undefined}
+            adminMode
+            onReportUpdated={handleReportUpdated}
           />
         )}
       </div>
