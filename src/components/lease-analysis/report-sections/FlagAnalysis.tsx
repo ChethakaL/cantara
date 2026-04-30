@@ -77,6 +77,8 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
     }
   }
 
+  const sectionBadgeClassName = 'mt-3 w-full whitespace-normal break-words rounded-sm px-3.5 py-1.5 text-[11px] font-bold uppercase leading-relaxed tracking-[0.16em] text-white'
+
   const getSectionCount = (flags: Flag[]) => (adminMode ? flags.length : getVisibleFlags(flags).length)
 
   const handleFlagReevaluation = async (
@@ -254,9 +256,9 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
                       </div>
                     </div>
                   </div>
-                  <div className="bg-[#8a2f2c] text-white rounded-sm px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] shrink-0">
-                     HIGH • SECTION {f.sourceSection || 'F'}
-                  </div>
+                </div>
+                <div className={`bg-[#8a2f2c] ${sectionBadgeClassName}`}>
+                  HIGH • SECTION {f.sourceSection || 'F'}
                 </div>
                 {renderReviewControls(f, 'red', i)}
               </div>
@@ -289,9 +291,9 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
                       </div>
                     </div>
                   </div>
-                  <div className="bg-[#a6542f] text-white rounded-sm px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] shrink-0">
-                     MED • SECTION {f.sourceSection || 'C'}
-                  </div>
+                </div>
+                <div className={`bg-[#a6542f] ${sectionBadgeClassName}`}>
+                  MED • SECTION {f.sourceSection || 'C'}
                 </div>
                 {renderReviewControls(f, 'orange', i)}
               </div>
@@ -324,9 +326,9 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
                       </div>
                     </div>
                   </div>
-                  <div className="bg-emerald-700 text-white rounded-sm px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] shrink-0">
-                     LOW • SECTION {f.sourceSection || 'G'}
-                  </div>
+                </div>
+                <div className={`bg-emerald-700 ${sectionBadgeClassName}`}>
+                  LOW • SECTION {f.sourceSection || 'G'}
                 </div>
                 {renderReviewControls(f, 'green', i)}
               </div>
