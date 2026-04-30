@@ -1,9 +1,15 @@
 'use client'
 import { useRef, useState } from 'react'
-import { ExternalLink, FolderOpen, Plus, Trash2, Building2, Users, Briefcase, Upload, Image as ImageIcon, Loader2, CheckCircle2 } from 'lucide-react'
+import { ExternalLink, FolderOpen, Plus, Trash2, Building2, Users, Briefcase, Upload, Image as ImageIcon, Loader2, CheckCircle2, UserPlus, X } from 'lucide-react'
 import { Button, Input, Select, Textarea, Badge, WorkstreamBadge } from '@/components/ui'
 import { saveClient } from '@/lib/store'
 import type { Client, Workstream, BusinessType } from '@/lib/store'
+
+interface Owner2Data {
+  name: string
+  email: string
+  phone: string
+}
 
 const WS_OPTIONS = [
   { value: '', label: '— Not provisioned —' },
@@ -35,6 +41,15 @@ export default function ClientManager({ client: initial, onSaved }: {
   const [uploadingAdvisorImage, setUploadingAdvisorImage] = useState(false)
   const advisorImageInputRef = useRef<HTMLInputElement | null>(null)
 
+  // Second owner support — stored in sectionSubmissions.owner2
+  const existingOwner2 = (initial.sectionSubmissions as any)?.owner2 as Owner2Data | undefined
+  const [showOwner2, setShowOwner2] = useState(!!existingOwner2?.name || !!existingOwner2?.email || !!existingOwner2?.phone)
+  const [owner2, setOwner2] = useState<Owner2Data>({
+    name: existingOwner2?.name || '',
+    email: existingOwner2?.email || '',
+    phone: existingOwner2?.phone || '',
+  })
+
   const update = <K extends keyof Client>(key: K, val: Client[K]) =>
     setClient(p => ({ ...p, [key]: val }))
 
@@ -62,10 +77,20 @@ export default function ClientManager({ client: initial, onSaved }: {
       }
     }
 
+    // Merge owner2 into sectionSubmissions
+    const existingSections = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object')
+      ? client.sectionSubmissions
+      : {}
+    const mergedSectionSubmissions = {
+      ...existingSections,
+      owner2: showOwner2 ? { name: owner2.name, email: owner2.email, phone: owner2.phone } : undefined,
+    }
+
     const updated = {
       ...client,
       provisionedAt: isFirstProvision ? now : client.provisionedAt,
       driveFolder,
+      sectionSubmissions: mergedSectionSubmissions,
     }
     saveClient(updated)
     setSaved(true)
@@ -160,6 +185,36 @@ export default function ClientManager({ client: initial, onSaved }: {
           <Input label="Company / Business name" value={client.company} onChange={e => update('company', e.target.value)} />
           <Input label="Phone" value={client.phone} onChange={e => update('phone', e.target.value)} />
         </div>
+
+        {/* Second Owner */}
+        {!showOwner2 ? (
+          <div className="mt-4">
+            <Button variant="outline" size="sm" onClick={() => setShowOwner2(true)}>
+              <UserPlus className="w-3.5 h-3.5" /> Add Second Owner
+            </Button>
+          </div>
+        ) : (
+          <div className="mt-4 p-4 rounded-xl border border-amber-200 bg-amber-50/50 space-y-3">
+            <div className="flex items-center justify-between">
+              <h5 className="text-sm font-medium text-slate-700">Second Owner</h5>
+              <button
+                onClick={() => {
+                  setShowOwner2(false)
+                  setOwner2({ name: '', email: '', phone: '' })
+                }}
+                className="text-slate-400 hover:text-rose-400 transition-colors"
+                title="Remove second owner"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input label="Full name" value={owner2.name} onChange={e => setOwner2(p => ({ ...p, name: e.target.value }))} />
+              <Input label="Email address" type="email" value={owner2.email} onChange={e => setOwner2(p => ({ ...p, email: e.target.value }))} />
+              <Input label="Phone" value={owner2.phone} onChange={e => setOwner2(p => ({ ...p, phone: e.target.value }))} />
+            </div>
+          </div>
+        )}
       </section>
 
       <section>

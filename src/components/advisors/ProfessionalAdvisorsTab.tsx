@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Pencil, Trash2, Users2 } from 'lucide-react'
 import { Card, Button, Input, Select, Badge, cn } from '@/components/ui'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildAdvisorsReportHtml } from '@/lib/report-export/build-advisors-report'
 
 const SECTION_KEY = 'professionalAdvisors'
 
@@ -137,11 +139,20 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName }: { clie
             Key professional contacts for {clientName}
           </p>
         </div>
-        {!addingNew && (
-          <Button size="sm" onClick={() => setAddingNew(true)}>
-            <Plus className="w-3.5 h-3.5" /> Add Advisor
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {advisors.length > 0 && (
+            <ExportReportButton
+              html={buildAdvisorsReportHtml(advisors, clientName)}
+              fileName={`advisors-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+              label="Export Advisors Report"
+            />
+          )}
+          {!addingNew && (
+            <Button size="sm" onClick={() => setAddingNew(true)}>
+              <Plus className="w-3.5 h-3.5" /> Add Advisor
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Add form */}

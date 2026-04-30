@@ -1,13 +1,14 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Download } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, Printer } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import type { AnnualModelYear, TtmAnalysisView, TtmFlagView, Ws2DerivedReportView, Ws2RecastView } from '@/lib/ttm-agent/types'
 import type { WorkbookChange } from '@/lib/ttm-agent/workbook-overrides'
 import type { AddBackItem, BenchmarkRow, LaborRow, TrafficLight, VerticalRow } from '@/lib/ws2/ws2-types'
 import { PremiumMarkdown } from '@/components/ttm-agent/PremiumMarkdown'
 import { Badge, Button, Card, Modal, cn } from '@/components/ui'
+import { buildValuationReportHtml } from '@/lib/report-export/build-valuation-report'
 
 const ADD_BACK_CATEGORY_LABELS: Record<number, string> = {
   1: 'Category 1  -  Owner / Officer Compensation',
@@ -471,7 +472,18 @@ export function ValuationDashboard({
                 </div>
               </div>
               {onExportXlsx && (
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button size="sm" variant="outline" className="border-white/10 bg-white text-slate-900 hover:bg-slate-100" onClick={() => {
+                    const html = buildValuationReportHtml(analysis, recast, clientName)
+                    const win = window.open('', '_blank')
+                    if (!win) return
+                    win.document.write(html)
+                    win.document.close()
+                    setTimeout(() => win.print(), 500)
+                  }}>
+                    <Printer className="h-3.5 w-3.5" />
+                    Export PDF
+                  </Button>
                   <Button size="sm" variant="outline" className="border-white/10 bg-white text-slate-900 hover:bg-slate-100" onClick={onExportXlsx}>
                     <Download className="h-3.5 w-3.5" />
                     Export XLSX

@@ -349,6 +349,27 @@ export async function saveContractAnalysis(data: {
   }
 }
 
+export async function updateContractAnalysis(id: string, update: {
+    report?: string;
+    parsed?: any;
+}) {
+    try {
+        const res = await fetch(`/api/contract-analysis/reports?id=${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(update),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || 'Failed to update contract analysis');
+        }
+        return await res.json();
+    } catch (error) {
+        console.error(error);
+        throw error
+    }
+}
+
 export async function deleteContractAnalysis(id: string) {
   try {
     const res = await fetch(`/api/contract-analysis/reports?id=${id}`, {

@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Pencil, Trash2, Package } from 'lucide-react'
 import { Card, Button, Input, Select, Badge, cn } from '@/components/ui'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildVendorReportHtml } from '@/lib/report-export/build-vendor-report'
 
 const SECTION_KEY = 'vendorDirectory'
 
@@ -174,11 +176,20 @@ export default function VendorDirectoryTab({ clientId, clientName }: { clientId:
             Software, tools, and vendor subscriptions for {clientName}
           </p>
         </div>
-        {!addingNew && (
-          <Button size="sm" onClick={() => setAddingNew(true)}>
-            <Plus className="w-3.5 h-3.5" /> Add Item
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {items.length > 0 && (
+            <ExportReportButton
+              html={buildVendorReportHtml(items, clientName)}
+              fileName={`vendor-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+              label="Export Vendor Report"
+            />
+          )}
+          {!addingNew && (
+            <Button size="sm" onClick={() => setAddingNew(true)}>
+              <Plus className="w-3.5 h-3.5" /> Add Item
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Add form */}

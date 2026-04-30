@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { DigitalPresenceReport, ChannelAssessment, ChannelType, TrafficLight, KeyMetric } from '@/lib/digital-presence/types';
 import { Badge, Card, cn } from '@/components/ui';
+import { ExportReportButton } from '@/components/report-export/ExportReportButton';
+import { buildDigitalPresenceReportHtml } from '@/lib/report-export/build-digital-presence-report';
 
 interface Props {
   report: DigitalPresenceReport;
@@ -265,6 +267,10 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
             {editMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
             {editMode ? 'Done Editing' : 'Edit Results'}
           </button>
+          <ExportReportButton
+            html={buildDigitalPresenceReportHtml(currentReport)}
+            fileName={`digital-presence-${currentReport.businessName.replace(/\s+/g, '-').toLowerCase()}`}
+          />
           <button
             onClick={() => handleExportJSON(currentReport)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition-colors"

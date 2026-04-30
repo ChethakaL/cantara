@@ -38,19 +38,19 @@ export default function ClientLoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: '#0d1829' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'linear-gradient(145deg, #21263C 0%, #1a1f32 50%, #21263C 100%)' }}>
       <div className="w-full max-w-sm px-6">
-        <Link href="/" className="flex items-center gap-2 text-white/30 hover:text-white/60 text-xs mb-12 transition-colors">
+        <Link href="/" className="flex items-center gap-2 text-cantara-sun/30 hover:text-cantara-sun/60 text-xs mb-12 transition-colors">
           <ArrowLeft className="w-3.5 h-3.5" /> Back
         </Link>
 
         <div className="text-center mb-10">
-          <div className="text-2xl cantara-serif text-white mb-1 tracking-[0.15em]">Cantara</div>
-          <p className="text-white/30 text-xs tracking-[0.18em] uppercase">Client Portal</p>
+          <img src="/brand/logo-wordmark-dark.svg" alt="Cantara" className="h-10 mx-auto mb-3" />
+          <p className="text-cantara-sun/30 text-xs tracking-[0.18em] uppercase">Client Portal</p>
           <div className="gold-line mt-4" />
         </div>
 
-        <div className="rounded-2xl p-8" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="rounded-2xl p-8" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(241,230,187,0.08)' }}>
           <h2 className="text-white text-lg font-light cantara-serif mb-6">Welcome back</h2>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -81,7 +81,7 @@ export default function ClientLoginPage() {
             <button
               type="submit" disabled={loading}
               className="w-full py-2.5 rounded-lg text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-60 mt-2"
-              style={{ background: 'linear-gradient(135deg, #b8922a, #d4a843)' }}
+              style={{ background: '#D37141' }}
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
@@ -91,7 +91,7 @@ export default function ClientLoginPage() {
             Access is provided by your Cantara advisor. Contact your team if you need help.
           </p>
           <p className="text-slate-500 text-xs text-center mt-3">
-            Need an account? <Link href="/register/client" className="text-amber-400 hover:text-amber-300">Register here</Link>
+            Need an account? <Link href="/register/client" className="text-cantara-gold hover:text-cantara-sun">Register here</Link>
           </p>
         </div>
       </div>

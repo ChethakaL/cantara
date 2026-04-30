@@ -28,6 +28,8 @@ import {
 } from '@/lib/competitor-analysis/types';
 import type { CompetitorAnalysis as SavedCompetitorAnalysis } from '@/lib/store';
 import { deleteCompetitorAnalysis, getCompetitorAnalyses, saveCompetitorAnalysis, updateCompetitorAnalysis } from '@/lib/store';
+import { ExportReportButton } from '@/components/report-export/ExportReportButton';
+import { buildCompetitorReportHtml } from '@/lib/report-export/build-competitor-report';
 
 interface ProgressEvent {
   type: 'progress';
@@ -935,6 +937,10 @@ function ReportView({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportReportButton
+            html={buildCompetitorReportHtml(report)}
+            fileName={`competitor-analysis-${report.businessName.replace(/\s+/g, '-').toLowerCase()}`}
+          />
           <Button variant="danger" onClick={onDelete} disabled={deleting}>
             {deleting ? 'Deleting…' : 'Delete Report'}
           </Button>

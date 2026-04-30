@@ -19,6 +19,8 @@ import { WS16Persistence, WS16Report, Flag } from '@/types/ws1-6-types'
 import { parseWS16Markdown } from '@/lib/ws1-6/parser'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildEmployeeObligationsReportHtml } from '@/lib/report-export/build-employee-obligations-report'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PREMIUM UI COMPONENTS: Modal & Toast
@@ -335,7 +337,14 @@ export default function EmployeeObligationsTab({
 
   return (
     <div className="space-y-6">
-      <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} />
+      <div className="flex items-center justify-between">
+        <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} />
+        <ExportReportButton
+          html={buildEmployeeObligationsReportHtml(report, flags, clientName)}
+          fileName={`employee-obligations-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+          label="Export Obligations Report"
+        />
+      </div>
 
       <Card className="overflow-hidden border-stone-200 shadow-sm bg-white ring-1 ring-stone-950/5">
         <div className="flex border-b border-stone-100 bg-stone-50/50 px-4 overflow-x-auto whitespace-nowrap scrollbar-hide">

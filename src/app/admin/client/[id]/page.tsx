@@ -24,6 +24,7 @@ import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
 import EmployeeObligationsTab from '@/components/ws1-6/EmployeeObligationsTab'
 import NetProceedsCalculator from '@/components/net-proceeds/NetProceedsCalculator'
 import TeaserGeneratorTab from '@/components/teaser/TeaserGeneratorTab'
+import CimGeneratorTab from '@/components/cim/CimGeneratorTab'
 import ProfessionalAdvisorsTab from '@/components/advisors/ProfessionalAdvisorsTab'
 import VendorDirectoryTab from '@/components/vendor-directory/VendorDirectoryTab'
 import OrgChartReviewTab from '@/components/org-chart/OrgChartReviewTab'
@@ -47,7 +48,7 @@ const AGENT_TABS = [
   { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
   { key: 'org-chart', label: 'Org Chart Review', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'litigation', label: 'Litigation & Liens', badge: null, icon: AlertCircle, group: 'WS1 — Risk & Legal' },
-  { key: 'employee-comp', label: 'Compensation Report', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'employee-comp', label: 'Employee Staffing & Compensation', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
@@ -56,6 +57,7 @@ const AGENT_TABS = [
   // M&A
   { key: 'net-proceeds', label: 'Net Proceeds Calculator', badge: null, icon: Calculator, group: 'M&A Sale Process' },
   { key: 'teaser', label: 'Deal Teaser Generator', badge: null, icon: Sparkles, group: 'M&A Sale Process' },
+  { key: 'cim', label: 'CIM Generator', badge: null, icon: FileText, group: 'M&A Sale Process' },
 ] as const
 
 type AgentKey = typeof AGENT_TABS[number]['key']
@@ -102,7 +104,11 @@ function AgentsDropdown({
       if (panel?.contains(target)) return
       setOpen(false)
     }
-    function handleScroll() { setOpen(false) }
+    function handleScroll(e: Event) {
+      const panel = document.getElementById('agents-dropdown-panel')
+      if (panel?.contains(e.target as Node)) return
+      setOpen(false)
+    }
     document.addEventListener('mousedown', handleOutside)
     window.addEventListener('scroll', handleScroll, true)
     return () => {
@@ -126,7 +132,7 @@ function AgentsDropdown({
           left: rect.left,
           zIndex: 9999,
         }}
-        className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden min-w-[220px]"
+        className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-y-auto min-w-[220px] max-h-[70vh]"
       >
         {(() => {
           let lastGroup = ''
@@ -395,7 +401,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <ContractAnalysisTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'digital' && (
-              <DigitalPresenceTab clientId={client.id} clientName={client.name} clientWebsite={client.websiteUrl} />
+              <DigitalPresenceTab clientId={client.id} clientName={client.company || client.name} clientWebsite={client.websiteUrl} />
             )}
             {activeTab === 'competitor' && (
               <CompetitorAnalysisTab
@@ -407,7 +413,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               />
             )}
             {activeTab === 'insurance' && (
-              <InsuranceReviewTab clientId={client.id} />
+              <InsuranceReviewTab clientId={client.id} clientName={client.company || client.name} />
             )}
             {activeTab === 'advisors' && (
               <ProfessionalAdvisorsTab clientId={client.id} clientName={client.company || client.name} />
@@ -435,6 +441,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'teaser' && (
               <TeaserGeneratorTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'cim' && (
+              <CimGeneratorTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />

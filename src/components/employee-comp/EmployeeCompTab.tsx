@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { Card, cn } from '@/components/ui'
 import type { EmployeeCompRow, EmployeeCompReport } from '@/lib/employee-comp/analyze'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildEmployeeCompReportHtml } from '@/lib/report-export/build-employee-comp-report'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -372,6 +374,7 @@ export default function EmployeeCompTab({
         <p className="text-xs text-slate-400 mt-0.5">
           Extract and manage employee compensation data for {clientName}
         </p>
+        <p className="text-xs text-slate-400 mt-1">Payroll and compensation reports can also be uploaded in the Documents tab.</p>
       </div>
 
       {/* Summary cards (always visible once we have data) */}
@@ -565,6 +568,11 @@ export default function EmployeeCompTab({
               <Download className="w-3.5 h-3.5" />
               Export CSV
             </button>
+            <ExportReportButton
+              html={buildEmployeeCompReportHtml(employees, summary, clientName)}
+              fileName={`employee-comp-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+              label="Export PDF"
+            />
             <div className="flex-1" />
             <button
               onClick={handleSave}

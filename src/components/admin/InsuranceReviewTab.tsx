@@ -1,8 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, CheckCircle, FileText, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import { Bot, CheckCircle, FileText, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { Badge, Button } from '@/components/ui'
+import { getAdminEmail } from '@/lib/store'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildInsuranceReportHtml } from '@/lib/report-export/build-insurance-report'
 
 interface InsuranceSummary {
   summary: string
@@ -42,10 +45,11 @@ function formatClaimStatus(status: string | null | undefined): { label: string; 
   }
 }
 
-export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
+export default function InsuranceReviewTab({ clientId, clientName = 'Client' }: { clientId: string; clientName?: string }) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [document, setDocument] = useState<InsuranceDoc | null>(null)
   const [summary, setSummary] = useState<InsuranceSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -154,6 +158,27 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
     }
   }
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('clientId', clientId)
+      formData.append('documentId', 'insurance_claims_12m')
+      formData.append('uploaderEmail', getAdminEmail())
+      const res = await fetch('/api/client-documents/upload', { method: 'POST', body: formData })
+      if (!res.ok) throw new Error(await res.text() || 'Upload failed')
+      await load()
+    } catch (err: any) {
+      setError(err?.message ?? 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   useEffect(() => {
     void load()
   }, [load])
@@ -231,6 +256,13 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
           <FileText className="w-8 h-8 text-slate-300 mx-auto" />
           <p className="text-sm font-medium text-slate-600">No insurance claim document uploaded</p>
           <p className="text-xs text-slate-400">Upload insurance claim documents in the <strong>Documents</strong> tab to enable AI-powered review.</p>
+          <div className="mt-4 text-center">
+            <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium cursor-pointer hover:bg-amber-100 transition-colors">
+              <Upload className="w-3.5 h-3.5" />
+              {uploading ? 'Uploading...' : 'Or upload here'}
+              <input type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+            </label>
+          </div>
         </div>
       )}
 
@@ -253,6 +285,13 @@ export default function InsuranceReviewTab({ clientId }: { clientId: string }) {
                   </div>
                 </div>
               )}
+
+              <div className="flex justify-end mb-2">
+                <ExportReportButton
+                  html={buildInsuranceReportHtml(summary, document?.fileName ?? 'insurance-claim', clientName)}
+                  fileName={`insurance-review-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+                />
+              </div>
 
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
                 <div className="flex items-center justify-between mb-1">

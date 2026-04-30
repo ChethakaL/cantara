@@ -2,16 +2,23 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FindingSection } from '../../../lib/contract-analysis/types'
-import { Badge } from '@/components/ui'
+import { Pencil, Check, X } from 'lucide-react'
+import { ContractReport, FindingSection } from '../../../lib/contract-analysis/types'
+import { Badge, Button } from '@/components/ui'
 
 interface Props {
   findings: FindingSection[]
   raw: string
+  report?: ContractReport
+  adminMode?: boolean
+  onReportUpdated?: (report: ContractReport) => Promise<void>
 }
 
-export function DetailedFindings({ findings, raw }: Props) {
+export function DetailedFindings({ findings, raw, report, adminMode = false, onReportUpdated }: Props) {
   const [selected, setSelected] = useState(findings[0]?.id ?? '')
+  const [editing, setEditing] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [saving, setSaving] = useState(false)
   const current = findings.find(f => f.id === selected)
 
   if (!findings.length) {
@@ -23,6 +30,36 @@ export function DetailedFindings({ findings, raw }: Props) {
     )
   }
 
+  const handleEditStart = () => {
+    if (!current) return
+    setEditContent(current.content)
+    setEditing(true)
+  }
+
+  const handleEditCancel = () => {
+    setEditing(false)
+    setEditContent('')
+  }
+
+  const handleEditSave = async () => {
+    if (!report || !onReportUpdated || !current) return
+    setSaving(true)
+    try {
+      const updatedFindings = findings.map((f) =>
+        f.id === current.id ? { ...f, content: editContent } : f,
+      )
+      const updatedReport: ContractReport = { ...report, detailedFindings: updatedFindings }
+      await onReportUpdated(updatedReport)
+      setEditing(false)
+      setEditContent('')
+    } catch (error) {
+      console.error(error)
+      alert(error instanceof Error ? error.message : 'Failed to save finding edits')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="flex gap-6 h-[calc(100vh-320px)] min-h-[500px]">
       {/* Sidebar Navigation */}
@@ -30,10 +67,10 @@ export function DetailedFindings({ findings, raw }: Props) {
         {findings.map(f => (
           <button
             key={f.id}
-            onClick={() => setSelected(f.id)}
+            onClick={() => { setSelected(f.id); setEditing(false) }}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all border ${
-              selected === f.id 
-                ? 'bg-amber-50 border-amber-200 text-amber-700 font-semibold shadow-sm' 
+              selected === f.id
+                ? 'bg-amber-50 border-amber-200 text-amber-700 font-semibold shadow-sm'
                 : 'text-slate-500 border-transparent hover:bg-slate-100/50 hover:text-slate-700'
             }`}
           >
@@ -51,22 +88,50 @@ export function DetailedFindings({ findings, raw }: Props) {
           <>
             <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between shrink-0">
               <h5 className="font-semibold text-slate-800 tracking-tight">{current.id} — {current.title}</h5>
-              <Badge color="slate" className="text-[10px] uppercase tracking-wider text-slate-400 border-slate-200">Analysis Section</Badge>
+              <div className="flex items-center gap-2">
+                {adminMode && onReportUpdated && !editing && (
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleEditStart}>
+                    <Pencil className="w-3 h-3" />
+                    Edit
+                  </Button>
+                )}
+                {editing && (
+                  <>
+                    <Button variant="outline" size="sm" className="gap-1.5 text-xs" disabled={saving} onClick={handleEditCancel}>
+                      <X className="w-3 h-3" />
+                      Cancel
+                    </Button>
+                    <Button size="sm" className="gap-1.5 text-xs" disabled={saving} onClick={handleEditSave}>
+                      <Check className="w-3 h-3" />
+                      {saving ? 'Saving...' : 'Save'}
+                    </Button>
+                  </>
+                )}
+                <Badge color="slate" className="text-[10px] uppercase tracking-wider text-slate-400 border-slate-200">Analysis Section</Badge>
+              </div>
             </div>
             <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
-              <div className="prose prose-sm prose-slate max-w-none 
-                prose-p:leading-relaxed 
-                prose-headings:text-slate-800 
-                prose-strong:text-slate-900 
-                prose-table:border prose-table:border-slate-100 
-                prose-th:bg-slate-50 prose-th:px-3 prose-th:py-2 
-                prose-td:px-3 prose-td:py-2
-                prose-blockquote:border-l-amber-300 prose-blockquote:bg-amber-50/20 prose-blockquote:py-1 prose-blockquote:px-4 prose-blockquote:rounded-r-lg
-                prose-code:text-amber-700 prose-code:bg-amber-50/50 prose-code:px-1 prose-code:rounded">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {current.content}
-                </ReactMarkdown>
-              </div>
+              {editing ? (
+                <textarea
+                  className="w-full h-full min-h-[400px] p-4 text-sm font-mono text-slate-700 bg-slate-50 border border-slate-200 rounded-xl resize-y focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300"
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                />
+              ) : (
+                <div className="prose prose-sm prose-slate max-w-none
+                  prose-p:leading-relaxed
+                  prose-headings:text-slate-800
+                  prose-strong:text-slate-900
+                  prose-table:border prose-table:border-slate-100
+                  prose-th:bg-slate-50 prose-th:px-3 prose-th:py-2
+                  prose-td:px-3 prose-td:py-2
+                  prose-blockquote:border-l-amber-300 prose-blockquote:bg-amber-50/20 prose-blockquote:py-1 prose-blockquote:px-4 prose-blockquote:rounded-r-lg
+                  prose-code:text-amber-700 prose-code:bg-amber-50/50 prose-code:px-1 prose-code:rounded">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {current.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           </>
         ) : (

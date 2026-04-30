@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Bot, FileText, Loader2, RefreshCw } from 'lucide-react'
+import { Bot, FileText, Loader2, RefreshCw, Upload } from 'lucide-react'
 import { Badge, Button, Card } from '@/components/ui'
+import { getAdminEmail } from '@/lib/store'
 
 interface Props {
   clientId: string
@@ -20,6 +21,7 @@ interface ReviewResult {
 export default function SalesProcessReviewTab({ clientId, clientName }: Props) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [hasTranscript, setHasTranscript] = useState(false)
   const [result, setResult] = useState<ReviewResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -39,6 +41,28 @@ export default function SalesProcessReviewTab({ clientId, clientName }: Props) {
   }, [clientId])
 
   useEffect(() => { void load() }, [load])
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('clientId', clientId)
+      formData.append('documentId', 'sales_process_transcript')
+      formData.append('uploaderEmail', getAdminEmail())
+      const res = await fetch('/api/client-documents/upload', { method: 'POST', body: formData })
+      if (!res.ok) throw new Error(await res.text() || 'Upload failed')
+      setHasTranscript(true)
+      await load()
+    } catch (err: any) {
+      setError(err?.message ?? 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const runAnalysis = async () => {
     setRunning(true)
@@ -90,6 +114,13 @@ export default function SalesProcessReviewTab({ clientId, clientName }: Props) {
           <FileText className="w-8 h-8 text-slate-300 mx-auto" />
           <p className="text-sm font-medium text-slate-600">No transcript uploaded yet</p>
           <p className="text-xs text-slate-400">Upload a sales call transcript or meeting recording transcript in the <strong>Documents</strong> tab to enable analysis.</p>
+          <div className="mt-4 text-center">
+            <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium cursor-pointer hover:bg-amber-100 transition-colors">
+              <Upload className="w-3.5 h-3.5" />
+              {uploading ? 'Uploading...' : 'Or upload here'}
+              <input type="file" accept=".pdf,.txt,.doc,.docx" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+            </label>
+          </div>
         </div>
       )}
 
