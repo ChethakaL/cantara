@@ -91,6 +91,7 @@ export function LeaseReport({
             clientName={clientName}
             onNewAnalysis={onNewAnalysis}
             onDelete={onDelete}
+            report={report}
           />
         </div>
       </div>
