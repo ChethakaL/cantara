@@ -48,7 +48,7 @@ const AGENT_TABS = [
   { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
   { key: 'org-chart', label: 'Org Chart Review', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'litigation', label: 'Litigation & Liens', badge: null, icon: AlertCircle, group: 'WS1 — Risk & Legal' },
-  { key: 'employee-comp', label: 'Compensation Report', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'employee-comp', label: 'Employee Staffing & Compensation', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },

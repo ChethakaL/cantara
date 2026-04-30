@@ -7,6 +7,8 @@ import {
   ChevronDown, ChevronUp, ExternalLink, Calendar, Loader2, X, FileUp,
 } from 'lucide-react'
 import type { LitigationSearchResult } from '@/lib/litigation-search/search'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildLitigationReportHtml } from '@/lib/report-export/build-litigation-report'
 
 // ── US States ────────────────────────────────────────────────────────────────
 
@@ -422,6 +424,14 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       {/* ── Results ─────────────────────────────────────────────────────────── */}
       {(searchResult || docResult) && (
         <Card className="p-6 space-y-8">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-800">Results</h3>
+            <ExportReportButton
+              html={buildLitigationReportHtml(searchResult || docResult!, clientName)}
+              fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+              label="Export Litigation Report"
+            />
+          </div>
           {searchResult && (
             <ResultsSection title="Web Search Results" result={searchResult} />
           )}

@@ -5,6 +5,8 @@ import { useDropzone } from 'react-dropzone'
 import { Upload, Star, AlertTriangle, CheckCircle, RefreshCw, FileText } from 'lucide-react'
 import { Card, Badge, cn } from '@/components/ui'
 import type { OrgChartAnalysis } from '@/lib/org-chart/analyze'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildOrgChartReportHtml } from '@/lib/report-export/build-org-chart-report'
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
   'application/pdf': ['.pdf'],
@@ -94,13 +96,20 @@ export default function OrgChartReviewTab({
             <h2 className="text-lg font-semibold text-slate-800">Org Chart Analysis</h2>
             <p className="text-xs text-slate-400 mt-0.5">{clientName} &mdash; Generated {new Date(result.generatedAt).toLocaleString()}</p>
           </div>
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Upload New Chart
-          </button>
+          <div className="flex items-center gap-3">
+            <ExportReportButton
+              html={buildOrgChartReportHtml(result, clientName)}
+              fileName={`org-chart-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+              label="Export Org Chart Report"
+            />
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Upload New Chart
+            </button>
+          </div>
         </div>
 
         {/* Transition Readiness Badge */}
