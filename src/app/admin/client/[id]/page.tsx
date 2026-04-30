@@ -24,6 +24,7 @@ import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
 import EmployeeObligationsTab from '@/components/ws1-6/EmployeeObligationsTab'
 import NetProceedsCalculator from '@/components/net-proceeds/NetProceedsCalculator'
 import TeaserGeneratorTab from '@/components/teaser/TeaserGeneratorTab'
+import CimGeneratorTab from '@/components/cim/CimGeneratorTab'
 import ProfessionalAdvisorsTab from '@/components/advisors/ProfessionalAdvisorsTab'
 import VendorDirectoryTab from '@/components/vendor-directory/VendorDirectoryTab'
 import OrgChartReviewTab from '@/components/org-chart/OrgChartReviewTab'
@@ -56,6 +57,7 @@ const AGENT_TABS = [
   // M&A
   { key: 'net-proceeds', label: 'Net Proceeds Calculator', badge: null, icon: Calculator, group: 'M&A Sale Process' },
   { key: 'teaser', label: 'Deal Teaser Generator', badge: null, icon: Sparkles, group: 'M&A Sale Process' },
+  { key: 'cim', label: 'CIM Generator', badge: null, icon: FileText, group: 'M&A Sale Process' },
 ] as const
 
 type AgentKey = typeof AGENT_TABS[number]['key']
@@ -439,6 +441,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'teaser' && (
               <TeaserGeneratorTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'cim' && (
+              <CimGeneratorTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />
