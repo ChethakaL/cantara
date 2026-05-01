@@ -145,14 +145,30 @@ export async function analyzePayrollDocument(args: {
       args.fileName?.endsWith('.xls') ||
       args.fileName?.endsWith('.csv')
     ) {
-      content.push({
-        type: 'document',
-        source: {
-          type: 'base64',
-          media_type: args.mediaType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          data: args.base64,
-        },
-      })
+      // Excel/CSV: parse server-side and send as text (Claude only accepts PDF for documents)
+      try {
+        const XLSX = require('xlsx')
+        const buffer = Buffer.from(args.base64, 'base64')
+        const workbook = XLSX.read(buffer, { type: 'buffer' })
+        const textParts: string[] = []
+        for (const sheetName of workbook.SheetNames) {
+          const sheet = workbook.Sheets[sheetName]
+          const csv = XLSX.utils.sheet_to_csv(sheet)
+          textParts.push(`=== Sheet: ${sheetName} ===\n${csv}`)
+        }
+        content.push({
+          type: 'text',
+          text: `Payroll spreadsheet contents (${args.fileName || 'uploaded file'}):\n\n${textParts.join('\n\n')}`,
+        })
+      } catch (parseErr) {
+        console.error('Failed to parse spreadsheet, sending as raw text:', parseErr)
+        // Fallback: decode as text
+        const decoded = Buffer.from(args.base64, 'base64').toString('utf-8')
+        content.push({
+          type: 'text',
+          text: `Payroll file contents (${args.fileName || 'uploaded file'}):\n\n${decoded.slice(0, 50000)}`,
+        })
+      }
     }
   }
 

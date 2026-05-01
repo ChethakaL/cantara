@@ -152,7 +152,12 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
   }
 
   function handleRerun() {
-    // Go back to form view with data preserved
+    // Re-run analysis with the same form data, preserving manual overrides
+    if (lastFormData) {
+      void handleSubmit(lastFormData);
+      return;
+    }
+    // Fallback: go back to form if no saved data
     setStatus('idle');
     setReport(null);
     setError(null);

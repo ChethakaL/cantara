@@ -74,7 +74,7 @@ If nothing is found, return riskLevel "clear" with an empty findings array and a
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4000,
     temperature: 0,
-    tools: [{ type: 'web_search' as any, name: 'web_search' }],
+    tools: [{ type: 'web_search_20250305' as any, name: 'web_search' }],
     messages: [{ role: 'user', content: prompt }],
   })
 
