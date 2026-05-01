@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { researchAllChannels } from '@/lib/digital-presence/tavily-research';
+import { researchAllChannels } from '@/lib/digital-presence/claude-research';
 import { analyzeWithClaude } from '@/lib/digital-presence/claude-analyzer';
 import { AnalyzeRequestBody, ChannelType } from '@/lib/digital-presence/types';
 
@@ -30,12 +30,14 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: 'Business name is required.' }), { status: 400 });
   }
 
-  const tavilyKey = process.env.TAVILY_API_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
-  if (!tavilyKey || !anthropicKey) {
-    return new Response(JSON.stringify({ error: 'API keys not configured.' }), { status: 500 });
+  if (!anthropicKey) {
+    return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured.' }), { status: 500 });
   }
+
+  // Kept for interface compatibility with researchAllChannels signature
+  const tavilyKey = anthropicKey;
 
   const hasAtLeastOneChannel =
     formData.websiteUrl ||
