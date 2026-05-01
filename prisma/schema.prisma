@@ -11,7 +11,7 @@ model LeaseAnalysis {
   id        String        @id @default(cuid())
   clientId  String
   fileName  String
-  report    String        @db.Text
+  report    String
   parsed    Json?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
@@ -24,7 +24,7 @@ model ContractAnalysis {
   id        String        @id @default(cuid())
   clientId  String
   fileName  String
-  report    String        @db.Text
+  report    String
   parsed    Json?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
@@ -37,7 +37,7 @@ model CompetitorAnalysis {
   id        String        @id @default(cuid())
   clientId  String
   fileName  String
-  report    String        @db.Text
+  report    String
   parsed    Json?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
@@ -49,7 +49,7 @@ model CompetitorAnalysis {
 model EmployeeObligationsReport {
   id            String        @id @default(cuid())
   clientId      String
-  markdown      String        @db.Text
+  markdown      String
   documentNames String[]      @default([])
   metadata      Json?
   createdAt     DateTime      @default(now())
@@ -60,34 +60,34 @@ model EmployeeObligationsReport {
 }
 
 model TtmAnalysis {
-  id              String            @id @default(cuid())
-  clientId        String
-  version         Int
-  status          TtmRunStatus      @default(RUNNING)
-  hitlStatus      TtmHitlStatus     @default(PENDING_REVIEW)
-  inputFingerprint String
-  model           String
-  temperature     Float
-  maxTokens       Int
-  inputSnapshot   Json
-  normalizedData  Json?
-  structuredModel Json?
-  ttmSummary      Json?
-  annualModel     Json?
-  workingCapital  Json?
+  id                String              @id @default(cuid())
+  clientId          String
+  version           Int
+  status            TtmRunStatus        @default(RUNNING)
+  hitlStatus        TtmHitlStatus       @default(PENDING_REVIEW)
+  inputFingerprint  String
+  model             String
+  temperature       Float
+  maxTokens         Int
+  inputSnapshot     Json
+  normalizedData    Json?
+  structuredModel   Json?
+  ttmSummary        Json?
+  annualModel       Json?
+  workingCapital    Json?
   dataQualityReport Json?
-  summary         Json?
-  reportMarkdown  String?           @db.Text
-  errorMessage    String?           @db.Text
-  approvedAt      DateTime?
-  approvedByName  String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  client          ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  flags           TtmFlag[]
-  dispatchTasks   AgentDispatchTask[]
-  recastAnalyses  Ws2RecastAnalysis[]
-  derivedReports  Ws2DerivedReport[]
+  summary           Json?
+  errorMessage      String?
+  approvedAt        DateTime?
+  approvedByName    String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  reportMarkdown    String?
+  dispatchTasks     AgentDispatchTask[]
+  client            ClientProfile       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  flags             TtmFlag[]
+  derivedReports    Ws2DerivedReport[]
+  recastAnalyses    Ws2RecastAnalysis[]
 
   @@unique([clientId, version])
   @@index([clientId, createdAt])
@@ -95,93 +95,93 @@ model TtmAnalysis {
 }
 
 model TtmFlag {
-  id                    String                  @id @default(cuid())
-  analysisId            String
-  section               TtmFlagSection
-  severity              TtmFlagSeverity
-  title                 String
-  description           String?                 @db.Text
-  payload               Json
-  resolutionStatus      TtmFlagResolutionStatus @default(OPEN)
-  resolutionAction      TtmFlagResolutionAction?
-  resolutionNotes       String?                 @db.Text
+  id                     String                   @id @default(cuid())
+  analysisId             String
+  section                TtmFlagSection
+  severity               TtmFlagSeverity
+  title                  String
+  description            String?
+  payload                Json
+  resolutionStatus       TtmFlagResolutionStatus  @default(OPEN)
+  resolutionAction       TtmFlagResolutionAction?
+  resolutionNotes        String?
   escalatedRequirementId String?
-  resolvedAt            DateTime?
-  resolvedByName        String?
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-  analysis              TtmAnalysis             @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  resolvedAt             DateTime?
+  resolvedByName         String?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  analysis               TtmAnalysis              @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
   @@index([analysisId, section])
   @@index([analysisId, resolutionStatus])
 }
 
 model AgentDispatchTask {
-  id           String             @id @default(cuid())
-  analysisId   String
-  clientId     String
-  agentId      String
-  status       AgentDispatchStatus
-  payload      Json?
-  releasedAt   DateTime?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  analysis     TtmAnalysis        @relation(fields: [analysisId], references: [id], onDelete: Cascade)
-  client       ClientProfile      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id         String              @id @default(cuid())
+  analysisId String
+  clientId   String
+  agentId    String
+  status     AgentDispatchStatus
+  payload    Json?
+  releasedAt DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  analysis   TtmAnalysis         @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  client     ClientProfile       @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([analysisId, agentId])
   @@index([clientId, status])
 }
 
 model Ws2RecastAnalysis {
-  id              String                  @id @default(cuid())
-  clientId        String
-  ttmAnalysisId   String
-  version         Int
-  status          TtmRunStatus            @default(RUNNING)
-  hitlStatus      TtmHitlStatus           @default(PENDING_REVIEW)
-  model           String
-  temperature     Float
-  maxTokens       Int
-  assumptions     Json
-  reportMarkdown  String?                 @db.Text
-  parsedReport    Json?
-  workbookKey     String?
-  workbookUrl     String?
+  id               String             @id @default(cuid())
+  clientId         String
+  ttmAnalysisId    String
+  version          Int
+  status           TtmRunStatus       @default(RUNNING)
+  hitlStatus       TtmHitlStatus      @default(PENDING_REVIEW)
+  model            String
+  temperature      Float
+  maxTokens        Int
+  assumptions      Json
+  reportMarkdown   String?
+  parsedReport     Json?
+  workbookKey      String?
+  workbookUrl      String?
   normalizedEbitda Float?
-  valuationLow    Float?
-  valuationMid    Float?
-  valuationHigh   Float?
-  errorMessage    String?                 @db.Text
-  approvedAt      DateTime?
-  approvedByName  String?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
-  client          ClientProfile           @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  ttmAnalysis     TtmAnalysis             @relation(fields: [ttmAnalysisId], references: [id], onDelete: Cascade)
-  flags           Ws2RecastFlag[]
-  derivedReports  Ws2DerivedReport[]
+  valuationLow     Float?
+  valuationMid     Float?
+  valuationHigh    Float?
+  errorMessage     String?
+  approvedAt       DateTime?
+  approvedByName   String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  derivedReports   Ws2DerivedReport[]
+  client           ClientProfile      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  ttmAnalysis      TtmAnalysis        @relation(fields: [ttmAnalysisId], references: [id], onDelete: Cascade)
+  flags            Ws2RecastFlag[]
 
   @@unique([ttmAnalysisId, version])
   @@index([clientId, createdAt])
 }
 
 model Ws2RecastFlag {
-  id               String                  @id @default(cuid())
+  id               String                   @id @default(cuid())
   recastAnalysisId String
   severity         TtmFlagSeverity
   title            String
-  description      String?                 @db.Text
+  description      String?
   payload          Json
-  resolutionStatus TtmFlagResolutionStatus @default(OPEN)
+  resolutionStatus TtmFlagResolutionStatus  @default(OPEN)
   resolutionAction TtmFlagResolutionAction?
-  resolutionNotes  String?                 @db.Text
+  resolutionNotes  String?
   overrideAmount   Float?
   resolvedAt       DateTime?
   resolvedByName   String?
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  recastAnalysis   Ws2RecastAnalysis       @relation(fields: [recastAnalysisId], references: [id], onDelete: Cascade)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  recastAnalysis   Ws2RecastAnalysis        @relation(fields: [recastAnalysisId], references: [id], onDelete: Cascade)
 
   @@index([recastAnalysisId, resolutionStatus])
 }
@@ -193,42 +193,42 @@ model Ws2DerivedReport {
   recastAnalysisId String?
   agentId          Ws2DerivedAgentId
   status           Ws2DerivedReportStatus @default(RUNNING)
-  reportMarkdown   String?                @db.Text
+  reportMarkdown   String?
   parsedReport     Json?
-  errorMessage     String?                @db.Text
+  errorMessage     String?
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
   client           ClientProfile          @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  ttmAnalysis      TtmAnalysis            @relation(fields: [ttmAnalysisId], references: [id], onDelete: Cascade)
   recastAnalysis   Ws2RecastAnalysis?     @relation(fields: [recastAnalysisId], references: [id], onDelete: Cascade)
+  ttmAnalysis      TtmAnalysis            @relation(fields: [ttmAnalysisId], references: [id], onDelete: Cascade)
 
   @@unique([ttmAnalysisId, agentId])
   @@index([clientId, createdAt])
 }
 
 model ClientDocument {
-  id                  String          @id @default(cuid())
+  id                  String           @id @default(cuid())
   requestId           String?
-  documentId          String?
   clientId            String
   uploadedById        String
   fileName            String
   mimeType            String
   size                Int
   localPath           String
-  storageProvider     String?         @default("s3")
-  storageBucket       String?
   googleDriveFileId   String?
-  createdAt           DateTime        @default(now())
+  createdAt           DateTime         @default(now())
   aiBusinessNameMatch Boolean?
   aiDetectedType      String?
-  aiReviewFlags       String[]        @default([])
+  aiReviewFlags       String[]         @default([])
   aiReviewStatus      String?
   aiReviewSummary     String?
   aiReviewedAt        DateTime?
-  ClientProfile       ClientProfile   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  documentId          String?
+  storageBucket       String?
+  storageProvider     String?          @default("s3")
+  ClientProfile       ClientProfile    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   DocumentRequest     DocumentRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  User                User            @relation(fields: [uploadedById], references: [id])
+  User                User             @relation(fields: [uploadedById], references: [id])
 
   @@index([clientId, createdAt])
 }
@@ -259,130 +259,71 @@ model AdvisorProfile {
 }
 
 model ClientDocumentStatus {
-  id           String        @id @default(cuid())
-  clientId     String
-  documentId   String
-  hasDoc       Boolean?
-  assignedTo   String?
-  uploadedAt   DateTime?
-  fileName     String?
-  fileUrl      String?
-  notApplicable Boolean      @default(false)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  client       ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  clientId      String
+  documentId    String
+  hasDoc        Boolean?
+  assignedTo    String?
+  uploadedAt    DateTime?
+  fileName      String?
+  notApplicable Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  fileUrl       String?
+  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, documentId])
   @@index([clientId, updatedAt])
 }
 
 model ClientProfile {
-  id                  String            @id @default(cuid())
-  userId              String            @unique
-  businessName        String
-  businessDescription String?           @db.Text
-  businessAddress     String?           @db.Text
-  businessCategory    String?
-  websiteUrl          String?
-  email               String?
-  phone               String?
-  workstream          Workstream?
-  businessType        BusinessType      @default(SINGLE)
-  stage               ClientStage       @default(ONBOARDING)
-  driveFolderId       String?
-  notes               String?           @db.Text
-  sectionSubmissions  Json?
-  valuationDocUploaded Boolean           @default(false)
-  approvedNormalizedEbitda Float?
+  id                         String                      @id @default(cuid())
+  userId                     String                      @unique
+  businessName               String
+  businessDescription        String?
+  email                      String?
+  phone                      String?
+  workstream                 Workstream?
+  businessType               BusinessType                @default(SINGLE)
+  stage                      ClientStage                 @default(ONBOARDING)
+  driveFolderId              String?
+  notes                      String?
+  valuationDocUploaded       Boolean                     @default(false)
+  provisionedAt              DateTime?
+  lastLogin                  DateTime?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  sectionSubmissions         Json?
+  approvedNormalizedEbitda   Float?
   approvedNormalizedEbitdaAt DateTime?
-  provisionedAt       DateTime?
-  lastLogin           DateTime?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  
-  ClientDocument      ClientDocument[]
-  ClientDocumentStatuses ClientDocumentStatus[]
-  TeamMembers         TeamMember[]
-  AdvisorProfiles     AdvisorProfile[]
-  User                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  DocumentRequest     DocumentRequest[]
-  LeaseAnalysis       LeaseAnalysis[]
-  ContractAnalysis    ContractAnalysis[]
-  CompetitorAnalyses  CompetitorAnalysis[]
-  Questions           Question[]
-  Branches            Branch[]
-  ChatMessages        ChatMessage[]
-  AdditionalRequirements AdditionalRequirement[]
-  TtmAnalyses         TtmAnalysis[]
-  AgentDispatchTasks  AgentDispatchTask[]
-  Ws2RecastAnalyses   Ws2RecastAnalysis[]
-  Ws2DerivedReports   Ws2DerivedReport[]
+  businessAddress            String?
+  businessCategory           String?
+  websiteUrl                 String?
+  AdditionalRequirements     AdditionalRequirement[]
+  AdvisorProfiles            AdvisorProfile[]
+  AgentDispatchTasks         AgentDispatchTask[]
+  Branches                   Branch[]
+  ChatMessages               ChatMessage[]
+  ClientDocument             ClientDocument[]
+  ClientDocumentStatuses     ClientDocumentStatus[]
+  User                       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  CompetitorAnalyses         CompetitorAnalysis[]
+  ContractAnalysis           ContractAnalysis[]
+  DocumentRequest            DocumentRequest[]
   EmployeeObligationsReports EmployeeObligationsReport[]
-  Meetings            Meeting[]
-}
-
-model NylasConnection {
-  id          String   @id @default(cuid())
-  grantId     String   @unique
-  email       String?
-  provider    String?
-  calendarIds String[] @default([])
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([active, updatedAt])
-}
-
-model Meeting {
-  id                String             @id @default(cuid())
-  clientId          String
-  title             String
-  startAt           DateTime
-  endAt             DateTime?
-  source            MeetingSource      @default(MANUAL)
-  agenda            String?            @db.Text
-  agendaTags        String[]           @default([])
-  meetingUrl        String?
-  notesText         String?            @db.Text
-  notesFileName     String?
-  notesUploadedAt   DateTime?
-  externalEventId   String?            @unique
-  externalCalendarId String?
-  externalProvider  String?
-  nylasConnectionId String?
-  nylasNotetakerId  String?
-  nylasNotetakerState String?
-  nylasNotetakerLastWebhookAt DateTime?
-  reportStatus      MeetingReportStatus @default(IDLE)
-  reportStartedAt   DateTime?
-  lastReportedAt    DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  client            ClientProfile      @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  reports           MeetingReport[]
-
-  @@index([clientId, startAt])
-  @@index([clientId, createdAt])
-}
-
-model MeetingReport {
-  id        String    @id @default(cuid())
-  meetingId String
-  report    String    @db.Text
-  metadata  Json?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  meeting   Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-
-  @@index([meetingId, createdAt])
+  LeaseAnalysis              LeaseAnalysis[]
+  Questions                  Question[]
+  TeamMembers                TeamMember[]
+  TtmAnalyses                TtmAnalysis[]
+  Ws2DerivedReports          Ws2DerivedReport[]
+  Ws2RecastAnalyses          Ws2RecastAnalysis[]
 }
 
 model Branch {
-  id        String        @id @default(cuid())
-  name      String
-  clientId  String
-  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id       String        @id @default(cuid())
+  name     String
+  clientId String
+  client   ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }
 
 model ChatMessage {
@@ -390,7 +331,7 @@ model ChatMessage {
   clientId     String
   senderRole   Role
   senderName   String
-  message      String        @db.Text
+  message      String
   timestamp    DateTime      @default(now())
   readByAdmin  Boolean       @default(false)
   readByClient Boolean       @default(false)
@@ -400,23 +341,23 @@ model ChatMessage {
 }
 
 model AdditionalRequirement {
-  id          String        @id @default(cuid())
-  clientId    String
-  title       String
-  description String?       @db.Text
-  question    String?       @db.Text
-  requestUpload Boolean     @default(false)
-  sourceDocumentId String?
-  sourceDocumentName String?
+  id                     String            @id @default(cuid())
+  clientId               String
+  title                  String
+  description            String?
+  priority               Priority          @default(MEDIUM)
+  status                 RequirementStatus @default(OPEN)
+  createdAt              DateTime          @default(now())
+  clientResponse         String?
+  question               String?
+  requestUpload          Boolean           @default(false)
+  respondedAt            DateTime?
+  responseFileName       String?
+  responseFileUrl        String?
+  sourceDocumentId       String?
+  sourceDocumentName     String?
   sourceUploadedFileName String?
-  clientResponse String?    @db.Text
-  responseFileName String?
-  responseFileUrl String?
-  respondedAt DateTime?
-  priority    Priority      @default(MEDIUM)
-  status      RequirementStatus @default(OPEN)
-  createdAt   DateTime      @default(now())
-  client      ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client                 ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
 }
@@ -425,7 +366,7 @@ model DocumentRequest {
   id             String           @id @default(cuid())
   clientId       String
   title          String
-  description    String?          @db.Text
+  description    String?
   createdById    String
   dueDate        DateTime?
   createdAt      DateTime         @default(now())
@@ -440,8 +381,8 @@ model Question {
   id            String        @id @default(cuid())
   clientId      String
   askedById     String
-  question      String        @db.Text
-  answer        String?       @db.Text
+  question      String
+  answer        String?
   answeredAt    DateTime?
   createdAt     DateTime      @default(now())
   User          User          @relation(fields: [askedById], references: [id])
@@ -572,18 +513,6 @@ enum Ws2DerivedAgentId {
 }
 
 enum Ws2DerivedReportStatus {
-  RUNNING
-  COMPLETE
-  FAILED
-}
-
-enum MeetingSource {
-  MANUAL
-  CALENDAR
-}
-
-enum MeetingReportStatus {
-  IDLE
   RUNNING
   COMPLETE
   FAILED
