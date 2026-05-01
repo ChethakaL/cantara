@@ -27,8 +27,9 @@ export async function POST(req: NextRequest) {
           sectionSubmissions: true,
         },
       })
-    } catch {
+    } catch (e1: any) {
       // If select fails due to missing columns, try without select
+      console.warn('[CIM] Select query failed, trying without select:', e1?.message?.slice(0, 100))
       try {
         client = await (prisma as any).clientProfile.findUnique({ where: { id: clientId } })
       } catch { /* table may not exist */ }
