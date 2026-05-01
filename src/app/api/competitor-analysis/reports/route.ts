@@ -17,7 +17,11 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json(reports);
-  } catch (error) {
+  } catch (error: any) {
+    // Handle missing table or column gracefully
+    if (error?.code === 'P2021' || error?.code === 'P2022') {
+      return NextResponse.json([]);
+    }
     console.error("Failed to fetch competitor reports:", error);
     return new Response("Internal Server Error", { status: 500 });
   }

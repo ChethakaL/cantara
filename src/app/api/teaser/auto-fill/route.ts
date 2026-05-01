@@ -14,9 +14,17 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 1. Load client profile ──────────────────────────────────────────
-    const client = await (prisma as any).clientProfile.findUnique({
-      where: { id: clientId },
-    })
+    let client: any = null
+    try {
+      client = await (prisma as any).clientProfile.findUnique({
+        where: { id: clientId },
+        select: { id: true, businessName: true, businessDescription: true, businessAddress: true, businessCategory: true, websiteUrl: true, notes: true, sectionSubmissions: true },
+      })
+    } catch {
+      try {
+        client = await (prisma as any).clientProfile.findUnique({ where: { id: clientId } })
+      } catch { /* column mismatch */ }
+    }
     if (!client) {
       return new Response('Client not found', { status: 404 })
     }
