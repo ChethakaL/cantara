@@ -16,7 +16,11 @@ export async function GET(req: NextRequest) {
     })
 
     return NextResponse.json({ report: report ?? null })
-  } catch (error) {
+  } catch (error: any) {
+    // Gracefully handle missing table (model exists in schema but migration not run)
+    if (error?.code === 'P2021') {
+      return NextResponse.json({ report: null })
+    }
     console.error('[WS1-6] Report fetch error:', error)
     return new Response('Internal Server Error', { status: 500 })
   }

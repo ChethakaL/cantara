@@ -12,7 +12,27 @@ export async function POST(req: NextRequest) {
     if (!clientId) return new Response('clientId required', { status: 400 })
 
     // ── 1. Load client profile ──────────────────────────────────────────
-    const client = await (prisma as any).clientProfile.findUnique({ where: { id: clientId } })
+    let client: any = null
+    try {
+      client = await (prisma as any).clientProfile.findUnique({
+        where: { id: clientId },
+        select: {
+          id: true,
+          businessName: true,
+          businessDescription: true,
+          businessAddress: true,
+          businessCategory: true,
+          websiteUrl: true,
+          notes: true,
+          sectionSubmissions: true,
+        },
+      })
+    } catch {
+      // If select fails due to missing columns, try without select
+      try {
+        client = await (prisma as any).clientProfile.findUnique({ where: { id: clientId } })
+      } catch { /* table may not exist */ }
+    }
     if (!client) return new Response('Client not found', { status: 404 })
 
     // ── 2. Load latest TTM analysis (WS2-1) ────────────────────────────
