@@ -33,18 +33,6 @@ const ALL_DOCUMENT_SLOTS = [
     multi: false,
   },
   {
-    key: 'payroll_register',
-    label: 'Payroll Register or Headcount Summary',
-    note: 'Current employee list with role/title, employment type (FT/PT/1099), hourly rate or salary, and average weekly hours.',
-    multi: false,
-  },
-  {
-    key: 'org_chart',
-    label: 'Org Chart',
-    note: 'Current organizational structure. Used to identify key-person concentration.',
-    multi: false,
-  },
-  {
     key: 'contractor_agreements',
     label: 'Independent Contractor Agreements (1099)',
     note: 'Any active contractor or freelance arrangements. Triggers IC misclassification risk analysis.',
@@ -75,22 +63,10 @@ const ALL_DOCUMENT_SLOTS = [
     multi: false,
   },
   {
-    key: 'workers_comp',
-    label: "Workers' Comp Certificate / Loss Run",
-    note: 'Flags patterns that may indicate workforce safety or liability issues.',
-    multi: false,
-  },
-  {
     key: 'workers_comp_claims',
     label: "Workers' Compensation Claims",
     note: 'Any workers compensation claims filed in the last 24 months.',
     multi: true,
-  },
-  {
-    key: 'state_employer_docs',
-    label: 'State Employer Registration Documents',
-    note: 'Used to verify employer classification and multi-state risk.',
-    multi: false,
   },
 ] as const
 
