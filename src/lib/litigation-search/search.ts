@@ -15,6 +15,14 @@ export interface LitigationSearchResult {
   generatedAt: string
 }
 
+function extractJsonObject(text: string): string {
+  const cleaned = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) return cleaned
+  return cleaned.slice(start, end + 1)
+}
+
 export async function searchPublicRecords(args: {
   businessName: string
   ownerName: string
@@ -35,7 +43,7 @@ export async function searchPublicRecords(args: {
     `${args.ownerName} bankruptcy filing`,
   ]
 
-  const prompt = `You are a litigation and lien search analyst for an M&A advisory firm. Search public records for any litigation, liens, judgments, UCC filings, or bankruptcy filings related to this business and its owner.
+  const prompt = `You are a litigation and lien search analyst for an M&A advisory firm. Use the web_search tool to search public web sources for litigation, liens, judgments, UCC filings, or bankruptcy filings related to this business and its owner.
 
 Business: ${args.businessName}
 Owner: ${args.ownerName}
@@ -43,14 +51,17 @@ State: ${args.state}
 ${args.county ? `County: ${args.county}` : ''}
 ${args.city ? `City: ${args.city}` : ''}
 
-Please search for:
+Run these searches with web_search:
+${searchQueries.map((query, i) => `${i + 1}. ${query}`).join('\n')}
+
+Look for:
 1. Court records and lawsuits involving the business or owner
 2. UCC filings against the business
 3. Tax liens or other liens
 4. Judgments against the business or owner
 5. Bankruptcy filings
 
-For each search, use the web_search tool to find relevant public records. After searching, provide your findings as JSON:
+After searching, return JSON:
 
 {
   "summary": "2-4 sentence summary of overall findings",
@@ -68,30 +79,41 @@ For each search, use the web_search tool to find relevant public records. After 
   "searchesPerformed": ["list of search queries executed"]
 }
 
-If nothing is found, return riskLevel "clear" with an empty findings array and a summary stating no public records were found. Return ONLY valid JSON.`
+If nothing is found, return riskLevel "clear" with an empty findings array and a summary stating no public records were found in searched public web sources. Return ONLY valid JSON. Do not say you will search; perform the searches first.`
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4000,
     temperature: 0,
-    tools: [{ type: 'web_search_20250305' as any, name: 'web_search' }],
+    tools: [{
+      type: 'web_search_20260209' as any,
+      name: 'web_search',
+      max_uses: 8,
+      allowed_callers: ['direct'],
+    }],
     messages: [{ role: 'user', content: prompt }],
   })
 
-  // Extract the final text response (after tool use)
+  const searchRequests = response.usage?.server_tool_use?.web_search_requests ?? 0
   const textBlocks = response.content.filter((b) => b.type === 'text')
   const rawText = textBlocks.map((b) => ('text' in b ? b.text : '')).join('').trim()
-  const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
+  const cleaned = extractJsonObject(rawText)
 
   try {
     const parsed = JSON.parse(cleaned)
+    if (searchRequests === 0) {
+      throw new Error('Claude returned JSON without using web_search')
+    }
     return {
       ...parsed,
+      searchesPerformed: Array.isArray(parsed.searchesPerformed) ? parsed.searchesPerformed : searchQueries,
       generatedAt: new Date().toISOString(),
     }
   } catch {
     return {
-      summary: rawText.slice(0, 500),
+      summary: searchRequests > 0
+        ? 'Claude web search ran, but the analysis response could not be parsed into the required report JSON.'
+        : 'Claude did not invoke web_search. Please retry; if this persists, check Anthropic web search availability for this API key/model.',
       findings: [],
       riskLevel: 'low' as const,
       searchesPerformed: searchQueries,
@@ -157,7 +179,7 @@ Return ONLY valid JSON:
     .filter((b) => b.type === 'text')
     .map((b) => ('text' in b ? b.text : ''))
     .join('').trim()
-  const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
+  const cleaned = extractJsonObject(rawText)
   const parsed = JSON.parse(cleaned)
   return { ...parsed, generatedAt: new Date().toISOString() }
 }
