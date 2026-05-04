@@ -9,7 +9,7 @@ import { parseAccountantStatementsDocument, parseAccountantStatementsPreparedDoc
 import { parseMonthlyWorkbook, parseMonthlyWorkbookFromPrepared } from "@/lib/ttm-agent/parsers/excel";
 import { buildDataQualityReport, flattenFlagsForPersistence } from "@/lib/ttm-agent/report-builder";
 import { reconcileFinancials } from "@/lib/ttm-agent/reconciler";
-import { REVENUE_CODES } from "@/lib/ttm-agent/taxonomy";
+import { REVENUE_CODES, TAXONOMY_BY_CODE } from "@/lib/ttm-agent/taxonomy";
 import {
   AgentDispatchTaskView,
   FlagResolutionAction,
@@ -974,6 +974,72 @@ export async function saveNormOverrides(args: {
       },
     },
   });
+}
+
+export async function saveGlMappings(args: {
+  analysisId: string;
+  mappings: Record<string, string | null>;
+}) {
+  const analysis = await (prisma as any).ttmAnalysis.findUnique({
+    where: { id: args.analysisId },
+  });
+  if (!analysis) {
+    throw new TtmOrchestratorError("TTM analysis not found.", 404);
+  }
+
+  const existing =
+    typeof analysis.normalizedData === "object" && analysis.normalizedData !== null
+      ? analysis.normalizedData
+      : {};
+
+  const applyMappings = (rows: unknown) => {
+    if (!Array.isArray(rows)) return rows;
+    return rows.map((row: any) => {
+      const key = `${row.sourceSheet ?? ""}|${row.accountCode ?? ""}|${row.accountName ?? ""}`;
+      if (!Object.prototype.hasOwnProperty.call(args.mappings, key)) return row;
+
+      const nextCode = args.mappings[key] || null;
+      if (nextCode === "_EXCLUDED") {
+        return {
+          ...row,
+          cantaraCode: "_EXCLUDED",
+          category: "Excluded",
+          categoryType: "other",
+          mappingMethod: "exact",
+          mappingConfidence: 1,
+        };
+      }
+
+      const entry = nextCode ? TAXONOMY_BY_CODE[nextCode] : null;
+      return {
+        ...row,
+        cantaraCode: entry?.code ?? null,
+        category: entry?.category ?? null,
+        categoryType: entry?.type ?? row.categoryType ?? "other",
+        mappingMethod: entry ? "exact" : "unmapped",
+        mappingConfidence: entry ? 1 : 0,
+      };
+    });
+  };
+
+  await (prisma as any).ttmAnalysis.update({
+    where: { id: args.analysisId },
+    data: {
+      normalizedData: {
+        ...existing,
+        mappedPlRows: applyMappings((existing as any).mappedPlRows),
+        mappedBsRows: applyMappings((existing as any).mappedBsRows),
+        confirmedGlMappings: args.mappings,
+        confirmedGlMappingsAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  const updated = await getTtmAnalysis(args.analysisId);
+  if (!updated) {
+    throw new TtmOrchestratorError("TTM analysis not found after GL mapping update.", 404);
+  }
+  return updated;
 }
 
 function preparedDocumentToText(preparedDocument: PreparedDocumentInput | undefined, emptyMessage: string) {
