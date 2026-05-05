@@ -79,6 +79,31 @@ export async function POST(req: NextRequest) {
         },
       });
 
+      // If Section A with an assigned Cantara code, update mapped rows
+      const assignedCode = payload?.assignedCantaraCode as string | undefined;
+      const accountName = payload?.accountName as string | undefined;
+      if ((section || "A") === "A" && assignedCode && accountName) {
+        try {
+          const { TAXONOMY_BY_CODE } = await import("@/lib/ttm-agent/taxonomy");
+          const analysis = await (prisma as any).ttmAnalysis.findUnique({ where: { id: analysisId } });
+          if (analysis?.normalizedData) {
+            const nd = typeof analysis.normalizedData === "object" ? analysis.normalizedData : {};
+            const updateRows = (rows: unknown) => {
+              if (!Array.isArray(rows)) return rows;
+              return rows.map((row: any) => {
+                if (row.accountName !== accountName) return row;
+                const entry = TAXONOMY_BY_CODE[assignedCode];
+                return { ...row, cantaraCode: entry?.code ?? assignedCode, category: entry?.category ?? null, mappingMethod: "exact", mappingConfidence: 1 };
+              });
+            };
+            await (prisma as any).ttmAnalysis.update({
+              where: { id: analysisId },
+              data: { normalizedData: { ...nd, mappedPlRows: updateRows((nd as any).mappedPlRows), mappedBsRows: updateRows((nd as any).mappedBsRows) } },
+            });
+          }
+        } catch (e) { console.error("[create-and-resolve] GL mapping update failed:", e); }
+      }
+
       // Return the updated analysis
       const { getTtmAnalysis } = await import("@/lib/ttm-agent/orchestrator");
       const updated = await getTtmAnalysis(analysisId);
