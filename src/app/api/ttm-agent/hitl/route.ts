@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { actionTtmFlag, approveTtmAnalysis, saveNormOverrides, TtmOrchestratorError } from "@/lib/ttm-agent/orchestrator";
+import { actionTtmFlag, approveTtmAnalysis, saveGlMappings, saveNormOverrides, TtmOrchestratorError } from "@/lib/ttm-agent/orchestrator";
 import { FlagResolutionAction } from "@/lib/ttm-agent/types";
 
 export async function POST(req: NextRequest) {
@@ -97,6 +97,21 @@ export async function POST(req: NextRequest) {
         await saveNormOverrides({ analysisId, userOverrides });
       }
       return NextResponse.json({ ok: true });
+    }
+
+    if (body.mode === "save-gl-mappings") {
+      const { analysisId, mappings } = body as {
+        analysisId: string;
+        mappings?: Record<string, string | null>;
+      };
+      if (!analysisId) {
+        return new Response("analysisId is required", { status: 400 });
+      }
+      if (!mappings || typeof mappings !== "object") {
+        return new Response("mappings are required", { status: 400 });
+      }
+      const updated = await saveGlMappings({ analysisId, mappings });
+      return NextResponse.json(updated);
     }
 
     return new Response("Unsupported HITL action", { status: 400 });

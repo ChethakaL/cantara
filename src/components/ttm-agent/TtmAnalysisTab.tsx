@@ -8,17 +8,142 @@ import { Badge, Button, Card } from '@/components/ui'
 import { Ws2RecastPanel } from '@/components/ttm-agent/Ws2RecastPanel'
 import { BaselineValuationReportPanel } from '@/components/ttm-agent/BaselineValuationReportPanel'
 import { Ws21ReviewWorkspace } from '@/components/ttm-agent/Ws21ReviewWorkspace'
-import { Ws21StructuredReport } from '@/components/ttm-agent/Ws21StructuredReport'
 import { logWs2ClientEvent, logWs2Error, logWs2PreparedDocuments, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import { prepareWs2DocumentFromServer } from '@/lib/ttm-agent/browser-documents'
+import { CANTARA_TAXONOMY, TAXONOMY_BY_CODE } from '@/lib/ttm-agent/taxonomy'
 import type { DocumentStatus } from '@/lib/store'
-import type { TtmAnalysisView, TtmRequiredDocumentId } from '@/lib/ttm-agent/types'
+import type { MappedLedgerRow, TtmAnalysisView, TtmRequiredDocumentId } from '@/lib/ttm-agent/types'
 
 const REQUIRED_DOCS: Array<{ id: TtmRequiredDocumentId; label: string }> = [
   { id: 'monthly_pl_excel', label: 'Monthly P&L (36 months)' },
   { id: 'monthly_bs_excel', label: 'Monthly Balance Sheet (36 months)' },
 ]
 
+
+function glMappingKey(row: Pick<MappedLedgerRow, 'sourceSheet' | 'accountCode' | 'accountName'>) {
+  return `${row.sourceSheet ?? ''}|${row.accountCode ?? ''}|${row.accountName ?? ''}`
+}
+
+function asMappedRows(value: unknown) {
+  return Array.isArray(value) ? (value as MappedLedgerRow[]) : []
+}
+
+function GlMappingEditor({
+  analysis,
+  onUpdated,
+}: {
+  analysis: TtmAnalysisView
+  onUpdated: (analysis: TtmAnalysisView) => void
+}) {
+  const rows = useMemo(() => {
+    const mappedPlRows = asMappedRows(analysis.normalizedData?.mappedPlRows)
+    const mappedBsRows = asMappedRows(analysis.normalizedData?.mappedBsRows)
+    return [...mappedPlRows, ...mappedBsRows]
+      .filter((row) => row.cantaraCode !== '_EXCLUDED' && row.accountCode)
+      .sort((a, b) => String(a.accountCode ?? '').localeCompare(String(b.accountCode ?? '')) || a.accountName.localeCompare(b.accountName))
+  }, [analysis.normalizedData])
+  const [selectedByKey, setSelectedByKey] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    setSelectedByKey(Object.fromEntries(rows.map((row) => [glMappingKey(row), row.cantaraCode ?? ''])))
+    setMessage(null)
+  }, [rows])
+
+  const dirtyCount = rows.filter((row) => (selectedByKey[glMappingKey(row)] ?? '') !== (row.cantaraCode ?? '')).length
+
+  const submitMappings = async () => {
+    setSaving(true)
+    setMessage(null)
+    try {
+      const mappings = Object.fromEntries(rows.map((row) => [glMappingKey(row), selectedByKey[glMappingKey(row)] || null]))
+      const res = await fetch('/api/ttm-agent/hitl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'save-gl-mappings',
+          analysisId: analysis.id,
+          mappings,
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to save GL mappings'))
+      const updated = (await res.json()) as TtmAnalysisView
+      onUpdated(updated)
+      setMessage('GL mappings saved.')
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to save GL mappings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!rows.length) return null
+
+  return (
+    <Card className="p-5 mt-6">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-800">GL Code Mapping Reference</h4>
+          <p className="text-xs text-slate-400 mt-1">Review and confirm source GL codes before running downstream WS2 agents.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {dirtyCount > 0 && <Badge color="gold">{dirtyCount} changed</Badge>}
+          <Button size="sm" disabled={saving || dirtyCount === 0} onClick={submitMappings}>
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Submit mappings
+          </Button>
+        </div>
+      </div>
+      {message && <p className="mb-3 text-xs text-slate-500">{message}</p>}
+      <div className="overflow-x-auto max-h-[460px] overflow-y-auto rounded-lg border border-slate-200">
+        <table className="min-w-full text-sm">
+          <thead className="sticky top-0 bg-white">
+            <tr className="border-b border-slate-200 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2">GL Code</th>
+              <th className="px-3 py-2">Description</th>
+              <th className="px-3 py-2">Cantara Category</th>
+              <th className="px-3 py-2 text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => {
+              const key = glMappingKey(row)
+              const selected = selectedByKey[key] ?? ''
+              const selectedEntry = selected ? TAXONOMY_BY_CODE[selected] : null
+              return (
+                <tr key={key}>
+                  <td className="px-3 py-2 text-slate-500 font-mono text-xs">{row.accountCode ?? '—'}</td>
+                  <td className="px-3 py-2 text-slate-700">{row.accountName}</td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={selected}
+                      onChange={(event) => setSelectedByKey((current) => ({ ...current, [key]: event.target.value }))}
+                      className="w-full min-w-[260px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-amber-400"
+                    >
+                      <option value="">UNMAPPED</option>
+                      {CANTARA_TAXONOMY.map((entry) => (
+                        <option key={entry.code} value={entry.code}>
+                          {entry.code} - {entry.category}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedEntry && <p className="mt-1 text-[11px] text-slate-400">{selectedEntry.type}</p>}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                    {typeof row.total === 'number' && Number.isFinite(row.total)
+                      ? `$${Math.round(row.total).toLocaleString()}`
+                      : '—'}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
 
 export function TtmAnalysisTab({
   clientId,
@@ -495,7 +620,7 @@ export function TtmAnalysisTab({
       {/* ═══════════════ STEP 2: GL Mapping Review ═══════════════ */}
       {activeAnalysis && !isFailed && wizardStep === 2 && (
         <div className="space-y-4">
-          <Ws21StructuredReport analysis={activeAnalysis} />
+          <GlMappingEditor analysis={activeAnalysis} onUpdated={handleUpdatedAnalysis} />
           <div className="flex items-center justify-between">
             <Button variant="outline" size="sm" onClick={() => setWizardStep(1)}>
               ← Back to Flags
