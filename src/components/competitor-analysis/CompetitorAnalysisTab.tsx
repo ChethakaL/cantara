@@ -1264,6 +1264,14 @@ export default function CompetitorAnalysisTab({
       return;
     }
 
+    const enteredCompetitors = (form.manualCompetitors ?? []).filter((c) => c.name.trim());
+    const missingAddress = enteredCompetitors.find((c) => !c.address?.trim());
+    if (missingAddress) {
+      setError(`Please provide an address for competitor "${missingAddress.name}".`);
+      setStatus('error');
+      return;
+    }
+
     setStatus('researching');
     setReport(null);
     setError(null);
@@ -1569,7 +1577,7 @@ export default function CompetitorAnalysisTab({
                         onChange={(e) => updateCompetitor(i, 'name', e.target.value)}
                       />
                       <Input
-                        label="Address (optional)"
+                        label="Address *"
                         placeholder="123 Main St, Vancouver, BC"
                         value={comp.address ?? ''}
                         onChange={(e) => updateCompetitor(i, 'address', e.target.value)}

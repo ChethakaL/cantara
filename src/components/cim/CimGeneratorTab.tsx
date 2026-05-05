@@ -11,6 +11,15 @@ interface Props {
   clientName: string
 }
 
+const CIM_PREREQUISITES = [
+  { label: 'Financial Analysis & Valuation', tag: 'WS2-1' },
+  { label: 'Lease Analysis', tag: '' },
+  { label: 'Competitor Analysis', tag: '' },
+  { label: 'Employee Obligations Report', tag: 'WS1-6' },
+  { label: 'Digital Presence Report', tag: '' },
+  { label: 'Org Chart Review', tag: '' },
+]
+
 // Collapsible section wrapper
 function Section({ title, number, children, defaultOpen = true }: { title: string; number: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -34,6 +43,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
   const [data, setData] = useState<CimInputData>(DEFAULT_CIM_INPUT)
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [acknowledged, setAcknowledged] = useState(false)
 
   function set<K extends keyof CimInputData>(key: K, value: CimInputData[K]) {
     setData(prev => ({ ...prev, [key]: value }))
@@ -91,9 +101,14 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
   }
 
   const generate = () => {
-    const html = generateCimHtml(data)
-    setGeneratedHtml(html)
-    setStatus('preview')
+    try {
+      setError(null)
+      const html = generateCimHtml(data)
+      setGeneratedHtml(html)
+      setStatus('preview')
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate CIM')
+    }
   }
 
   const downloadHtml = () => {
@@ -121,20 +136,60 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
     return (
       <div className="space-y-6">
         <Card className="p-5">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
-              <FileText className="w-5 h-5 text-amber-600" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+                <FileText className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">CIM Generator</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Generate a Confidential Information Memorandum from client data across all agents.</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800">CIM Generator</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Generate a Confidential Information Memorandum from client data across all agents.</p>
-            </div>
+            <a
+              href="/brand/Cantara_CIM_Reference_Template.pdf"
+              download
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              CIM Reference Template
+            </a>
           </div>
         </Card>
 
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
         )}
+
+        {/* Prerequisite Documents */}
+        <Card className="p-5 space-y-4">
+          <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Prerequisite Documents</p>
+          <p className="text-xs text-slate-500">The following analyses should be completed before generating the CIM. Auto-fill pulls data from each.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {CIM_PREREQUISITES.map((prereq, i) => (
+              <div key={i} className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/50 px-4 py-3">
+                <span className="w-6 h-6 rounded-lg bg-slate-800 text-amber-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-slate-700 truncate">{prereq.label}</p>
+                  {prereq.tag && <p className="text-[10px] text-slate-400">{prereq.tag}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Acknowledgment */}
+        <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-3 hover:bg-slate-50 transition-colors">
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={e => setAcknowledged(e.target.checked)}
+            className="mt-0.5 accent-amber-500"
+          />
+          <span className="text-sm text-slate-600">
+            I confirm that the prerequisite analyses listed above have been completed (or are intentionally skipped) for this client.
+          </span>
+        </label>
 
         <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/30 p-12 text-center space-y-4">
           <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center">
@@ -144,7 +199,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
           <p className="text-sm text-slate-500 max-w-md mx-auto">
             Pull data from the Valuation Agent, Lease Analysis, Competitor Analysis, and other agents to pre-populate the CIM. Financial data is mapped directly; narrative sections are AI-generated. You can review and edit everything before generating.
           </p>
-          <Button size="lg" onClick={autoFill}>
+          <Button size="lg" onClick={autoFill} disabled={!acknowledged}>
             <Sparkles className="w-4 h-4" />
             Auto-Fill CIM
           </Button>

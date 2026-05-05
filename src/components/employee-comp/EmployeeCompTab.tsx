@@ -349,9 +349,9 @@ export default function EmployeeCompTab({
     options?: string[]
   }[] = [
     { key: 'employeeName', label: 'Employee Name', width: 'min-w-[160px]', type: 'text' },
+    { key: 'employeeType', label: 'Employee Type', width: 'min-w-[160px]', type: 'select', options: EMPLOYEE_TYPES },
     { key: 'hireDate', label: 'Hire Date', width: 'min-w-[120px]', type: 'date' },
     { key: 'rehireDate', label: 'Rehire Date', width: 'min-w-[120px]', type: 'date' },
-    { key: 'employeeType', label: 'Employee Type', width: 'min-w-[160px]', type: 'select', options: EMPLOYEE_TYPES },
     { key: 'workLocation', label: 'Work Location', width: 'min-w-[140px]', type: 'text' },
     { key: 'jobTitle', label: 'Job Title', width: 'min-w-[150px]', type: 'text' },
     { key: 'payType', label: 'Hourly/Salary', width: 'min-w-[110px]', type: 'select', options: PAY_TYPES },
@@ -377,45 +377,6 @@ export default function EmployeeCompTab({
         <p className="text-xs text-slate-400 mt-1">Payroll and compensation reports can also be uploaded in the Documents tab.</p>
       </div>
 
-      {/* Summary cards (always visible once we have data) */}
-      {hasData && employees.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="p-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Users2 className="w-4 h-4 text-amber-500" />
-            </div>
-            <p className="text-2xl font-bold text-slate-800">{summary.totalHeadcount}</p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide mt-1">Total Headcount</p>
-          </Card>
-          <Card className="p-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Building2 className="w-4 h-4 text-blue-500" />
-            </div>
-            <p className="text-2xl font-bold text-slate-800">
-              {summary.fullTimeCount} <span className="text-xs font-normal text-slate-400">FT</span>
-              {' / '}
-              {summary.partTimeCount} <span className="text-xs font-normal text-slate-400">PT</span>
-            </p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide mt-1">FT / PT Split</p>
-          </Card>
-          <Card className="p-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <DollarSign className="w-4 h-4 text-emerald-500" />
-            </div>
-            <p className="text-2xl font-bold text-slate-800">{formatCurrency(summary.totalAnnualPayroll)}</p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide mt-1">Total Annual Payroll</p>
-          </Card>
-          <Card className="p-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Clock className="w-4 h-4 text-purple-500" />
-            </div>
-            <p className="text-2xl font-bold text-slate-800">
-              {summary.avgHourlyRate !== null ? `$${summary.avgHourlyRate.toFixed(2)}/hr` : '\u2014'}
-            </p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide mt-1">Avg Hourly Rate</p>
-          </Card>
-        </div>
-      )}
 
       {/* Input mode selector */}
       {!hasData && (
@@ -651,6 +612,39 @@ export default function EmployeeCompTab({
                     </tr>
                   )}
                 </tbody>
+                {employees.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200 bg-slate-50/80 font-semibold text-xs text-slate-700">
+                      <td className="text-center px-2 py-2.5" />
+                      {/* Employee Name col — show count */}
+                      <td className="px-3 py-2.5">{summary.totalHeadcount} employees</td>
+                      {/* Employee Type col — FT/PT split */}
+                      <td className="px-3 py-2.5">{summary.fullTimeCount} FT / {summary.partTimeCount} PT</td>
+                      {/* Hire Date */}
+                      <td className="px-3 py-2.5" />
+                      {/* Rehire Date */}
+                      <td className="px-3 py-2.5" />
+                      {/* Work Location */}
+                      <td className="px-3 py-2.5" />
+                      {/* Job Title */}
+                      <td className="px-3 py-2.5" />
+                      {/* Hourly/Salary */}
+                      <td className="px-3 py-2.5" />
+                      {/* Annual Salary — total payroll */}
+                      <td className="px-3 py-2.5">{formatCurrency(summary.totalAnnualPayroll)}</td>
+                      {/* Hourly Rate — avg */}
+                      <td className="px-3 py-2.5">{summary.avgHourlyRate !== null ? `$${summary.avgHourlyRate.toFixed(2)}/hr` : '\u2014'}</td>
+                      {/* Pay Rate Eff Date */}
+                      <td className="px-3 py-2.5" />
+                      {/* Benefit Class Code */}
+                      <td className="px-3 py-2.5" />
+                      {/* Benefit Class Desc */}
+                      <td className="px-3 py-2.5" />
+                      {/* Delete col */}
+                      <td className="px-2 py-2.5" />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </Card>

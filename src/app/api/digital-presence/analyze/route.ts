@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { researchAllChannels } from '@/lib/digital-presence/claude-research';
 import { analyzeWithClaude } from '@/lib/digital-presence/claude-analyzer';
 import { AnalyzeRequestBody, ChannelType } from '@/lib/digital-presence/types';
+import { findPlaceByText, getPlaceDetails } from '@/lib/competitor-analysis/google-places';
 
 export const maxDuration = 180;
 
@@ -110,6 +111,47 @@ export async function POST(req: NextRequest) {
             });
           }
         );
+
+        // Google Places API verification: inject verified rating/review data
+        const googleApiKey = process.env.GOOGLE_SERVICES_API;
+        if (googleApiKey) {
+          try {
+            const searchQuery = (formData as any).businessAddress
+              ? `${formData.businessName} ${(formData as any).businessAddress}`
+              : formData.businessName;
+            const placeMatch = await findPlaceByText(searchQuery, googleApiKey);
+            if (placeMatch?.placeId) {
+              const placeDetails = await getPlaceDetails(placeMatch.placeId, googleApiKey);
+              if (placeDetails) {
+                const verifiedContent = [
+                  `[VERIFIED DATA from Google Places API]`,
+                  `Business: ${placeDetails.name}`,
+                  `Address: ${placeDetails.address}`,
+                  placeDetails.rating != null ? `Rating: ${placeDetails.rating} stars` : null,
+                  placeDetails.reviewCount != null ? `Total Reviews: ${placeDetails.reviewCount}` : null,
+                  placeDetails.phoneNumber ? `Phone: ${placeDetails.phoneNumber}` : null,
+                  placeDetails.websiteUrl ? `Website: ${placeDetails.websiteUrl}` : null,
+                  placeDetails.businessStatus ? `Status: ${placeDetails.businessStatus}` : null,
+                  placeDetails.openNow != null ? `Currently Open: ${placeDetails.openNow ? 'Yes' : 'No'}` : null,
+                ].filter(Boolean).join('\n');
+
+                // Find the google_business channel and inject verified data as the first result
+                const gbChannel = researchData.find(r => r.channelType === 'google_business');
+                if (gbChannel) {
+                  gbChannel.results.unshift({
+                    title: `[VERIFIED] ${placeDetails.name} - Google Business Profile`,
+                    url: placeDetails.mapsUrl || `https://www.google.com/maps/place/?q=place_id:${placeDetails.placeId}`,
+                    content: verifiedContent,
+                    score: 1.0,
+                  });
+                  console.log(`[Digital Presence] Injected verified Google Places data: ${placeDetails.rating} stars, ${placeDetails.reviewCount} reviews`);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('[Digital Presence] Google Places verification failed (non-fatal):', err);
+          }
+        }
 
         // After research, count what was actually found
         const foundCount = researchData.filter(r => r.results.length > 0).length;

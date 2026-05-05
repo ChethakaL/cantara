@@ -85,14 +85,12 @@ export function AdminReviewDashboard({
   onUpdated,
   collapsed = false,
   onToggleCollapse,
-  normOverrides,
 }: {
   analysis: TtmAnalysisView
   actorName: string
   onUpdated: (analysis: TtmAnalysisView) => void
   collapsed?: boolean
   onToggleCollapse?: () => void
-  normOverrides?: Record<string, number>
 }) {
   const [notesByFlag, setNotesByFlag] = useState<Record<string, string>>({})
   const [codesByFlag, setCodesByFlag] = useState<Record<string, string>>({})
@@ -104,6 +102,28 @@ export function AdminReviewDashboard({
   const [catOpen, setCatOpen] = useState<Record<string, boolean>>({})
 
   const unresolvedCount = analysis.flags.filter(f => f.resolutionStatus !== 'ACTIONED').length
+  const unresolvedNonA = analysis.flags.filter(f => f.resolutionStatus !== 'ACTIONED' && f.section !== 'A').length
+  const [bulkAcking, setBulkAcking] = useState(false)
+
+  const bulkAcknowledgeNotes = async () => {
+    setBulkAcking(true)
+    try {
+      const nonAFlags = analysis.flags.filter(f => f.resolutionStatus !== 'ACTIONED' && f.section !== 'A')
+      for (const f of nonAFlags) {
+        const res = await fetch('/api/ttm-agent/hitl', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'flag', analysisId: analysis.id, flagId: f.id, resolutionAction: 'RESOLVE', resolutionNotes: 'Bulk acknowledged — informational note', actorName }),
+        })
+        if (res.ok) {
+          const updated = await res.json()
+          onUpdated(updated)
+        }
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Bulk acknowledge failed')
+    } finally { setBulkAcking(false) }
+  }
+
   const sectionOrder = analysis.dataQualityReport?.sectionOrder ?? []
   const validCodes = useMemo(() => new Set(CANTARA_TAXONOMY.map(e => e.code)), [])
   const cantaraOptions = useMemo(() => CANTARA_TAXONOMY.map(e => ({ value: e.code, label: `${e.code} — ${e.category}` })), [])
@@ -152,7 +172,7 @@ export function AdminReviewDashboard({
     return sections.map(section => {
       const report = analysis.dataQualityReport?.sections[section] ?? { title: `Section ${section} - GL Classification Requests`, note: null }
       const entries = sectionEntries[section] ?? []
-      const open = entries.filter(e => e.flag?.resolutionStatus !== 'ACTIONED')
+      const open = entries.filter(e => e.flag && e.flag.resolutionStatus !== 'ACTIONED')
       const resolved = entries.filter(e => e.flag?.resolutionStatus === 'ACTIONED')
       return { section, report, entries, open, resolved }
     }).filter(s => s.open.length > 0 || s.entries.length > 0)
@@ -221,7 +241,7 @@ export function AdminReviewDashboard({
       logWs2ClientEvent('WS2-1 approve', { analysisId: analysis.id })
       const res = await fetch('/api/ttm-agent/hitl', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'approve', analysisId: analysis.id, actorName, userOverrides: normOverrides && Object.keys(normOverrides).length > 0 ? normOverrides : undefined }),
+        body: JSON.stringify({ mode: 'approve', analysisId: analysis.id, actorName }),
       })
       await logWs2Response('WS2-1 approve', res)
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed'))
@@ -248,15 +268,20 @@ export function AdminReviewDashboard({
             <Badge color="green">Ready</Badge>
           )}
         </div>
-        {/* Approve button removed — approval handled in the wizard step */}
+        {/* Bulk acknowledge non-Section-A notes */}
+        {unresolvedNonA > 0 && (
+          <Button size="sm" variant="outline" disabled={bulkAcking} onClick={bulkAcknowledgeNotes}>
+            {bulkAcking ? 'Acknowledging...' : `Acknowledge All ${unresolvedNonA} Notes`}
+          </Button>
+        )}
       </div>
 
       {/* ── Compact section tabs ────────────────────────────────────── */}
       {reviewSections.length > 0 && (
         <div className="flex gap-1 border-b border-slate-200 px-4 py-2 bg-slate-50/50 overflow-x-auto">
-          {reviewSections.map(({ section, report, open, entries }) => {
+          {reviewSections.map(({ section, report, open, resolved }) => {
             const isActive = activeSection === section
-            const count = open.length || entries.length
+            const allDone = open.length === 0 && resolved.length > 0
             return (
               <button
                 key={section}
@@ -269,14 +294,11 @@ export function AdminReviewDashboard({
               >
                 <span className="font-bold">{section}</span>
                 <span className="truncate max-w-[140px]">{cleanTitle(report?.title ?? '')}</span>
-                {count > 0 && (
-                  <span className={cn(
-                    'rounded-full px-1.5 py-0.5 text-[10px] font-bold',
-                    open.length > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700',
-                  )}>
-                    {count}
-                  </span>
-                )}
+                {open.length > 0 ? (
+                  <Badge color="gold">{open.length}</Badge>
+                ) : allDone ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                ) : null}
               </button>
             )
           })}
@@ -302,8 +324,19 @@ export function AdminReviewDashboard({
               )}
             </div>
 
+            {current.open.length === 0 && current.resolved.length > 0 && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                All {current.resolved.length} items in this section are resolved.
+              </div>
+            )}
+
             {/* Items */}
-            {current.entries.map(({ item, flag: rawFlag }, i) => {
+            {current.entries.filter(({ flag: rawFlag }) => {
+              const resolved = rawFlag?.resolutionStatus === 'ACTIONED'
+              if (resolved) return false
+              return true
+            }).map(({ item, flag: rawFlag }, i) => {
               // If flag is null, try to find a matching one by title (check unresolved first, then resolved)
               const flag = rawFlag
                 ?? analysis.flags.find(f => f.section === current.section && f.title === item.title && f.resolutionStatus !== 'ACTIONED')
@@ -443,16 +476,17 @@ export function AdminReviewDashboard({
                             </Button>
                           </>
                         ) : (
-                          <>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-slate-400 italic">LLM note — use "Acknowledge All Notes" above or:</span>
                             <Button size="sm" variant="outline" disabled={savingFlag === flagId}
                               onClick={() => void submitAction(flagId, 'RESOLVE')}>
                               Acknowledge
                             </Button>
                             <Button size="sm" disabled={savingFlag === flagId}
                               onClick={() => void submitAction(flagId, 'ESCALATE_CLIENT')}>
-                              <Send className="w-3 h-3" /> Escalate to Client
+                              <Send className="w-3 h-3" /> Escalate
                             </Button>
-                          </>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -460,6 +494,27 @@ export function AdminReviewDashboard({
                 </div>
               )
             })}
+
+            {/* Collapsed resolved items */}
+            {current.resolved.length > 0 && current.open.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs text-emerald-600 hover:text-emerald-700 py-2">
+                  Show {current.resolved.length} resolved item{current.resolved.length > 1 ? 's' : ''}
+                </summary>
+                <div className="space-y-2 mt-2">
+                  {current.resolved.map(({ item, flag }) => (
+                    <div key={flag?.id ?? item.title} className="rounded-lg border border-emerald-200 bg-emerald-50/30 px-4 py-2.5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span className="text-xs text-slate-600 truncate">{item.title}</span>
+                        {flag?.resolutionAction && <Badge color="green">{flag.resolutionAction.replace('_', ' ')}</Badge>}
+                      </div>
+                      {flag?.resolutionNotes && <span className="text-[11px] text-slate-400 truncate max-w-[200px]">{flag.resolutionNotes}</span>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         )}
       </div>

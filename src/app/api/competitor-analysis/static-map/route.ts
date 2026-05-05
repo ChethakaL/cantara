@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       .split(';')
       .map((entry) => entry.trim())
       .filter(Boolean)
-      .slice(0, 8);
+      .slice(0, 20);
 
     const params = new URLSearchParams({
       key: apiKey,

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Loader2, Play, AlertCircle, RefreshCw } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
-import { Badge, Button, Card } from '@/components/ui'
+import { Badge, Button, Card, Input } from '@/components/ui'
 import { Ws2RecastPanel } from '@/components/ttm-agent/Ws2RecastPanel'
 import { BaselineValuationReportPanel } from '@/components/ttm-agent/BaselineValuationReportPanel'
 import { Ws21ReviewWorkspace } from '@/components/ttm-agent/Ws21ReviewWorkspace'
@@ -19,6 +19,124 @@ const REQUIRED_DOCS: Array<{ id: TtmRequiredDocumentId; label: string }> = [
   { id: 'monthly_bs_excel', label: 'Monthly Balance Sheet (36 months)' },
 ]
 
+
+// ── Step 3: Clean valuation range entry ─────────────────────────────────────
+function Step3ValuationRange({
+  analysis, clientId, adminName, documentStatuses, onUpdated, baselineBuildError, onBack,
+}: {
+  analysis: TtmAnalysisView; clientId: string; adminName: string; documentStatuses: Record<string, DocumentStatus>
+  onUpdated: (a: TtmAnalysisView) => void; baselineBuildError: string | null; onBack: () => void
+}) {
+  const [low, setLow] = useState(''); const [mid, setMid] = useState(''); const [high, setHigh] = useState('')
+  const [running, setRunning] = useState(false); const [error, setError] = useState<string | null>(null)
+  const [savingFlagId, setSavingFlagId] = useState<string | null>(null)
+  const latestRecast = analysis.recastAnalyses?.[0] ?? null
+  const isApproved = latestRecast?.status === 'APPROVED'
+  const unresolvedFlags = latestRecast?.flags.filter(f => f.resolutionStatus !== 'ACTIONED') ?? []
+  const canRun = low.trim() && mid.trim() && high.trim()
+  const canApprove = latestRecast && !isApproved && unresolvedFlags.length === 0
+  const parseNum = (v: string) => { const n = Number(v.trim().replace(/,/g, '')); return Number.isFinite(n) ? n : null }
+  const fmtCurrency = (v: number | null | undefined) => typeof v === 'number' && Number.isFinite(v) ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'
+  const fmtMultiple = (v: number | null | undefined) => typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(1)}x` : '—'
+
+  const resolveFlag = async (flagId: string, action: 'RESOLVE' | 'ESCALATE_CLIENT') => {
+    if (!latestRecast) return; setSavingFlagId(flagId)
+    try {
+      const res = await fetch('/api/ttm-agent/recast', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'flag', recastAnalysisId: latestRecast.id, flagId, resolutionAction: action, resolutionNotes: '', actorName: adminName }) })
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed')); onUpdated(await res.json())
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to resolve flag') } finally { setSavingFlagId(null) }
+  }
+
+  const runRecast = async () => {
+    setRunning(true); setError(null)
+    try {
+      const assumptions = { multipleLow: parseNum(low), multipleMid: parseNum(mid), multipleHigh: parseNum(high), replacementSalary: null, relatedPartyOwnership: false, fmrEstimate: null, notes: null }
+      const preparedDocuments = await Promise.all(Object.entries(documentStatuses).filter(([, s]) => s?.fileName).slice(0, 5).map(([docId, s]) => prepareWs2DocumentFromServer({ clientId, documentId: docId as any, fileName: s.fileName || docId })))
+      const res = await fetch('/api/ttm-agent/recast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'run', analysisId: analysis.id, assumptions, preparedDocuments }) })
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed')); onUpdated(await res.json())
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to run valuation') } finally { setRunning(false) }
+  }
+
+  const approveRecast = async () => {
+    if (!latestRecast) return; setRunning(true)
+    try {
+      const res = await fetch('/api/ttm-agent/recast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'approve', recastAnalysisId: latestRecast.id, actorName: adminName }) })
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Approval failed')); onUpdated(await res.json())
+    } catch (e) { setError(e instanceof Error ? e.message : 'Approval failed') } finally { setRunning(false) }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-6">
+        <h4 className="text-sm font-semibold text-slate-800 mb-1">Set Valuation Multiples</h4>
+        <p className="text-xs text-slate-400 mb-5">Enter low, mid, and high EBITDA multiples, then click Run.</p>
+        <div className="grid grid-cols-3 gap-4 max-w-lg">
+          <Input label="Low multiple" value={low} onChange={e => setLow(e.target.value)} placeholder="3.5" />
+          <Input label="Mid multiple" value={mid} onChange={e => setMid(e.target.value)} placeholder="4.5" />
+          <Input label="High multiple" value={high} onChange={e => setHigh(e.target.value)} placeholder="5.5" />
+        </div>
+        <div className="mt-5">
+          <Button onClick={() => void runRecast()} disabled={!canRun || running}>
+            {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running...</> : <><Play className="w-3.5 h-3.5" /> Run Valuation</>}
+          </Button>
+        </div>
+        {error && <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+        {baselineBuildError && <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{baselineBuildError}</div>}
+      </Card>
+      {latestRecast && (
+        <>
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-sm font-semibold text-slate-800">Valuation Result</h4>
+              {isApproved ? (<Badge color="green">Approved</Badge>) : (
+                <Button size="sm" onClick={() => void approveRecast()} disabled={!canApprove || running}>
+                  {unresolvedFlags.length > 0 ? `Resolve ${unresolvedFlags.length} flag${unresolvedFlags.length > 1 ? 's' : ''} first` : 'Approve & Continue →'}
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Low · {fmtMultiple(latestRecast.assumptions.multipleLow)}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900 tabular-nums">{fmtCurrency(latestRecast.valuationLow)}</p>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-800 p-4 text-center text-white">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">Mid · {fmtMultiple(latestRecast.assumptions.multipleMid)}</p>
+                <p className="mt-2 text-2xl font-semibold text-amber-300 tabular-nums">{fmtCurrency(latestRecast.valuationMid)}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">High · {fmtMultiple(latestRecast.assumptions.multipleHigh)}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900 tabular-nums">{fmtCurrency(latestRecast.valuationHigh)}</p>
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-slate-500">Based on Normalized EBITDA of <span className="font-semibold text-slate-700">{fmtCurrency(latestRecast.normalizedEbitda)}</span></p>
+          </Card>
+          {unresolvedFlags.length > 0 && (
+            <Card className="p-5">
+              <h4 className="text-sm font-semibold text-slate-800 mb-1">Add-Back Flags</h4>
+              <p className="text-xs text-slate-400 mb-4">The AI flagged {unresolvedFlags.length} add-back item{unresolvedFlags.length > 1 ? 's' : ''} for review. Accept or remove each to unlock approval.</p>
+              <div className="space-y-3">
+                {unresolvedFlags.map(flag => (
+                  <div key={flag.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{flag.title}</p>
+                      {flag.description && flag.description !== flag.title && (<p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{flag.description}</p>)}
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'RESOLVE')}>Accept</Button>
+                      <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'ESCALATE_CLIENT')}>Remove</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+      <div className="flex justify-start"><Button variant="outline" size="sm" onClick={onBack}>← Back to GL Mapping</Button></div>
+    </div>
+  )
+}
 
 function glMappingKey(row: Pick<MappedLedgerRow, 'sourceSheet' | 'accountCode' | 'accountName'>) {
   return `${row.sourceSheet ?? ''}|${row.accountCode ?? ''}|${row.accountName ?? ''}`
@@ -39,7 +157,7 @@ function GlMappingEditor({
     const mappedPlRows = asMappedRows(analysis.normalizedData?.mappedPlRows)
     const mappedBsRows = asMappedRows(analysis.normalizedData?.mappedBsRows)
     return [...mappedPlRows, ...mappedBsRows]
-      .filter((row) => row.cantaraCode !== '_EXCLUDED' && row.accountCode)
+      .filter((row) => row.cantaraCode !== '_EXCLUDED')
       .sort((a, b) => String(a.accountCode ?? '').localeCompare(String(b.accountCode ?? '')) || a.accountName.localeCompare(b.accountName))
   }, [analysis.normalizedData])
   const [selectedByKey, setSelectedByKey] = useState<Record<string, string>>({})
@@ -78,14 +196,18 @@ function GlMappingEditor({
     }
   }
 
-  if (!rows.length) return null
+  if (!rows.length) return (
+    <Card className="p-5 mt-6">
+      <p className="text-sm text-slate-500">No GL rows available yet. Complete Step 1 to generate mappings.</p>
+    </Card>
+  )
 
   return (
     <Card className="p-5 mt-6">
       <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
         <div>
-          <h4 className="text-sm font-semibold text-slate-800">GL Code Mapping Reference</h4>
-          <p className="text-xs text-slate-400 mt-1">Review and confirm source GL codes before running downstream WS2 agents.</p>
+          <h4 className="text-sm font-semibold text-slate-800">GL Code Mapping</h4>
+          <p className="text-xs text-slate-400 mt-1">Review and adjust Cantara category assignments. Submit any changes before continuing.</p>
         </div>
         <div className="flex items-center gap-2">
           {dirtyCount > 0 && <Badge color="gold">{dirtyCount} changed</Badge>}
@@ -496,10 +618,10 @@ export function TtmAnalysisTab({
           {activeAnalysis && !isFailed && (
             <div className="flex items-center gap-1 mt-2">
               {[
-                { n: 1, label: 'Review Flags' },
-                { n: 2, label: 'GL Mapping' },
-                { n: 3, label: 'Valuation' },
-                { n: 4, label: 'Report' },
+                { n: 1, label: 'Accept / Exclude / Escalate' },
+                { n: 2, label: 'Review GL Mapping' },
+                { n: 3, label: 'Set Valuation Range' },
+                { n: 4, label: 'Workbook & Report' },
               ].map(({ n, label }) => {
                 const isActive = wizardStep === n
                 const isDone = wizardStep > n || (n === 1 && ws21Approved) || (n === 3 && hasStyledBaselineReport)
@@ -602,17 +724,31 @@ export function TtmAnalysisTab({
       {/* ═══════════════ STEP 1: Review Flags ═══════════════ */}
       {activeAnalysis && !isFailed && !running && wizardStep === 1 && (
         <div className="space-y-4">
-          <Ws21ReviewWorkspace
-            analysis={activeAnalysis}
-            actorName={adminName}
-            onUpdated={handleUpdatedAnalysis}
-          />
-          {canApproveWs21 && (
-            <div className="flex justify-end">
-              <Button size="sm" onClick={() => setWizardStep(2)}>
-                Next: Review GL Mapping →
-              </Button>
-            </div>
+          {ws21Approved ? (
+            <Card className="border-emerald-200 bg-emerald-50/60 p-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <p className="text-sm font-semibold text-emerald-800">Step 1 complete — all flags resolved and approved.</p>
+                </div>
+                <Button size="sm" onClick={() => setWizardStep(2)}>Continue to GL Mapping →</Button>
+              </div>
+            </Card>
+          ) : (
+            <>
+              <Ws21ReviewWorkspace
+                analysis={activeAnalysis}
+                actorName={adminName}
+                onUpdated={handleUpdatedAnalysis}
+              />
+              {canApproveWs21 && (
+                <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex justify-end">
+                  <Button size="sm" onClick={() => setWizardStep(2)}>
+                    Next: Review GL Mapping →
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -620,8 +756,11 @@ export function TtmAnalysisTab({
       {/* ═══════════════ STEP 2: GL Mapping Review ═══════════════ */}
       {activeAnalysis && !isFailed && wizardStep === 2 && (
         <div className="space-y-4">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            Review the GL code mappings below. Adjust any that look wrong, then continue to set the valuation range.
+          </div>
           <GlMappingEditor analysis={activeAnalysis} onUpdated={handleUpdatedAnalysis} />
-          <div className="flex items-center justify-between">
+          <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex items-center justify-between">
             <Button variant="outline" size="sm" onClick={() => setWizardStep(1)}>
               ← Back to Flags
             </Button>
@@ -640,7 +779,7 @@ export function TtmAnalysisTab({
               </Button>
             ) : (
               <Button size="sm" onClick={() => setWizardStep(3)}>
-                Next: Valuation Range →
+                Next: Set Valuation Range →
               </Button>
             )}
           </div>
@@ -650,23 +789,18 @@ export function TtmAnalysisTab({
       {/* ═══════════════ STEP 3: Valuation Range ═══════════════ */}
       {activeAnalysis && ws21Approved && wizardStep === 3 && (
         <div className="space-y-4">
-          <Ws2RecastPanel
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            Enter low, mid, and high EBITDA multiples to generate a valuation range. The AI will apply these to the normalized EBITDA and flag any add-backs for your review.
+          </div>
+          <Step3ValuationRange
             analysis={activeAnalysis}
             clientId={clientId}
             adminName={adminName}
             documentStatuses={documentStatuses}
-            onUpdated={(updated) => { handleUpdatedAnalysis(updated); }}
-            collapsed={false}
-            onToggleCollapse={() => {}}
+            onUpdated={handleUpdatedAnalysis}
+            baselineBuildError={baselineBuildState.error}
+            onBack={() => setWizardStep(2)}
           />
-          {baselineBuildState.error && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{baselineBuildState.error}</div>
-          )}
-          <div className="flex justify-start">
-            <Button variant="outline" size="sm" onClick={() => setWizardStep(2)}>
-              ← Back to GL Mapping
-            </Button>
-          </div>
         </div>
       )}
 

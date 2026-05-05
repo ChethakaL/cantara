@@ -346,6 +346,28 @@ export default function EmployeeObligationsTab({
         />
       </div>
 
+      {/* Workflow guidance banner */}
+      {(() => {
+        const pendingCount = flags.filter(f => f.status === 'pending').length
+        const totalCount = flags.length
+        const allDone = totalCount > 0 && pendingCount === 0
+        return allDone ? (
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <span className="text-emerald-600 text-sm">&#10003;</span>
+            <p className="text-sm text-emerald-800">
+              All {totalCount} flags reviewed &mdash; report is ready for export. Use <strong>&ldquo;+ New Analysis&rdquo;</strong> to re-run with updated documents.
+            </p>
+          </div>
+        ) : totalCount > 0 ? (
+          <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <span className="text-amber-600 text-sm">&#9888;</span>
+            <p className="text-sm text-amber-800">
+              Review in progress &mdash; {pendingCount} of {totalCount} flags remaining. Use <strong>&ldquo;+ New Analysis&rdquo;</strong> to re-run with updated documents.
+            </p>
+          </div>
+        ) : null
+      })()}
+
       <Card className="overflow-hidden border-stone-200 shadow-sm bg-white ring-1 ring-stone-950/5">
         <div className="flex border-b border-stone-100 bg-stone-50/50 px-4 overflow-x-auto whitespace-nowrap scrollbar-hide">
           {tabs.map(tab => (

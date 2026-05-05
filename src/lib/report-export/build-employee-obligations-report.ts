@@ -6,6 +6,15 @@ import {
   type ReportConfig,
 } from './generate-report-html'
 
+function flagStatusLabel(status: string): string {
+  switch (status) {
+    case 'confirmed': return 'Verified';
+    case 'na': return 'Not Applicable';
+    case 'pending': return 'Pending Review';
+    default: return status;
+  }
+}
+
 export function buildEmployeeObligationsReportHtml(
   report: WS16Report,
   flags: Flag[],
@@ -110,13 +119,13 @@ export function buildEmployeeObligationsReportHtml(
   // Flags
   const flagsContent = flags.length > 0
     ? buildHtmlTable(
-        ['Domain', 'Severity', 'Title', 'Description', 'Status'],
+        ['Domain', 'Severity', 'Title', 'Description', 'Advisor Review'],
         flags.map(f => [
           f.domain,
-          f.severity,
+          f.severity.charAt(0).toUpperCase() + f.severity.slice(1),
           f.title,
           f.description,
-          f.status,
+          flagStatusLabel(f.status),
         ]),
       )
     : '<p>No flags raised.</p>'

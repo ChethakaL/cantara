@@ -75,8 +75,33 @@ export async function POST(req: NextRequest) {
 
         const hasManualCompetitors = formData.manualCompetitors && formData.manualCompetitors.filter(c => c.name.trim()).length > 0;
 
-        let nearby: Awaited<ReturnType<typeof findNearbyCompetitors>>;
+        // Always run radius-based discovery first
+        send({
+          type: 'progress',
+          phase: 'research',
+          message: `Searching for nearby ${resolvedCategory} competitors within ${formData.radiusMiles ?? 5} miles…`,
+        });
 
+        let nearby = await findNearbyCompetitors({
+          center: subjectLookup.center,
+          businessCategory: resolvedCategory,
+          apiKey: googleApiKey,
+          subjectPlaceId: subjectLookup.subject.placeId,
+          subjectName: subjectLookup.subject.name,
+          subjectAddress: subjectLookup.subject.address || subjectLookup.formattedAddress,
+          limit: 6,
+          radiusMiles: formData.radiusMiles ?? 5,
+        });
+
+        send({
+          type: 'progress',
+          phase: 'research',
+          message: nearby.competitors.length
+            ? `Found ${nearby.discoveredCompetitors} nearby competitors. Gathering website evidence for the strongest matches…`
+            : 'No nearby competitors were found from public location data.',
+        });
+
+        // If manual competitors exist, look them up and merge on top
         if (hasManualCompetitors) {
           const validCompetitors = formData.manualCompetitors!.filter(c => c.name.trim());
           send({
@@ -85,43 +110,36 @@ export async function POST(req: NextRequest) {
             message: `Looking up ${validCompetitors.length} specified competitor${validCompetitors.length === 1 ? '' : 's'}…`,
           });
 
-          nearby = await lookupSpecifiedCompetitors({
+          const manual = await lookupSpecifiedCompetitors({
             competitors: validCompetitors,
             center: subjectLookup.center,
             apiKey: googleApiKey,
-          });
-
-          send({
-            type: 'progress',
-            phase: 'research',
-            message: nearby.competitors.length
-              ? `Found ${nearby.competitors.length} of ${validCompetitors.length} specified competitors. Gathering website evidence…`
-              : 'Could not locate any of the specified competitors. Building a report from the subject business profile only…',
-          });
-        } else {
-          send({
-            type: 'progress',
-            phase: 'research',
-            message: `Searching for nearby ${resolvedCategory} competitors within ${formData.radiusMiles ?? 5} miles…`,
-          });
-
-          nearby = await findNearbyCompetitors({
-            center: subjectLookup.center,
-            businessCategory: resolvedCategory,
-            apiKey: googleApiKey,
-            subjectPlaceId: subjectLookup.subject.placeId,
-            subjectName: subjectLookup.subject.name,
-            subjectAddress: subjectLookup.subject.address || subjectLookup.formattedAddress,
-            limit: 6,
             radiusMiles: formData.radiusMiles ?? 5,
           });
 
+          if (manual.rejectedCompetitors.length > 0) {
+            send({
+              type: 'progress',
+              phase: 'research',
+              message: `Rejected ${manual.rejectedCompetitors.length} competitor${manual.rejectedCompetitors.length === 1 ? '' : 's'}: ${manual.rejectedCompetitors.map(r => `${r.name} (${r.reason})`).join(', ')}`,
+            });
+          }
+
+          // Merge manual competitors into the radius discovery results
+          const existingPlaceIds = new Set(nearby.competitors.map(c => c.placeId).filter(Boolean));
+          const newManualCompetitors = manual.competitors.filter(c => !existingPlaceIds.has(c.placeId));
+          nearby = {
+            competitors: [...manual.competitors, ...nearby.competitors.filter(c => !manual.competitors.some(m => m.placeId === c.placeId))],
+            discoveredCompetitors: nearby.discoveredCompetitors + newManualCompetitors.length,
+            discoveredItems: [...manual.discoveredItems, ...nearby.discoveredItems.filter(d => !manual.discoveredItems.some(m => m.placeId === d.placeId))],
+          };
+
           send({
             type: 'progress',
             phase: 'research',
-            message: nearby.competitors.length
-              ? `Found ${nearby.discoveredCompetitors} nearby competitors. Gathering website evidence for the strongest matches…`
-              : 'No nearby competitors were found from public location data. Building a report from the subject business profile only…',
+            message: manual.competitors.length
+              ? `Found ${manual.competitors.length} of ${validCompetitors.length} specified competitors. Gathering website evidence…`
+              : 'Could not locate any of the specified competitors. Proceeding with radius discovery results…',
           });
         }
 
