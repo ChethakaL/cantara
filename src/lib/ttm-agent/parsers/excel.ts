@@ -57,17 +57,41 @@ type ParsedMonthlySection = {
 };
 
 function readWorkbook(buffer: Buffer) {
-  return XLSX.read(buffer, {
+  const wb = XLSX.read(buffer, {
     type: "buffer",
     cellDates: true,
     raw: false,
   });
+  // Fix cells where formula is a simple number but cached value is 0
+  // (common with QuickBooks exports that weren't opened in Excel)
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    const ref = ws['!ref'];
+    if (!ref) continue;
+    const range = XLSX.utils.decode_range(ref);
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[addr];
+        if (!cell || !cell.f) continue;
+        // If formula is a simple numeric literal (e.g. "38579.70", "-1126.00")
+        const f = cell.f.trim();
+        const parsed = Number(f);
+        if (!isNaN(parsed) && f !== '') {
+          cell.v = parsed;
+          cell.w = undefined; // clear formatted cache so sheet_to_json uses .v
+          cell.t = 'n';
+        }
+      }
+    }
+  }
+  return wb;
 }
 
 function sheetToRows(sheet: XLSX.WorkSheet): WorksheetRows {
   return XLSX.utils.sheet_to_json(sheet, {
     header: 1,
-    raw: false,
+    raw: true,
     defval: null,
     blankrows: false,
   }) as WorksheetRows;
