@@ -255,12 +255,6 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
           <Input label="Revenue Mix" value={data.revenueMix} onChange={e => set('revenueMix', e.target.value)} />
           <Input label="Buyer Capex" value={data.buyerCapex} onChange={e => set('buyerCapex', e.target.value)} />
         </div>
-        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mt-4">Headline KPIs</p>
-        <div className="grid grid-cols-3 gap-3">
-          <Input label="TTM Revenue (headline)" value={data.ttmRevenue} onChange={e => set('ttmRevenue', e.target.value)} />
-          <Input label="EBITDA Margin (headline)" value={data.normalizedEbitdaMargin} onChange={e => set('normalizedEbitdaMargin', e.target.value)} />
-          <Input label="Total Capacity (headline)" value={data.totalCapacity} onChange={e => set('totalCapacity', e.target.value)} />
-        </div>
       </Card>
 
       {/* Section 5: Investment Highlights */}

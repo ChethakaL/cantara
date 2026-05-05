@@ -46,6 +46,10 @@ ${resultSummaries || '  (No results found)'}`;
 ## Web Research Data
 The following data was gathered via web search for each digital channel provided by the seller. Note: this data is sourced from public web search and may be incomplete or imprecise. Only report metrics you can reasonably infer from the search results. If data is absent or unclear, mark the channel as low confidence.
 
+IMPORTANT: Any result marked [VERIFIED] contains authoritative data retrieved directly from the Google Places API. This data is more reliable than web-scraped data.
+
+CRITICAL INSTRUCTION FOR GOOGLE BUSINESS PROFILE: When [VERIFIED] data is present for Google Business Profile, you MUST use the VERIFIED rating and review count EXACTLY as provided. Do not override, estimate, or round these numbers based on other search results. The verified data is the single source of truth for rating and total review count.
+
 ${channelSections}
 
 ---

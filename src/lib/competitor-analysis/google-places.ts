@@ -202,7 +202,11 @@ export async function geocodeAddress(address: string, apiKey: string) {
   };
 }
 
-export async function findPlaceByText(input: string, apiKey: string) {
+export async function findPlaceByText(
+  input: string,
+  apiKey: string,
+  locationBias?: { center: PlaceLocation; radiusMiles: number },
+) {
   const fields = [
     'place_id',
     'name',
@@ -210,7 +214,17 @@ export async function findPlaceByText(input: string, apiKey: string) {
     'geometry',
     'types',
   ].join(',');
-  const url = `${GOOGLE_MAPS_BASE}/place/findplacefromtext/json?input=${encodeURIComponent(input)}&inputtype=textquery&fields=${encodeURIComponent(fields)}&key=${encodeURIComponent(apiKey)}`;
+  const params = new URLSearchParams({
+    input,
+    inputtype: 'textquery',
+    fields,
+    key: apiKey,
+  });
+  if (locationBias) {
+    const biasRadiusMeters = Math.round(locationBias.radiusMiles * 1609.34 * 3);
+    params.set('locationbias', `circle:${biasRadiusMeters}@${locationBias.center.lat},${locationBias.center.lng}`);
+  }
+  const url = `${GOOGLE_MAPS_BASE}/place/findplacefromtext/json?${params.toString()}`;
   const data = await fetchJson<FindPlaceResponse>(url);
   if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
     throw new Error(data.error_message || 'Unable to search for the business.');
@@ -452,7 +466,31 @@ export async function findNearbyCompetitors(args: {
     }
   }
 
-  const discovered = Array.from(deduped.values())
+  // Industry-relevance filtering: reject businesses with clearly wrong Google Place types
+  const irrelevantTypes = new Set([
+    'clothing_store', 'car_dealer', 'car_repair', 'car_wash',
+    'bank', 'atm', 'insurance_agency', 'real_estate_agency',
+    'lawyer', 'accounting', 'electrician', 'plumber',
+    'furniture_store', 'hardware_store', 'electronics_store',
+    'jewelry_store', 'shoe_store', 'book_store',
+    'gas_station', 'convenience_store', 'supermarket',
+    'pharmacy', 'hospital', 'church', 'school', 'university',
+    'gym', 'movie_theater', 'night_club', 'bar', 'liquor_store',
+  ]);
+  const petNamePattern = /pet|paw|dog|cat|puppy|kitten|animal|vet|groom|kennel|bark|woof|fur|canine|feline/i;
+
+  const filtered = Array.from(deduped.values()).filter((place) => {
+    const hasIrrelevantType = place.primaryTypes.some((t) => irrelevantTypes.has(t));
+    if (!hasIrrelevantType) return true;
+    // Keep if it has pet-related name or types
+    const hasPetName = petNamePattern.test(place.name);
+    const hasPetType = place.primaryTypes.some((t) =>
+      /pet|veterinary|animal/.test(t)
+    );
+    return hasPetName || hasPetType;
+  });
+
+  const discovered = filtered
     .sort((a, b) => a.distanceMiles - b.distanceMiles || (b.reviewCount ?? 0) - (a.reviewCount ?? 0));
 
   const limit = Math.max(1, Math.min(args.limit ?? 8, 12));
@@ -514,12 +552,16 @@ export async function lookupSpecifiedCompetitors(args: {
   competitors: Array<{ name: string; address?: string; websiteUrl?: string }>;
   center: PlaceLocation;
   apiKey: string;
+  radiusMiles: number;
 }): Promise<{
   competitors: Array<BusinessPlaceProfile & { distanceMiles: number }>;
   discoveredCompetitors: number;
   discoveredItems: DiscoveredCompetitorItem[];
+  rejectedCompetitors: Array<{ name: string; reason: string }>;
 }> {
   const results: Array<BusinessPlaceProfile & { distanceMiles: number }> = [];
+  const rejectedCompetitors: Array<{ name: string; reason: string }> = [];
+  const maxDistanceMiles = Math.max(50, args.radiusMiles * 3);
 
   for (const entry of args.competitors) {
     if (!entry.name.trim()) continue;
@@ -529,16 +571,29 @@ export async function lookupSpecifiedCompetitors(args: {
       : entry.name;
 
     try {
-      const found = await findPlaceByText(searchQuery, args.apiKey);
+      const found = await findPlaceByText(searchQuery, args.apiKey, {
+        center: args.center,
+        radiusMiles: args.radiusMiles,
+      });
       if (!found?.placeId) {
         console.warn(`[Competitor Lookup] Could not find: ${entry.name}`);
+        rejectedCompetitors.push({ name: entry.name, reason: 'Could not find on Google Places' });
         continue;
       }
 
       const details = await getPlaceDetails(found.placeId, args.apiKey);
-      if (!details) continue;
+      if (!details) {
+        rejectedCompetitors.push({ name: entry.name, reason: 'Could not retrieve place details' });
+        continue;
+      }
 
       const distanceMiles = haversineMiles(args.center, details.location);
+
+      if (distanceMiles > maxDistanceMiles) {
+        console.warn(`[Competitor Lookup] "${entry.name}" is ${distanceMiles.toFixed(1)} mi away (max ${maxDistanceMiles}). Rejecting.`);
+        rejectedCompetitors.push({ name: entry.name, reason: `Too far away (${distanceMiles.toFixed(1)} miles)` });
+        continue;
+      }
 
       // Override websiteUrl if user provided one and Google didn't find one
       if (entry.websiteUrl && !details.websiteUrl) {
@@ -548,6 +603,7 @@ export async function lookupSpecifiedCompetitors(args: {
       results.push({ ...details, distanceMiles });
     } catch (err) {
       console.error(`[Competitor Lookup] Failed for "${entry.name}":`, err);
+      rejectedCompetitors.push({ name: entry.name, reason: 'Lookup failed' });
     }
   }
 
@@ -574,5 +630,6 @@ export async function lookupSpecifiedCompetitors(args: {
     competitors: results,
     discoveredCompetitors: results.length,
     discoveredItems,
+    rejectedCompetitors,
   };
 }

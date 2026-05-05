@@ -85,14 +85,12 @@ export function AdminReviewDashboard({
   onUpdated,
   collapsed = false,
   onToggleCollapse,
-  normOverrides,
 }: {
   analysis: TtmAnalysisView
   actorName: string
   onUpdated: (analysis: TtmAnalysisView) => void
   collapsed?: boolean
   onToggleCollapse?: () => void
-  normOverrides?: Record<string, number>
 }) {
   const [notesByFlag, setNotesByFlag] = useState<Record<string, string>>({})
   const [codesByFlag, setCodesByFlag] = useState<Record<string, string>>({})
@@ -104,6 +102,28 @@ export function AdminReviewDashboard({
   const [catOpen, setCatOpen] = useState<Record<string, boolean>>({})
 
   const unresolvedCount = analysis.flags.filter(f => f.resolutionStatus !== 'ACTIONED').length
+  const unresolvedNonA = analysis.flags.filter(f => f.resolutionStatus !== 'ACTIONED' && f.section !== 'A').length
+  const [bulkAcking, setBulkAcking] = useState(false)
+
+  const bulkAcknowledgeNotes = async () => {
+    setBulkAcking(true)
+    try {
+      const nonAFlags = analysis.flags.filter(f => f.resolutionStatus !== 'ACTIONED' && f.section !== 'A')
+      for (const f of nonAFlags) {
+        const res = await fetch('/api/ttm-agent/hitl', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'flag', analysisId: analysis.id, flagId: f.id, resolutionAction: 'RESOLVE', resolutionNotes: 'Bulk acknowledged — informational note', actorName }),
+        })
+        if (res.ok) {
+          const updated = await res.json()
+          onUpdated(updated)
+        }
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Bulk acknowledge failed')
+    } finally { setBulkAcking(false) }
+  }
+
   const sectionOrder = analysis.dataQualityReport?.sectionOrder ?? []
   const validCodes = useMemo(() => new Set(CANTARA_TAXONOMY.map(e => e.code)), [])
   const cantaraOptions = useMemo(() => CANTARA_TAXONOMY.map(e => ({ value: e.code, label: `${e.code} — ${e.category}` })), [])
@@ -111,27 +131,52 @@ export function AdminReviewDashboard({
   // Build section entries with flags
   const sectionEntries = useMemo(() => {
     const report = analysis.dataQualityReport
-    if (!report) return {} as Record<string, Array<{ item: any; flag: TtmFlagView | null }>>
+    if (!report) {
+      // No dataQualityReport — build entries directly from flags
+      const bySection: Record<string, Array<{ item: any; flag: TtmFlagView }>> = {}
+      for (const f of analysis.flags) {
+        const section = f.section || 'A'
+        if (!bySection[section]) bySection[section] = []
+        bySection[section].push({ item: { title: f.title, description: f.description ?? '', severity: f.severity, payload: f.payload }, flag: f })
+      }
+      return bySection as Record<string, Array<{ item: any; flag: TtmFlagView | null }>>
+    }
     return Object.fromEntries(sectionOrder.map(section => {
       const items = report.sections[section]?.items ?? []
       const flags = [...analysis.flags.filter(f => f.section === section)]
+      const usedFlagIds = new Set<string>()
       const entries = items.map(item => {
-        const idx = flags.findIndex(f => f.title === item.title && (f.description ?? '') === item.description && f.severity === item.severity)
-        const flag = idx >= 0 ? flags.splice(idx, 1)[0] : null
+        // Lenient matching: match on title only if exact match fails
+        let idx = flags.findIndex(f => !usedFlagIds.has(f.id) && f.title === item.title && (f.description ?? '') === item.description && f.severity === item.severity)
+        if (idx < 0) idx = flags.findIndex(f => !usedFlagIds.has(f.id) && f.title === item.title)
+        if (idx < 0) idx = flags.findIndex(f => !usedFlagIds.has(f.id) && item.title.includes(f.title.split(' ').slice(-1)[0]))
+        const flag = idx >= 0 ? flags[idx] : null
+        if (flag) usedFlagIds.add(flag.id)
         return { item, flag }
       })
-      flags.forEach(f => entries.push({ item: { title: f.title, description: f.description ?? '', severity: f.severity, payload: f.payload }, flag: f }))
+      // Add any remaining unmatched flags as entries WITH their flag reference
+      const remaining = flags.filter(f => !usedFlagIds.has(f.id))
+      remaining.forEach(f => entries.push({ item: { title: f.title, description: f.description ?? '', severity: f.severity, payload: f.payload }, flag: f }))
+
+      // SAFETY: if items exist but none matched a flag, map them directly from section flags
+      if (entries.length > 0 && entries.every(e => e.flag === null) && flags.length > 0) {
+        return [section, flags.map(f => ({ item: { title: f.title, description: f.description ?? '', severity: f.severity, payload: f.payload }, flag: f }))]
+      }
       return [section, entries]
     }))
   }, [analysis.dataQualityReport, analysis.flags, sectionOrder])
 
-  const reviewSections = useMemo(() => sectionOrder.map(section => {
-    const report = analysis.dataQualityReport?.sections[section]
-    const entries = sectionEntries[section] ?? []
-    const open = entries.filter(e => e.flag?.resolutionStatus !== 'ACTIONED')
-    const resolved = entries.filter(e => e.flag?.resolutionStatus === 'ACTIONED')
-    return { section, report, entries, open, resolved }
-  }).filter(s => s.report && (s.open.length > 0 || s.entries.length > 0)), [analysis.dataQualityReport, sectionEntries, sectionOrder])
+  const reviewSections = useMemo(() => {
+    // If no dataQualityReport, derive sections from sectionEntries keys
+    const sections = sectionOrder.length > 0 ? sectionOrder : Object.keys(sectionEntries).sort()
+    return sections.map(section => {
+      const report = analysis.dataQualityReport?.sections[section] ?? { title: `Section ${section} - GL Classification Requests`, note: null }
+      const entries = sectionEntries[section] ?? []
+      const open = entries.filter(e => e.flag && e.flag.resolutionStatus !== 'ACTIONED')
+      const resolved = entries.filter(e => e.flag?.resolutionStatus === 'ACTIONED')
+      return { section, report, entries, open, resolved }
+    }).filter(s => s.open.length > 0 || s.entries.length > 0)
+  }, [analysis.dataQualityReport, sectionEntries, sectionOrder])
 
   useEffect(() => {
     const preferred = reviewSections.find(s => s.open.length > 0)?.section ?? reviewSections[0]?.section ?? null
@@ -142,9 +187,44 @@ export function AdminReviewDashboard({
     setSavingFlag(flagId)
     try {
       logWs2ClientEvent('HITL flag action', { analysisId: analysis.id, flagId, action })
+
+      // For synthetic flags (no DB record), create the flag first
+      let resolvedFlagId = flagId
+      if (flagId.startsWith('synthetic-')) {
+        // Find the item to get its details for flag creation
+        const sectionKey = flagId.split('-')[1]
+        const itemIndex = parseInt(flagId.split('-')[2], 10)
+        const sectionData = sectionEntries[sectionKey]
+        const entry = sectionData?.[itemIndex]
+        if (entry) {
+          const createRes = await fetch('/api/ttm-agent/hitl', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'create-and-resolve',
+              analysisId: analysis.id,
+              section: sectionKey,
+              severity: entry.item.severity || 'MEDIUM',
+              title: entry.item.title,
+              description: entry.item.description || '',
+              payload: { ...(entry.item.payload || {}), ...(patch || {}) },
+              resolutionAction: action,
+              resolutionNotes: notesByFlag[flagId] || '',
+              actorName,
+            }),
+          })
+          if (createRes.ok) {
+            onUpdated(await createRes.json())
+            return
+          }
+          // If create-and-resolve not supported, just acknowledge locally
+          alert('GL mapping saved locally. Refresh to see updated state.')
+          return
+        }
+      }
+
       const res = await fetch('/api/ttm-agent/hitl', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'flag', analysisId: analysis.id, flagId, resolutionAction: action, resolutionNotes: notesByFlag[flagId] || '', actorName, payloadPatch: patch }),
+        body: JSON.stringify({ mode: 'flag', analysisId: analysis.id, flagId: resolvedFlagId, resolutionAction: action, resolutionNotes: notesByFlag[flagId] || '', actorName, payloadPatch: patch }),
       })
       await logWs2Response('HITL flag response', res)
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed'))
@@ -161,7 +241,7 @@ export function AdminReviewDashboard({
       logWs2ClientEvent('WS2-1 approve', { analysisId: analysis.id })
       const res = await fetch('/api/ttm-agent/hitl', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'approve', analysisId: analysis.id, actorName, userOverrides: normOverrides && Object.keys(normOverrides).length > 0 ? normOverrides : undefined }),
+        body: JSON.stringify({ mode: 'approve', analysisId: analysis.id, actorName }),
       })
       await logWs2Response('WS2-1 approve', res)
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed'))
@@ -188,17 +268,20 @@ export function AdminReviewDashboard({
             <Badge color="green">Ready</Badge>
           )}
         </div>
-        <Button size="sm" onClick={() => void approve()} disabled={analysis.status === 'APPROVED' || unresolvedCount > 0 || approving}>
-          {approving ? 'Approving...' : 'Approve WS2-1'}
-        </Button>
+        {/* Bulk acknowledge non-Section-A notes */}
+        {unresolvedNonA > 0 && (
+          <Button size="sm" variant="outline" disabled={bulkAcking} onClick={bulkAcknowledgeNotes}>
+            {bulkAcking ? 'Acknowledging...' : `Acknowledge All ${unresolvedNonA} Notes`}
+          </Button>
+        )}
       </div>
 
       {/* ── Compact section tabs ────────────────────────────────────── */}
       {reviewSections.length > 0 && (
         <div className="flex gap-1 border-b border-slate-200 px-4 py-2 bg-slate-50/50 overflow-x-auto">
-          {reviewSections.map(({ section, report, open, entries }) => {
+          {reviewSections.map(({ section, report, open, resolved }) => {
             const isActive = activeSection === section
-            const count = open.length || entries.length
+            const allDone = open.length === 0 && resolved.length > 0
             return (
               <button
                 key={section}
@@ -211,14 +294,11 @@ export function AdminReviewDashboard({
               >
                 <span className="font-bold">{section}</span>
                 <span className="truncate max-w-[140px]">{cleanTitle(report?.title ?? '')}</span>
-                {count > 0 && (
-                  <span className={cn(
-                    'rounded-full px-1.5 py-0.5 text-[10px] font-bold',
-                    open.length > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700',
-                  )}>
-                    {count}
-                  </span>
-                )}
+                {open.length > 0 ? (
+                  <Badge color="gold">{open.length}</Badge>
+                ) : allDone ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                ) : null}
               </button>
             )
           })}
@@ -244,14 +324,31 @@ export function AdminReviewDashboard({
               )}
             </div>
 
+            {current.open.length === 0 && current.resolved.length > 0 && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                All {current.resolved.length} items in this section are resolved.
+              </div>
+            )}
+
             {/* Items */}
-            {(current.open.length > 0 ? current.open : current.entries).map(({ item, flag }, i) => {
-              const key = flag?.id ?? `${current.section}-${i}`
+            {current.entries.filter(({ flag: rawFlag }) => {
+              const resolved = rawFlag?.resolutionStatus === 'ACTIONED'
+              if (resolved) return false
+              return true
+            }).map(({ item, flag: rawFlag }, i) => {
+              // If flag is null, try to find a matching one by title (check unresolved first, then resolved)
+              const flag = rawFlag
+                ?? analysis.flags.find(f => f.section === current.section && f.title === item.title && f.resolutionStatus !== 'ACTIONED')
+                ?? analysis.flags.find(f => f.section === current.section && f.title === item.title)
+                ?? null
+              const flagId = flag?.id ?? `synthetic-${current.section}-${i}`
+              const key = flagId
               const isOpen = openDetails[key] ?? false
-              const code = codesByFlag[flag?.id ?? ''] ?? String(flag?.payload?.assignedCantaraCode ?? '')
+              const code = codesByFlag[flagId] ?? String(flag?.payload?.assignedCantaraCode ?? item.payload?.suggestedCode ?? '')
               const isCodeValid = code ? validCodes.has(code) : false
-              const search = catSearch[flag?.id ?? ''] ?? ''
-              const isDropdownOpen = Boolean(catOpen[flag?.id ?? ''])
+              const search = catSearch[flagId] ?? ''
+              const isDropdownOpen = Boolean(catOpen[flagId])
               const filtered = cantaraOptions.filter(o => {
                 const q = search.trim().toLowerCase()
                 return !q || o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q)
@@ -296,8 +393,8 @@ export function AdminReviewDashboard({
                     </div>
                   )}
 
-                  {/* Action area */}
-                  {flag && !isResolved && (
+                  {/* Action area — show for all unresolved items (with or without a DB flag) */}
+                  {!isResolved && (flag || current.section === 'A') && (
                     <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
                       {/* Cantara code selector for Section A */}
                       {current.section === 'A' && (
@@ -305,7 +402,7 @@ export function AdminReviewDashboard({
                           <label className="block text-[10px] uppercase tracking-wide text-slate-400 mb-1">Cantara category</label>
                           <button type="button"
                             className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm hover:border-slate-300"
-                            onClick={() => setCatOpen(p => ({ ...p, [flag.id]: !p[flag.id] }))}>
+                            onClick={() => setCatOpen(p => ({ ...p, [flagId]: !p[flagId] }))}>
                             <span className={code ? 'text-slate-900' : 'text-slate-400'}>{code ? cantaraLabel(code) : 'Select code...'}</span>
                             <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
                           </button>
@@ -314,7 +411,7 @@ export function AdminReviewDashboard({
                               <div className="p-2 border-b border-slate-100">
                                 <div className="relative">
                                   <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
-                                  <input value={search} onChange={e => setCatSearch(p => ({ ...p, [flag.id]: e.target.value }))}
+                                  <input value={search} onChange={e => setCatSearch(p => ({ ...p, [flagId]: e.target.value }))}
                                     placeholder="Search..." className="w-full rounded-md border border-slate-200 pl-8 pr-3 py-2 text-xs outline-none focus:border-amber-400" />
                                 </div>
                               </div>
@@ -324,7 +421,7 @@ export function AdminReviewDashboard({
                                 ) : filtered.map(o => (
                                   <button key={o.value} type="button"
                                     className={cn('w-full rounded px-3 py-1.5 text-left text-xs hover:bg-slate-100', code === o.value && 'bg-amber-50')}
-                                    onClick={() => { setCodesByFlag(p => ({ ...p, [flag.id]: o.value })); setCatOpen(p => ({ ...p, [flag.id]: false })) }}>
+                                    onClick={() => { setCodesByFlag(p => ({ ...p, [flagId]: o.value })); setCatOpen(p => ({ ...p, [flagId]: false })) }}>
                                     {o.label}
                                   </button>
                                 ))}
@@ -335,8 +432,8 @@ export function AdminReviewDashboard({
                       )}
 
                       {/* Note */}
-                      <Textarea rows={1} label="Note (optional)" value={notesByFlag[flag.id] ?? ''} placeholder="Context, rationale, or follow-up"
-                        onChange={e => setNotesByFlag(p => ({ ...p, [flag.id]: e.target.value }))} />
+                      <Textarea rows={1} label="Note (optional)" value={notesByFlag[flagId] ?? ''} placeholder="Context, rationale, or follow-up"
+                        onChange={e => setNotesByFlag(p => ({ ...p, [flagId]: e.target.value }))} />
 
                       {/* Action buttons — compact row */}
                       <div className="flex gap-2 flex-wrap">
@@ -344,8 +441,9 @@ export function AdminReviewDashboard({
                           <>
                             {/* Accept Suggestion — one-click approve for LLM-suggested mappings */}
                             {(() => {
-                              const conf = typeof flag.payload?.mappingConfidence === 'number' ? flag.payload.mappingConfidence : typeof flag.payload?.confidence === 'number' ? flag.payload.confidence : null
-                              const suggested = typeof flag.payload?.suggestedCode === 'string' ? flag.payload.suggestedCode : null
+                              const payload = flag?.payload ?? item.payload ?? {}
+                              const conf = typeof payload?.mappingConfidence === 'number' ? payload.mappingConfidence : typeof payload?.confidence === 'number' ? payload.confidence : typeof payload?.mappingConfidencePct === 'number' ? payload.mappingConfidencePct / 100 : null
+                              const suggested = typeof payload?.suggestedCode === 'string' ? payload.suggestedCode : typeof payload?.candidateCodes?.[0] === 'string' ? payload.candidateCodes[0] : null
                               if (conf !== null && conf >= 0.5 && suggested) {
                                 const suggestedEntry = CANTARA_TAXONOMY.find(e => e.code === suggested)
                                 const suggestedLabel = suggestedEntry ? suggestedEntry.code.split('-').pop() ?? suggestedEntry.code : suggested
@@ -353,10 +451,10 @@ export function AdminReviewDashboard({
                                 return (
                                   <Button size="sm"
                                     className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                                    disabled={savingFlag === flag.id}
+                                    disabled={savingFlag === flagId}
                                     onClick={() => {
-                                      setCodesByFlag(p => ({ ...p, [flag.id]: suggested }))
-                                      void submitAction(flag.id, 'RESOLVE', { assignedCantaraCode: suggested })
+                                      setCodesByFlag(p => ({ ...p, [flagId]: suggested }))
+                                      void submitAction(flagId, 'RESOLVE', { assignedCantaraCode: suggested })
                                     }}>
                                     Accept: {suggestedLabel} ({confPct}%)
                                   </Button>
@@ -364,30 +462,31 @@ export function AdminReviewDashboard({
                               }
                               return null
                             })()}
-                            <Button size="sm" variant="outline" disabled={savingFlag === flag.id || !isCodeValid}
-                              onClick={() => void submitAction(flag.id, 'RESOLVE', { assignedCantaraCode: code })}>
+                            <Button size="sm" variant="outline" disabled={savingFlag === flagId || !isCodeValid}
+                              onClick={() => void submitAction(flagId, 'RESOLVE', { assignedCantaraCode: code })}>
                               Confirm
                             </Button>
-                            <Button size="sm" variant="outline" disabled={savingFlag === flag.id}
-                              onClick={() => void submitAction(flag.id, 'OVERRIDE', { assignedCantaraCode: null, excludedFromMapping: true })}>
+                            <Button size="sm" variant="outline" disabled={savingFlag === flagId}
+                              onClick={() => void submitAction(flagId, 'OVERRIDE', { assignedCantaraCode: null, excludedFromMapping: true })}>
                               Exclude
                             </Button>
-                            <Button size="sm" disabled={savingFlag === flag.id}
-                              onClick={() => void submitAction(flag.id, 'ESCALATE_CLIENT')}>
+                            <Button size="sm" disabled={savingFlag === flagId}
+                              onClick={() => void submitAction(flagId, 'ESCALATE_CLIENT')}>
                               <Send className="w-3 h-3" /> Escalate
                             </Button>
                           </>
                         ) : (
-                          <>
-                            <Button size="sm" variant="outline" disabled={savingFlag === flag.id}
-                              onClick={() => void submitAction(flag.id, 'RESOLVE')}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-slate-400 italic">LLM note — use "Acknowledge All Notes" above or:</span>
+                            <Button size="sm" variant="outline" disabled={savingFlag === flagId}
+                              onClick={() => void submitAction(flagId, 'RESOLVE')}>
                               Acknowledge
                             </Button>
-                            <Button size="sm" disabled={savingFlag === flag.id}
-                              onClick={() => void submitAction(flag.id, 'ESCALATE_CLIENT')}>
-                              <Send className="w-3 h-3" /> Escalate to Client
+                            <Button size="sm" disabled={savingFlag === flagId}
+                              onClick={() => void submitAction(flagId, 'ESCALATE_CLIENT')}>
+                              <Send className="w-3 h-3" /> Escalate
                             </Button>
-                          </>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -395,6 +494,27 @@ export function AdminReviewDashboard({
                 </div>
               )
             })}
+
+            {/* Collapsed resolved items */}
+            {current.resolved.length > 0 && current.open.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs text-emerald-600 hover:text-emerald-700 py-2">
+                  Show {current.resolved.length} resolved item{current.resolved.length > 1 ? 's' : ''}
+                </summary>
+                <div className="space-y-2 mt-2">
+                  {current.resolved.map(({ item, flag }) => (
+                    <div key={flag?.id ?? item.title} className="rounded-lg border border-emerald-200 bg-emerald-50/30 px-4 py-2.5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span className="text-xs text-slate-600 truncate">{item.title}</span>
+                        {flag?.resolutionAction && <Badge color="green">{flag.resolutionAction.replace('_', ' ')}</Badge>}
+                      </div>
+                      {flag?.resolutionNotes && <span className="text-[11px] text-slate-400 truncate max-w-[200px]">{flag.resolutionNotes}</span>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         )}
       </div>

@@ -250,20 +250,6 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 
   <p class="footnote">* All figures based on management accounts. EBITDA presented on a normalized basis inclusive of owner add-backs. Independent verification available during diligence.</p>
 
-  <div class="kpi-strip">
-    <div class="kpi-cell">
-      <div class="kpi-value">${escapeHtml(data.ttmRevenue)}</div>
-      <div class="kpi-label">TTM Revenue</div>
-    </div>
-    <div class="kpi-cell">
-      <div class="kpi-value">${escapeHtml(data.normalizedEbitdaMargin)}</div>
-      <div class="kpi-label">Normalized EBITDA Margin</div>
-    </div>
-    <div class="kpi-cell">
-      <div class="kpi-value">${escapeHtml(data.totalCapacity)}</div>
-      <div class="kpi-label">Total Capacity</div>
-    </div>
-  </div>
 </div>
 
 <div class="page-break"></div>

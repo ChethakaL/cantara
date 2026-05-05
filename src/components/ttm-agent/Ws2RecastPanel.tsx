@@ -16,8 +16,6 @@ const OPTIONAL_RECAST_DOCS = [
   { id: 'personal_expenses_36m', label: 'Personal Expenses List (Optional)' },
   { id: 'non_recurring_expenses_36m', label: 'Non-Recurring Expenses (Optional)' },
   { id: 'addback_disclosure', label: 'Add-Back Disclosure (Optional)' },
-  { id: 'leases', label: 'Lease from WS1' },
-  { id: 'owner_gm_assessment', label: 'Owner & GM Assessment from WS1' },
 ] as const
 
 function parseNumberInput(value: string) {
@@ -349,60 +347,21 @@ export function Ws2RecastPanel({
       <Card className="p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h4 className="text-sm font-semibold text-slate-800">WS2-2 EBITDA Recast</h4>
+            <h4 className="text-sm font-semibold text-slate-800">EBITDA Normalization & Valuation</h4>
             <p className="text-xs text-slate-400 mt-1">
-              Admin enters the valuation multiples here after WS2-1 approval. WS2-2 then verifies add-backs against the full WS2-1 model and produces the recast schedule.
+              Enter the valuation multiples below, then run the normalization to produce the recast schedule and preliminary valuation range.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge color={recastDispatchTask?.status === 'RELEASED' ? 'green' : 'gold'}>
-              {recastDispatchTask?.status === 'RELEASED' ? 'Released from HITL' : 'Awaiting WS2-1 Approval'}
-            </Badge>
-            {onToggleCollapse && (
-              <Button size="sm" variant="outline" onClick={onToggleCollapse}>
-                {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                {collapsed ? 'Expand WS2-2' : 'Collapse WS2-2'}
-              </Button>
-            )}
             <Button size="sm" onClick={() => void runRecast()} disabled={!canRun || running}>
-              {running ? 'Running WS2-2...' : 'Run WS2-2'}
+              {running ? 'Running...' : latestRecast ? 'Re-run' : 'Run Normalization'}
             </Button>
-            {latestRecast && !running && (
-              <Button size="sm" variant="outline" onClick={() => void runRecast()} disabled={!canRun || running}>
-                Re-run WS2-2
-              </Button>
-            )}
           </div>
         </div>
 
         {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
-        {collapsed ? (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">Status</p>
-                <p className="mt-2 text-sm font-semibold text-slate-800">{latestRecast?.status ?? 'Not Run'}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">Open Flags</p>
-                <p className="mt-2 text-sm font-semibold text-slate-800">{unresolvedCount}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">Normalized EBITDA</p>
-                <p className="mt-2 text-sm font-semibold text-slate-800">
-                  {latestRecast?.normalizedEbitda?.toLocaleString() ?? 'n/a'}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">Workbook</p>
-                <p className="mt-2 text-sm font-semibold text-slate-800">
-                  {latestRecast?.workbookUrl ? 'Available' : 'Not generated'}
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : isApproved ? (
+        {isApproved ? (
           <div className="mt-4 space-y-4">
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
               <p className="text-sm text-emerald-800">
@@ -480,49 +439,13 @@ export function Ws2RecastPanel({
             </div>
           </div>
         ) : (
-          <>
-            <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="rounded-2xl border border-slate-200 p-5">
-                <h4 className="text-sm font-semibold text-slate-800">Admin inputs</h4>
-                <p className="mt-1 text-xs text-slate-500">Enter the EBITDA assumptions once, then run WS2-2. This becomes the working EBITDA and valuation range for the next stage.</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  <Input label="Low multiple" value={assumptions.multipleLow} onChange={(event) => setAssumptions((current) => ({ ...current, multipleLow: event.target.value }))} placeholder="3.5" />
-                  <Input label="Mid multiple" value={assumptions.multipleMid} onChange={(event) => setAssumptions((current) => ({ ...current, multipleMid: event.target.value }))} placeholder="4.5" />
-                  <Input label="High multiple" value={assumptions.multipleHigh} onChange={(event) => setAssumptions((current) => ({ ...current, multipleHigh: event.target.value }))} placeholder="5.5" />
-                </div>
-                <div className="mt-3">
-                  <Textarea label="Admin notes" rows={2} value={assumptions.notes} onChange={(event) => setAssumptions((current) => ({ ...current, notes: event.target.value }))} placeholder="Why this multiple range or any rent / replacement salary context." />
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 p-5">
-                <h4 className="text-sm font-semibold text-slate-800">Before you run</h4>
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    {hasRequiredMultiples
-                      ? 'Valuation multiples are set.'
-                      : 'Enter low, mid, and high valuation multiples before running WS2-2.'}
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    {requiredReady ? 'The add-back disclosure is uploaded.' : 'The add-back disclosure is still missing.'}
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    {recastDispatchTask?.status === 'RELEASED' ? 'WS2-2 is released and ready to run.' : 'WS2-2 remains blocked until WS2-1 is approved.'}
-                  </div>
-                </div>
-                <div className="mt-4 grid gap-3">
-                  {[...REQUIRED_RECAST_DOCS, ...ADDBACK_DETAIL_DOCS, ...OPTIONAL_RECAST_DOCS].map((doc) => (
-                    <div key={doc.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3">
-                      <span className="text-sm text-slate-700">{doc.label}</span>
-                      <Badge color={documentStatuses[doc.id]?.fileName ? 'green' : REQUIRED_RECAST_DOCS.some(r => r.id === doc.id) ? 'red' : 'slate'}>
-                        {documentStatuses[doc.id]?.fileName ? 'Uploaded' : REQUIRED_RECAST_DOCS.some(r => r.id === doc.id) ? 'Missing' : 'Optional'}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          <div className="mt-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input label="Low multiple" value={assumptions.multipleLow} onChange={(event) => setAssumptions((current) => ({ ...current, multipleLow: event.target.value }))} placeholder="3.5" />
+              <Input label="Mid multiple" value={assumptions.multipleMid} onChange={(event) => setAssumptions((current) => ({ ...current, multipleMid: event.target.value }))} placeholder="4.5" />
+              <Input label="High multiple" value={assumptions.multipleHigh} onChange={(event) => setAssumptions((current) => ({ ...current, multipleHigh: event.target.value }))} placeholder="5.5" />
             </div>
-          </>
+          </div>
         )}
       </Card>
 

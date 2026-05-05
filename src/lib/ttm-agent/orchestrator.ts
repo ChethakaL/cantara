@@ -875,6 +875,50 @@ export async function actionTtmFlag(args: {
     }),
   ]);
 
+  // If this is a Section A GL mapping flag with an assigned Cantara code,
+  // immediately update the mapped rows in normalizedData so Step 2 reflects it
+  const assignedCode = mergedPayload?.assignedCantaraCode as string | null | undefined;
+  const accountName = (mergedPayload?.accountName ?? flag.payload?.accountName) as string | null | undefined;
+  if (flag.section === "A" && assignedCode && accountName) {
+    try {
+      const analysis = await (prisma as any).ttmAnalysis.findUnique({ where: { id: args.analysisId } });
+      if (analysis?.normalizedData) {
+        const nd = typeof analysis.normalizedData === "object" ? analysis.normalizedData : {};
+        const updateRows = (rows: unknown) => {
+          if (!Array.isArray(rows)) return rows;
+          return rows.map((row: any) => {
+            if (row.accountName !== accountName) return row;
+            if (assignedCode === "_EXCLUDED") {
+              return { ...row, cantaraCode: "_EXCLUDED", category: "Excluded", mappingMethod: "exact", mappingConfidence: 1 };
+            }
+            const entry = TAXONOMY_BY_CODE[assignedCode];
+            return {
+              ...row,
+              cantaraCode: entry?.code ?? assignedCode,
+              category: entry?.category ?? null,
+              categoryType: entry?.type ?? row.categoryType ?? "other",
+              mappingMethod: "exact",
+              mappingConfidence: 1,
+            };
+          });
+        };
+        await (prisma as any).ttmAnalysis.update({
+          where: { id: args.analysisId },
+          data: {
+            normalizedData: {
+              ...nd,
+              mappedPlRows: updateRows((nd as any).mappedPlRows),
+              mappedBsRows: updateRows((nd as any).mappedBsRows),
+            },
+          },
+        });
+      }
+    } catch (glErr) {
+      console.error("[actionTtmFlag] Failed to update GL mapping in normalizedData:", glErr);
+      // Non-fatal — flag was still resolved
+    }
+  }
+
   const updated = await getTtmAnalysis(args.analysisId);
   if (!updated) {
     throw new TtmOrchestratorError("TTM analysis not found after flag update.", 404);

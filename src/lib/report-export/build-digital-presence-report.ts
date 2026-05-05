@@ -12,7 +12,7 @@ export function buildDigitalPresenceReportHtml(report: DigitalPresenceReport): s
     ch.channelLabel,
     `${ch.score}/5`,
     ch.trafficLight === 'green' ? 'Good' : ch.trafficLight === 'amber' ? 'Fair' : 'Poor',
-    ch.summary.slice(0, 120) + (ch.summary.length > 120 ? '...' : ''),
+    ch.summary,
   ])
   const channelTable = buildHtmlTable(
     ['Channel', 'Score', 'Status', 'Summary'],
@@ -35,7 +35,7 @@ export function buildDigitalPresenceReportHtml(report: DigitalPresenceReport): s
   const assetRows = activeAssets.map(a => [
     a.assetType,
     a.channelType.replace(/_/g, ' '),
-    a.url.slice(0, 50) + (a.url.length > 50 ? '...' : ''),
+    a.url,
     a.score ? `${a.score}/5` : '-',
   ])
   const assetTable = assetRows.length

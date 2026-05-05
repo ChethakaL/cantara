@@ -69,19 +69,26 @@ export function FlagCard({ severity, id, domain, title, description, sourceRef, 
           <p className="text-[11px] text-stone-400 italic">Source: {sourceRef}</p>
         )}
       </div>
-      <div className="flex gap-1.5 flex-shrink-0 mt-0.5">
-        <HITLButton
-          label="Confirm"
-          active={status === 'confirmed'}
-          activeClass="bg-green-50 text-green-800 border-green-300"
-          onClick={onConfirm}
-        />
-        <HITLButton
-          label="N/A"
-          active={status === 'na'}
-          activeClass="bg-stone-100 text-stone-500 border-stone-300 line-through"
-          onClick={onNA}
-        />
+      <div className="flex flex-col items-end gap-1.5 flex-shrink-0 mt-0.5">
+        <div className="flex gap-1.5">
+          <HITLButton
+            label="Verified"
+            active={status === 'confirmed'}
+            activeClass="bg-green-50 text-green-800 border-green-300"
+            onClick={onConfirm}
+          />
+          <HITLButton
+            label="Not Applicable"
+            active={status === 'na'}
+            activeClass="bg-stone-100 text-stone-500 border-stone-300 line-through"
+            onClick={onNA}
+          />
+        </div>
+        <p className="text-[10px] text-stone-400 italic max-w-[200px] text-right">
+          {status === 'pending' && 'Awaiting review — verify or mark not applicable'}
+          {status === 'confirmed' && 'Verified — this flag will flow to downstream reports'}
+          {status === 'na' && 'Marked not applicable — excluded from downstream reports'}
+        </p>
       </div>
     </div>
   )
@@ -108,7 +115,7 @@ function HITLButton({ label, active, activeClass, onClick }: HITLButtonProps) {
           : 'border-stone-200 text-stone-500 bg-white hover:bg-stone-50'
       )}
     >
-      {active && label === 'Confirm' ? 'Confirmed ✓' : label}
+      {active && label === 'Verified' ? 'Verified ✓' : label}
     </button>
   )
 }

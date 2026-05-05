@@ -45,6 +45,71 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(updated);
     }
 
+    if (body.mode === "create-and-resolve") {
+      const { analysisId, section, severity, title, description, payload, resolutionAction, resolutionNotes, actorName } = body as {
+        analysisId: string;
+        section: string;
+        severity: string;
+        title: string;
+        description: string;
+        payload?: Record<string, unknown>;
+        resolutionAction: FlagResolutionAction;
+        resolutionNotes?: string;
+        actorName?: string;
+      };
+      if (!analysisId || !title || !resolutionAction) {
+        return new Response("analysisId, title, and resolutionAction are required", { status: 400 });
+      }
+
+      // Create the flag and resolve it in one step
+      const { prisma } = await import("@/lib/prisma");
+      const flag = await (prisma as any).ttmFlag.create({
+        data: {
+          analysisId,
+          section: section || "A",
+          severity: severity || "MEDIUM",
+          title,
+          description: description || "",
+          payload: payload || {},
+          resolutionStatus: "ACTIONED",
+          resolutionAction,
+          resolutionNotes: resolutionNotes || "",
+          resolvedByName: actorName || "Admin",
+          resolvedAt: new Date(),
+        },
+      });
+
+      // If Section A with an assigned Cantara code, update mapped rows
+      const assignedCode = payload?.assignedCantaraCode as string | undefined;
+      const accountName = payload?.accountName as string | undefined;
+      if ((section || "A") === "A" && assignedCode && accountName) {
+        try {
+          const { TAXONOMY_BY_CODE } = await import("@/lib/ttm-agent/taxonomy");
+          const analysis = await (prisma as any).ttmAnalysis.findUnique({ where: { id: analysisId } });
+          if (analysis?.normalizedData) {
+            const nd = typeof analysis.normalizedData === "object" ? analysis.normalizedData : {};
+            const updateRows = (rows: unknown) => {
+              if (!Array.isArray(rows)) return rows;
+              return rows.map((row: any) => {
+                if (row.accountName !== accountName) return row;
+                const entry = TAXONOMY_BY_CODE[assignedCode];
+                return { ...row, cantaraCode: entry?.code ?? assignedCode, category: entry?.category ?? null, mappingMethod: "exact", mappingConfidence: 1 };
+              });
+            };
+            await (prisma as any).ttmAnalysis.update({
+              where: { id: analysisId },
+              data: { normalizedData: { ...nd, mappedPlRows: updateRows((nd as any).mappedPlRows), mappedBsRows: updateRows((nd as any).mappedBsRows) } },
+            });
+          }
+        } catch (e) { console.error("[create-and-resolve] GL mapping update failed:", e); }
+      }
+
+      // Return the updated analysis
+      const { getTtmAnalysis } = await import("@/lib/ttm-agent/orchestrator");
+      const updated = await getTtmAnalysis(analysisId);
+      return NextResponse.json(updated);
+    }
+
     if (body.mode === "save-overrides") {
       const { analysisId, userOverrides } = body as {
         analysisId: string;

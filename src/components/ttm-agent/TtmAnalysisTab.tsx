@@ -1,10 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FileSpreadsheet, Loader2, Play, RefreshCw, ShieldAlert, Download } from 'lucide-react'
+import { CheckCircle2, Loader2, Play, AlertCircle, RefreshCw } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
-import { Badge, Button, Card } from '@/components/ui'
+import { Badge, Button, Card, Input } from '@/components/ui'
 import { Ws2RecastPanel } from '@/components/ttm-agent/Ws2RecastPanel'
 import { BaselineValuationReportPanel } from '@/components/ttm-agent/BaselineValuationReportPanel'
 import { Ws21ReviewWorkspace } from '@/components/ttm-agent/Ws21ReviewWorkspace'
@@ -19,29 +19,123 @@ const REQUIRED_DOCS: Array<{ id: TtmRequiredDocumentId; label: string }> = [
   { id: 'monthly_bs_excel', label: 'Monthly Balance Sheet (36 months)' },
 ]
 
-type Ws2SectionKey =
-  | 'ws21-pack'
-  | 'ws21-report'
-  | 'ws21-trends'
-  | 'ws21-working-capital'
-  | 'ws21-review'
-  | 'ws22-recast'
-  | 'ws23-report'
-  | 'ws24-report'
-  | 'ws25-report'
-  | 'ws210-report'
 
-const DEFAULT_SECTION_STATE: Record<Ws2SectionKey, boolean> = {
-  'ws21-pack': false,
-  'ws21-report': false,
-  'ws21-trends': false,
-  'ws21-working-capital': false,
-  'ws21-review': false,
-  'ws22-recast': false,
-  'ws23-report': false,
-  'ws24-report': false,
-  'ws25-report': false,
-  'ws210-report': false,
+// ── Step 3: Clean valuation range entry ─────────────────────────────────────
+function Step3ValuationRange({
+  analysis, clientId, adminName, documentStatuses, onUpdated, baselineBuildError, onBack,
+}: {
+  analysis: TtmAnalysisView; clientId: string; adminName: string; documentStatuses: Record<string, DocumentStatus>
+  onUpdated: (a: TtmAnalysisView) => void; baselineBuildError: string | null; onBack: () => void
+}) {
+  const [low, setLow] = useState(''); const [mid, setMid] = useState(''); const [high, setHigh] = useState('')
+  const [running, setRunning] = useState(false); const [error, setError] = useState<string | null>(null)
+  const [savingFlagId, setSavingFlagId] = useState<string | null>(null)
+  const latestRecast = analysis.recastAnalyses?.[0] ?? null
+  const isApproved = latestRecast?.status === 'APPROVED'
+  const unresolvedFlags = latestRecast?.flags.filter(f => f.resolutionStatus !== 'ACTIONED') ?? []
+  const canRun = low.trim() && mid.trim() && high.trim()
+  const canApprove = latestRecast && !isApproved && unresolvedFlags.length === 0
+  const parseNum = (v: string) => { const n = Number(v.trim().replace(/,/g, '')); return Number.isFinite(n) ? n : null }
+  const fmtCurrency = (v: number | null | undefined) => typeof v === 'number' && Number.isFinite(v) ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'
+  const fmtMultiple = (v: number | null | undefined) => typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(1)}x` : '—'
+
+  const resolveFlag = async (flagId: string, action: 'RESOLVE' | 'ESCALATE_CLIENT') => {
+    if (!latestRecast) return; setSavingFlagId(flagId)
+    try {
+      const res = await fetch('/api/ttm-agent/recast', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'flag', recastAnalysisId: latestRecast.id, flagId, resolutionAction: action, resolutionNotes: '', actorName: adminName }) })
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed')); onUpdated(await res.json())
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to resolve flag') } finally { setSavingFlagId(null) }
+  }
+
+  const runRecast = async () => {
+    setRunning(true); setError(null)
+    try {
+      const assumptions = { multipleLow: parseNum(low), multipleMid: parseNum(mid), multipleHigh: parseNum(high), replacementSalary: null, relatedPartyOwnership: false, fmrEstimate: null, notes: null }
+      const preparedDocuments = await Promise.all(Object.entries(documentStatuses).filter(([, s]) => s?.fileName).slice(0, 5).map(([docId, s]) => prepareWs2DocumentFromServer({ clientId, documentId: docId as any, fileName: s.fileName || docId })))
+      const res = await fetch('/api/ttm-agent/recast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'run', analysisId: analysis.id, assumptions, preparedDocuments }) })
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed')); onUpdated(await res.json())
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to run valuation') } finally { setRunning(false) }
+  }
+
+  const approveRecast = async () => {
+    if (!latestRecast) return; setRunning(true)
+    try {
+      const res = await fetch('/api/ttm-agent/recast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'approve', recastAnalysisId: latestRecast.id, actorName: adminName }) })
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Approval failed')); onUpdated(await res.json())
+    } catch (e) { setError(e instanceof Error ? e.message : 'Approval failed') } finally { setRunning(false) }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-6">
+        <h4 className="text-sm font-semibold text-slate-800 mb-1">Set Valuation Multiples</h4>
+        <p className="text-xs text-slate-400 mb-5">Enter low, mid, and high EBITDA multiples, then click Run.</p>
+        <div className="grid grid-cols-3 gap-4 max-w-lg">
+          <Input label="Low multiple" value={low} onChange={e => setLow(e.target.value)} placeholder="3.5" />
+          <Input label="Mid multiple" value={mid} onChange={e => setMid(e.target.value)} placeholder="4.5" />
+          <Input label="High multiple" value={high} onChange={e => setHigh(e.target.value)} placeholder="5.5" />
+        </div>
+        <div className="mt-5">
+          <Button onClick={() => void runRecast()} disabled={!canRun || running}>
+            {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running...</> : <><Play className="w-3.5 h-3.5" /> Run Valuation</>}
+          </Button>
+        </div>
+        {error && <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+        {baselineBuildError && <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{baselineBuildError}</div>}
+      </Card>
+      {latestRecast && (
+        <>
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-sm font-semibold text-slate-800">Valuation Result</h4>
+              {isApproved ? (<Badge color="green">Approved</Badge>) : (
+                <Button size="sm" onClick={() => void approveRecast()} disabled={!canApprove || running}>
+                  {unresolvedFlags.length > 0 ? `Resolve ${unresolvedFlags.length} flag${unresolvedFlags.length > 1 ? 's' : ''} first` : 'Approve & Continue →'}
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Low · {fmtMultiple(latestRecast.assumptions.multipleLow)}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900 tabular-nums">{fmtCurrency(latestRecast.valuationLow)}</p>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-800 p-4 text-center text-white">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">Mid · {fmtMultiple(latestRecast.assumptions.multipleMid)}</p>
+                <p className="mt-2 text-2xl font-semibold text-amber-300 tabular-nums">{fmtCurrency(latestRecast.valuationMid)}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">High · {fmtMultiple(latestRecast.assumptions.multipleHigh)}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900 tabular-nums">{fmtCurrency(latestRecast.valuationHigh)}</p>
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-slate-500">Based on Normalized EBITDA of <span className="font-semibold text-slate-700">{fmtCurrency(latestRecast.normalizedEbitda)}</span></p>
+          </Card>
+          {unresolvedFlags.length > 0 && (
+            <Card className="p-5">
+              <h4 className="text-sm font-semibold text-slate-800 mb-1">Add-Back Flags</h4>
+              <p className="text-xs text-slate-400 mb-4">The AI flagged {unresolvedFlags.length} add-back item{unresolvedFlags.length > 1 ? 's' : ''} for review. Accept or remove each to unlock approval.</p>
+              <div className="space-y-3">
+                {unresolvedFlags.map(flag => (
+                  <div key={flag.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{flag.title}</p>
+                      {flag.description && flag.description !== flag.title && (<p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{flag.description}</p>)}
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'RESOLVE')}>Accept</Button>
+                      <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'ESCALATE_CLIENT')}>Remove</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+      <div className="flex justify-start"><Button variant="outline" size="sm" onClick={onBack}>← Back to GL Mapping</Button></div>
+    </div>
+  )
 }
 
 function glMappingKey(row: Pick<MappedLedgerRow, 'sourceSheet' | 'accountCode' | 'accountName'>) {
@@ -185,7 +279,6 @@ export function TtmAnalysisTab({
   const [loadingAnalyses, setLoadingAnalyses] = useState(true)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [collapsedSections, setCollapsedSections] = useState<Record<Ws2SectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const [baselineBuildState, setBaselineBuildState] = useState<{
     analysisId: string | null
     running: boolean
@@ -246,41 +339,11 @@ export function TtmAnalysisTab({
 
   const activeAnalysis = analyses.find((analysis) => analysis.id === activeAnalysisId) ?? analyses[0] ?? null
 
-  useEffect(() => {
-    setCollapsedSections((current) => {
-      const next = { ...DEFAULT_SECTION_STATE, ...current }
-      const latestBaselineReport = activeAnalysis?.derivedReports?.find((item) => item.agentId === 'ws2_10_report_generator_v1')
-      if (activeAnalysis?.status === 'APPROVED') {
-        next['ws21-pack'] = true
-        next['ws21-report'] = true
-        next['ws21-trends'] = true
-        next['ws21-working-capital'] = true
-        next['ws21-review'] = true
-      }
-      const latestRecast = activeAnalysis?.recastAnalyses?.[0]
-      if (latestRecast?.status === 'APPROVED') {
-        next['ws22-recast'] = true
-      }
-      if (latestBaselineReport?.status === 'COMPLETE') {
-        next['ws210-report'] = false
-        next['ws23-report'] = true
-        next['ws24-report'] = true
-        next['ws25-report'] = true
-      }
-      return next
-    })
-  }, [activeAnalysisId, activeAnalysis?.status, activeAnalysis?.recastAnalyses, activeAnalysis?.derivedReports])
-
-  const toggleSection = (section: Ws2SectionKey) => {
-    setCollapsedSections((current) => ({
-      ...current,
-      [section]: !current[section],
-    }))
-  }
 
   const runAgent = async () => {
     setRunning(true)
     setError(null)
+    setWizardStep(1)
     try {
       const preparedDocuments = await Promise.all(
         readiness.map((item) =>
@@ -363,7 +426,8 @@ export function TtmAnalysisTab({
       latestRecast?.status === 'APPROVED' &&
       !hasStyledBaselineReport,
   )
-  const showWs21Workspace = Boolean(activeAnalysis && !ws21Approved && !hasStyledBaselineReport)
+  const isFailed = activeAnalysis?.status === 'FAILED'
+  const showWs21Workspace = Boolean(activeAnalysis && !ws21Approved && !isFailed && !hasStyledBaselineReport)
   useEffect(() => {
     if (!activeAnalysis || !shouldAutoBuildBaseline) return
 
@@ -521,164 +585,241 @@ export function TtmAnalysisTab({
     }))
   }, [activeAnalysis, baselineBuildState.analysisId, baselineBuildState.error, baselineBuildState.running, hasStyledBaselineReport])
 
+  // ── Step-based wizard state ──────────────────────────────────────────
+  // Step 1: Flags review (resolve GL mapping + data quality flags)
+  // Step 2: GL mapping final review (editable table with Cantara categories)
+  // Step 3: Valuation range input (WS2-2 recast)
+  // Step 4: Final workbook (editable report with all tabs)
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1)
+
+  // Auto-advance wizard based on analysis state (but not while running)
+  useEffect(() => {
+    if (!activeAnalysis || running) return
+    if (isFailed) { setWizardStep(1); return }
+    if (hasStyledBaselineReport) { setWizardStep(4); return }
+    if (ws21Approved) { setWizardStep(3); return }
+    // New analysis pending review → step 1
+    if (activeAnalysis.status === 'HITL_PENDING') { setWizardStep(1); return }
+  }, [activeAnalysis, isFailed, ws21Approved, hasStyledBaselineReport, running])
+
+  const unresolvedFlags = activeAnalysis?.flags.filter(f => f.resolutionStatus !== 'ACTIONED').length ?? 0
+  const canApproveWs21 = activeAnalysis && !isFailed && unresolvedFlags === 0 && !ws21Approved
+
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      {/* Header with step indicator */}
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">WS2 Analysis Workspace</h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Upload the core financial files, run WS2-1, review only the flagged items, then approve to unlock EBITDA and the baseline valuation report.
-          </p>
+          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Financial Analysis & Valuation</h3>
+          {activeAnalysis && !isFailed && (
+            <div className="flex items-center gap-1 mt-2">
+              {[
+                { n: 1, label: 'Accept / Exclude / Escalate' },
+                { n: 2, label: 'Review GL Mapping' },
+                { n: 3, label: 'Set Valuation Range' },
+                { n: 4, label: 'Workbook & Report' },
+              ].map(({ n, label }) => {
+                const isActive = wizardStep === n
+                const isDone = wizardStep > n || (n === 1 && ws21Approved) || (n === 3 && hasStyledBaselineReport)
+                return (
+                  <button
+                    key={n}
+                    onClick={() => setWizardStep(n as 1 | 2 | 3 | 4)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      isActive ? 'bg-cantara-navy text-white' : isDone ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'
+                    }`}
+                  >
+                    {isDone && !isActive ? <CheckCircle2 className="w-3 h-3" /> : <span className="w-4 text-center">{n}</span>}
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void loadAnalyses()}>
+        {activeAnalysis && (
+          <Button variant="outline" size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
             <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
+            {running ? 'Running...' : 'Start New Analysis'}
           </Button>
-          <Button variant="outline" size="sm" onClick={exportToExcel} disabled={!activeAnalysis}>
-            <Download className="w-3.5 h-3.5" />
-            Export XLSX
-          </Button>
-          <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
-            <Play className="w-3.5 h-3.5" />
-            {running ? 'Running WS2-1 Agent...' : 'Run WS2-1 Agent'}
-          </Button>
-        </div>
+        )}
       </div>
 
+      {/* Error banner */}
       {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
           {error}
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-        <Card className="p-5">
-          <div className="flex items-center gap-2">
-            <FileSpreadsheet className="w-4 h-4 text-amber-600" />
-            <h4 className="text-sm font-semibold text-slate-800">Before You Run</h4>
+      {/* Loading */}
+      {loadingAnalyses && !activeAnalysis && (
+        <Card className="p-8">
+          <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading...
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {readiness.map((item) => (
-              <div key={item.id} className="rounded-xl border border-slate-200 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-slate-700">{item.label}</p>
-                  <Badge color={item.uploaded ? 'green' : 'red'}>{item.uploaded ? 'Uploaded' : 'Missing'}</Badge>
+        </Card>
+      )}
+
+      {/* No analysis yet */}
+      {!activeAnalysis && !loadingAnalyses && (
+        <Card className="p-6">
+          <div className="space-y-4">
+            {readyToRun ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-700">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                All required documents uploaded
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-slate-700">Upload Required Documents</p>
+                {readiness.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 text-sm">
+                    {item.uploaded ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300" />}
+                    <span className={item.uploaded ? 'text-slate-600' : 'text-slate-800 font-medium'}>{item.label}</span>
+                    {item.fileName && <span className="text-xs text-slate-400">({item.fileName})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
+              {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Play className="w-3.5 h-3.5" /> Run Analysis</>}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Running progress */}
+      {activeAnalysis && (running || baselineBuildState.running) && (
+        <Card className="border-amber-200 bg-amber-50/70 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+              <div>
+                <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Generating valuation report...'}</p>
+                <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running...')}</p>
+              </div>
+            </div>
+            {baselineBuildState.running && (
+              <Button variant="outline" size="sm" onClick={() => setBaselineBuildState({ analysisId: null, running: false, step: null, error: null })}>
+                Cancel
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Failed */}
+      {activeAnalysis && isFailed && (
+        <Card className="border-rose-200 bg-rose-50 p-5">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-rose-800">Analysis Failed</p>
+              <p className="mt-1 text-sm text-rose-700">The uploaded P&L file couldn't be processed. Verify it contains monthly data with labeled revenue lines, then start a new analysis.</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* ═══════════════ STEP 1: Review Flags ═══════════════ */}
+      {activeAnalysis && !isFailed && !running && wizardStep === 1 && (
+        <div className="space-y-4">
+          {ws21Approved ? (
+            <Card className="border-emerald-200 bg-emerald-50/60 p-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <p className="text-sm font-semibold text-emerald-800">Step 1 complete — all flags resolved and approved.</p>
                 </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {item.fileName || 'No file uploaded yet.'}
-                </p>
-                {item.uploadedAt && (
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    {new Date(item.uploadedAt).toLocaleString()}
-                  </p>
-                )}
+                <Button size="sm" onClick={() => setWizardStep(2)}>Continue to GL Mapping →</Button>
               </div>
-            ))}
-          </div>
-        </Card>
+            </Card>
+          ) : (
+            <>
+              <Ws21ReviewWorkspace
+                analysis={activeAnalysis}
+                actorName={adminName}
+                onUpdated={handleUpdatedAnalysis}
+              />
+              {canApproveWs21 && (
+                <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex justify-end">
+                  <Button size="sm" onClick={() => setWizardStep(2)}>
+                    Next: Review GL Mapping →
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
-        <Card className="p-5">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-slate-500" />
-            <h4 className="text-sm font-semibold text-slate-800">How This Flows</h4>
+      {/* ═══════════════ STEP 2: GL Mapping Review ═══════════════ */}
+      {activeAnalysis && !isFailed && wizardStep === 2 && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            Review the GL code mappings below. Adjust any that look wrong, then continue to set the valuation range.
           </div>
-          <div className="mt-4 space-y-3">
-            {[
-              'Run WS2-1 to build the TTM model and identify only the sections that need review.',
-              'Resolve the review queue. Supporting detail stays collapsed until you open it.',
-              'Approve WS2-1 to unlock WS2-2 EBITDA recast and the full valuation report.',
-            ].map((step) => (
-              <div key={step} className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                {step}
-              </div>
-            ))}
+          <GlMappingEditor analysis={activeAnalysis} onUpdated={handleUpdatedAnalysis} />
+          <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex items-center justify-between">
+            <Button variant="outline" size="sm" onClick={() => setWizardStep(1)}>
+              ← Back to Flags
+            </Button>
+            {!ws21Approved ? (
+              <Button size="sm" onClick={() => {
+                // Trigger the approve action from AdminReviewDashboard
+                fetch('/api/ttm-agent/hitl', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ mode: 'approve', analysisId: activeAnalysis.id, actorName: adminName }),
+                }).then(res => res.ok ? res.json() : Promise.reject(new Error('Approval failed')))
+                  .then(updated => { handleUpdatedAnalysis(updated); setWizardStep(3) })
+                  .catch(err => setError(err instanceof Error ? err.message : 'Approval failed'))
+              }}>
+                Approve & Set Valuation Range →
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => setWizardStep(3)}>
+                Next: Set Valuation Range →
+              </Button>
+            )}
           </div>
+        </div>
+      )}
 
-          <div className="mt-4 rounded-xl border border-slate-200 p-4">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Run Status</p>
-            <p className="mt-2 text-sm text-slate-700">
-              {readyToRun ? 'All required WS2-1 source documents are present.' : 'Upload all required WS2-1 source documents before running the agent.'}
-            </p>
-            <p className="mt-2 text-xs text-slate-500">
-              QuickBooks remains optional. Section B will stay marked as skipped until that connection exists.
-            </p>
+      {/* ═══════════════ STEP 3: Valuation Range ═══════════════ */}
+      {activeAnalysis && ws21Approved && wizardStep === 3 && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            Enter low, mid, and high EBITDA multiples to generate a valuation range. The AI will apply these to the normalized EBITDA and flag any add-backs for your review.
           </div>
-        </Card>
-      </div>
+          <Step3ValuationRange
+            analysis={activeAnalysis}
+            clientId={clientId}
+            adminName={adminName}
+            documentStatuses={documentStatuses}
+            onUpdated={handleUpdatedAnalysis}
+            baselineBuildError={baselineBuildState.error}
+            onBack={() => setWizardStep(2)}
+          />
+        </div>
+      )}
 
-      {activeAnalysis ? (
-        <div className="space-y-6">
-          <section id="ws210-report" className="scroll-mt-24">
+      {/* ═══════════════ STEP 4: Final Report / Workbook ═══════════════ */}
+      {activeAnalysis && hasStyledBaselineReport && wizardStep === 4 && (
+        <div className="space-y-4">
           <BaselineValuationReportPanel
             clientName={clientName}
             analysis={activeAnalysis}
             onUpdated={handleUpdatedAnalysis}
             onExportXlsx={exportToExcel}
-            hideWorkflowChrome={hasStyledBaselineReport}
-            collapsed={collapsedSections['ws210-report']}
-            onToggleCollapse={() => toggleSection('ws210-report')}
+            hideWorkflowChrome={true}
+            collapsed={false}
+            onToggleCollapse={() => {}}
           />
-          </section>
-          {baselineBuildState.running && baselineBuildState.analysisId === activeAnalysis.id && !hasStyledBaselineReport && (
-            <Card className="border-amber-200 bg-amber-50/70 p-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
-                  <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">Building the baseline valuation report</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {baselineBuildState.step ?? 'Running downstream WS2 reports...'}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          )}
-          {baselineBuildState.error && baselineBuildState.analysisId === activeAnalysis.id && !hasStyledBaselineReport && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {baselineBuildState.error}
-            </div>
-          )}
-          {!hasStyledBaselineReport && (
-          <>
-          {showWs21Workspace && (
-            <Ws21ReviewWorkspace
-              analysis={activeAnalysis}
-              actorName={adminName}
-              onUpdated={handleUpdatedAnalysis}
-            />
-          )}
-          {/* WS2-2 Recast Panel — visible after WS2-1 approval */}
-          {ws21Approved && (
-            <section id="ws22-recast" className="scroll-mt-24">
-            <Ws2RecastPanel
-              analysis={activeAnalysis}
-              clientId={clientId}
-              adminName={adminName}
-              documentStatuses={documentStatuses}
-              onUpdated={handleUpdatedAnalysis}
-              collapsed={collapsedSections['ws22-recast']}
-              onToggleCollapse={() => toggleSection('ws22-recast')}
-            />
-            </section>
-          )}
-          </>
-          )}
-
-          {!ws21Approved && <GlMappingEditor analysis={activeAnalysis} onUpdated={handleUpdatedAnalysis} />}
         </div>
-      ) : loadingAnalyses ? (
-        <Card className="p-8">
-          <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading WS2 analysis...
-          </div>
-        </Card>
-      ) : (
-        <Card className="p-8 text-center text-sm text-slate-400">
-          No WS2-1 runs yet. Upload the required valuation documents in the client Collection flow, then run the agent here.
-        </Card>
       )}
     </div>
   )
