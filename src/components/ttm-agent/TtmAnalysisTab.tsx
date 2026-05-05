@@ -426,6 +426,25 @@ export function TtmAnalysisTab({
       {/* State: Analysis exists */}
       {activeAnalysis && (
         <div className="space-y-6">
+          {/* Re-run option */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Badge color={activeAnalysis.status === 'APPROVED' ? 'green' : activeAnalysis.status === 'FAILED' ? 'red' : 'gold'}>
+                {activeAnalysis.status === 'APPROVED' ? 'Approved' : activeAnalysis.status === 'FAILED' ? 'Failed' : 'In Review'}
+              </Badge>
+              <span>Run #{activeAnalysis.version} · {new Date(activeAnalysis.createdAt).toLocaleDateString()}</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runAgent()}
+              disabled={!readyToRun || running}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              {running ? 'Running...' : 'Start New Analysis'}
+            </Button>
+          </div>
+
           {/* Running / building progress */}
           {(running || (baselineBuildState.running && baselineBuildState.analysisId === activeAnalysis.id)) && !hasStyledBaselineReport && (
             <Card className="border-amber-200 bg-amber-50/70 p-5">
