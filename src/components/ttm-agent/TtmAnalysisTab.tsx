@@ -18,30 +18,6 @@ const REQUIRED_DOCS: Array<{ id: TtmRequiredDocumentId; label: string }> = [
   { id: 'monthly_bs_excel', label: 'Monthly Balance Sheet (36 months)' },
 ]
 
-type Ws2SectionKey =
-  | 'ws21-pack'
-  | 'ws21-report'
-  | 'ws21-trends'
-  | 'ws21-working-capital'
-  | 'ws21-review'
-  | 'ws22-recast'
-  | 'ws23-report'
-  | 'ws24-report'
-  | 'ws25-report'
-  | 'ws210-report'
-
-const DEFAULT_SECTION_STATE: Record<Ws2SectionKey, boolean> = {
-  'ws21-pack': false,
-  'ws21-report': false,
-  'ws21-trends': false,
-  'ws21-working-capital': false,
-  'ws21-review': false,
-  'ws22-recast': false,
-  'ws23-report': false,
-  'ws24-report': false,
-  'ws25-report': false,
-  'ws210-report': false,
-}
 
 export function TtmAnalysisTab({
   clientId,
@@ -119,37 +95,6 @@ export function TtmAnalysisTab({
 
   const activeAnalysis = analyses.find((analysis) => analysis.id === activeAnalysisId) ?? analyses[0] ?? null
 
-  useEffect(() => {
-    setCollapsedSections((current) => {
-      const next = { ...DEFAULT_SECTION_STATE, ...current }
-      const latestBaselineReport = activeAnalysis?.derivedReports?.find((item) => item.agentId === 'ws2_10_report_generator_v1')
-      if (activeAnalysis?.status === 'APPROVED') {
-        next['ws21-pack'] = true
-        next['ws21-report'] = true
-        next['ws21-trends'] = true
-        next['ws21-working-capital'] = true
-        next['ws21-review'] = true
-      }
-      const latestRecast = activeAnalysis?.recastAnalyses?.[0]
-      if (latestRecast?.status === 'APPROVED') {
-        next['ws22-recast'] = true
-      }
-      if (latestBaselineReport?.status === 'COMPLETE') {
-        next['ws210-report'] = false
-        next['ws23-report'] = true
-        next['ws24-report'] = true
-        next['ws25-report'] = true
-      }
-      return next
-    })
-  }, [activeAnalysisId, activeAnalysis?.status, activeAnalysis?.recastAnalyses, activeAnalysis?.derivedReports])
-
-  const toggleSection = (section: Ws2SectionKey) => {
-    setCollapsedSections((current) => ({
-      ...current,
-      [section]: !current[section],
-    }))
-  }
 
   const runAgent = async () => {
     setRunning(true)
