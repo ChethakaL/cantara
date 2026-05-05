@@ -144,6 +144,57 @@ function buildTaxonomyReference(): string {
 export function excelToText(buffer: Buffer, sheetName?: string): string {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
+  // Fix QuickBooks formula exports where cells have formulas like =38579.70 but cached value is 0
+  for (const wsName of workbook.SheetNames) {
+    const ws = workbook.Sheets[wsName];
+    const ref = ws?.['!ref'];
+    if (!ref) continue;
+    const range = XLSX.utils.decode_range(ref);
+    const fixedCells = new Set<string>();
+    // Pass 1: fix simple numeric formulas and clear stale formatted values
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[addr];
+        if (!cell || !cell.f) continue;
+        delete cell.w;
+        const f = cell.f.trim();
+        const parsed = Number(f);
+        if (!isNaN(parsed) && f !== '') {
+          cell.v = parsed; cell.t = 'n'; fixedCells.add(addr);
+        }
+      }
+    }
+    // Multi-pass: resolve sum-of-references formulas
+    if (fixedCells.size > 0) {
+      for (let pass = 0; pass < 10; pass++) {
+        let resolved = 0;
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          for (let c = range.s.c; c <= range.e.c; c++) {
+            const addr = XLSX.utils.encode_cell({ r, c });
+            const cell = ws[addr];
+            if (!cell || !cell.f || fixedCells.has(addr)) continue;
+            if (cell.v !== 0 && cell.v !== null && typeof cell.v === 'number' && cell.v !== 0) continue;
+            const formula = cell.f.replace(/\s/g, '');
+            const refs = formula.match(/[A-Z]+\d+/g);
+            if (!refs) continue;
+            const cleaned = formula.replace(/[A-Z]+\d+/g, '0').replace(/[()+-]/g, '').replace(/^0+$/, '');
+            if (cleaned !== '' && cleaned !== '0') continue;
+            let sum = 0; let valid = true;
+            for (const cellRef of refs) {
+              const refCell = ws[cellRef];
+              if (!refCell || refCell.v === undefined || refCell.v === null) { sum += 0; continue; }
+              if (typeof refCell.v !== 'number') { valid = false; break; }
+              sum += refCell.v;
+            }
+            if (valid) { cell.v = sum; cell.t = 'n'; fixedCells.add(addr); resolved++; }
+          }
+        }
+        if (resolved === 0) break;
+      }
+    }
+  }
+
   const sheetsToProcess = sheetName
     ? [sheetName]
     : workbook.SheetNames;
