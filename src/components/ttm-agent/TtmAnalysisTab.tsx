@@ -698,12 +698,19 @@ export function TtmAnalysisTab({
       {/* Running progress */}
       {activeAnalysis && (running || baselineBuildState.running) && (
         <Card className="border-amber-200 bg-amber-50/70 p-5">
-          <div className="flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
-            <div>
-              <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Generating valuation report...'}</p>
-              <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running...')}</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+              <div>
+                <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Generating valuation report...'}</p>
+                <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running...')}</p>
+              </div>
             </div>
+            {baselineBuildState.running && (
+              <Button variant="outline" size="sm" onClick={() => setBaselineBuildState({ analysisId: null, running: false, step: null, error: null })}>
+                Cancel
+              </Button>
+            )}
           </div>
         </Card>
       )}
