@@ -181,7 +181,8 @@ export function TtmAnalysisTab({
       latestRecast?.status === 'APPROVED' &&
       !hasStyledBaselineReport,
   )
-  const showWs21Workspace = Boolean(activeAnalysis && !ws21Approved && !hasStyledBaselineReport)
+  const isFailed = activeAnalysis?.status === 'FAILED'
+  const showWs21Workspace = Boolean(activeAnalysis && !ws21Approved && !isFailed && !hasStyledBaselineReport)
   useEffect(() => {
     if (!activeAnalysis || !shouldAutoBuildBaseline) return
 
@@ -472,6 +473,24 @@ export function TtmAnalysisTab({
               <AlertCircle className="w-4 h-4 shrink-0" />
               {baselineBuildState.error}
             </div>
+          )}
+
+          {/* Failed analysis — clear message */}
+          {isFailed && (
+            <Card className="border-rose-200 bg-rose-50 p-5">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-rose-800">Analysis Failed</p>
+                  <p className="mt-1 text-sm text-rose-700">
+                    The financial analysis could not be completed. This usually means the uploaded P&L file format wasn't recognized or contains insufficient data.
+                  </p>
+                  <p className="mt-2 text-xs text-rose-600">
+                    Please verify your P&L file contains 36 months of monthly data with clearly labeled revenue lines, then click "Start New Analysis" above to try again.
+                  </p>
+                </div>
+              </div>
+            </Card>
           )}
 
           {/* Review flagged items — shown when analysis needs approval */}

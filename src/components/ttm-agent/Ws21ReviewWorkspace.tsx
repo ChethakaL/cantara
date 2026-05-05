@@ -44,7 +44,7 @@ export function Ws21ReviewWorkspace({
           <h3 className="text-lg font-semibold text-slate-900">WS2-1 Review</h3>
           <Badge color={statusColor}>{statusLabel}</Badge>
           {unresolvedCount > 0 && <Badge color="gold">{unresolvedCount} open</Badge>}
-          {unresolvedCount === 0 && !isApproved && <Badge color="green">Ready to approve</Badge>}
+          {unresolvedCount === 0 && !isApproved && !isFailed && <Badge color="green">Ready to approve</Badge>}
         </div>
         <p className="text-xs text-slate-400">{new Date(analysis.createdAt).toLocaleString()}</p>
       </div>
