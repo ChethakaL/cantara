@@ -439,49 +439,13 @@ export function Ws2RecastPanel({
             </div>
           </div>
         ) : (
-          <>
-            <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="rounded-2xl border border-slate-200 p-5">
-                <h4 className="text-sm font-semibold text-slate-800">Admin inputs</h4>
-                <p className="mt-1 text-xs text-slate-500">Enter the EBITDA assumptions once, then run WS2-2. This becomes the working EBITDA and valuation range for the next stage.</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  <Input label="Low multiple" value={assumptions.multipleLow} onChange={(event) => setAssumptions((current) => ({ ...current, multipleLow: event.target.value }))} placeholder="3.5" />
-                  <Input label="Mid multiple" value={assumptions.multipleMid} onChange={(event) => setAssumptions((current) => ({ ...current, multipleMid: event.target.value }))} placeholder="4.5" />
-                  <Input label="High multiple" value={assumptions.multipleHigh} onChange={(event) => setAssumptions((current) => ({ ...current, multipleHigh: event.target.value }))} placeholder="5.5" />
-                </div>
-                <div className="mt-3">
-                  <Textarea label="Admin notes" rows={2} value={assumptions.notes} onChange={(event) => setAssumptions((current) => ({ ...current, notes: event.target.value }))} placeholder="Why this multiple range or any rent / replacement salary context." />
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 p-5">
-                <h4 className="text-sm font-semibold text-slate-800">Before you run</h4>
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    {hasRequiredMultiples
-                      ? 'Valuation multiples are set.'
-                      : 'Enter low, mid, and high valuation multiples before running WS2-2.'}
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    {requiredReady ? 'The add-back disclosure is uploaded.' : 'The add-back disclosure is still missing.'}
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    {recastDispatchTask?.status === 'RELEASED' ? 'WS2-2 is released and ready to run.' : 'WS2-2 remains blocked until WS2-1 is approved.'}
-                  </div>
-                </div>
-                <div className="mt-4 grid gap-3">
-                  {[...REQUIRED_RECAST_DOCS, ...ADDBACK_DETAIL_DOCS, ...OPTIONAL_RECAST_DOCS].map((doc) => (
-                    <div key={doc.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3">
-                      <span className="text-sm text-slate-700">{doc.label}</span>
-                      <Badge color={documentStatuses[doc.id]?.fileName ? 'green' : REQUIRED_RECAST_DOCS.some(r => r.id === doc.id) ? 'red' : 'slate'}>
-                        {documentStatuses[doc.id]?.fileName ? 'Uploaded' : REQUIRED_RECAST_DOCS.some(r => r.id === doc.id) ? 'Missing' : 'Optional'}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          <div className="mt-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input label="Low multiple" value={assumptions.multipleLow} onChange={(event) => setAssumptions((current) => ({ ...current, multipleLow: event.target.value }))} placeholder="3.5" />
+              <Input label="Mid multiple" value={assumptions.multipleMid} onChange={(event) => setAssumptions((current) => ({ ...current, multipleMid: event.target.value }))} placeholder="4.5" />
+              <Input label="High multiple" value={assumptions.multipleHigh} onChange={(event) => setAssumptions((current) => ({ ...current, multipleHigh: event.target.value }))} placeholder="5.5" />
             </div>
-          </>
+          </div>
         )}
       </Card>
 

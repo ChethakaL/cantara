@@ -248,9 +248,7 @@ export function AdminReviewDashboard({
             <Badge color="green">Ready</Badge>
           )}
         </div>
-        <Button size="sm" onClick={() => void approve()} disabled={analysis.status === 'APPROVED' || unresolvedCount > 0 || approving}>
-          {approving ? 'Approving...' : 'Approve WS2-1'}
-        </Button>
+        {/* Approve button removed — approval handled in the wizard step */}
       </div>
 
       {/* ── Compact section tabs ────────────────────────────────────── */}
@@ -305,7 +303,7 @@ export function AdminReviewDashboard({
             </div>
 
             {/* Items */}
-            {(current.open.length > 0 ? current.open : current.entries).map(({ item, flag: rawFlag }, i) => {
+            {current.entries.map(({ item, flag: rawFlag }, i) => {
               // If flag is null, try to find a matching one by title (check unresolved first, then resolved)
               const flag = rawFlag
                 ?? analysis.flags.find(f => f.section === current.section && f.title === item.title && f.resolutionStatus !== 'ACTIONED')

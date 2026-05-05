@@ -100,6 +100,7 @@ export function TtmAnalysisTab({
   const runAgent = async () => {
     setRunning(true)
     setError(null)
+    setWizardStep(1)
     try {
       const preparedDocuments = await Promise.all(
         readiness.map((item) =>
@@ -341,14 +342,64 @@ export function TtmAnalysisTab({
     }))
   }, [activeAnalysis, baselineBuildState.analysisId, baselineBuildState.error, baselineBuildState.running, hasStyledBaselineReport])
 
+  // ── Step-based wizard state ──────────────────────────────────────────
+  // Step 1: Flags review (resolve GL mapping + data quality flags)
+  // Step 2: GL mapping final review (editable table with Cantara categories)
+  // Step 3: Valuation range input (WS2-2 recast)
+  // Step 4: Final workbook (editable report with all tabs)
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1)
+
+  // Auto-advance wizard based on analysis state (but not while running)
+  useEffect(() => {
+    if (!activeAnalysis || running) return
+    if (isFailed) { setWizardStep(1); return }
+    if (hasStyledBaselineReport) { setWizardStep(4); return }
+    if (ws21Approved) { setWizardStep(3); return }
+    // New analysis pending review → step 1
+    if (activeAnalysis.status === 'HITL_PENDING') { setWizardStep(1); return }
+  }, [activeAnalysis, isFailed, ws21Approved, hasStyledBaselineReport, running])
+
+  const unresolvedFlags = activeAnalysis?.flags.filter(f => f.resolutionStatus !== 'ACTIONED').length ?? 0
+  const canApproveWs21 = activeAnalysis && !isFailed && unresolvedFlags === 0 && !ws21Approved
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Financial Analysis &amp; Valuation</h3>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Upload financial documents, review flagged items, then generate the valuation report.
-        </p>
+      {/* Header with step indicator */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Financial Analysis & Valuation</h3>
+          {activeAnalysis && !isFailed && (
+            <div className="flex items-center gap-1 mt-2">
+              {[
+                { n: 1, label: 'Review Flags' },
+                { n: 2, label: 'GL Mapping' },
+                { n: 3, label: 'Valuation' },
+                { n: 4, label: 'Report' },
+              ].map(({ n, label }) => {
+                const isActive = wizardStep === n
+                const isDone = wizardStep > n || (n === 1 && ws21Approved) || (n === 3 && hasStyledBaselineReport)
+                return (
+                  <button
+                    key={n}
+                    onClick={() => setWizardStep(n as 1 | 2 | 3 | 4)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      isActive ? 'bg-cantara-navy text-white' : isDone ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'
+                    }`}
+                  >
+                    {isDone && !isActive ? <CheckCircle2 className="w-3 h-3" /> : <span className="w-4 text-center">{n}</span>}
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+        {activeAnalysis && (
+          <Button variant="outline" size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
+            <RefreshCw className="w-3.5 h-3.5" />
+            {running ? 'Running...' : 'Start New Analysis'}
+          </Button>
+        )}
       </div>
 
       {/* Error banner */}
@@ -359,225 +410,153 @@ export function TtmAnalysisTab({
         </div>
       )}
 
-      {/* State: Loading existing analyses */}
+      {/* Loading */}
       {loadingAnalyses && !activeAnalysis && (
         <Card className="p-8">
           <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading analysis data...
+            Loading...
           </div>
         </Card>
       )}
 
-      {/* State: No analysis yet — show document status + run button */}
+      {/* No analysis yet */}
       {!activeAnalysis && !loadingAnalyses && (
         <Card className="p-6">
           <div className="space-y-4">
-            {/* Document readiness */}
             {readyToRun ? (
               <div className="flex items-center gap-2 text-sm text-emerald-700">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>All required documents uploaded</span>
+                All required documents uploaded
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <p className="text-sm font-medium text-slate-700">Upload Required Documents</p>
-                <div className="space-y-2">
-                  {readiness.map((item) => (
-                    <div key={item.id} className="flex items-center gap-2 text-sm">
-                      {item.uploaded ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                      ) : (
-                        <div className="w-4 h-4 rounded-full border-2 border-slate-300" />
-                      )}
-                      <span className={item.uploaded ? 'text-slate-600' : 'text-slate-800 font-medium'}>
-                        {item.label}
-                      </span>
-                      {item.fileName && (
-                        <span className="text-xs text-slate-400 ml-1">({item.fileName})</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                {readiness.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 text-sm">
+                    {item.uploaded ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300" />}
+                    <span className={item.uploaded ? 'text-slate-600' : 'text-slate-800 font-medium'}>{item.label}</span>
+                    {item.fileName && <span className="text-xs text-slate-400">({item.fileName})</span>}
+                  </div>
+                ))}
               </div>
             )}
-
-            {/* Run button */}
-            <Button
-              size="sm"
-              onClick={() => void runAgent()}
-              disabled={!readyToRun || running}
-              className="w-full sm:w-auto"
-            >
-              {running ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5" />
-                  Run Analysis
-                </>
-              )}
+            <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
+              {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Play className="w-3.5 h-3.5" /> Run Analysis</>}
             </Button>
           </div>
         </Card>
       )}
 
-      {/* State: Analysis exists */}
-      {activeAnalysis && (
-        <div className="space-y-6">
-          {/* Re-run option */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <Badge color={activeAnalysis.status === 'APPROVED' ? 'green' : activeAnalysis.status === 'FAILED' ? 'red' : 'gold'}>
-                {activeAnalysis.status === 'APPROVED' ? 'Approved' : activeAnalysis.status === 'FAILED' ? 'Failed' : 'In Review'}
-              </Badge>
-              <span>Run #{activeAnalysis.version} · {new Date(activeAnalysis.createdAt).toLocaleDateString()}</span>
+      {/* Running progress */}
+      {activeAnalysis && (running || baselineBuildState.running) && (
+        <Card className="border-amber-200 bg-amber-50/70 p-5">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+            <div>
+              <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Generating valuation report...'}</p>
+              <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running...')}</p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void runAgent()}
-              disabled={!readyToRun || running}
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              {running ? 'Running...' : 'Start New Analysis'}
+          </div>
+        </Card>
+      )}
+
+      {/* Failed */}
+      {activeAnalysis && isFailed && (
+        <Card className="border-rose-200 bg-rose-50 p-5">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-rose-800">Analysis Failed</p>
+              <p className="mt-1 text-sm text-rose-700">The uploaded P&L file couldn't be processed. Verify it contains monthly data with labeled revenue lines, then start a new analysis.</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* ═══════════════ STEP 1: Review Flags ═══════════════ */}
+      {activeAnalysis && !isFailed && !running && wizardStep === 1 && (
+        <div className="space-y-4">
+          <Ws21ReviewWorkspace
+            analysis={activeAnalysis}
+            actorName={adminName}
+            onUpdated={handleUpdatedAnalysis}
+          />
+          {canApproveWs21 && (
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setWizardStep(2)}>
+                Next: Review GL Mapping →
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════ STEP 2: GL Mapping Review ═══════════════ */}
+      {activeAnalysis && !isFailed && wizardStep === 2 && (
+        <div className="space-y-4">
+          <Ws21StructuredReport analysis={activeAnalysis} />
+          <div className="flex items-center justify-between">
+            <Button variant="outline" size="sm" onClick={() => setWizardStep(1)}>
+              ← Back to Flags
+            </Button>
+            {!ws21Approved ? (
+              <Button size="sm" onClick={() => {
+                // Trigger the approve action from AdminReviewDashboard
+                fetch('/api/ttm-agent/hitl', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ mode: 'approve', analysisId: activeAnalysis.id, actorName: adminName }),
+                }).then(res => res.ok ? res.json() : Promise.reject(new Error('Approval failed')))
+                  .then(updated => { handleUpdatedAnalysis(updated); setWizardStep(3) })
+                  .catch(err => setError(err instanceof Error ? err.message : 'Approval failed'))
+              }}>
+                Approve & Set Valuation Range →
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => setWizardStep(3)}>
+                Next: Valuation Range →
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ STEP 3: Valuation Range ═══════════════ */}
+      {activeAnalysis && ws21Approved && wizardStep === 3 && (
+        <div className="space-y-4">
+          <Ws2RecastPanel
+            analysis={activeAnalysis}
+            clientId={clientId}
+            adminName={adminName}
+            documentStatuses={documentStatuses}
+            onUpdated={(updated) => { handleUpdatedAnalysis(updated); }}
+            collapsed={false}
+            onToggleCollapse={() => {}}
+          />
+          {baselineBuildState.error && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{baselineBuildState.error}</div>
+          )}
+          <div className="flex justify-start">
+            <Button variant="outline" size="sm" onClick={() => setWizardStep(2)}>
+              ← Back to GL Mapping
             </Button>
           </div>
+        </div>
+      )}
 
-          {/* Running / building progress */}
-          {(running || (baselineBuildState.running && baselineBuildState.analysisId === activeAnalysis.id)) && !hasStyledBaselineReport && (
-            <Card className="border-amber-200 bg-amber-50/70 p-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
-                  <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {running ? 'Analyzing financial data...' : 'Generating valuation report...'}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {running
-                      ? 'Building the financial model and identifying items for review.'
-                      : (baselineBuildState.step ?? 'Running downstream analysis...')}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* Build error */}
-          {baselineBuildState.error && baselineBuildState.analysisId === activeAnalysis.id && !hasStyledBaselineReport && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              {baselineBuildState.error}
-            </div>
-          )}
-
-          {/* Failed analysis — clear message */}
-          {isFailed && (
-            <Card className="border-rose-200 bg-rose-50 p-5">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-rose-800">Analysis Failed</p>
-                  <p className="mt-1 text-sm text-rose-700">
-                    The financial analysis could not be completed. This usually means the uploaded P&L file format wasn't recognized or contains insufficient data.
-                  </p>
-                  <p className="mt-2 text-xs text-rose-600">
-                    Please verify your P&L file contains 36 months of monthly data with clearly labeled revenue lines, then click "Start New Analysis" above to try again.
-                  </p>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* Review flagged items — shown when analysis needs approval */}
-          {showWs21Workspace && (
-            <Ws21ReviewWorkspace
-              analysis={activeAnalysis}
-              actorName={adminName}
-              onUpdated={handleUpdatedAnalysis}
-            />
-          )}
-
-          {/* Full GL mapping + financial summary — shown after analysis, before approval */}
-          {activeAnalysis && !isFailed && (
-            <Ws21StructuredReport analysis={activeAnalysis} />
-          )}
-
-          {/* Recast panel — shown after approval, before report is ready */}
-          {ws21Approved && !hasStyledBaselineReport && (
-            <Ws2RecastPanel
-              analysis={activeAnalysis}
-              clientId={clientId}
-              adminName={adminName}
-              documentStatuses={documentStatuses}
-              onUpdated={handleUpdatedAnalysis}
-              collapsed={false}
-              onToggleCollapse={() => {}}
-            />
-          )}
-
-          {/* Final valuation report */}
-          {hasStyledBaselineReport && (
-            <BaselineValuationReportPanel
-              clientName={clientName}
-              analysis={activeAnalysis}
-              onUpdated={handleUpdatedAnalysis}
-              onExportXlsx={exportToExcel}
-              hideWorkflowChrome={true}
-              collapsed={false}
-              onToggleCollapse={() => {}}
-            />
-          )}
-
-          {/* GL Code Mapping — collapsible reference */}
-          {activeAnalysis.normalizedData?.mappedPlRows && Array.isArray(activeAnalysis.normalizedData.mappedPlRows) && (activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>).filter(r => r.accountCode).length > 0 && (
-            <details className="group">
-              <summary className="cursor-pointer rounded-xl border border-slate-200 bg-white px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-800">GL Code Mapping</h4>
-                  <p className="text-xs text-slate-400 mt-0.5">Verify how source GL codes were mapped to Cantara categories</p>
-                </div>
-                <Badge color="slate">
-                  {(activeAnalysis.normalizedData.mappedPlRows as Array<{ accountCode: string | null }>).filter(r => r.accountCode).length} codes
-                </Badge>
-              </summary>
-              <div className="mt-2 rounded-xl border border-slate-200 bg-white overflow-hidden">
-                <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="sticky top-0 bg-slate-50">
-                      <tr className="border-b border-slate-200 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                        <th className="px-4 py-2.5">GL Code</th>
-                        <th className="px-4 py-2.5">Description</th>
-                        <th className="px-4 py-2.5">Cantara Category</th>
-                        <th className="px-4 py-2.5 text-right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {(activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>)
-                        .filter((row) => row.accountCode)
-                        .map((row, i) => (
-                          <tr key={`${row.accountCode}-${i}`} className="hover:bg-slate-50/50">
-                            <td className="px-4 py-2 text-slate-500 font-mono text-xs">{row.accountCode}</td>
-                            <td className="px-4 py-2 text-slate-700">{row.accountName}</td>
-                            <td className="px-4 py-2 text-slate-500">{row.cantaraCode ?? 'UNMAPPED'}</td>
-                            <td className="px-4 py-2 text-right tabular-nums text-slate-700">
-                              {typeof row.total === 'number' && Number.isFinite(row.total)
-                                ? `$${Math.round(row.total).toLocaleString()}`
-                                : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </details>
-          )}
+      {/* ═══════════════ STEP 4: Final Report / Workbook ═══════════════ */}
+      {activeAnalysis && hasStyledBaselineReport && wizardStep === 4 && (
+        <div className="space-y-4">
+          <BaselineValuationReportPanel
+            clientName={clientName}
+            analysis={activeAnalysis}
+            onUpdated={handleUpdatedAnalysis}
+            onExportXlsx={exportToExcel}
+            hideWorkflowChrome={true}
+            collapsed={false}
+            onToggleCollapse={() => {}}
+          />
         </div>
       )}
     </div>
