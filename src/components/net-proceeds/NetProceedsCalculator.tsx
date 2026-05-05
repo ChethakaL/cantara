@@ -258,8 +258,8 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
         const res = await fetch(`/api/client-data/${clientId}?section=netProceeds`)
         if (!res.ok) return
         const json = await res.json()
-        if (json?.data) {
-          const loaded = json.data as Partial<NetProceedsState>
+        const loaded = (json?.data ?? json) as Partial<NetProceedsState> | null
+        if (loaded) {
           setForm({
             ...DEFAULT_STATE,
             ...loaded,
@@ -277,8 +277,8 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
     loadSaved()
   }, [clientId])
 
-  // Save handler
-  const handleSave = useCallback(async () => {
+  // Save draft handler
+  const handleSaveDraft = useCallback(async () => {
     try {
       await fetch(`/api/client-data/${clientId}`, {
         method: 'PUT',
@@ -599,12 +599,12 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
               <RotateCcw className="w-3.5 h-3.5" />
               Reset
             </Button>
-            <Button variant="outline" size="sm" onClick={handleSave} className="relative">
+            <Button variant="outline" size="sm" onClick={handleSaveDraft} className="relative">
               <Save className="w-3.5 h-3.5" />
-              Save
+              Save Draft
               {savedBadge && (
                 <span className="absolute -top-2 -right-2 text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-medium animate-pulse">
-                  Saved
+                  Draft saved
                 </span>
               )}
             </Button>
@@ -1021,12 +1021,12 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
 
               <SectionDivider />
 
-              <ResultRow label="13. Total Net Proceeds Pre-Tax (incl. Deferred)" value={calc.totalNetProceedsPreTax} bold highlightYellow />
+              <ResultRow label="13. Total Net Proceeds Pre-Tax (incl. Deferred)" value={calc.totalNetProceedsPreTax} bold highlight />
 
               <SectionDivider />
 
               <div className="my-1" />
-              <ResultRow label="14. = Estimated Total Proceeds on Sale (Post-Tax)" value={calc.estimatedTotalProceedsPostTax} bold highlightYellow />
+              <ResultRow label="14. = Estimated Total Proceeds on Sale (Post-Tax)" value={calc.estimatedTotalProceedsPostTax} bold highlight />
               <div className="py-2" />
             </div>
           </Card>
