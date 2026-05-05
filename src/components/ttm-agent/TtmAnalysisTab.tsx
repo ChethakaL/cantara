@@ -1,10 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FileSpreadsheet, Loader2, Play, RefreshCw, ShieldAlert, Download } from 'lucide-react'
+import { CheckCircle2, Loader2, Play, AlertCircle } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
-import { Badge, Button, Card } from '@/components/ui'
+import { Button, Card } from '@/components/ui'
 import { Ws2RecastPanel } from '@/components/ttm-agent/Ws2RecastPanel'
 import { BaselineValuationReportPanel } from '@/components/ttm-agent/BaselineValuationReportPanel'
 import { Ws21ReviewWorkspace } from '@/components/ttm-agent/Ws21ReviewWorkspace'
@@ -59,7 +59,6 @@ export function TtmAnalysisTab({
   const [loadingAnalyses, setLoadingAnalyses] = useState(true)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [collapsedSections, setCollapsedSections] = useState<Record<Ws2SectionKey, boolean>>(DEFAULT_SECTION_STATE)
   const [baselineBuildState, setBaselineBuildState] = useState<{
     analysisId: string | null
     running: boolean
@@ -397,125 +396,121 @@ export function TtmAnalysisTab({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">WS2 Analysis Workspace</h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Upload the core financial files, run WS2-1, review only the flagged items, then approve to unlock EBITDA and the baseline valuation report.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void loadAnalyses()}>
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </Button>
-          <Button variant="outline" size="sm" onClick={exportToExcel} disabled={!activeAnalysis}>
-            <Download className="w-3.5 h-3.5" />
-            Export XLSX
-          </Button>
-          <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
-            <Play className="w-3.5 h-3.5" />
-            {running ? 'Running WS2-1 Agent...' : 'Run WS2-1 Agent'}
-          </Button>
-        </div>
+      {/* Header */}
+      <div>
+        <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Financial Analysis &amp; Valuation</h3>
+        <p className="text-xs text-slate-400 mt-0.5">
+          Upload financial documents, review flagged items, then generate the valuation report.
+        </p>
       </div>
 
+      {/* Error banner */}
       {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
           {error}
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-        <Card className="p-5">
-          <div className="flex items-center gap-2">
-            <FileSpreadsheet className="w-4 h-4 text-amber-600" />
-            <h4 className="text-sm font-semibold text-slate-800">Before You Run</h4>
+      {/* State: Loading existing analyses */}
+      {loadingAnalyses && !activeAnalysis && (
+        <Card className="p-8">
+          <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading analysis data...
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {readiness.map((item) => (
-              <div key={item.id} className="rounded-xl border border-slate-200 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-slate-700">{item.label}</p>
-                  <Badge color={item.uploaded ? 'green' : 'red'}>{item.uploaded ? 'Uploaded' : 'Missing'}</Badge>
+        </Card>
+      )}
+
+      {/* State: No analysis yet — show document status + run button */}
+      {!activeAnalysis && !loadingAnalyses && (
+        <Card className="p-6">
+          <div className="space-y-4">
+            {/* Document readiness */}
+            {readyToRun ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-700">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>All required documents uploaded</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-slate-700">Upload Required Documents</p>
+                <div className="space-y-2">
+                  {readiness.map((item) => (
+                    <div key={item.id} className="flex items-center gap-2 text-sm">
+                      {item.uploaded ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border-2 border-slate-300" />
+                      )}
+                      <span className={item.uploaded ? 'text-slate-600' : 'text-slate-800 font-medium'}>
+                        {item.label}
+                      </span>
+                      {item.fileName && (
+                        <span className="text-xs text-slate-400 ml-1">({item.fileName})</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {item.fileName || 'No file uploaded yet.'}
-                </p>
-                {item.uploadedAt && (
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    {new Date(item.uploadedAt).toLocaleString()}
-                  </p>
-                )}
               </div>
-            ))}
+            )}
+
+            {/* Run button */}
+            <Button
+              size="sm"
+              onClick={() => void runAgent()}
+              disabled={!readyToRun || running}
+              className="w-full sm:w-auto"
+            >
+              {running ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5" />
+                  Run Analysis
+                </>
+              )}
+            </Button>
           </div>
         </Card>
+      )}
 
-        <Card className="p-5">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-slate-500" />
-            <h4 className="text-sm font-semibold text-slate-800">How This Flows</h4>
-          </div>
-          <div className="mt-4 space-y-3">
-            {[
-              'Run WS2-1 to build the TTM model and identify only the sections that need review.',
-              'Resolve the review queue. Supporting detail stays collapsed until you open it.',
-              'Approve WS2-1 to unlock WS2-2 EBITDA recast and the full valuation report.',
-            ].map((step) => (
-              <div key={step} className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                {step}
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-4 rounded-xl border border-slate-200 p-4">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Run Status</p>
-            <p className="mt-2 text-sm text-slate-700">
-              {readyToRun ? 'All required WS2-1 source documents are present.' : 'Upload all required WS2-1 source documents before running the agent.'}
-            </p>
-            <p className="mt-2 text-xs text-slate-500">
-              QuickBooks remains optional. Section B will stay marked as skipped until that connection exists.
-            </p>
-          </div>
-        </Card>
-      </div>
-
-      {activeAnalysis ? (
+      {/* State: Analysis exists */}
+      {activeAnalysis && (
         <div className="space-y-6">
-          <section id="ws210-report" className="scroll-mt-24">
-          <BaselineValuationReportPanel
-            clientName={clientName}
-            analysis={activeAnalysis}
-            onUpdated={handleUpdatedAnalysis}
-            onExportXlsx={exportToExcel}
-            hideWorkflowChrome={hasStyledBaselineReport}
-            collapsed={collapsedSections['ws210-report']}
-            onToggleCollapse={() => toggleSection('ws210-report')}
-          />
-          </section>
-          {baselineBuildState.running && baselineBuildState.analysisId === activeAnalysis.id && !hasStyledBaselineReport && (
+          {/* Running / building progress */}
+          {(running || (baselineBuildState.running && baselineBuildState.analysisId === activeAnalysis.id)) && !hasStyledBaselineReport && (
             <Card className="border-amber-200 bg-amber-50/70 p-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
                   <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">Building the baseline valuation report</p>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {running ? 'Analyzing financial data...' : 'Generating valuation report...'}
+                  </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    {baselineBuildState.step ?? 'Running downstream WS2 reports...'}
+                    {running
+                      ? 'Building the financial model and identifying items for review.'
+                      : (baselineBuildState.step ?? 'Running downstream analysis...')}
                   </p>
                 </div>
               </div>
             </Card>
           )}
+
+          {/* Build error */}
           {baselineBuildState.error && baselineBuildState.analysisId === activeAnalysis.id && !hasStyledBaselineReport && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
               {baselineBuildState.error}
             </div>
           )}
-          {!hasStyledBaselineReport && (
-          <>
+
+          {/* Review flagged items — shown when analysis needs approval */}
           {showWs21Workspace && (
             <Ws21ReviewWorkspace
               analysis={activeAnalysis}
@@ -523,70 +518,78 @@ export function TtmAnalysisTab({
               onUpdated={handleUpdatedAnalysis}
             />
           )}
-          {/* WS2-2 Recast Panel — visible after WS2-1 approval */}
-          {ws21Approved && (
-            <section id="ws22-recast" className="scroll-mt-24">
+
+          {/* Recast panel — shown after approval, before report is ready */}
+          {ws21Approved && !hasStyledBaselineReport && (
             <Ws2RecastPanel
               analysis={activeAnalysis}
               clientId={clientId}
               adminName={adminName}
               documentStatuses={documentStatuses}
               onUpdated={handleUpdatedAnalysis}
-              collapsed={collapsedSections['ws22-recast']}
-              onToggleCollapse={() => toggleSection('ws22-recast')}
+              collapsed={false}
+              onToggleCollapse={() => {}}
             />
-            </section>
-          )}
-          </>
           )}
 
-          {/* GL Mapping Reference */}
-          {activeAnalysis.normalizedData?.mappedPlRows && Array.isArray(activeAnalysis.normalizedData.mappedPlRows) && (activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>).length > 0 && (
-            <Card className="p-5 mt-6">
-              <h4 className="text-sm font-semibold text-slate-800 mb-4">GL Code Mapping Reference</h4>
-              <p className="text-xs text-slate-400 mb-3">Finalized mapping of source GL codes to Cantara categories used in the analysis.</p>
-              <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="sticky top-0 bg-white">
-                    <tr className="border-b border-slate-200 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-2">GL Code</th>
-                      <th className="px-3 py-2">Description</th>
-                      <th className="px-3 py-2">Cantara Category</th>
-                      <th className="px-3 py-2 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {(activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>)
-                      .filter((row) => row.accountCode)
-                      .map((row, i) => (
-                        <tr key={`${row.accountCode}-${i}`}>
-                          <td className="px-3 py-1.5 text-slate-500 font-mono text-xs">{row.accountCode ?? '—'}</td>
-                          <td className="px-3 py-1.5 text-slate-700">{row.accountName}</td>
-                          <td className="px-3 py-1.5 text-slate-500">{row.cantaraCode ?? 'UNMAPPED'}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">
-                            {typeof row.total === 'number' && Number.isFinite(row.total)
-                              ? `$${Math.round(row.total).toLocaleString()}`
-                              : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
+          {/* Final valuation report */}
+          {hasStyledBaselineReport && (
+            <BaselineValuationReportPanel
+              clientName={clientName}
+              analysis={activeAnalysis}
+              onUpdated={handleUpdatedAnalysis}
+              onExportXlsx={exportToExcel}
+              hideWorkflowChrome={true}
+              collapsed={false}
+              onToggleCollapse={() => {}}
+            />
+          )}
+
+          {/* GL Code Mapping — collapsible reference */}
+          {activeAnalysis.normalizedData?.mappedPlRows && Array.isArray(activeAnalysis.normalizedData.mappedPlRows) && (activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>).filter(r => r.accountCode).length > 0 && (
+            <details className="group">
+              <summary className="cursor-pointer rounded-xl border border-slate-200 bg-white px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800">GL Code Mapping</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">Verify how source GL codes were mapped to Cantara categories</p>
+                </div>
+                <Badge color="slate">
+                  {(activeAnalysis.normalizedData.mappedPlRows as Array<{ accountCode: string | null }>).filter(r => r.accountCode).length} codes
+                </Badge>
+              </summary>
+              <div className="mt-2 rounded-xl border border-slate-200 bg-white overflow-hidden">
+                <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-50">
+                      <tr className="border-b border-slate-200 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-2.5">GL Code</th>
+                        <th className="px-4 py-2.5">Description</th>
+                        <th className="px-4 py-2.5">Cantara Category</th>
+                        <th className="px-4 py-2.5 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(activeAnalysis.normalizedData.mappedPlRows as Array<{ accountName: string; accountCode: string | null; cantaraCode: string | null; total: number }>)
+                        .filter((row) => row.accountCode)
+                        .map((row, i) => (
+                          <tr key={`${row.accountCode}-${i}`} className="hover:bg-slate-50/50">
+                            <td className="px-4 py-2 text-slate-500 font-mono text-xs">{row.accountCode}</td>
+                            <td className="px-4 py-2 text-slate-700">{row.accountName}</td>
+                            <td className="px-4 py-2 text-slate-500">{row.cantaraCode ?? 'UNMAPPED'}</td>
+                            <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                              {typeof row.total === 'number' && Number.isFinite(row.total)
+                                ? `$${Math.round(row.total).toLocaleString()}`
+                                : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </Card>
+            </details>
           )}
         </div>
-      ) : loadingAnalyses ? (
-        <Card className="p-8">
-          <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading WS2 analysis...
-          </div>
-        </Card>
-      ) : (
-        <Card className="p-8 text-center text-sm text-slate-400">
-          No WS2-1 runs yet. Upload the required valuation documents in the client Collection flow, then run the agent here.
-        </Card>
       )}
     </div>
   )
