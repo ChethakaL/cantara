@@ -16,8 +16,6 @@ const OPTIONAL_RECAST_DOCS = [
   { id: 'personal_expenses_36m', label: 'Personal Expenses List (Optional)' },
   { id: 'non_recurring_expenses_36m', label: 'Non-Recurring Expenses (Optional)' },
   { id: 'addback_disclosure', label: 'Add-Back Disclosure (Optional)' },
-  { id: 'leases', label: 'Lease from WS1' },
-  { id: 'owner_gm_assessment', label: 'Owner & GM Assessment from WS1' },
 ] as const
 
 function parseNumberInput(value: string) {
@@ -349,60 +347,21 @@ export function Ws2RecastPanel({
       <Card className="p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h4 className="text-sm font-semibold text-slate-800">WS2-2 EBITDA Recast</h4>
+            <h4 className="text-sm font-semibold text-slate-800">EBITDA Normalization & Valuation</h4>
             <p className="text-xs text-slate-400 mt-1">
-              Admin enters the valuation multiples here after WS2-1 approval. WS2-2 then verifies add-backs against the full WS2-1 model and produces the recast schedule.
+              Enter the valuation multiples below, then run the normalization to produce the recast schedule and preliminary valuation range.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge color={recastDispatchTask?.status === 'RELEASED' ? 'green' : 'gold'}>
-              {recastDispatchTask?.status === 'RELEASED' ? 'Released from HITL' : 'Awaiting WS2-1 Approval'}
-            </Badge>
-            {onToggleCollapse && (
-              <Button size="sm" variant="outline" onClick={onToggleCollapse}>
-                {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                {collapsed ? 'Expand WS2-2' : 'Collapse WS2-2'}
-              </Button>
-            )}
             <Button size="sm" onClick={() => void runRecast()} disabled={!canRun || running}>
-              {running ? 'Running WS2-2...' : 'Run WS2-2'}
+              {running ? 'Running...' : latestRecast ? 'Re-run' : 'Run Normalization'}
             </Button>
-            {latestRecast && !running && (
-              <Button size="sm" variant="outline" onClick={() => void runRecast()} disabled={!canRun || running}>
-                Re-run WS2-2
-              </Button>
-            )}
           </div>
         </div>
 
         {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
-        {collapsed ? (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">Status</p>
-                <p className="mt-2 text-sm font-semibold text-slate-800">{latestRecast?.status ?? 'Not Run'}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">Open Flags</p>
-                <p className="mt-2 text-sm font-semibold text-slate-800">{unresolvedCount}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">Normalized EBITDA</p>
-                <p className="mt-2 text-sm font-semibold text-slate-800">
-                  {latestRecast?.normalizedEbitda?.toLocaleString() ?? 'n/a'}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">Workbook</p>
-                <p className="mt-2 text-sm font-semibold text-slate-800">
-                  {latestRecast?.workbookUrl ? 'Available' : 'Not generated'}
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : isApproved ? (
+        {isApproved ? (
           <div className="mt-4 space-y-4">
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
               <p className="text-sm text-emerald-800">

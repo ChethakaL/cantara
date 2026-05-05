@@ -8,6 +8,7 @@ import { Badge, Button, Card } from '@/components/ui'
 import { Ws2RecastPanel } from '@/components/ttm-agent/Ws2RecastPanel'
 import { BaselineValuationReportPanel } from '@/components/ttm-agent/BaselineValuationReportPanel'
 import { Ws21ReviewWorkspace } from '@/components/ttm-agent/Ws21ReviewWorkspace'
+import { Ws21StructuredReport } from '@/components/ttm-agent/Ws21StructuredReport'
 import { logWs2ClientEvent, logWs2Error, logWs2PreparedDocuments, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import { prepareWs2DocumentFromServer } from '@/lib/ttm-agent/browser-documents'
 import type { DocumentStatus } from '@/lib/store'
@@ -500,6 +501,11 @@ export function TtmAnalysisTab({
               actorName={adminName}
               onUpdated={handleUpdatedAnalysis}
             />
+          )}
+
+          {/* Full GL mapping + financial summary — shown after analysis, before approval */}
+          {activeAnalysis && !isFailed && (
+            <Ws21StructuredReport analysis={activeAnalysis} />
           )}
 
           {/* Recast panel — shown after approval, before report is ready */}

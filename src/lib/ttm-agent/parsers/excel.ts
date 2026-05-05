@@ -69,19 +69,60 @@ function readWorkbook(buffer: Buffer) {
     const ref = ws['!ref'];
     if (!ref) continue;
     const range = XLSX.utils.decode_range(ref);
+    // First pass: fix simple numeric formulas and clear stale formatted values
+    const fixedCells = new Set<string>();
     for (let r = range.s.r; r <= range.e.r; r++) {
       for (let c = range.s.c; c <= range.e.c; c++) {
         const addr = XLSX.utils.encode_cell({ r, c });
         const cell = ws[addr];
         if (!cell || !cell.f) continue;
-        // If formula is a simple numeric literal (e.g. "38579.70", "-1126.00")
+        // Clear stale formatted value for ALL formula cells so sheet_to_json uses .v
+        delete cell.w;
         const f = cell.f.trim();
         const parsed = Number(f);
         if (!isNaN(parsed) && f !== '') {
           cell.v = parsed;
-          cell.w = undefined; // clear formatted cache so sheet_to_json uses .v
           cell.t = 'n';
+          fixedCells.add(addr);
         }
+      }
+    }
+    // Multi-pass: resolve formula cells that reference other cells (including
+    // other formula cells). Run until no more cells can be resolved.
+    if (fixedCells.size > 0) {
+      for (let pass = 0; pass < 10; pass++) {
+        let resolvedThisPass = 0;
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          for (let c = range.s.c; c <= range.e.c; c++) {
+            const addr = XLSX.utils.encode_cell({ r, c });
+            const cell = ws[addr];
+            if (!cell || !cell.f || fixedCells.has(addr)) continue;
+            if (cell.v !== 0 && cell.v !== null && typeof cell.v === 'number' && cell.v !== 0) continue;
+            const formula = cell.f.replace(/\s/g, '');
+            const refs = formula.match(/[A-Z]+\d+/g);
+            if (!refs) continue;
+            // Only handle formulas made of cell refs, parentheses, + and -
+            const cleaned = formula.replace(/[A-Z]+\d+/g, '0').replace(/[()+-]/g, '').replace(/^0+$/, '');
+            if (cleaned !== '' && cleaned !== '0') continue;
+            let sum = 0;
+            let valid = true;
+            for (const cellRef of refs) {
+              const refCell = ws[cellRef];
+              // Treat missing cells and non-numeric cells as 0 (common for header/label rows)
+              if (!refCell || refCell.v === undefined || refCell.v === null) { sum += 0; continue; }
+              if (typeof refCell.v !== 'number') { valid = false; break; }
+              sum += refCell.v;
+            }
+            if (valid) {
+              cell.v = sum;
+              cell.w = undefined;
+              cell.t = 'n';
+              fixedCells.add(addr);
+              resolvedThisPass++;
+            }
+          }
+        }
+        if (resolvedThisPass === 0) break;
       }
     }
   }
@@ -91,7 +132,7 @@ function readWorkbook(buffer: Buffer) {
 function sheetToRows(sheet: XLSX.WorkSheet): WorksheetRows {
   return XLSX.utils.sheet_to_json(sheet, {
     header: 1,
-    raw: true,
+    raw: false,
     defval: null,
     blankrows: false,
   }) as WorksheetRows;

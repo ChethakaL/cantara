@@ -45,6 +45,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(updated);
     }
 
+    if (body.mode === "create-and-resolve") {
+      const { analysisId, section, severity, title, description, payload, resolutionAction, resolutionNotes, actorName } = body as {
+        analysisId: string;
+        section: string;
+        severity: string;
+        title: string;
+        description: string;
+        payload?: Record<string, unknown>;
+        resolutionAction: FlagResolutionAction;
+        resolutionNotes?: string;
+        actorName?: string;
+      };
+      if (!analysisId || !title || !resolutionAction) {
+        return new Response("analysisId, title, and resolutionAction are required", { status: 400 });
+      }
+
+      // Create the flag and resolve it in one step
+      const { prisma } = await import("@/lib/prisma");
+      const flag = await (prisma as any).ttmFlag.create({
+        data: {
+          analysisId,
+          section: section || "A",
+          severity: severity || "MEDIUM",
+          title,
+          description: description || "",
+          payload: payload || {},
+          resolutionStatus: "ACTIONED",
+          resolutionAction,
+          resolutionNotes: resolutionNotes || "",
+          resolvedByName: actorName || "Admin",
+          resolvedAt: new Date(),
+        },
+      });
+
+      // Return the updated analysis
+      const { getTtmAnalysis } = await import("@/lib/ttm-agent/orchestrator");
+      const updated = await getTtmAnalysis(analysisId);
+      return NextResponse.json(updated);
+    }
+
     if (body.mode === "save-overrides") {
       const { analysisId, userOverrides } = body as {
         analysisId: string;
