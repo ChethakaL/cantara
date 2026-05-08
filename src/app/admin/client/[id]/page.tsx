@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, FileSpreadsheet, Globe2,
-  ChevronDown, Bot, Users2, Calculator, Sparkles,
+  ChevronDown, Bot, Users2, Calculator, Sparkles, Camera,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
@@ -30,6 +30,7 @@ import VendorDirectoryTab from '@/components/vendor-directory/VendorDirectoryTab
 import OrgChartReviewTab from '@/components/org-chart/OrgChartReviewTab'
 import LitigationSearchTab from '@/components/litigation-search/LitigationSearchTab'
 import EmployeeCompTab from '@/components/employee-comp/EmployeeCompTab'
+import FacilityReviewTab from '@/components/facility-review/FacilityReviewTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -52,6 +53,7 @@ const AGENT_TABS = [
   // WS2 — Performance
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
+  { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
   // M&A
@@ -410,6 +412,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 businessAddress={client.businessAddress}
                 businessCategory={client.businessCategory}
                 websiteUrl={client.websiteUrl}
+              />
+            )}
+            {activeTab === 'facility-review' && (
+              <FacilityReviewTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                businessAddress={client.businessAddress}
               />
             )}
             {activeTab === 'insurance' && (
