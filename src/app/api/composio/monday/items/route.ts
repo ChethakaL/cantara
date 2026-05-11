@@ -9,6 +9,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const items = await getMondayBoardItems(boardId);
+    console.log(`[API] Returning ${items.length} items to frontend. First item keys:`, Object.keys(items[0] || {}));
+    console.log(`[API] First item data:`, JSON.stringify(items[0] || {}));
     return NextResponse.json({ items });
   } catch (error) {
     console.error("Monday.com board items error:", error);

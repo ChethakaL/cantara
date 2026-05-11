@@ -184,7 +184,6 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
       const data = await res.json()
       setResults(data.results ?? [])
       setStep('done')
-      onImported()
     } catch (e: any) {
       setError(e.message || 'Import failed')
       setStep('review')
@@ -542,7 +541,11 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
 
                 <div className="mt-5 flex justify-end">
                   <button
-                    onClick={onClose}
+                    type="button"
+                    onClick={() => {
+                      onImported()
+                      onClose()
+                    }}
                     className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white"
                     style={{ background: 'linear-gradient(135deg,#FF3D57,#FF9A3C)' }}
                   >

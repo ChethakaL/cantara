@@ -553,7 +553,12 @@ async function getMondayAuthConfigId() {
         credentials: {},
         restrict_to_following_tools: [
           "MONDAY_LIST_BOARDS",
+          "MONDAY_BOARDS",
+          "MONDAY_ITEMS_PAGE",
+          "MONDAY_GET_BOARD",
           "MONDAY_GET_BOARD_ITEMS",
+          "MONDAY_LIST_BOARD_ITEMS",
+          "MONDAY_GET_ITEMS",
           "MONDAY_CREATE_ITEM",
           "MONDAY_CREATE_UPDATE",
         ],
@@ -617,8 +622,7 @@ export async function getMondayConnection(adminId?: string) {
     order_direction: "desc",
   });
   params.append("user_ids", userId);
-  // Temporarily removing toolkit filter to see all connections for this user
-  // params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
+  params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
 
   const connections = await composioFetch<{
     items?: Array<{
@@ -629,8 +633,6 @@ export async function getMondayConnection(adminId?: string) {
       is_disabled?: boolean;
     }>;
   }>(`/connected_accounts?${params}`);
-
-  console.log(`[Composio] Monday connection check for ${userId}:`, JSON.stringify(connections.items ?? [], null, 2));
 
   // Any status that isn't failed or disabled is considered "connected" for the UI
   const validStatuses = ["ACTIVE", "VERIFYING", "INITIATED"];
@@ -644,6 +646,7 @@ export async function disconnectMonday(adminId?: string) {
     account_type: "ALL",
   });
   params.append("user_ids", userId);
+  params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
 
   const connections = await composioFetch<{
     items?: Array<{ id: string; status: string }>;
@@ -670,6 +673,187 @@ async function executeMondayTool<T>(slug: string, argumentsPayload: Record<strin
       arguments: argumentsPayload,
     }),
   });
+}
+
+/** Composio often returns `data` as a JSON string for Monday tools. */
+function unwrapMondayToolData(raw: unknown): Record<string, unknown> | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object") return raw as Record<string, unknown>;
+  return null;
+}
+
+function findMondayItemsPagePayload(payload: Record<string, unknown> | null): {
+  items: unknown[];
+  cursor?: string;
+} | null {
+  if (!payload) return null;
+  const tryPage = (p: unknown) => {
+    if (!p || typeof p !== "object") return null;
+    const o = p as Record<string, unknown>;
+    const items = o.items;
+    if (!Array.isArray(items)) return null;
+    const cursor =
+      (typeof o.cursor === "string" && o.cursor) ||
+      (typeof o.next_cursor === "string" && o.next_cursor) ||
+      undefined;
+    return { items, cursor };
+  };
+
+  const boards = payload.boards;
+  if (Array.isArray(boards) && boards[0] && typeof boards[0] === "object") {
+    const b0 = boards[0] as Record<string, unknown>;
+    const fromIp = tryPage(b0.items_page);
+    if (fromIp) return fromIp;
+  }
+
+  const direct = tryPage(payload.items_page);
+  if (direct) return direct;
+
+  const data = payload.data;
+  if (data && typeof data === "object") {
+    const d = data as Record<string, unknown>;
+    const bs = d.boards;
+    if (Array.isArray(bs) && bs[0] && typeof bs[0] === "object") {
+      const b0 = bs[0] as Record<string, unknown>;
+      const fromIp = tryPage(b0.items_page);
+      if (fromIp) return fromIp;
+    }
+  }
+
+  const raw = payload.raw_response;
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    const d = r.data;
+    if (d && typeof d === "object") {
+      const dd = d as Record<string, unknown>;
+      const bs = dd.boards;
+      if (Array.isArray(bs) && bs[0] && typeof bs[0] === "object") {
+        const b0 = bs[0] as Record<string, unknown>;
+        const fromIp = tryPage(b0.items_page);
+        if (fromIp) return fromIp;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function collectMondayBoardItemsViaItemsPage(boardId: string): Promise<any[]> {
+  const boardIdNum = parseInt(boardId, 10);
+  if (Number.isNaN(boardIdNum)) return [];
+
+  const byId = new Map<string, any>();
+  let cursor: string | undefined;
+
+  for (let safety = 0; safety < 40; safety++) {
+    const args: Record<string, unknown> = {
+      board_id: boardIdNum,
+      limit: 500,
+      include_column_values: true,
+    };
+    if (cursor) args.cursor = cursor;
+
+    let result: { data?: unknown; successful?: boolean } | null = null;
+    try {
+      result = await executeMondayTool<unknown>("MONDAY_ITEMS_PAGE", args);
+    } catch (e) {
+      console.log("[Composio] MONDAY_ITEMS_PAGE request failed:", e);
+      break;
+    }
+
+    if (!result?.successful) {
+      console.log("[Composio] MONDAY_ITEMS_PAGE unsuccessful");
+      break;
+    }
+
+    const payload = unwrapMondayToolData(result.data);
+    const page = findMondayItemsPagePayload(payload);
+    if (!page) {
+      console.log("[Composio] MONDAY_ITEMS_PAGE could not parse items_page from payload keys:", payload ? Object.keys(payload) : []);
+      break;
+    }
+
+    for (const item of page.items) {
+      if (item && typeof item === "object") {
+        const id = String((item as any).id ?? (item as any).item_id ?? "");
+        if (id) byId.set(id, item);
+      }
+    }
+
+    const next = page.cursor;
+    if (!next || page.items.length === 0) break;
+    cursor = next;
+  }
+
+  return Array.from(byId.values());
+}
+
+const EMAIL_LIKE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
+function columnTitle(cv: any): string {
+  return String(cv?.title ?? cv?.column?.title ?? cv?.id ?? "").trim();
+}
+
+function extractEmailFromMondayColumns(item: any): string {
+  const columnValues = item.column_values || item.values || [];
+  if (!Array.isArray(columnValues)) return "";
+
+  const emailCol = columnValues.find(
+    (cv: any) =>
+      columnTitle(cv).toLowerCase().includes("email") ||
+      String(cv?.id || "").toLowerCase().includes("email") ||
+      cv?.type === "email"
+  );
+  if (emailCol) {
+    const direct = String(emailCol.text || "").trim();
+    if (direct) return direct.toLowerCase();
+    if (emailCol.value != null) {
+      try {
+        const parsed =
+          typeof emailCol.value === "string" ? JSON.parse(emailCol.value) : emailCol.value;
+        const fromParsed = String(parsed?.email || parsed?.text || parsed?.value || "").trim();
+        if (fromParsed) return fromParsed.toLowerCase();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  for (const cv of columnValues) {
+    const t = String(cv?.text || "").trim();
+    const m = t.match(EMAIL_LIKE);
+    if (m) return m[0].toLowerCase();
+    if (cv?.value != null && typeof cv.value === "string") {
+      try {
+        const parsed = JSON.parse(cv.value);
+        const nested = String(parsed?.email || parsed?.text || "").trim();
+        const m2 = nested.match(EMAIL_LIKE);
+        if (m2) return m2[0].toLowerCase();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  return "";
+}
+
+function slimColumnValuesForApi(item: any): Array<{ id: string; title: string; type: string; text: string }> {
+  const columnValues = item.column_values || item.values || [];
+  if (!Array.isArray(columnValues)) return [];
+  return columnValues.map((cv: any) => ({
+    id: String(cv.id ?? ""),
+    title: columnTitle(cv) || String(cv.id ?? ""),
+    type: String(cv.type ?? ""),
+    text: String(cv.text ?? "").trim(),
+  }));
 }
 
 export async function getMondayBoards() {
@@ -709,140 +893,192 @@ export async function getMondayBoards() {
 export async function getMondayBoardItems(boardId: string) {
   let bestResult: any[] = [];
   let foundColumnData = false;
-  
-  // Try these tools. We want items + column data if possible.
-  const toolNames = [
-    "MONDAY_EXECUTE_GRAPHQL", // Highest precision if available
-    "MONDAY_GET_BOARD",
-    "MONDAY_LIST_BOARD_ITEMS",
-    "MONDAY_LIST_ITEMS",
-  ];
-  
-  for (const toolName of toolNames) {
-    try {
-      console.log(`[Composio] Trying ${toolName} for board ${boardId}...`);
-      let payload: any = { board_id: boardId };
-      
-      if (toolName === "MONDAY_EXECUTE_GRAPHQL") {
-        payload = {
-          query: `query { boards (ids: [${boardId}]) { items_page (limit: 100) { items { id name column_values { id title text type value } } } } }`
-        };
-      } else if (toolName === "MONDAY_GET_BOARD") {
-        payload = { id: boardId };
-      }
-      
-      const result = await executeMondayTool<any>(toolName, payload);
-      
-      if (result?.successful && result?.data) {
-        // Extract items from various possible response structures
-        let rawItems = 
-          result.data.items ?? 
-          result.data.details ?? 
-          result.data.boards?.[0]?.items ??
-          result.data.boards?.[0]?.items_page?.items ??
-          result.data.raw_response?.data?.boards?.[0]?.items_page?.items ??
-          result.data.raw_response?.data?.boards?.[0]?.items ??
-          result.data.data?.boards?.[0]?.items_page?.items ?? 
-          result.data.data?.boards?.[0]?.items ??
-          result.data.data?.items ??
-          result.data.data ?? 
-          [];
 
-        // Check for group-nested items
-        if (!Array.isArray(rawItems) || rawItems.length === 0) {
-          const groups = result.data.boards?.[0]?.groups || [];
-          if (Array.isArray(groups)) {
-            rawItems = groups.flatMap((g: any) => g.items || []);
+  // 1. Preferred: Composio MONDAY_ITEMS_PAGE (column_values + pagination).
+  try {
+    console.log(`[Composio] MONDAY_ITEMS_PAGE for board ${boardId}...`);
+    const pageItems = await collectMondayBoardItemsViaItemsPage(boardId);
+    if (pageItems.length > 0) {
+      bestResult = pageItems;
+      foundColumnData = pageItems.some(
+        (i) => Array.isArray(i.column_values) && i.column_values.length > 0
+      );
+      console.log(
+        `[Composio] MONDAY_ITEMS_PAGE collected ${pageItems.length} items. Has column_values: ${foundColumnData}`
+      );
+    }
+  } catch (e) {
+    console.log("[Composio] MONDAY_ITEMS_PAGE failed:", e);
+  }
+
+  // 2. GraphQL via Composio proxy — `body` is forwarded to Monday (not `data`).
+  if (bestResult.length === 0 || !foundColumnData) {
+    console.log(`[Composio] Proxy GraphQL for board ${boardId}...`);
+    try {
+      const connection = await getMondayConnection();
+      if (connection) {
+        const gql = `query { boards(ids: [${boardId}]) { items_page(limit: 500) { cursor items { id name column_values { id type text value column { title } } } } } }`;
+        const proxyResult = await composioFetch<any>("/tools/execute/proxy", {
+          method: "POST",
+          body: JSON.stringify({
+            endpoint: "https://api.monday.com/v2",
+            method: "POST",
+            connected_account_id: connection.id,
+            parameters: [
+              { name: "Content-Type", value: "application/json", type: "header" },
+              { name: "API-Version", value: "2024-01", type: "header" },
+            ],
+            body: { query: gql },
+          }),
+        });
+
+        const outer = proxyResult?.data;
+        let up: Record<string, unknown> | null = null;
+        if (outer && typeof outer === "object") up = outer as Record<string, unknown>;
+        else if (typeof outer === "string") {
+          try {
+            up = JSON.parse(outer) as Record<string, unknown>;
+          } catch {
+            up = null;
           }
         }
-
-        const items = Array.isArray(rawItems) ? rawItems : [];
-        
-        if (items.length > 0) {
-          // DEBUG LOG: Print keys of the first item to see what we have
-          console.log(`[Composio] Item 0 keys:`, Object.keys(items[0]));
-          if (items[0].column_values) console.log(`[Composio] Item 0 column_values:`, JSON.stringify(items[0].column_values).substring(0, 200));
-          if (items[0].values) console.log(`[Composio] Item 0 values:`, JSON.stringify(items[0].values).substring(0, 200));
-
-          const hasColumns = items.some(i => i.column_values || i.values);
-          console.log(`[Composio] ${toolName} found ${items.length} items. Has columns: ${hasColumns}`);
-          
-          // If we haven't found items yet, or this one has columns while the previous didn't
-          if (bestResult.length === 0 || (hasColumns && !foundColumnData)) {
-            bestResult = items;
-            foundColumnData = hasColumns;
+        const httpStatus = typeof up?.status === "number" ? (up.status as number) : undefined;
+        let graphqlLayer = up?.data as Record<string, unknown> | string | null | undefined;
+        if (typeof graphqlLayer === "string") {
+          try {
+            graphqlLayer = JSON.parse(graphqlLayer) as Record<string, unknown>;
+          } catch {
+            graphqlLayer = null;
           }
-          
-          // If we found columns, we can stop
-          if (hasColumns) break;
+        }
+        const gq = (graphqlLayer && typeof graphqlLayer === "object" ? graphqlLayer : null) as Record<
+          string,
+          unknown
+        > | null;
+        if (gq && Array.isArray(gq.errors) && gq.errors.length) {
+          console.log("[Composio] Proxy GraphQL errors:", JSON.stringify(gq.errors).slice(0, 400));
+        }
+        const boards = gq?.boards as unknown[] | undefined;
+        let items: any[] | undefined;
+        if (Array.isArray(boards) && boards[0] && typeof boards[0] === "object") {
+          const ip = (boards[0] as Record<string, unknown>).items_page as Record<string, unknown> | undefined;
+          if (ip && Array.isArray(ip.items)) items = ip.items as any[];
+        }
+
+        if (Array.isArray(items) && items.length > 0) {
+          const hasCols = items.some((i) => Array.isArray(i.column_values) && i.column_values.length > 0);
+          if (bestResult.length === 0 || hasCols) {
+            bestResult = items;
+            foundColumnData = hasCols;
+          }
+          console.log(
+            `[Composio] Proxy returned ${items.length} items (upstream HTTP ${httpStatus ?? "?"}). column_values: ${hasCols}`
+          );
+        } else if (httpStatus && httpStatus >= 400) {
+          console.log(`[Composio] Proxy upstream HTTP ${httpStatus}`);
+        } else {
+          console.log(`[Composio] Proxy could not parse items from response.`);
         }
       }
     } catch (e) {
-      console.log(`[Composio] ${toolName} failed or not found.`);
+      console.log(`[Composio] Proxy call failed:`, e);
     }
   }
-  
-  // --- STEP 2: Enrichment (Batch) ---
+
+  // 3. Legacy fallbacks if we still have no rows
+  if (bestResult.length === 0) {
+    const toolNames = ["MONDAY_GET_BOARD", "MONDAY_LIST_BOARD_ITEMS"];
+
+    for (const toolName of toolNames) {
+      try {
+        console.log(`[Composio] Trying ${toolName} for board ${boardId}...`);
+        const payload: Record<string, unknown> = { board_id: boardId };
+        if (toolName === "MONDAY_GET_BOARD") payload.id = boardId;
+
+        const result = await executeMondayTool<any>(toolName, payload);
+
+        if (result?.successful && result?.data) {
+          const dataObj = unwrapMondayToolData(result.data) ?? (result.data as Record<string, unknown>);
+          let rawItems =
+            (dataObj as any)?.items ??
+            (dataObj as any)?.details ??
+            (dataObj as any)?.boards?.[0]?.items ??
+            (dataObj as any)?.boards?.[0]?.items_page?.items ??
+            result.data?.boards?.[0]?.items_page?.items ??
+            result.data?.boards?.[0]?.items ??
+            result.data?.items ??
+            [];
+
+          if (!Array.isArray(rawItems) || rawItems.length === 0) {
+            const groups = (dataObj as any)?.boards?.[0]?.groups || result.data?.boards?.[0]?.groups || [];
+            if (Array.isArray(groups)) {
+              rawItems = groups.flatMap((g: any) => g.items || []);
+            }
+          }
+
+          const items = Array.isArray(rawItems) ? rawItems : [];
+
+          if (items.length > 0) {
+            const hasColumns = items.some((i: any) => i.column_values || i.values);
+            console.log(`[Composio] ${toolName} found ${items.length} items. Has columns: ${hasColumns}`);
+
+            if (bestResult.length === 0 || (hasColumns && !foundColumnData)) {
+              bestResult = items;
+              foundColumnData = hasColumns;
+            }
+            if (hasColumns) break;
+          }
+        }
+      } catch (e) {
+        console.log(`[Composio] ${toolName} failed or not found.`);
+      }
+    }
+  }
+
+  // 4. MONDAY_GET_ITEMS does not include column_values per Composio; metadata merge only.
   if (bestResult.length > 0 && !foundColumnData) {
-    const itemIds = bestResult.map(i => String(i.id || i.item_id || i.pulse_id)).filter(Boolean);
-    console.log(`[Composio] Attempting batch enrichment for ${itemIds.length} items using MONDAY_GET_ITEMS...`);
-    
+    const itemIds = bestResult.map((i) => String(i.id || i.item_id || i.pulse_id)).filter(Boolean);
+    console.log(`[Composio] No column_values yet; MONDAY_GET_ITEMS for ${itemIds.length} ids (metadata only)...`);
     try {
       const enrichment = await executeMondayTool<any>("MONDAY_GET_ITEMS", { ids: itemIds });
       if (enrichment?.successful && enrichment?.data) {
-        const enrichedItems = 
-          enrichment.data.items ?? 
-          enrichment.data.details ?? 
-          enrichment.data.data?.items ?? 
-          enrichment.data.raw_response?.data?.items ??
+        const dataObj = unwrapMondayToolData(enrichment.data) ?? enrichment.data;
+        const enrichedItems =
+          (dataObj as any)?.items ??
+          (dataObj as any)?.details ??
+          (dataObj as any)?.data?.items ??
+          (dataObj as any)?.raw_response?.data?.items ??
           [];
-        
+
         if (Array.isArray(enrichedItems) && enrichedItems.length > 0) {
-          console.log(`[Composio] Batch enrichment successful! Found ${enrichedItems.length} enriched items.`);
-          // DEBUG: Print the first enriched item completely to see the structure
-          console.log(`[Composio] Enriched Item 0 sample:`, JSON.stringify(enrichedItems[0], null, 2));
-          
-          // Map back to our bestResult
-          bestResult = bestResult.map(original => {
-            const enriched = enrichedItems.find((e: any) => String(e.id || e.item_id) === String(original.id));
+          bestResult = bestResult.map((original) => {
+            const enriched = enrichedItems.find(
+              (e: any) => String(e.id || e.item_id) === String(original.id)
+            );
             return enriched ? { ...original, ...enriched } : original;
           });
         }
       }
     } catch (e) {
-      console.log(`[Composio] Batch enrichment failed:`, e);
+      console.log(`[Composio] MONDAY_GET_ITEMS fallback failed:`, e);
     }
   }
 
   if (bestResult.length === 0) {
     console.log("[Composio] No items found across all tried tools.");
   }
-  
-  return bestResult.map((i: any) => {
-    let email = "";
-    const columnValues = i.column_values || i.values || [];
-    if (Array.isArray(columnValues)) {
-      const emailCol = columnValues.find((cv: any) => 
-        (cv.title || cv.id || "").toLowerCase().includes("email") || 
-        cv.type === "email"
-      );
-      if (emailCol) {
-        email = emailCol.text || "";
-        if (!email && emailCol.value) {
-          try {
-            const parsed = typeof emailCol.value === 'string' ? JSON.parse(emailCol.value) : emailCol.value;
-            email = parsed.email || parsed.text || "";
-          } catch {}
-        }
-      }
-    }
-    
-    return { 
-      id: String(i.id || i.item_id || i.pulse_id || ""), 
-      name: String(i.name || i.title || i.text || "Untitled Item"),
-      email: email.trim().toLowerCase()
-    };
-  }).filter(i => i.id);
+
+  return bestResult
+    .map((i: any) => {
+      const email = extractEmailFromMondayColumns(i);
+      return {
+        id: String(i.id || i.item_id || i.pulse_id || ""),
+        name: String(i.name || i.title || i.text || "Untitled Item"),
+        email,
+        columnValues: slimColumnValuesForApi(i),
+      };
+    })
+    .filter((row) => row.id);
 }
 
 export async function postMondayUpdate(args: {

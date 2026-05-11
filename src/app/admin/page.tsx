@@ -540,7 +540,7 @@ export default function AdminDashboard() {
           {showMondayImport && (
             <MondayImportModal
               onClose={() => setShowMondayImport(false)}
-              onImported={() => { refresh(); setShowMondayImport(false) }}
+              onImported={() => void refresh()}
             />
           )}
 
