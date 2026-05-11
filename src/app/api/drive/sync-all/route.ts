@@ -146,7 +146,7 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const competitors = latestBy(client.CompetitorAnalyses ?? [], () => "latest");
+  const competitors = latestBy(client.CompetitorAnalyses ?? [], (item: any) => "latest");
   for (const item of competitors) {
     const parsed = asObject(item.parsed);
     tasks.push({
@@ -167,7 +167,7 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const employeeReports = latestBy(client.EmployeeObligationsReports ?? [], () => "latest");
+  const employeeReports = latestBy(client.EmployeeObligationsReports ?? [], (item: any) => "latest");
   for (const item of employeeReports) {
     const { report, flags } = parseWS16Markdown(item.markdown, clientName);
     tasks.push({
@@ -185,7 +185,7 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const ttms = latestBy(client.TtmAnalyses ?? [], () => "latest");
+  const ttms = latestBy(client.TtmAnalyses ?? [], (item: any) => "latest");
   for (const item of ttms) {
     if (!item.reportMarkdown) continue;
     tasks.push({
@@ -204,7 +204,7 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const recasts = latestBy(client.Ws2RecastAnalyses ?? [], () => "latest");
+  const recasts = latestBy(client.Ws2RecastAnalyses ?? [], (item: any) => "latest");
   for (const item of recasts) {
     if (!item.reportMarkdown) continue;
     tasks.push({
