@@ -512,7 +512,7 @@ export async function createMondayConnectLink(callbackUrl: string) {
     return { redirect_url: direct.redirect_url, connected_account_id: direct.id };
   }
 
-  return composioFetch<{ redirect_url: string; connected_account_id: string }>("/connected_accounts/link", {
+  const res = await composioFetch<{ redirect_url: string; connected_account_id: string }>("/connected_accounts/link", {
     method: "POST",
     body: JSON.stringify({
       auth_config_id: authConfigId,
@@ -521,6 +521,18 @@ export async function createMondayConnectLink(callbackUrl: string) {
       callback_url: callbackUrl,
     }),
   });
+
+  if (res.redirect_url) {
+    try {
+      const url = new URL(res.redirect_url);
+      url.searchParams.set("force_install_if_needed", "true");
+      res.redirect_url = url.toString();
+    } catch (e) {
+      res.redirect_url += (res.redirect_url.includes("?") ? "&" : "?") + "force_install_if_needed=true";
+    }
+  }
+
+  return res;
 }
 
 export async function getMondayConnection() {
