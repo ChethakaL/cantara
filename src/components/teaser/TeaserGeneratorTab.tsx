@@ -5,6 +5,7 @@ import { Bot, Download, Eye, FileText, Loader2, Printer, RotateCcw, Sparkles } f
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { TeaserInputData, DEFAULT_TEASER_INPUT } from '@/lib/teaser/types'
 import { generateTeaserHtml } from '@/lib/teaser/generate-html'
+import MondayLinker from '@/components/monday/MondayLinker'
 
 interface Props {
   clientId: string
@@ -16,6 +17,7 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
   const [data, setData] = useState<TeaserInputData>(DEFAULT_TEASER_INPUT)
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [teaserFileUrl, setTeaserFileUrl] = useState<string | null>(null)
 
   function set<K extends keyof TeaserInputData>(key: K, value: TeaserInputData[K]) {
     setData(prev => ({ ...prev, [key]: value }))
@@ -154,6 +156,8 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
             </div>
           </div>
         </Card>
+
+        <MondayLinker clientName={clientName} reportType="Teaser" fileUrl={teaserFileUrl} />
 
         <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-lg">
           <iframe

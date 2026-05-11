@@ -452,3 +452,141 @@ export async function getQuickBooksConnections(clientId: string) {
     }>;
   }>(`/connected_accounts?${params}`);
 }
+
+// ── Monday.com ────────────────────────────────────────────────────────────────
+
+const MONDAY_TOOLKIT_SLUG = "MONDAY";
+const ADMIN_MONDAY_USER_ID = "cantara-admin-monday";
+
+async function getMondayAuthConfigId() {
+  if (process.env.COMPOSIO_MONDAY_AUTH_CONFIG_ID) {
+    return process.env.COMPOSIO_MONDAY_AUTH_CONFIG_ID;
+  }
+
+  const params = new URLSearchParams({
+    toolkit_slug: MONDAY_TOOLKIT_SLUG,
+    is_composio_managed: "true",
+    limit: "20",
+  });
+  const list = await composioFetch<{ items?: ComposioAuthConfigListItem[] }>(`/auth_configs?${params}`);
+  const existing = (list.items ?? []).find((item) => {
+    const authConfig = item.auth_config ?? item;
+    return item.toolkit?.slug?.toUpperCase() === MONDAY_TOOLKIT_SLUG && !authConfig.is_disabled && item.status !== "DISABLED";
+  });
+  const existingId = existing?.auth_config?.id ?? existing?.id;
+  if (existingId) return existingId;
+
+  const created = await composioFetch<{ auth_config: ComposioAuthConfig }>("/auth_configs", {
+    method: "POST",
+    body: JSON.stringify({
+      toolkit: { slug: MONDAY_TOOLKIT_SLUG },
+      auth_config: {
+        type: "use_composio_managed_auth",
+        credentials: {},
+        restrict_to_following_tools: [
+          "MONDAY_LIST_BOARDS",
+          "MONDAY_GET_BOARD_ITEMS",
+          "MONDAY_CREATE_ITEM",
+          "MONDAY_CREATE_UPDATE",
+        ],
+      },
+    }),
+  });
+  return created.auth_config.id;
+}
+
+export async function createMondayConnectLink(callbackUrl: string) {
+  const authConfigId = await getMondayAuthConfigId();
+  const direct = await tryComposioFetch<{
+    id: string;
+    redirect_url: string;
+  }>("/connected_accounts", {
+    method: "POST",
+    body: JSON.stringify({
+      auth_config: { id: authConfigId },
+      connection: { user_id: ADMIN_MONDAY_USER_ID },
+    }),
+  });
+
+  if (direct?.redirect_url) {
+    return { redirect_url: direct.redirect_url, connected_account_id: direct.id };
+  }
+
+  return composioFetch<{ redirect_url: string; connected_account_id: string }>("/connected_accounts/link", {
+    method: "POST",
+    body: JSON.stringify({
+      auth_config_id: authConfigId,
+      user_id: ADMIN_MONDAY_USER_ID,
+      alias: `cantara-monday-${Date.now()}`,
+      callback_url: callbackUrl,
+    }),
+  });
+}
+
+export async function getMondayConnection() {
+  const params = new URLSearchParams({
+    limit: "10",
+    account_type: "ALL",
+    order_by: "updated_at",
+    order_direction: "desc",
+  });
+  params.append("user_ids", ADMIN_MONDAY_USER_ID);
+  params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
+
+  const connections = await composioFetch<{
+    items?: Array<{
+      id: string;
+      status: string;
+      updated_at?: string;
+      status_reason?: string;
+      is_disabled?: boolean;
+    }>;
+  }>(`/connected_accounts?${params}`);
+
+  return (connections.items ?? []).find((item) => item.status === "ACTIVE" && !item.is_disabled) ?? connections.items?.[0] ?? null;
+}
+
+async function executeMondayTool<T>(slug: string, argumentsPayload: Record<string, unknown>) {
+  return composioFetch<{ data?: T; successful?: boolean; error?: unknown }>(`/tools/execute/${slug}`, {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: ADMIN_MONDAY_USER_ID,
+      arguments: argumentsPayload,
+    }),
+  });
+}
+
+export async function getMondayBoards() {
+  const result = await executeMondayTool<any>("MONDAY_LIST_BOARDS", { limit: 50 });
+  const boards: Array<{ id: string; name: string }> =
+    result?.data?.boards ?? result?.data?.data?.boards ?? [];
+  return boards.map((b) => ({ id: String(b.id), name: b.name }));
+}
+
+export async function getMondayBoardItems(boardId: string) {
+  const result = await executeMondayTool<any>("MONDAY_GET_BOARD_ITEMS", { board_id: boardId, limit: 100 });
+  const items: Array<{ id: string; name: string }> =
+    result?.data?.items ?? result?.data?.data?.boards?.[0]?.items_page?.items ?? [];
+  return items.map((i) => ({ id: String(i.id), name: i.name }));
+}
+
+export async function postMondayUpdate(args: {
+  itemId: string;
+  reportType: "CIM" | "Teaser";
+  clientName: string;
+  fileUrl: string;
+}) {
+  const body = `📎 *${args.reportType} for ${args.clientName}*\n\n` +
+    `The latest ${args.reportType} document has been linked by the Cantara team.\n\n` +
+    `🔗 [View/Download ${args.reportType}](${args.fileUrl})\n\n` +
+    `_Linked on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} via Cantara Advisor Dashboard._`;
+
+  const result = await executeMondayTool<any>("MONDAY_CREATE_UPDATE", {
+    item_id: args.itemId,
+    body,
+  });
+  if (result?.successful === false) {
+    throw new Error(typeof result.error === "string" ? result.error : "Failed to post Monday.com update");
+  }
+  return result;
+}

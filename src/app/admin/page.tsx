@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink } from 'lucide-react'
+import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink, Trello } from 'lucide-react'
 import AdminNav from '@/components/admin/AdminNav'
 import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card } from '@/components/ui'
 import { getClients, createClient, getCurrentRole, getAdminName } from '@/lib/store'
@@ -16,6 +16,157 @@ const WORKSTREAM_SECTIONS = [
   { id: 'both', label: 'WS1 + WS2', color: '#b8922a' },
   { id: 'ma', label: 'M&A', color: '#f43f5e' },
 ]
+
+const COMPOSIO_MONDAY_MARKETPLACE_URL =
+  'https://app.composio.dev/apps/monday'
+
+function MondaySetupCard({
+  status,
+  connecting,
+  onConnect,
+}: {
+  status: { connected: boolean } | null
+  connecting: boolean
+  onConnect: () => void
+}) {
+  const [appInstalled, setAppInstalled] = useState(false)
+
+  // Persist confirmation across page loads
+  useEffect(() => {
+    setAppInstalled(localStorage.getItem('cantara_monday_app_installed') === 'true')
+  }, [])
+
+  const handleInstallClick = () => {
+    window.open(COMPOSIO_MONDAY_MARKETPLACE_URL, '_blank', 'noopener,noreferrer')
+  }
+
+  const confirmInstalled = () => {
+    localStorage.setItem('cantara_monday_app_installed', 'true')
+    setAppInstalled(true)
+  }
+
+  return (
+    <Card className="p-5 mb-8" style={{ borderColor: 'rgba(255,61,87,0.12)' }}>
+      <div className="flex items-start gap-4 mb-4">
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: 'linear-gradient(135deg,rgba(255,61,87,0.1),rgba(255,154,60,0.1))' }}
+        >
+          <Trello className="w-5 h-5" style={{ color: '#FF3D57' }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-sm font-semibold text-slate-800">Monday.com</h3>
+            {status?.connected ? (
+              <Badge color="green">Connected</Badge>
+            ) : (
+              <Badge color="slate">Not connected</Badge>
+            )}
+          </div>
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+            Link CIM and Teaser PDFs directly to deals on your Monday boards. Two quick steps to get started.
+          </p>
+        </div>
+      </div>
+
+      {/* Step-by-step setup — hidden once fully connected */}
+      {!status?.connected && (
+        <div className="space-y-3 ml-14">
+          {/* Step 1 */}
+          <div
+            className="rounded-xl border p-3.5 flex items-center gap-3"
+            style={{ borderColor: appInstalled ? 'rgba(16,185,129,0.2)' : 'rgba(255,61,87,0.15)', background: appInstalled ? 'rgba(16,185,129,0.04)' : 'rgba(255,61,87,0.03)' }}
+          >
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold"
+              style={{ background: appInstalled ? '#10b981' : '#FF3D57', color: '#fff' }}
+            >
+              {appInstalled ? '✓' : '1'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-slate-700">Authorize Monday.com in Composio</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {appInstalled
+                  ? 'Composio is authorized — ready to connect your account.'
+                  : 'Open the Composio dashboard, find Monday.com, and click "Connect Account". Then come back here.'}
+              </p>
+            </div>
+            {!appInstalled ? (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleInstallClick}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all hover:opacity-90"
+                  style={{ background: 'linear-gradient(135deg,#FF3D57,#FF9A3C)', color: '#fff' }}
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Open Composio
+                </button>
+                <button
+                  onClick={confirmInstalled}
+                  className="text-[11px] text-slate-400 hover:text-emerald-600 underline transition-colors whitespace-nowrap"
+                >
+                  Done, I've authorised it →
+                </button>
+              </div>
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            )}
+          </div>
+
+          {/* Step 2 */}
+          <div
+            className="rounded-xl border p-3.5 flex items-center gap-3 transition-all"
+            style={{
+              borderColor: appInstalled ? 'rgba(255,61,87,0.15)' : 'rgba(148,163,184,0.2)',
+              background: appInstalled ? 'rgba(255,61,87,0.03)' : 'rgba(148,163,184,0.03)',
+              opacity: appInstalled ? 1 : 0.5,
+            }}
+          >
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold"
+              style={{ background: appInstalled ? '#FF3D57' : '#cbd5e1', color: '#fff' }}
+            >
+              2
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-slate-700">Connect your Monday.com account</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {appInstalled
+                  ? 'Click to link your Monday.com workspace to Cantara.'
+                  : 'Complete Step 1 first to unlock this.'}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={onConnect}
+              disabled={!appInstalled || connecting}
+              style={
+                appInstalled
+                  ? { background: 'linear-gradient(135deg,#FF3D57,#FF9A3C)', border: 'none', color: '#fff' }
+                  : { opacity: 0.4, cursor: 'not-allowed' }
+              }
+            >
+              {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+              {connecting ? 'Connecting…' : 'Connect Monday.com'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Reconnect option once connected */}
+      {status?.connected && (
+        <div className="ml-14 flex items-center gap-3">
+          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+          <p className="text-xs text-slate-500 flex-1">Monday.com is connected. Link CIM and Teasers from within each client's tab.</p>
+          <Button size="sm" variant="outline" onClick={onConnect} disabled={connecting}>
+            {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+            Reconnect
+          </Button>
+        </div>
+      )}
+    </Card>
+  )
+}
 
 export default function AdminDashboard() {
   const router = useRouter()
@@ -31,6 +182,8 @@ export default function AdminDashboard() {
   const [driveSyncSummary, setDriveSyncSummary] = useState<string>('')
   const [driveSyncJob, setDriveSyncJob] = useState<any>(null)
   const [lastSyncUpdate, setLastSyncUpdate] = useState<Date | null>(null)
+  const [mondayStatus, setMondayStatus] = useState<{ connected: boolean } | null>(null)
+  const [connectingMonday, setConnectingMonday] = useState(false)
 
   useEffect(() => {
     if (getCurrentRole() !== 'admin') {
@@ -65,6 +218,21 @@ export default function AdminDashboard() {
       setDriveStatus(null)
     }
   }
+
+  const refreshMondayStatus = async () => {
+    try {
+      const res = await fetch('/api/composio/monday/status')
+      if (!res.ok) return
+      const data = await res.json()
+      setMondayStatus(data)
+    } catch {
+      setMondayStatus(null)
+    }
+  }
+
+  useEffect(() => {
+    void refreshMondayStatus()
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -112,6 +280,22 @@ export default function AdminDashboard() {
       }
     } finally {
       setConnectingDrive(false)
+    }
+  }
+
+  const connectMonday = async () => {
+    setConnectingMonday(true)
+    try {
+      const res = await fetch('/api/composio/monday/connect', { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      if (data.redirect_url) {
+        window.open(data.redirect_url, '_blank', 'noopener,noreferrer')
+        window.setTimeout(() => void refreshMondayStatus(), 4000)
+        window.setTimeout(() => void refreshMondayStatus(), 10000)
+      }
+    } finally {
+      setConnectingMonday(false)
     }
   }
 
@@ -365,6 +549,14 @@ export default function AdminDashboard() {
               )
             })}
           </div>
+
+          {/* Monday.com Integration Card */}
+          <MondaySetupCard
+            status={mondayStatus}
+            connecting={connectingMonday}
+            onConnect={() => void connectMonday()}
+          />
+
 
           {/* Search */}
           <div className="relative mb-6">

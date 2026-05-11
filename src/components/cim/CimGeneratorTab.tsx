@@ -5,6 +5,7 @@ import { Bot, ChevronDown, ChevronRight, Download, Eye, FileText, Loader2, Plus,
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { CimInputData, DEFAULT_CIM_INPUT } from '@/lib/cim/types'
 import { generateCimHtml } from '@/lib/cim/generate-html'
+import MondayLinker from '@/components/monday/MondayLinker'
 
 interface Props {
   clientId: string
@@ -44,6 +45,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
+  const [cimFileUrl, setCimFileUrl] = useState<string | null>(null)
 
   function set<K extends keyof CimInputData>(key: K, value: CimInputData[K]) {
     setData(prev => ({ ...prev, [key]: value }))
@@ -249,6 +251,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
             </div>
           </div>
         </Card>
+
+        <MondayLinker clientName={clientName} reportType="CIM" fileUrl={cimFileUrl} />
 
         <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-lg">
           <iframe

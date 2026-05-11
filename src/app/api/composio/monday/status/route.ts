@@ -1,0 +1,23 @@
+import { NextResponse } from "next/server";
+import { getMondayConnection } from "@/lib/composio";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    const connection = await getMondayConnection();
+    return NextResponse.json({
+      connected: connection?.status === "ACTIVE" && !connection.is_disabled,
+      connection: connection
+        ? {
+            id: connection.id,
+            status: connection.status,
+            updatedAt: connection.updated_at ?? null,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error("Monday.com status error:", error);
+    return new Response("Failed to fetch Monday.com status", { status: 500 });
+  }
+}
