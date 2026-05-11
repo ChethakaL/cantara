@@ -4,8 +4,8 @@ import { assertS3Configured, buildPresignedFileUrl, s3BucketName, s3Client } fro
 
 const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
 const QUICKBOOKS_TOOLKIT_SLUG = "QUICKBOOKS";
-const GOOGLEDRIVE_TOOLKIT_SLUG = "GOOGLEDRIVE";
-const ADMIN_DRIVE_USER_ID = "cantara-admin-drive";
+export const GOOGLEDRIVE_TOOLKIT_SLUG = "GOOGLEDRIVE";
+export const ADMIN_DRIVE_USER_ID = "cantara-admin-drive";
 
 type ComposioAuthConfig = {
   id: string;
@@ -410,7 +410,7 @@ export async function saveGeneratedReportToDrive(args: {
   });
 
   // Make the file public after upload
-  const fileId = extractDriveFileId(result?.data ?? result);
+  const fileId = extractDriveFileId((result as any)?.data ?? result);
   if (fileId) {
     console.log(`[Composio] Making file ${fileId} public...`);
     await executeGoogleDriveTool("GOOGLEDRIVE_CREATE_PERMISSION", {
@@ -429,8 +429,8 @@ export async function saveGeneratedReportToDrive(args: {
 
   return {
     ...result,
-    data: details?.data ?? details ?? result?.data ?? result,
-    webViewLink: details?.data?.webViewLink ?? details?.webViewLink ?? (result?.data?.webViewLink ?? result?.webViewLink),
+    data: details?.data ?? details ?? (result as any)?.data ?? result,
+    webViewLink: details?.data?.webViewLink ?? details?.webViewLink ?? ((result as any)?.data?.webViewLink ?? (result as any)?.webViewLink),
   };
 }
 
