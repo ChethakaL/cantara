@@ -3,8 +3,9 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink, Trello, LogOut } from 'lucide-react'
+import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink, Trello, LogOut, Download } from 'lucide-react'
 import AdminNav from '@/components/admin/AdminNav'
+import MondayImportModal from '@/components/monday/MondayImportModal'
 import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card } from '@/components/ui'
 import { getClients, createClient, getCurrentRole, getAdminName } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -22,11 +23,13 @@ function MondaySetupCard({
   connecting,
   onConnect,
   onDisconnect,
+  onImport,
 }: {
   status: { connected: boolean } | null
   connecting: boolean
   onConnect: () => void
   onDisconnect: () => void
+  onImport: () => void
 }) {
   const [installUrl, setInstallUrl] = useState<string | null>(null)
 
@@ -69,6 +72,18 @@ function MondaySetupCard({
           </div>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+          {status?.connected && (
+            <Button
+              id="monday-import-clients-btn"
+              size="sm"
+              variant="outline"
+              onClick={onImport}
+              style={{ borderColor: 'rgba(255, 236, 61, 0.65)', color: '#9f7603ff' }}
+            >
+              <Download className="w-3.5 h-3.5" />
+              Fetch Clients
+            </Button>
+          )}
           <Button
             size="sm"
             variant={status?.connected ? 'outline' : 'primary'}
@@ -109,6 +124,7 @@ export default function AdminDashboard() {
   const [lastSyncUpdate, setLastSyncUpdate] = useState<Date | null>(null)
   const [mondayStatus, setMondayStatus] = useState<{ connected: boolean } | null>(null)
   const [connectingMonday, setConnectingMonday] = useState(false)
+  const [showMondayImport, setShowMondayImport] = useState(false)
 
   useEffect(() => {
     if (getCurrentRole() !== 'admin') {
@@ -119,14 +135,14 @@ export default function AdminDashboard() {
     setAdminName(getAdminName())
 
     let active = true
-    ;(async () => {
-      try {
-        const data = await getClients()
-        if (active) setClients(data)
-      } finally {
-        if (active) setLoadingClients(false)
-      }
-    })()
+      ; (async () => {
+        try {
+          const data = await getClients()
+          if (active) setClients(data)
+        } finally {
+          if (active) setLoadingClients(false)
+        }
+      })()
 
     return () => {
       active = false
@@ -161,16 +177,16 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     let active = true
-    ;(async () => {
-      try {
-        const res = await fetch('/api/composio/google-drive/status')
-        if (!res.ok) return
-        const data = await res.json()
-        if (active) setDriveStatus(data)
-      } catch {
-        if (active) setDriveStatus(null)
-      }
-    })()
+      ; (async () => {
+        try {
+          const res = await fetch('/api/composio/google-drive/status')
+          if (!res.ok) return
+          const data = await res.json()
+          if (active) setDriveStatus(data)
+        } catch {
+          if (active) setDriveStatus(null)
+        }
+      })()
     return () => {
       active = false
     }
@@ -408,7 +424,7 @@ export default function AdminDashboard() {
                       <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     )}
                   </div>
-                  
+
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-4 mb-2">
                       <p className="font-semibold text-slate-700">
@@ -429,7 +445,7 @@ export default function AdminDashboard() {
                             {driveSyncJob.summary.phase}
                           </div>
                         )}
-                        
+
                         <div className="grid grid-cols-3 gap-4 py-3 border-y border-slate-100">
                           <div>
                             <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Clients</p>
@@ -518,7 +534,15 @@ export default function AdminDashboard() {
             connecting={connectingMonday}
             onConnect={() => void connectMonday()}
             onDisconnect={() => void disconnectMonday()}
+            onImport={() => setShowMondayImport(true)}
           />
+
+          {showMondayImport && (
+            <MondayImportModal
+              onClose={() => setShowMondayImport(false)}
+              onImported={() => { refresh(); setShowMondayImport(false) }}
+            />
+          )}
 
 
           {/* Search */}

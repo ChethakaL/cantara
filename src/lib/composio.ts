@@ -1,6 +1,7 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { renderHtmlToPdfBuffer } from "@/lib/report-pdf";
 import { assertS3Configured, buildPresignedFileUrl, s3BucketName, s3Client } from "@/lib/s3";
+import { cookies } from "next/headers";
 
 const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
 const QUICKBOOKS_TOOLKIT_SLUG = "QUICKBOOKS";
@@ -60,6 +61,15 @@ async function tryComposioFetch<T>(path: string, init?: RequestInit): Promise<T 
     console.warn(error);
     return null;
   }
+}
+
+export function getComposioAdminId() {
+  try {
+    const c = cookies();
+    const email = c.get('cantara_admin_email')?.value;
+    if (email) return `admin:${email}`;
+  } catch (e) {}
+  return null;
 }
 
 export function composioUserIdForClient(clientId: string) {
@@ -150,17 +160,17 @@ async function getGoogleDriveAuthConfigId() {
   return created.auth_config.id;
 }
 
-export async function createGoogleDriveConnectLink(callbackUrl: string) {
+export async function createGoogleDriveConnectLink(callbackUrl: string, adminId?: string) {
+  const userId = adminId || getComposioAdminId() || ADMIN_DRIVE_USER_ID;
   const authConfigId = await getGoogleDriveAuthConfigId();
   const direct = await tryComposioFetch<{
     id: string;
     redirect_url: string;
-    redirect_uri?: string;
   }>("/connected_accounts", {
     method: "POST",
     body: JSON.stringify({
       auth_config: { id: authConfigId },
-      connection: { user_id: ADMIN_DRIVE_USER_ID },
+      connection: { user_id: userId },
     }),
   });
 
@@ -178,21 +188,33 @@ export async function createGoogleDriveConnectLink(callbackUrl: string) {
     method: "POST",
     body: JSON.stringify({
       auth_config_id: authConfigId,
-      user_id: ADMIN_DRIVE_USER_ID,
+      user_id: userId,
       alias: `cantara-google-drive-${Date.now()}`,
       callback_url: callbackUrl,
     }),
   });
 }
 
-export async function getGoogleDriveConnection() {
+export async function executeGoogleDriveTool<T = any>(slug: string, argumentsPayload: Record<string, unknown>, adminId?: string) {
+  const userId = adminId || getComposioAdminId() || ADMIN_DRIVE_USER_ID;
+  return composioFetch<{ data?: T; successful?: boolean; error?: unknown }>(`/tools/execute/${slug}`, {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: userId,
+      arguments: argumentsPayload,
+    }),
+  });
+}
+
+export async function getGoogleDriveConnection(adminId?: string) {
+  const userId = adminId || getComposioAdminId() || ADMIN_DRIVE_USER_ID;
   const params = new URLSearchParams({
     limit: "10",
     account_type: "ALL",
     order_by: "updated_at",
     order_direction: "desc",
   });
-  params.append("user_ids", ADMIN_DRIVE_USER_ID);
+  params.append("user_ids", userId);
   params.append("toolkit_slugs", GOOGLEDRIVE_TOOLKIT_SLUG);
 
   const connections = await composioFetch<{
@@ -208,12 +230,13 @@ export async function getGoogleDriveConnection() {
   return (connections.items ?? []).find((item) => item.status === "ACTIVE" && !item.is_disabled) ?? null;
 }
 
-export async function disconnectGoogleDrive() {
+export async function disconnectGoogleDrive(adminId?: string) {
+  const userId = adminId || getComposioAdminId() || ADMIN_DRIVE_USER_ID;
   const params = new URLSearchParams({
     limit: "50",
     account_type: "ALL",
   });
-  params.append("user_ids", ADMIN_DRIVE_USER_ID);
+  params.append("user_ids", userId);
   params.append("toolkit_slugs", GOOGLEDRIVE_TOOLKIT_SLUG);
 
   const connections = await composioFetch<{
@@ -230,20 +253,6 @@ export async function disconnectGoogleDrive() {
       }).catch((err) => console.warn(`Failed to delete connection ${conn.id}:`, err))
     )
   );
-}
-
-export async function executeGoogleDriveTool<T>(slug: string, argumentsPayload: Record<string, unknown>) {
-  return composioFetch<{
-    data?: T;
-    successful?: boolean;
-    error?: unknown;
-  }>(`/tools/execute/${slug}`, {
-    method: "POST",
-    body: JSON.stringify({
-      user_id: ADMIN_DRIVE_USER_ID,
-      arguments: argumentsPayload,
-    }),
-  });
 }
 
 function extractDriveFileId(result: any): string | null {
@@ -554,7 +563,8 @@ async function getMondayAuthConfigId() {
   return created.auth_config.id;
 }
 
-export async function createMondayConnectLink(callbackUrl: string) {
+export async function createMondayConnectLink(callbackUrl: string, adminId?: string) {
+  const userId = adminId || getComposioAdminId() || ADMIN_MONDAY_USER_ID;
   const authConfigId = await getMondayAuthConfigId();
   const direct = await tryComposioFetch<{
     id: string;
@@ -563,7 +573,7 @@ export async function createMondayConnectLink(callbackUrl: string) {
     method: "POST",
     body: JSON.stringify({
       auth_config: { id: authConfigId },
-      connection: { user_id: ADMIN_MONDAY_USER_ID },
+      connection: { user_id: userId },
     }),
   });
 
@@ -575,7 +585,7 @@ export async function createMondayConnectLink(callbackUrl: string) {
     method: "POST",
     body: JSON.stringify({
       auth_config_id: authConfigId,
-      user_id: ADMIN_MONDAY_USER_ID,
+      user_id: userId,
       alias: `cantara-monday-${Date.now()}`,
       callback_url: callbackUrl,
     }),
@@ -598,14 +608,15 @@ export function getMondayInstallUrl() {
   return `https://auth.monday.com/oauth2/authorize?client_id=${COMPOSIO_MONDAY_CLIENT_ID}&response_type=install`;
 }
 
-export async function getMondayConnection() {
+export async function getMondayConnection(adminId?: string) {
+  const userId = adminId || getComposioAdminId() || ADMIN_MONDAY_USER_ID;
   const params = new URLSearchParams({
     limit: "10",
     account_type: "ALL",
     order_by: "updated_at",
     order_direction: "desc",
   });
-  params.append("user_ids", ADMIN_MONDAY_USER_ID);
+  params.append("user_ids", userId);
   // Temporarily removing toolkit filter to see all connections for this user
   // params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
 
@@ -619,19 +630,20 @@ export async function getMondayConnection() {
     }>;
   }>(`/connected_accounts?${params}`);
 
-  console.log(`[Composio] Monday connection check for ${ADMIN_MONDAY_USER_ID}:`, JSON.stringify(connections.items ?? [], null, 2));
+  console.log(`[Composio] Monday connection check for ${userId}:`, JSON.stringify(connections.items ?? [], null, 2));
 
   // Any status that isn't failed or disabled is considered "connected" for the UI
   const validStatuses = ["ACTIVE", "VERIFYING", "INITIATED"];
   return (connections.items ?? []).find((item) => validStatuses.includes(item.status) && !item.is_disabled) ?? null;
 }
 
-export async function disconnectMonday() {
+export async function disconnectMonday(adminId?: string) {
+  const userId = adminId || getComposioAdminId() || ADMIN_MONDAY_USER_ID;
   const params = new URLSearchParams({
     limit: "50",
     account_type: "ALL",
   });
-  params.append("user_ids", ADMIN_MONDAY_USER_ID);
+  params.append("user_ids", userId);
 
   const connections = await composioFetch<{
     items?: Array<{ id: string; status: string }>;
@@ -649,11 +661,12 @@ export async function disconnectMonday() {
   );
 }
 
-async function executeMondayTool<T>(slug: string, argumentsPayload: Record<string, unknown>) {
+async function executeMondayTool<T>(slug: string, argumentsPayload: Record<string, unknown>, adminId?: string) {
+  const userId = adminId || getComposioAdminId() || ADMIN_MONDAY_USER_ID;
   return composioFetch<{ data?: T; successful?: boolean; error?: unknown }>(`/tools/execute/${slug}`, {
     method: "POST",
     body: JSON.stringify({
-      user_id: ADMIN_MONDAY_USER_ID,
+      user_id: userId,
       arguments: argumentsPayload,
     }),
   });
@@ -694,38 +707,142 @@ export async function getMondayBoards() {
 }
 
 export async function getMondayBoardItems(boardId: string) {
-  let result: any = null;
-  const toolNames = ["MONDAY_GET_BOARD_ITEMS", "MONDAY_LIST_ITEMS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS", "MONDAY_LIST_BOARD_ITEMS"];
+  let bestResult: any[] = [];
+  let foundColumnData = false;
+  
+  // Try these tools. We want items + column data if possible.
+  const toolNames = [
+    "MONDAY_EXECUTE_GRAPHQL", // Highest precision if available
+    "MONDAY_GET_BOARD",
+    "MONDAY_LIST_BOARD_ITEMS",
+    "MONDAY_LIST_ITEMS",
+  ];
   
   for (const toolName of toolNames) {
     try {
-      console.log(`[Composio] Trying ${toolName}...`);
-      result = await executeMondayTool<any>(toolName, { board_id: boardId, limit: 500 });
+      console.log(`[Composio] Trying ${toolName} for board ${boardId}...`);
+      let payload: any = { board_id: boardId };
+      
+      if (toolName === "MONDAY_EXECUTE_GRAPHQL") {
+        payload = {
+          query: `query { boards (ids: [${boardId}]) { items_page (limit: 100) { items { id name column_values { id title text type value } } } } }`
+        };
+      } else if (toolName === "MONDAY_GET_BOARD") {
+        payload = { id: boardId };
+      }
+      
+      const result = await executeMondayTool<any>(toolName, payload);
+      
       if (result?.successful && result?.data) {
-        console.log(`[Composio] ${toolName} successful! Result:`, JSON.stringify(result, null, 2));
-        break;
+        // Extract items from various possible response structures
+        let rawItems = 
+          result.data.items ?? 
+          result.data.details ?? 
+          result.data.boards?.[0]?.items ??
+          result.data.boards?.[0]?.items_page?.items ??
+          result.data.raw_response?.data?.boards?.[0]?.items_page?.items ??
+          result.data.raw_response?.data?.boards?.[0]?.items ??
+          result.data.data?.boards?.[0]?.items_page?.items ?? 
+          result.data.data?.boards?.[0]?.items ??
+          result.data.data?.items ??
+          result.data.data ?? 
+          [];
+
+        // Check for group-nested items
+        if (!Array.isArray(rawItems) || rawItems.length === 0) {
+          const groups = result.data.boards?.[0]?.groups || [];
+          if (Array.isArray(groups)) {
+            rawItems = groups.flatMap((g: any) => g.items || []);
+          }
+        }
+
+        const items = Array.isArray(rawItems) ? rawItems : [];
+        
+        if (items.length > 0) {
+          // DEBUG LOG: Print keys of the first item to see what we have
+          console.log(`[Composio] Item 0 keys:`, Object.keys(items[0]));
+          if (items[0].column_values) console.log(`[Composio] Item 0 column_values:`, JSON.stringify(items[0].column_values).substring(0, 200));
+          if (items[0].values) console.log(`[Composio] Item 0 values:`, JSON.stringify(items[0].values).substring(0, 200));
+
+          const hasColumns = items.some(i => i.column_values || i.values);
+          console.log(`[Composio] ${toolName} found ${items.length} items. Has columns: ${hasColumns}`);
+          
+          // If we haven't found items yet, or this one has columns while the previous didn't
+          if (bestResult.length === 0 || (hasColumns && !foundColumnData)) {
+            bestResult = items;
+            foundColumnData = hasColumns;
+          }
+          
+          // If we found columns, we can stop
+          if (hasColumns) break;
+        }
       }
     } catch (e) {
-      console.log(`[Composio] ${toolName} failed...`);
+      console.log(`[Composio] ${toolName} failed or not found.`);
     }
   }
   
-  const rawItems = 
-    result?.data?.items ?? 
-    result?.data?.details ?? 
-    result?.data?.raw_response?.data?.boards?.[0]?.items_page?.items ??
-    result?.data?.raw_response?.data?.boards?.[0]?.items ??
-    result?.data?.data?.boards?.[0]?.items_page?.items ?? 
-    result?.data?.data?.boards?.[0]?.items ??
-    result?.data?.data?.items ??
-    result?.data?.data ?? 
-    [];
-  const items = Array.isArray(rawItems) ? rawItems : [];
+  // --- STEP 2: Enrichment (Batch) ---
+  if (bestResult.length > 0 && !foundColumnData) {
+    const itemIds = bestResult.map(i => String(i.id || i.item_id || i.pulse_id)).filter(Boolean);
+    console.log(`[Composio] Attempting batch enrichment for ${itemIds.length} items using MONDAY_GET_ITEMS...`);
+    
+    try {
+      const enrichment = await executeMondayTool<any>("MONDAY_GET_ITEMS", { ids: itemIds });
+      if (enrichment?.successful && enrichment?.data) {
+        const enrichedItems = 
+          enrichment.data.items ?? 
+          enrichment.data.details ?? 
+          enrichment.data.data?.items ?? 
+          enrichment.data.raw_response?.data?.items ??
+          [];
+        
+        if (Array.isArray(enrichedItems) && enrichedItems.length > 0) {
+          console.log(`[Composio] Batch enrichment successful! Found ${enrichedItems.length} enriched items.`);
+          // DEBUG: Print the first enriched item completely to see the structure
+          console.log(`[Composio] Enriched Item 0 sample:`, JSON.stringify(enrichedItems[0], null, 2));
+          
+          // Map back to our bestResult
+          bestResult = bestResult.map(original => {
+            const enriched = enrichedItems.find((e: any) => String(e.id || e.item_id) === String(original.id));
+            return enriched ? { ...original, ...enriched } : original;
+          });
+        }
+      }
+    } catch (e) {
+      console.log(`[Composio] Batch enrichment failed:`, e);
+    }
+  }
+
+  if (bestResult.length === 0) {
+    console.log("[Composio] No items found across all tried tools.");
+  }
   
-  return items.map((i: any) => ({ 
-    id: String(i.id || i.item_id || i.pulse_id || ""), 
-    name: String(i.name || i.title || i.text || "Untitled Item") 
-  })).filter(i => i.id);
+  return bestResult.map((i: any) => {
+    let email = "";
+    const columnValues = i.column_values || i.values || [];
+    if (Array.isArray(columnValues)) {
+      const emailCol = columnValues.find((cv: any) => 
+        (cv.title || cv.id || "").toLowerCase().includes("email") || 
+        cv.type === "email"
+      );
+      if (emailCol) {
+        email = emailCol.text || "";
+        if (!email && emailCol.value) {
+          try {
+            const parsed = typeof emailCol.value === 'string' ? JSON.parse(emailCol.value) : emailCol.value;
+            email = parsed.email || parsed.text || "";
+          } catch {}
+        }
+      }
+    }
+    
+    return { 
+      id: String(i.id || i.item_id || i.pulse_id || ""), 
+      name: String(i.name || i.title || i.text || "Untitled Item"),
+      email: email.trim().toLowerCase()
+    };
+  }).filter(i => i.id);
 }
 
 export async function postMondayUpdate(args: {
