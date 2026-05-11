@@ -21,10 +21,12 @@ function MondaySetupCard({
   status,
   connecting,
   onConnect,
+  onDisconnect,
 }: {
   status: { connected: boolean } | null
   connecting: boolean
   onConnect: () => void
+  onDisconnect: () => void
 }) {
   const [installUrl, setInstallUrl] = useState<string | null>(null)
 
@@ -70,12 +72,19 @@ function MondaySetupCard({
           <Button
             size="sm"
             variant={status?.connected ? 'outline' : 'primary'}
-            onClick={onConnect}
+            onClick={() => status?.connected ? onDisconnect() : onConnect()}
             disabled={connecting}
             style={status?.connected ? {} : { background: 'linear-gradient(135deg,#FF3D57,#FF9A3C)', border: 'none', color: '#fff' }}
+            className={status?.connected ? 'text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200' : ''}
           >
-            {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : status?.connected ? <CheckCircle2 className="w-3.5 h-3.5" /> : <ExternalLink className="w-3.5 h-3.5" />}
-            {status?.connected ? 'Reconnect Monday.com' : 'Connect Monday.com'}
+            {connecting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : status?.connected ? (
+              <LogOut className="w-3.5 h-3.5" />
+            ) : (
+              <ExternalLink className="w-3.5 h-3.5" />
+            )}
+            {status?.connected ? 'Disconnect' : 'Connect Monday.com'}
           </Button>
         </div>
       </div>
@@ -210,6 +219,21 @@ export default function AdminDashboard() {
         window.setTimeout(() => void refreshMondayStatus(), 4000)
         window.setTimeout(() => void refreshMondayStatus(), 10000)
       }
+    } finally {
+      setConnectingMonday(false)
+    }
+  }
+
+  const disconnectMonday = async () => {
+    if (!confirm('Are you sure you want to disconnect Monday.com? This will stop report linking to Monday boards.')) return
+    setConnectingMonday(true)
+    try {
+      const res = await fetch('/api/composio/monday/disconnect', { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      await refreshMondayStatus()
+    } catch (err) {
+      console.error(err)
+      alert('Failed to disconnect Monday.com')
     } finally {
       setConnectingMonday(false)
     }
@@ -493,6 +517,7 @@ export default function AdminDashboard() {
             status={mondayStatus}
             connecting={connectingMonday}
             onConnect={() => void connectMonday()}
+            onDisconnect={() => void disconnectMonday()}
           />
 
 

@@ -63,8 +63,11 @@ export async function renderHtmlToPdfBuffer(html: string) {
 
   try {
     const page = await browser.newPage();
-    // Using networkidle0 to ensure all assets (styles, fonts) are loaded
-    await page.setContent(html, { waitUntil: "networkidle0", timeout: 30000 });
+    // Relaxed networkidle2 to handle reports with many assets/images better
+    await page.setContent(html, { 
+      waitUntil: "networkidle2", 
+      timeout: 60000 
+    });
     
     const pdf = await page.pdf({
       format: "Letter",

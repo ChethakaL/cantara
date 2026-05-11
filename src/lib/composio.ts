@@ -623,9 +623,30 @@ export async function getMondayConnection() {
 
   // Any status that isn't failed or disabled is considered "connected" for the UI
   const validStatuses = ["ACTIVE", "VERIFYING", "INITIATED"];
-  const connection = (connections.items ?? []).find((item) => validStatuses.includes(item.status) && !item.is_disabled);
-  
-  return connection ?? connections.items?.[0] ?? null;
+  return (connections.items ?? []).find((item) => validStatuses.includes(item.status) && !item.is_disabled) ?? null;
+}
+
+export async function disconnectMonday() {
+  const params = new URLSearchParams({
+    limit: "50",
+    account_type: "ALL",
+  });
+  params.append("user_ids", ADMIN_MONDAY_USER_ID);
+
+  const connections = await composioFetch<{
+    items?: Array<{ id: string; status: string }>;
+  }>(`/connected_accounts?${params}`);
+
+  const toDelete = connections.items ?? [];
+  if (toDelete.length === 0) return;
+
+  await Promise.all(
+    toDelete.map((conn) =>
+      composioFetch(`/connected_accounts/${conn.id}`, {
+        method: "DELETE",
+      }).catch((err) => console.warn(`Failed to delete Monday connection ${conn.id}:`, err))
+    )
+  );
 }
 
 async function executeMondayTool<T>(slug: string, argumentsPayload: Record<string, unknown>) {
