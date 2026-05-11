@@ -51,13 +51,13 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH — persist admin review / release metadata for the latest report
+// PATCH — persist admin review metadata and/or edited final markdown for the latest report
 export async function PATCH(req: NextRequest) {
   try {
     const clientId = req.nextUrl.searchParams.get('clientId')
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
-    const { metadata } = await req.json()
+    const { metadata, markdown } = await req.json()
 
     const latest = await (prisma as any).employeeObligationsReport.findFirst({
       where: { clientId },
@@ -69,7 +69,8 @@ export async function PATCH(req: NextRequest) {
     const report = await (prisma as any).employeeObligationsReport.update({
       where: { id: latest.id },
       data: {
-        metadata: metadata ?? undefined,
+        ...(metadata !== undefined ? { metadata } : {}),
+        ...(typeof markdown === 'string' ? { markdown } : {}),
       },
     })
 

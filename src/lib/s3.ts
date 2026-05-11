@@ -1,4 +1,5 @@
-import { S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const region =
   process.env.AWS_REGION ||
@@ -46,4 +47,16 @@ export function buildPublicFileUrl(key: string) {
     return `${endpoint.replace(/\/$/, "")}/${s3BucketName}/${key}`;
   }
   return `https://${s3BucketName}.s3.${region}.amazonaws.com/${key}`;
+}
+
+export function buildPresignedFileUrl(key: string, expiresInSeconds = 60 * 15) {
+  assertS3Configured();
+  return getSignedUrl(
+    s3Client,
+    new GetObjectCommand({
+      Bucket: s3BucketName,
+      Key: key,
+    }),
+    { expiresIn: expiresInSeconds },
+  );
 }

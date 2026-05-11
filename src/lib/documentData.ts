@@ -154,6 +154,11 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
   },
 ]
 
+export function getValuationDocsForWorkstream(ws: Workstream): DocumentDef[] {
+  if (!ws) return []
+  return VALUATION_DOCS
+}
+
 export function getDocsForWorkstream(ws: Workstream, businessType: BusinessType): CategoryDef[] {
   if (!ws) return []
   return DOCUMENT_CATEGORIES.map(cat => ({

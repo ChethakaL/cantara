@@ -1,7 +1,8 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
+import { ensureClientDriveSubfolder, uploadClientDocumentToDrive } from "@/lib/composio";
+import { assertS3Configured, buildPresignedFileUrl, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 
 /** Run insurance AI after the HTTP response is sent so the browser is not blocked on a long POST. */
@@ -69,6 +70,12 @@ function scheduleInsuranceAutoReview(args: {
   })();
 }
 
+function extractDriveFolderId(value?: string | null) {
+  if (!value) return null;
+  const match = value.match(/\/folders\/([^/?#]+)/);
+  return match?.[1] ?? value;
+}
+
 export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   try {
@@ -116,6 +123,10 @@ export async function POST(req: NextRequest) {
       elapsedMs: Date.now() - startedAt,
     });
     const publicUrl = buildPublicFileUrl(key);
+    const client = await prisma.clientProfile.findUnique({
+      where: { id: clientId },
+      select: { driveFolderId: true },
+    });
 
     const isInsurancePdf =
       documentId === "insurance_claims_12m" && (file.type || "").includes("pdf");
@@ -180,6 +191,26 @@ export async function POST(req: NextRequest) {
         },
       });
     });
+
+    const driveFolderId = extractDriveFolderId(client?.driveFolderId);
+    if (driveFolderId) {
+      void (async () => {
+        const uploads = await ensureClientDriveSubfolder(driveFolderId, "Client Uploads");
+        await uploadClientDocumentToDrive({
+          folderId: uploads.id,
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          sourceUrl: await buildPresignedFileUrl(key),
+        });
+      })().catch((driveError) => {
+        console.error("[client-documents/upload] Google Drive mirror failed", {
+          clientId,
+          documentId,
+          fileName: file.name,
+          error: driveError,
+        });
+      });
+    }
 
     console.info("[client-documents/upload] Document status written", {
       clientId,

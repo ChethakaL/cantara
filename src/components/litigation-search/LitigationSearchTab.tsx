@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useMemo } from 'react'
 import { Card, Badge, Button, cn } from '@/components/ui'
 import {
   Search, Upload, FileText, AlertTriangle, Shield, ShieldAlert, ShieldCheck,
@@ -144,6 +144,125 @@ function ResultsSection({ title, result }: { title: string; result: LitigationSe
   )
 }
 
+function LitigationResultsEditor({
+  title,
+  result,
+  onChange,
+}: {
+  title: string
+  result: LitigationSearchResult
+  onChange: (result: LitigationSearchResult) => void
+}) {
+  const patch = (updates: Partial<LitigationSearchResult>) => onChange({ ...result, ...updates })
+  const updateFinding = (index: number, updates: Partial<LitigationSearchResult['findings'][number]>) => {
+    patch({ findings: result.findings.map((finding, i) => (i === index ? { ...finding, ...updates } : finding)) })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
+        <select
+          value={result.riskLevel}
+          onChange={event => patch({ riskLevel: event.target.value as LitigationSearchResult['riskLevel'] })}
+          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-amber-100"
+        >
+          <option value="clear">Clear</option>
+          <option value="low">Low Risk</option>
+          <option value="medium">Medium Risk</option>
+          <option value="high">High Risk</option>
+        </select>
+      </div>
+
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Summary</p>
+        <textarea
+          value={result.summary}
+          onChange={event => patch({ summary: event.target.value })}
+          className="min-h-[110px] w-full rounded-xl border border-amber-300 bg-white p-3 text-xs leading-relaxed text-slate-700 outline-none focus:ring-2 focus:ring-amber-100"
+        />
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Findings</p>
+          <button
+            className="text-xs font-semibold text-amber-700 hover:text-amber-800"
+            onClick={() => patch({
+              findings: [
+                ...result.findings,
+                { type: 'other', title: '', description: '', severity: 'low', source: '', date: '' },
+              ],
+            })}
+          >
+            + Add finding
+          </button>
+        </div>
+
+        {result.findings.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-500">
+            No findings listed. Use Add finding if counsel identifies one manually.
+          </div>
+        ) : (
+          result.findings.map((finding, index) => (
+            <div key={index} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                <select
+                  value={finding.type}
+                  onChange={event => updateFinding(index, { type: event.target.value as any })}
+                  className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs"
+                >
+                  {Object.keys(TYPE_LABELS).map(type => <option key={type} value={type}>{TYPE_LABELS[type].label}</option>)}
+                </select>
+                <select
+                  value={finding.severity}
+                  onChange={event => updateFinding(index, { severity: event.target.value as any })}
+                  className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs"
+                >
+                  <option value="clear">Clear</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+                <input
+                  value={finding.date ?? ''}
+                  onChange={event => updateFinding(index, { date: event.target.value })}
+                  className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs"
+                  placeholder="Date"
+                />
+                <button
+                  className="justify-self-start text-xs text-red-500 hover:text-red-700 md:justify-self-end"
+                  onClick={() => patch({ findings: result.findings.filter((_, i) => i !== index) })}
+                >
+                  Remove
+                </button>
+              </div>
+              <input
+                value={finding.title}
+                onChange={event => updateFinding(index, { title: event.target.value })}
+                className="mb-2 w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold"
+                placeholder="Finding title"
+              />
+              <textarea
+                value={finding.description}
+                onChange={event => updateFinding(index, { description: event.target.value })}
+                className="mb-2 min-h-[80px] w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs leading-relaxed"
+                placeholder="Description"
+              />
+              <input
+                value={finding.source}
+                onChange={event => updateFinding(index, { source: event.target.value })}
+                className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs"
+                placeholder="Source or URL"
+              />
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 interface LitigationSearchTabProps {
@@ -161,6 +280,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
   const [searching, setSearching] = useState(false)
   const [searchResult, setSearchResult] = useState<LitigationSearchResult | null>(null)
   const [searchError, setSearchError] = useState('')
+  const [editMode, setEditMode] = useState(false)
 
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -169,6 +289,10 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
   const [docError, setDocError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const reportHtml = useMemo(() => {
+    const result = searchResult || docResult
+    return result ? buildLitigationReportHtml(result, clientName) : ''
+  }, [clientName, searchResult, docResult])
 
   // ── Search handler ─────────────────────────────────────────────────────────
 
@@ -190,6 +314,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       }
       const data: LitigationSearchResult = await res.json()
       setSearchResult(data)
+      setEditMode(false)
     } catch (err: any) {
       setSearchError(err.message || 'Search failed')
     } finally {
@@ -219,6 +344,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       }
       const data: LitigationSearchResult = await res.json()
       setDocResult(data)
+      setEditMode(false)
     } catch (err: any) {
       setDocError(err.message || 'Analysis failed')
     } finally {
@@ -263,15 +389,15 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
             <h3 className="text-sm font-bold text-slate-800">Public Records Search</h3>
           </div>
 
-          {/* Business Name */}
+          {/* Legal Business Name */}
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Business Name</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Legal Business Name</label>
             <input
               type="text"
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
-              placeholder="Business name"
+              placeholder="e.g. Downtown Dog Lounge LLC"
             />
           </div>
 
@@ -426,20 +552,42 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
         <Card className="p-6 space-y-8">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-800">Results</h3>
-            <ExportReportButton
-              html={buildLitigationReportHtml(searchResult || docResult!, clientName)}
-              fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-              label="Export Litigation Report"
-            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setEditMode(!editMode)}
+              >
+                {editMode ? 'Preview Output' : 'Edit Output'}
+              </Button>
+              <ExportReportButton
+                html={reportHtml}
+                fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+                label="Export Litigation Report"
+              />
+            </div>
           </div>
-          {searchResult && (
-            <ResultsSection title="Web Search Results" result={searchResult} />
-          )}
-          {searchResult && docResult && (
-            <hr className="border-slate-100" />
-          )}
-          {docResult && (
-            <ResultsSection title="Document Analysis Results" result={docResult} />
+          {editMode ? (
+            <div className="space-y-8">
+              {searchResult && (
+                <LitigationResultsEditor title="Web Search Results" result={searchResult} onChange={setSearchResult} />
+              )}
+              {searchResult && docResult && <hr className="border-slate-100" />}
+              {docResult && (
+                <LitigationResultsEditor title="Document Analysis Results" result={docResult} onChange={setDocResult} />
+              )}
+            </div>
+          ) : (
+            <>
+              {searchResult && (
+                <ResultsSection title="Web Search Results" result={searchResult} />
+              )}
+              {searchResult && docResult && (
+                <hr className="border-slate-100" />
+              )}
+              {docResult && (
+                <ResultsSection title="Document Analysis Results" result={docResult} />
+              )}
+            </>
           )}
         </Card>
       )}

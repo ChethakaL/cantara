@@ -1,6 +1,6 @@
 'use client'
-import { useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, Plus, Trash2 } from 'lucide-react'
 import { Flag, FlagReviewStatus, LeaseReport as LeaseReportData } from '../../../lib/lease-analysis/types'
 import { Badge, Button, Textarea, cn } from '@/components/ui'
 import { getVisibleFlags, isVisibleFlag, reevaluateFlagInReport, setFlagReviewNotes, setFlagReviewStatus } from '@/lib/lease-analysis/report-utils'
@@ -12,11 +12,23 @@ interface Props {
   report?: LeaseReportData
   adminMode?: boolean
   onReportUpdated?: (report: LeaseReportData) => Promise<void>
+  editMode?: boolean
+  onReportDraftChange?: (report: LeaseReportData) => void
 }
 
-export function FlagAnalysis({ red, orange, green, report, adminMode = false, onReportUpdated }: Props) {
+type FlagTone = 'red' | 'orange' | 'green'
+
+const FLAG_KEYS: Record<FlagTone, keyof Pick<LeaseReportData, 'redFlags' | 'orangeFlags' | 'greenFlags'>> = {
+  red: 'redFlags',
+  orange: 'orangeFlags',
+  green: 'greenFlags',
+}
+
+export function FlagAnalysis({ red, orange, green, report, adminMode = false, onReportUpdated, editMode = false, onReportDraftChange }: Props) {
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
+  const [newFlagTarget, setNewFlagTarget] = useState<{ tone: FlagTone; index: number } | null>(null)
+  const flagRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const total = adminMode
     ? red.length + orange.length + green.length
     : getVisibleFlags(red).length + getVisibleFlags(orange).length + getVisibleFlags(green).length
@@ -80,6 +92,104 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
   const sectionBadgeClassName = 'mt-3 w-full whitespace-normal break-words rounded-sm px-3.5 py-1.5 text-[11px] font-bold uppercase leading-relaxed tracking-[0.16em] text-white'
 
   const getSectionCount = (flags: Flag[]) => (adminMode ? flags.length : getVisibleFlags(flags).length)
+
+  const updateDraftFlag = (tone: FlagTone, index: number, updates: Partial<Flag>) => {
+    if (!report || !onReportDraftChange) return
+    const key = FLAG_KEYS[tone]
+    const nextFlags = [...(report[key] || [])]
+    nextFlags[index] = { ...nextFlags[index], ...updates }
+    onReportDraftChange({ ...report, [key]: nextFlags })
+  }
+
+  const deleteDraftFlag = (tone: FlagTone, index: number) => {
+    if (!report || !onReportDraftChange) return
+    const key = FLAG_KEYS[tone]
+    onReportDraftChange({ ...report, [key]: (report[key] || []).filter((_, i) => i !== index) })
+  }
+
+  const addDraftFlag = (tone: FlagTone) => {
+    if (!report || !onReportDraftChange) return
+    const key = FLAG_KEYS[tone]
+    const nextIndex = (report[key] || []).length
+    const label = tone === 'red' ? 'New red flag' : tone === 'orange' ? 'New yellow flag' : 'New green flag'
+    const nextFlag: Flag = {
+      issue: label,
+      whyItMatters: '',
+      sourceSection: '',
+    }
+    onReportDraftChange({ ...report, [key]: [...(report[key] || []), nextFlag] })
+    setNewFlagTarget({ tone, index: nextIndex })
+  }
+
+  const moveDraftFlag = (fromTone: FlagTone, index: number, toTone: FlagTone) => {
+    if (!report || !onReportDraftChange || fromTone === toTone) return
+    const fromKey = FLAG_KEYS[fromTone]
+    const toKey = FLAG_KEYS[toTone]
+    const fromFlags = [...(report[fromKey] || [])]
+    const [flag] = fromFlags.splice(index, 1)
+    onReportDraftChange({ ...report, [fromKey]: fromFlags, [toKey]: [...(report[toKey] || []), flag] })
+  }
+
+  const renderEditFields = (flag: Flag, tone: FlagTone, index: number) => (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <select
+          value={tone}
+          onChange={(event) => moveDraftFlag(tone, index, event.target.value as FlagTone)}
+          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none focus:ring-2 focus:ring-amber-100"
+        >
+          <option value="red">Red flag</option>
+          <option value="orange">Yellow flag</option>
+          <option value="green">Green flag</option>
+        </select>
+        <button
+          type="button"
+          onClick={() => deleteDraftFlag(tone, index)}
+          className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete
+        </button>
+      </div>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Flag title</p>
+        <input
+          value={flag.issue}
+          onChange={(event) => updateDraftFlag(tone, index, { issue: event.target.value })}
+          className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-100"
+        />
+      </div>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Why it matters</p>
+        <textarea
+          value={flag.whyItMatters || ''}
+          onChange={(event) => updateDraftFlag(tone, index, { whyItMatters: event.target.value })}
+          className="min-h-[92px] w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm leading-relaxed text-slate-700 outline-none focus:ring-2 focus:ring-amber-100"
+        />
+      </div>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Source</p>
+        <textarea
+          value={flag.sourceSection || ''}
+          onChange={(event) => updateDraftFlag(tone, index, { sourceSection: event.target.value })}
+          className="min-h-[70px] w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold uppercase leading-relaxed tracking-wider text-slate-700 outline-none focus:ring-2 focus:ring-amber-100"
+        />
+      </div>
+    </div>
+  )
+
+  useEffect(() => {
+    if (!newFlagTarget) return
+    const id = `${newFlagTarget.tone}-${newFlagTarget.index}`
+    const timer = window.setTimeout(() => {
+      const node = flagRefs.current[id]
+      node?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const firstInput = node?.querySelector('input, textarea, select') as HTMLElement | null
+      firstInput?.focus()
+      setNewFlagTarget(null)
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [newFlagTarget, red.length, orange.length, green.length])
 
   const handleFlagReevaluation = async (
     tone: 'red' | 'orange' | 'green',
@@ -223,6 +333,20 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
 
   return (
     <div className="space-y-6">
+      {editMode && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <span className="text-xs font-semibold text-amber-800">Editing flags</span>
+          <button type="button" onClick={() => addDraftFlag('red')} className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
+            <Plus className="h-3.5 w-3.5" /> Add red
+          </button>
+          <button type="button" onClick={() => addDraftFlag('orange')} className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+            <Plus className="h-3.5 w-3.5" /> Add yellow
+          </button>
+          <button type="button" onClick={() => addDraftFlag('green')} className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+            <Plus className="h-3.5 w-3.5" /> Add green
+          </button>
+        </div>
+      )}
       <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3">
         <svg className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
@@ -240,7 +364,12 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
           </div>
           <div className="space-y-3">
             {red.map((f, i) => (adminMode || isVisibleFlag(f)) && (
-              <div key={i} className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-[#fef2f2] border-rose-200')}>
+              <div
+                key={i}
+                ref={(node) => { flagRefs.current[`red-${i}`] = node }}
+                className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', newFlagTarget?.tone === 'red' && newFlagTarget.index === i && 'ring-2 ring-rose-300', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-[#fef2f2] border-rose-200')}
+              >
+                {editMode ? renderEditFields(f, 'red', i) : <>
                 <div className="flex justify-between items-start flex-wrap gap-4">
                   <div className="max-w-4xl">
                     <div className="flex items-start gap-4">
@@ -261,6 +390,7 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
                   HIGH • SECTION {f.sourceSection || 'F'}
                 </div>
                 {renderReviewControls(f, 'red', i)}
+                </>}
               </div>
             ))}
           </div>
@@ -275,7 +405,12 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
           </div>
           <div className="space-y-3">
             {orange.map((f, i) => (adminMode || isVisibleFlag(f)) && (
-              <div key={i} className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-[#fffbeb] border-amber-200')}>
+              <div
+                key={i}
+                ref={(node) => { flagRefs.current[`orange-${i}`] = node }}
+                className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', newFlagTarget?.tone === 'orange' && newFlagTarget.index === i && 'ring-2 ring-amber-300', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-[#fffbeb] border-amber-200')}
+              >
+                {editMode ? renderEditFields(f, 'orange', i) : <>
                 <div className="flex justify-between items-start flex-wrap gap-4">
                   <div className="max-w-4xl">
                     <div className="flex items-start gap-4">
@@ -296,6 +431,7 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
                   MED • SECTION {f.sourceSection || 'C'}
                 </div>
                 {renderReviewControls(f, 'orange', i)}
+                </>}
               </div>
             ))}
           </div>
@@ -310,7 +446,12 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
           </div>
           <div className="grid grid-cols-1 gap-3">
             {green.map((f, i) => (adminMode || isVisibleFlag(f)) && (
-              <div key={i} className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-emerald-50 border-emerald-100')}>
+              <div
+                key={i}
+                ref={(node) => { flagRefs.current[`green-${i}`] = node }}
+                className={cn('p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md', newFlagTarget?.tone === 'green' && newFlagTarget.index === i && 'ring-2 ring-emerald-300', f.reviewStatus === 'not_applicable' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-emerald-50 border-emerald-100')}
+              >
+                {editMode ? renderEditFields(f, 'green', i) : <>
                 <div className="flex justify-between items-start flex-wrap gap-4">
                   <div className="max-w-4xl">
                     <div className="flex items-start gap-4">
@@ -331,6 +472,7 @@ export function FlagAnalysis({ red, orange, green, report, adminMode = false, on
                   LOW • SECTION {f.sourceSection || 'G'}
                 </div>
                 {renderReviewControls(f, 'green', i)}
+                </>}
               </div>
             ))}
           </div>

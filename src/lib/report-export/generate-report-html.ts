@@ -433,8 +433,8 @@ export function generateReportHtml(config: ReportConfig): string {
 // ── Utility: HTML table builder ──────────────────────────────────────────────
 
 export function buildHtmlTable(
-  headers: string[],
-  rows: string[][],
+  headers: Array<string | number | null | undefined>,
+  rows: Array<Array<string | number | null | undefined>>,
   options?: { totalRow?: boolean },
 ): string {
   const ths = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')
@@ -448,7 +448,7 @@ export function buildHtmlTable(
 }
 
 export function buildFlagListHtml(
-  flags: Array<{ issue: string; whyItMatters: string }>,
+  flags: Array<{ issue: string | null | undefined; whyItMatters: string | null | undefined }>,
   color: 'red' | 'orange' | 'green',
 ): string {
   if (!flags.length) return ''
@@ -459,7 +459,7 @@ export function buildFlagListHtml(
     </div>`).join('\n')
 }
 
-export function buildInfoGrid(pairs: Array<{ label: string; value: string }>): string {
+export function buildInfoGrid(pairs: Array<{ label: string | null | undefined; value: string | number | null | undefined }>): string {
   return `<div class="info-grid">${pairs.map(p => `
     <div class="info-cell">
       <div class="info-label">${escapeHtml(p.label)}</div>
@@ -468,15 +468,15 @@ export function buildInfoGrid(pairs: Array<{ label: string; value: string }>): s
   </div>`
 }
 
-export function buildBulletList(items: string[]): string {
+export function buildBulletList(items: Array<string | number | null | undefined>): string {
   if (!items.length) return ''
   return `<ul class="report-list">${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function escapeHtml(str: string): string {
-  return str
+function escapeHtml(str: string | number | null | undefined): string {
+  return String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

@@ -3,7 +3,8 @@
 // Section Label: "Employee Obligations Documents"
 // Validation: blocks "Run Analysis" until slots 1 and 3 are filled; slots 2 and 4 show inline warnings if missing
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Save } from 'lucide-react'
 import type { UploadedDoc } from '@/hooks/useWS16Analysis'
 
 // All document slots — each is optional (yes/no toggle). Agent runs with whatever is available.
@@ -73,14 +74,18 @@ const ALL_DOCUMENT_SLOTS = [
 type SlotKey = typeof ALL_DOCUMENT_SLOTS[number]['key']
 
 interface Props {
+  clientId: string
   onDocumentsReady: (docs: UploadedDoc[]) => void
   onAnalyze: () => void
   isLoading: boolean
 }
 
-export default function WS16Uploader({ onDocumentsReady, onAnalyze, isLoading }: Props) {
+export default function WS16Uploader({ clientId, onDocumentsReady, onAnalyze, isLoading }: Props) {
   const [uploadedBySlot, setUploadedBySlot] = useState<Record<string, UploadedDoc[]>>({})
   const [hasDocument, setHasDocument] = useState<Record<string, boolean>>({})
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [draftSaved, setDraftSaved] = useState(false)
+  const [draftLoaded, setDraftLoaded] = useState(false)
 
   const allUploadedDocs = Object.values(uploadedBySlot).flat()
   const totalFileCount = allUploadedDocs.length
@@ -89,11 +94,59 @@ export default function WS16Uploader({ onDocumentsReady, onAnalyze, isLoading }:
 
   // At least one document must be uploaded to run
   const hasAnyDocs = totalFileCount > 0
+  const hasDraftInput = totalFileCount > 0 || Object.keys(hasDocument).length > 0
 
   // Count how many slots are marked "No"
   const unavailableSlots = ALL_DOCUMENT_SLOTS.filter(
     slot => hasDocument[slot.key] === false
   )
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadDraft() {
+      try {
+        const res = await fetch(`/api/client-data/${clientId}?section=employeeObligationsDraft`)
+        if (!res.ok) return
+        const draft = await res.json()
+        if (cancelled || !draft) return
+        const nextUploaded = draft.uploadedBySlot ?? {}
+        const nextHasDocument = draft.hasDocument ?? {}
+        setUploadedBySlot(nextUploaded)
+        setHasDocument(nextHasDocument)
+        onDocumentsReady(Object.values(nextUploaded).flat() as UploadedDoc[])
+        setDraftLoaded(true)
+      } catch {
+        // Draft restore should never block the uploader.
+      }
+    }
+    void loadDraft()
+    return () => { cancelled = true }
+  }, [clientId, onDocumentsReady])
+
+  async function saveDraft() {
+    setSavingDraft(true)
+    try {
+      const res = await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'employeeObligationsDraft',
+          data: {
+            hasDocument,
+            uploadedBySlot,
+            savedAt: new Date().toISOString(),
+          },
+        }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      setDraftSaved(true)
+      setTimeout(() => setDraftSaved(false), 2000)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to save draft')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
 
   function handleFiles(slotKey: string, files: FileList | null) {
     if (!files || files.length === 0) return
@@ -160,6 +213,11 @@ export default function WS16Uploader({ onDocumentsReady, onAnalyze, isLoading }:
           <span className="font-medium text-stone-700">Select &ldquo;Yes&rdquo; to upload, or &ldquo;No&rdquo; if unavailable.</span>{' '}
           The analysis will run with whatever documents are provided. Missing documents will be noted in the report.
         </p>
+        {draftLoaded && (
+          <p className="mt-2 text-[11px] font-medium text-emerald-700">
+            Draft restored for this client.
+          </p>
+        )}
       </div>
 
       {isOverLimits && (
@@ -197,22 +255,41 @@ export default function WS16Uploader({ onDocumentsReady, onAnalyze, isLoading }:
         </div>
       )}
 
-      <div className="pt-2 flex items-center justify-between border-t border-stone-100">
+      <div className="pt-2 flex items-center justify-between gap-3 border-t border-stone-100">
         <p className={`text-[11px] ${isOverLimits ? 'text-red-500 font-medium' : 'text-stone-400'}`}>
           {totalFileCount} file{totalFileCount !== 1 ? 's' : ''} ({(totalSizeBytes / 1024 / 1024).toFixed(1)} MB)
           {totalFileCount > 0 && ` · Max 15 files / 25 MB`}
         </p>
-        <button
-          onClick={onAnalyze}
-          disabled={!hasAnyDocs || isLoading || isOverLimits}
-          className={`text-[12px] px-4 py-2 rounded-lg font-medium transition-all ${
-            hasAnyDocs && !isLoading && !isOverLimits
-              ? 'bg-stone-900 text-white hover:bg-stone-800'
-              : 'bg-stone-100 text-stone-400 cursor-not-allowed'
-          }`}
-        >
-          {isLoading ? 'Running Analysis…' : 'Run Analysis →'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={saveDraft}
+            disabled={!hasDraftInput || isLoading || savingDraft}
+            className={`relative inline-flex items-center gap-1.5 text-[12px] px-4 py-2 rounded-lg font-medium border transition-all ${
+              hasDraftInput && !isLoading && !savingDraft
+                ? 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                : 'bg-stone-50 text-stone-300 border-stone-100 cursor-not-allowed'
+            }`}
+          >
+            <Save className="w-3.5 h-3.5" />
+            {savingDraft ? 'Saving…' : 'Save Draft'}
+            {draftSaved && (
+              <span className="absolute -top-2 -right-2 text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-medium animate-pulse">
+                Saved
+              </span>
+            )}
+          </button>
+          <button
+            onClick={onAnalyze}
+            disabled={!hasAnyDocs || isLoading || isOverLimits}
+            className={`text-[12px] px-4 py-2 rounded-lg font-medium transition-all ${
+              hasAnyDocs && !isLoading && !isOverLimits
+                ? 'bg-stone-900 text-white hover:bg-stone-800'
+                : 'bg-stone-100 text-stone-400 cursor-not-allowed'
+            }`}
+          >
+            {isLoading ? 'Running Analysis…' : 'Run Analysis →'}
+          </button>
+        </div>
       </div>
 
       {!hasAnyDocs && (

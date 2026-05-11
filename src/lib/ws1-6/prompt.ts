@@ -58,7 +58,7 @@ Review all uploaded documents and extract findings across the following six anal
 - Note which state the primary operations are in — some states (CA, MA, NJ) use stricter ABC tests
 
 ### DOMAIN 5: KEY PERSON & TRANSITION RISK
-- Using the org chart, payroll register, and employment agreements, identify:
+- Using the uploaded payroll register, employment agreements, offer letters, handbook, benefits documents, and any org chart if one is provided, identify:
   - The owner/operator: assess degree of owner-involvement in daily operations, client relationships, and vendor relationships (use language from the documents — do not speculate beyond what is written)
   - Any employee whose departure would materially disrupt operations (define "material" as: no redundancy of skill, client-facing role, or holds relationships with key vendors/suppliers)
   - Any employee who appears to be a family member of the owner (flag as key-person and transition risk if employment terms are informal)
@@ -83,12 +83,12 @@ Produce the report in EXACTLY the following structure. Do not deviate from the s
 
 Produce a table listing every document uploaded, with columns:
 - Document Name (as uploaded or inferred)
-- Document Type (Employment Agreement / Non-Compete / Handbook / Benefits Summary / Payroll Register / Org Chart / IC Agreement / Offer Letter / Severance / Retirement Plan / Other)
+- Document Type (Employment Agreement / Non-Compete / Handbook / Benefits Summary / Payroll Register / Org Chart if uploaded / IC Agreement / Offer Letter / Severance / Retirement Plan / Other)
 - Employees or Parties Covered (names/roles if identifiable, or "All Employees" or "Not Specified")
 - Date (executed date or "Undated")
 - Completeness Flag (Complete / Appears Incomplete / Amendment Referenced but Not Uploaded)
 
-End this section with a "Documents Not Provided" note listing all standard employment document categories that were NOT uploaded. Standard categories include: Employment Agreements, Non-Compete/Non-Solicitation Agreements, Employee Handbook, Benefits Summary, Payroll Register, Org Chart, Independent Contractor Agreements, Offer Letters, Severance Agreements, Retirement Plan Documents, PTO Accrual Ledger, Workers' Comp Certificate/Loss Run, Workers' Compensation Claims, and State Employer Registration Documents. For each missing category, note: "[Document Type] — Not provided by seller. [Brief statement of what analysis is limited without this document.]" This information is critical for the buyer's due diligence team to understand gaps in disclosure.
+End this section with a "Documents Not Provided" note listing all standard employment document categories that were NOT uploaded. Standard categories include: Employment Agreements, Non-Compete/Non-Solicitation Agreements, Employee Handbook, Benefits Summary, Payroll Register, Independent Contractor Agreements, Offer Letters, Severance Agreements, Retirement Plan Documents, PTO Accrual Ledger, Workers' Comp Certificate/Loss Run, Workers' Compensation Claims, and State Employer Registration Documents. Do not list Org Chart as missing or required for this agent; only reference it if one was uploaded. For each missing category, note: "[Document Type] — Not provided by seller. [Brief statement of what analysis is limited without this document.]" This information is critical for the buyer's due diligence team to understand gaps in disclosure.
 
 IMPORTANT: The seller may not have all or even most of these documents. This is common for small businesses. Analyze whatever documents are provided without requiring any minimum set. The report must be complete even if only one or two documents are uploaded.
 
@@ -213,7 +213,7 @@ Produce a consolidated flags table:
 - Do not provide legal advice — provide document analysis and flag for legal review where appropriate
 - Do not include names of individual employees in any output that may be shared externally — use role/title only
 - Write for a sophisticated business owner and their deal team
-- If a required document category is missing, insert a 🔴 flag in Section 8: "Required document not uploaded — [category]. Analysis in [Domain X] is incomplete."
+- If a required employment document category is missing, insert a 🔴 flag in Section 8: "Required document not uploaded — [category]. Analysis in [Domain X] is incomplete." Do not create this flag for Org Chart because Org Chart is not a required Employee Obligations document.
 
 ---
 

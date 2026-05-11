@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
           subjectPlaceId: subjectLookup.subject.placeId,
           subjectName: subjectLookup.subject.name,
           subjectAddress: subjectLookup.subject.address || subjectLookup.formattedAddress,
-          limit: 6,
+          limit: 12,
           radiusMiles: formData.radiusMiles ?? 5,
         });
 
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
           type: 'progress',
           phase: 'research',
           message: nearby.competitors.length
-            ? `Found ${nearby.discoveredCompetitors} nearby competitors. Gathering website evidence for the strongest matches…`
+            ? `Found ${nearby.discoveredCompetitors} nearby competitors. Gathering website evidence for the closest matches and mapping all discovered competitors…`
             : 'No nearby competitors were found from public location data.',
         });
 

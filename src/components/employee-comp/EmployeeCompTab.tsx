@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { Fragment, useState, useCallback, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload, FileText, Plus, Trash2, Download, Save, Users2,
@@ -319,12 +319,15 @@ export default function EmployeeCompTab({
   // ── Export CSV ──────────────────────────────────────────────────────────
   const exportCsv = () => {
     const headers = [
-      'Employee Name', 'Hire Date', 'Rehire Date', 'Employee Type', 'Work Location',
+      'Employee Name', 'Hire Date', 'Rehire Date', 'Employee Type', 'Full Time Employees', 'Part Time Employees', 'Work Location',
       'Job Title', 'Hourly/Salary', 'Annual Salary', 'Hourly Rate',
       'Pay Rate Effective Date', 'Benefit Class Code', 'Benefit Class Description',
     ]
     const rows = employees.map(e => [
-      e.employeeName, e.hireDate, e.rehireDate, e.employeeType, e.workLocation,
+      e.employeeName, e.hireDate, e.rehireDate, e.employeeType,
+      e.employeeType.toLowerCase().includes('full') ? 1 : '',
+      e.employeeType.toLowerCase().includes('part') ? 1 : '',
+      e.workLocation,
       e.jobTitle, e.payType, e.annualSalary ?? '', e.hourlyRate ?? '',
       e.payRateEffectiveDate, e.benefitClassCode, e.benefitClassDescription,
     ])
@@ -572,9 +575,17 @@ export default function EmployeeCompTab({
                   <tr className="border-b border-slate-100 bg-slate-50/50">
                     <th className="text-center px-2 py-2.5 font-semibold text-slate-400 w-[40px]">#</th>
                     {COLUMNS.map(col => (
-                      <th key={col.key} className={cn('text-left px-3 py-2.5 font-semibold text-slate-500', col.width)}>
-                        {col.label}
-                      </th>
+                      <Fragment key={col.key}>
+                        <th className={cn('text-left px-3 py-2.5 font-semibold text-slate-500', col.width)}>
+                          {col.label}
+                        </th>
+                        {col.key === 'employeeType' && (
+                          <>
+                            <th className="text-left px-3 py-2.5 font-semibold text-slate-500 min-w-[120px]">Full Time Employees</th>
+                            <th className="text-left px-3 py-2.5 font-semibold text-slate-500 min-w-[120px]">Part Time Employees</th>
+                          </>
+                        )}
+                      </Fragment>
                     ))}
                     <th className="text-center px-2 py-2.5 font-semibold text-slate-400 w-[50px]" />
                   </tr>
@@ -584,14 +595,22 @@ export default function EmployeeCompTab({
                     <tr key={emp.id} className="border-b border-slate-50 hover:bg-amber-50/20 transition-colors group">
                       <td className="text-center px-2 py-1 text-slate-300 font-mono">{i + 1}</td>
                       {COLUMNS.map(col => (
-                        <td key={col.key} className={cn('px-2 py-1', col.width)}>
-                          <EditableCell
-                            value={emp[col.key] as any}
-                            onChange={val => updateRow(emp.id, col.key, val)}
-                            type={col.type}
-                            options={col.options}
-                          />
-                        </td>
+                        <Fragment key={col.key}>
+                          <td className={cn('px-2 py-1', col.width)}>
+                            <EditableCell
+                              value={emp[col.key] as any}
+                              onChange={val => updateRow(emp.id, col.key, val)}
+                              type={col.type}
+                              options={col.options}
+                            />
+                          </td>
+                          {col.key === 'employeeType' && (
+                            <>
+                              <td className="px-3 py-1 text-xs text-slate-700">{emp.employeeType.toLowerCase().includes('full') ? '1' : ''}</td>
+                              <td className="px-3 py-1 text-xs text-slate-700">{emp.employeeType.toLowerCase().includes('part') ? '1' : ''}</td>
+                            </>
+                          )}
+                        </Fragment>
                       ))}
                       <td className="text-center px-2 py-1">
                         <button
@@ -606,7 +625,7 @@ export default function EmployeeCompTab({
                   ))}
                   {employees.length === 0 && (
                     <tr>
-                      <td colSpan={COLUMNS.length + 2} className="text-center py-12 text-slate-300 text-sm">
+                      <td colSpan={COLUMNS.length + 4} className="text-center py-12 text-slate-300 text-sm">
                         No employees yet. Click &ldquo;Add Row&rdquo; to start.
                       </td>
                     </tr>
@@ -620,6 +639,10 @@ export default function EmployeeCompTab({
                       <td className="px-3 py-2.5">{summary.totalHeadcount} employees</td>
                       {/* Employee Type col — FT/PT split */}
                       <td className="px-3 py-2.5">{summary.fullTimeCount} FT / {summary.partTimeCount} PT</td>
+                      {/* Full Time Employees */}
+                      <td className="px-3 py-2.5">{summary.fullTimeCount}</td>
+                      {/* Part Time Employees */}
+                      <td className="px-3 py-2.5">{summary.partTimeCount}</td>
                       {/* Hire Date */}
                       <td className="px-3 py-2.5" />
                       {/* Rehire Date */}

@@ -61,11 +61,10 @@ export default function ClientManager({ client: initial, onSaved }: {
     if (!driveFolder && client.name) {
       // Call Drive API to create folder structure
       try {
-        const grantId = typeof window !== 'undefined' ? document.cookie.match(/cantara_nylas_grant=([^;]+)/)?.[1] : null
         const res = await fetch('/api/drive/create-folder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientName: client.name, clientId: client.id, grantId }),
+          body: JSON.stringify({ clientName: client.name, clientId: client.id }),
         })
         if (res.ok) {
           const data = await res.json()
@@ -73,7 +72,6 @@ export default function ClientManager({ client: initial, onSaved }: {
         }
       } catch {
         // Non-fatal: Drive folder creation can be retried
-        driveFolder = `https://drive.google.com/drive/folders/cantara_${client.id}`
       }
     }
 
@@ -485,7 +483,7 @@ export default function ClientManager({ client: initial, onSaved }: {
           </div>
         ) : (
           <div className="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-sm text-slate-400 text-center">
-            Google Drive folder will be auto-created when the client is provisioned (via Google Drive API).
+            Google Drive folder will be created after Google Drive is connected from the admin dashboard.
           </div>
         )}
       </section>

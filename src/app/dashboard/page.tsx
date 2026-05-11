@@ -6,10 +6,10 @@ import { useDropzone } from 'react-dropzone'
 import {
   LogOut, Bell, Settings, ChevronRight, CheckCircle, Upload, X,
   MessageSquare, AlertCircle, Send, Users, Plus, Trash2,
-  FileText, HelpCircle, ChevronDown, ChevronUp, Map, Briefcase, Lock, Loader2
+  FileText, HelpCircle, ChevronDown, ChevronUp, Map, Briefcase, Lock, Loader2, ExternalLink
 } from 'lucide-react'
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
-import { VALUATION_DOCS, DOCUMENT_CATEGORIES, getDocsForWorkstream } from '@/lib/documentData'
+import { getDocsForWorkstream, getValuationDocsForWorkstream } from '@/lib/documentData'
 import { getClients, getMessages, saveMessage, getRequirements, getCurrentRole, logout, getClient, saveClient, updateRequirement } from '@/lib/store'
 import type { Client, DocumentStatus, ChatMessage, AdditionalRequirement } from '@/lib/store'
 
@@ -300,10 +300,11 @@ export default function ClientDashboard() {
     docStatuses[docId] ?? { id: docId, hasDoc: null, assignedTo: null, uploadedAt: null, fileName: null, notApplicable: false }
 
   const categories = getDocsForWorkstream(client.workstream, client.businessType)
+  const valuationDocs = getValuationDocsForWorkstream(client.workstream)
   const diligenceDocs = categories.flatMap(c => c.documents)
-  const allDocs = [...VALUATION_DOCS, ...diligenceDocs]
+  const allDocs = [...valuationDocs, ...diligenceDocs]
   const requiredAndValuationDocs = [
-    ...VALUATION_DOCS,
+    ...valuationDocs,
     ...diligenceDocs.filter(d => d.type === 'required'),
   ]
   const yesDocs = diligenceDocs.filter(d => d.type !== 'required' && getDocStatus(d.id).hasDoc === true)
@@ -453,9 +454,10 @@ export default function ClientDashboard() {
               transition={{ duration: 0.2 }}
             >
               {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} />}
-              {phase === 'assign' && <AssignTab categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
+              {phase === 'assign' && <AssignTab valuationDocs={valuationDocs} categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
               {phase === 'collection' && (
                 <CollectionTab
+                  valuationDocs={valuationDocs}
                   categories={categories}
                   getStatus={getDocStatus}
                   setStatus={setDocStatus}
@@ -706,7 +708,8 @@ function OverviewTab({ client, wsLabel }: { client: Client; wsLabel: Record<stri
 // ── Valuation Tab ────────────────────────────────────────────────────────────
 // ── Assign Tab (was Preparation) ─────────────────────────────────────────────
 // UX from meeting: client first says Yes/No per doc, then assigns YES docs only
-function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned }: {
+function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMembers, allAssigned }: {
+  valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
@@ -714,7 +717,6 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
   allAssigned: boolean
 }) {
   const [subView, setSubView] = useState<'yesno' | 'assign'>('yesno')
-  const valuationDocs = VALUATION_DOCS
   const diligenceDocs = categories.flatMap(c => c.documents)
   const allDocs = [...valuationDocs, ...diligenceDocs]
   const assignableDocs = allDocs.filter(d => d.type === 'required' || valuationDocs.some(v => v.id === d.id) || getStatus(d.id).hasDoc === true)
@@ -900,7 +902,8 @@ function AssignTab({ categories, getStatus, setStatus, teamMembers, allAssigned 
 }
 
 // ── Collection Tab ────────────────────────────────────────────────────────────
-function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId }: {
+function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId }: {
+  valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
@@ -947,56 +950,60 @@ function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEma
       <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
         Upload documents for each item your team confirmed in the Assign step. You can upload in batches — progress is saved automatically. Assigned team members have been notified by email.
       </div>
-      <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
-        <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between">
-          <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
-          <span className="text-xs text-amber-700">
-            {VALUATION_DOCS.filter(d => getStatus(d.id).fileName).length}/{VALUATION_DOCS.length} uploaded
-          </span>
-        </div>
-        <div className="divide-y divide-amber-100/80">
-          {VALUATION_DOCS.map(doc => {
-            const s = getStatus(doc.id)
-            if (s.hasDoc === false || s.notApplicable) return null
-            return (
-              <div key={doc.id} className="px-5 py-4 bg-white/60">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-slate-800">{doc.name}</p>
-                      {s.assignedTo && <Badge color="slate">{s.assignedTo}</Badge>}
+      <QuickBooksConnectCard clientId={clientId} />
+      {valuationDocs.length > 0 && (
+        <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
+          <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
+            <span className="text-xs text-amber-700">
+              {valuationDocs.filter(d => getStatus(d.id).fileName).length}/{valuationDocs.length} uploaded
+            </span>
+          </div>
+          <div className="divide-y divide-amber-100/80">
+            {valuationDocs.map(doc => {
+              const s = getStatus(doc.id)
+              if (s.hasDoc === false || s.notApplicable) return null
+              return (
+                <div key={doc.id} className="px-5 py-4 bg-white/60">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-slate-800">{doc.name}</p>
+                        {s.assignedTo && <Badge color="slate">{s.assignedTo}</Badge>}
+                      </div>
+                      <p className="text-xs text-amber-700 mt-0.5">{doc.description}</p>
                     </div>
-                    <p className="text-xs text-amber-700 mt-0.5">{doc.description}</p>
+                    <DocumentUpload
+                      docId={doc.id}
+                      docName={doc.name}
+                      clientId={clientId}
+                      uploaderEmail={uploaderEmail}
+                      currentFileName={s.fileName}
+                      onUploaded={(fileName, fileUrl) => setStatus(doc.id, { fileName, fileUrl: fileUrl || null, uploadedAt: new Date().toISOString() })}
+                    />
                   </div>
-                  <DocumentUpload
-                    docId={doc.id}
-                    docName={doc.name}
-                    clientId={clientId}
-                    uploaderEmail={uploaderEmail}
-                    currentFileName={s.fileName}
-                    onUploaded={(fileName, fileUrl) => setStatus(doc.id, { fileName, fileUrl: fileUrl || null, uploadedAt: new Date().toISOString() })}
-                  />
+                  {s.fileName && (
+                    <div className="flex items-center gap-2 text-xs text-emerald-600 mt-1">
+                      <CheckCircle className="w-3 h-3" /> {s.fileName}
+                      <span className="text-slate-300">· {s.uploadedAt ? new Date(s.uploadedAt).toLocaleDateString() : ''}</span>
+                    </div>
+                  )}
                 </div>
-                {s.fileName && (
-                  <div className="flex items-center gap-2 text-xs text-emerald-600 mt-1">
-                    <CheckCircle className="w-3 h-3" /> {s.fileName}
-                    <span className="text-slate-300">· {s.uploadedAt ? new Date(s.uploadedAt).toLocaleDateString() : ''}</span>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
+          {renderSectionFooter(
+            'valuation',
+            valuationDocs.length,
+            valuationDocs.filter(d => getStatus(d.id).fileName).length,
+          )}
         </div>
-        {renderSectionFooter(
-          'valuation',
-          VALUATION_DOCS.length,
-          VALUATION_DOCS.filter(d => getStatus(d.id).fileName).length,
-        )}
-      </div>
+      )}
       {categories.map(cat => {
         const docsToShow = cat.documents.filter(d => {
           const s = getStatus(d.id)
-          return s.hasDoc !== false && !s.notApplicable // show docs they said yes to or unanswered
+          if (s.hasDoc === false || s.notApplicable) return false
+          return d.type === 'required' || s.hasDoc === true || Boolean(s.fileName)
         })
         if (docsToShow.length === 0) return null
         const isSubmitted = Boolean(sectionSubmissions[cat.id])
@@ -1045,6 +1052,96 @@ function CollectionTab({ categories, getStatus, setStatus, clientId, uploaderEma
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function QuickBooksConnectCard({ clientId }: { clientId: string }) {
+  const [status, setStatus] = useState<{ connected: boolean; connection: { status: string; updatedAt: string | null; statusReason: string | null } | null } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadStatus() {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/composio/quickbooks/status?clientId=${encodeURIComponent(clientId)}`)
+        if (!res.ok) throw new Error(await res.text())
+        const data = await res.json()
+        if (!cancelled) setStatus(data)
+      } catch {
+        if (!cancelled) setError('QuickBooks connection status unavailable.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void loadStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [clientId])
+
+  async function connectQuickBooks() {
+    setConnecting(true)
+    setError('')
+    try {
+      const res = await fetch('/api/composio/quickbooks/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      if (data.redirect_url) {
+        window.location.href = data.redirect_url
+        return
+      }
+      throw new Error('Missing QuickBooks redirect URL')
+    } catch {
+      setError('Could not start QuickBooks connection.')
+      setConnecting(false)
+    }
+  }
+
+  const connected = Boolean(status?.connected)
+  const statusLabel = loading
+    ? 'Checking...'
+    : connected
+      ? 'Connected'
+      : status?.connection?.status
+        ? `Status: ${status.connection.status}`
+        : 'Optional'
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-slate-800">QuickBooks connection</p>
+            <Badge color={connected ? 'green' : 'slate'}>{statusLabel}</Badge>
+          </div>
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+            Optional. Connect QuickBooks so Cantara can review financial reports directly instead of requesting extra exports.
+          </p>
+          {status?.connection?.updatedAt && (
+            <p className="text-xs text-slate-400 mt-1">
+              Last updated {new Date(status.connection.updatedAt).toLocaleDateString()}
+            </p>
+          )}
+          {error && <p className="text-xs text-rose-600 mt-2">{error}</p>}
+        </div>
+        <Button
+          size="sm"
+          variant={connected ? 'outline' : 'primary'}
+          onClick={() => void connectQuickBooks()}
+          disabled={loading || connecting}
+        >
+          {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+          {connected ? 'Reconnect' : 'Connect QuickBooks'}
+        </Button>
+      </div>
     </div>
   )
 }

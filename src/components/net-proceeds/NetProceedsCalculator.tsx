@@ -650,7 +650,32 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             <p className="text-[10px] text-slate-400">Manual input by seller&apos;s accountant</p>
           </Card>
 
-          {/* 3. Other Seller Cash Obligations — dynamic list */}
+          {/* 3. Working Capital */}
+          <Card className="p-4 space-y-3">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Working Capital</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Estimated Closing WC"
+                placeholder="500,000"
+                value={form.actualWorkingCapital}
+                onChange={(e) => set('actualWorkingCapital', e.target.value)}
+              />
+              <Input
+                label="Target WC (Peg)"
+                placeholder="700,000"
+                value={form.targetWorkingCapital}
+                onChange={(e) => set('targetWorkingCapital', e.target.value)}
+              />
+            </div>
+            <Input
+              label="Deferred Revenue / Prepaid Packages"
+              placeholder="50,000"
+              value={form.deferredRevenue}
+              onChange={(e) => set('deferredRevenue', e.target.value)}
+            />
+          </Card>
+
+          {/* 4. Other Seller Cash Obligations — dynamic list */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Other Seller Cash Obligations</p>
             {form.sellerObligations.map((item, idx) => (
@@ -685,7 +710,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             <p className="text-[10px] text-slate-400">Items like tenant improvements that the seller must pay</p>
           </Card>
 
-          {/* 4. Tax Inputs */}
+          {/* 5. Tax Inputs */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
               <Percent className="w-3.5 h-3.5" />
@@ -728,7 +753,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
             <p className="text-[10px] text-slate-400">Manual input by seller&apos;s accountant. Toggle between % rate or $ fixed amount.</p>
           </Card>
 
-          {/* 5. Debt Schedule */}
+          {/* 6. Debt Schedule */}
           <Card className="p-4 space-y-3">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Debt Schedule</p>
             <Input
@@ -787,31 +812,6 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
               <Plus className="w-3.5 h-3.5" />
               Add debt instrument
             </Button>
-          </Card>
-
-          {/* 6. Working Capital */}
-          <Card className="p-4 space-y-3">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Working Capital</p>
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                label="Estimated Closing WC"
-                placeholder="500,000"
-                value={form.actualWorkingCapital}
-                onChange={(e) => set('actualWorkingCapital', e.target.value)}
-              />
-              <Input
-                label="Target WC (Peg)"
-                placeholder="700,000"
-                value={form.targetWorkingCapital}
-                onChange={(e) => set('targetWorkingCapital', e.target.value)}
-              />
-            </div>
-            <Input
-              label="Deferred Revenue / Prepaid Packages"
-              placeholder="50,000"
-              value={form.deferredRevenue}
-              onChange={(e) => set('deferredRevenue', e.target.value)}
-            />
           </Card>
 
           {/* 7. Consideration Withheld / Deferred */}

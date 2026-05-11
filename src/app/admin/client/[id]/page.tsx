@@ -192,14 +192,9 @@ function AgentsDropdown({
         )}
       >
         <Bot className="w-3.5 h-3.5" />
-        <span>Agents</span>
+        <span>{isAgentActive && activeAgent ? `Agents: ${activeAgent.label}` : 'Agents'}</span>
         {isAgentActive && activeAgent && (
-          <span
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-            style={{ background: 'linear-gradient(135deg,#b8922a,#d4a843)', color: '#fff' }}
-          >
-            {activeAgent.label}
-          </span>
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
         )}
         <ChevronDown className={cn('w-3 h-3 transition-transform', open && 'rotate-180')} />
       </button>

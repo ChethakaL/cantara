@@ -176,7 +176,7 @@ function mergeResearchedCompetitor(report: CompetitorAnalysisReport, competitor:
 
 function buildStaticMapUrl(report: CompetitorAnalysisReport): string {
   const points = report.discoveredCompetitors
-    .slice(0, 20)
+    .slice(0, 80)
     .map((competitor, index) => `${competitor.location.lat},${competitor.location.lng},${index + 1}`)
     .join(';');
 

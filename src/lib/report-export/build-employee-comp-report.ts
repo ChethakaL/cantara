@@ -15,23 +15,17 @@ export function buildEmployeeCompReportHtml(
   summary: EmployeeCompReport['summary'],
   clientName: string,
 ): string {
-  // KPIs
-  const kpis = [
-    { label: 'Total Headcount', value: String(summary.totalHeadcount) },
-    { label: 'FT / PT Split', value: `${summary.fullTimeCount} FT / ${summary.partTimeCount} PT` },
-    { label: 'Total Annual Payroll', value: fmt(summary.totalAnnualPayroll) },
-    { label: 'Avg Hourly Rate', value: summary.avgHourlyRate !== null ? `$${summary.avgHourlyRate.toFixed(2)}/hr` : '\u2014' },
-  ]
-
   // Employee roster table
   const rosterContent = employees.length > 0
     ? buildHtmlTable(
-        ['Name', 'Title', 'Location', 'Type', 'Hourly/Salary', 'Rate', 'Hire Date', 'Benefit Class'],
+        ['Name', 'Title', 'Location', 'Type', 'Full Time Employees', 'Part Time Employees', 'Hourly/Salary', 'Rate', 'Hire Date', 'Benefit Class'],
         employees.map(e => [
           e.employeeName || '\u2014',
           e.jobTitle || '\u2014',
           e.workLocation || '\u2014',
           e.employeeType || '\u2014',
+          e.employeeType.toLowerCase().includes('full') ? '1' : '',
+          e.employeeType.toLowerCase().includes('part') ? '1' : '',
           e.payType,
           e.payType === 'Hourly'
             ? (e.hourlyRate !== null ? `$${e.hourlyRate.toFixed(2)}/hr` : '\u2014')
@@ -59,7 +53,6 @@ export function buildEmployeeCompReportHtml(
     subtitle: 'Workforce Compensation Analysis',
     clientName,
     generatedAt: new Date().toISOString(),
-    kpis,
     sections: [
       { title: 'Employee Roster', content: rosterContent },
       { title: 'Summary by Location', content: locationContent },

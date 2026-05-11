@@ -1,7 +1,7 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { FileText, AlertTriangle, Folder } from 'lucide-react'
-import { Card, Badge } from '@/components/ui'
+import { FileText, AlertTriangle, Folder, Pencil, Save, X } from 'lucide-react'
+import { Card, Badge, Button } from '@/components/ui'
 import { ContractReport as IContractReport } from '../../lib/contract-analysis/types'
 import { SnapshotTable } from './report-sections/SnapshotTable'
 import { DetailedFindings } from './report-sections/DetailedFindings'
@@ -30,15 +30,19 @@ const REPORT_TABS = [
 
 export function ContractReport({ report, fileName, clientName, onNewAnalysis, onDelete, onReportUpdated, adminMode = false }: Props) {
   const [activeTab, setActiveTab] = useState('snapshot')
-  const summaryHtml = useMemo(() => buildContractSummaryHtml(report, clientName), [report, clientName])
-  const addendumHtml = useMemo(() => buildContractAddendumHtml(report, clientName), [report, clientName])
+  const [editMode, setEditMode] = useState(false)
+  const [draftReport, setDraftReport] = useState<IContractReport | null>(null)
+  const [savingEdits, setSavingEdits] = useState(false)
+  const visibleReport = editMode && draftReport ? draftReport : report
+  const summaryHtml = useMemo(() => buildContractSummaryHtml(visibleReport, clientName), [visibleReport, clientName])
+  const addendumHtml = useMemo(() => buildContractAddendumHtml(visibleReport, clientName), [visibleReport, clientName])
 
   const flagCounts = {
-    red: getVisibleFlags(report.redFlags || []).length,
-    orange: getVisibleFlags(report.orangeFlags || []).length,
-    green: getVisibleFlags(report.greenFlags || []).length,
+    red: getVisibleFlags(visibleReport.redFlags || []).length,
+    orange: getVisibleFlags(visibleReport.orangeFlags || []).length,
+    green: getVisibleFlags(visibleReport.greenFlags || []).length,
   }
-  const perContractFlagCount = (report.contractRiskCards || []).reduce(
+  const perContractFlagCount = (visibleReport.contractRiskCards || []).reduce(
     (sum, card) => sum + card.redFlags.length + card.orangeFlags.length + card.greenFlags.length,
     0,
   )
@@ -46,9 +50,31 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
   const getCount = (key: string) => {
     switch (key) {
       case 'flags': return perContractFlagCount || flagCounts.red + flagCounts.orange + flagCounts.green
-      case 'findings': return (report.detailedFindings || []).length
-      case 'documents': return (report.documentInventory || []).length
+      case 'findings': return (visibleReport.detailedFindings || []).length
+      case 'documents': return (visibleReport.documentInventory || []).length
       default: return 0
+    }
+  }
+
+  const canEdit = adminMode && Boolean(onReportUpdated)
+  const startEdit = () => {
+    setActiveTab('findings')
+    setDraftReport(structuredClone(report))
+    setEditMode(true)
+  }
+  const cancelEdit = () => {
+    setDraftReport(null)
+    setEditMode(false)
+  }
+  const saveEdits = async () => {
+    if (!draftReport || !onReportUpdated) return
+    setSavingEdits(true)
+    try {
+      await onReportUpdated(draftReport)
+      setDraftReport(null)
+      setEditMode(false)
+    } finally {
+      setSavingEdits(false)
     }
   }
 
@@ -63,12 +89,29 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
           <div className="flex items-center gap-1.5">
             <Badge color="red">🔴 {flagCounts.red} Red</Badge>
             <Badge color="gold">🟡 {flagCounts.orange} Orange</Badge>
             <Badge color="green">🟢 {flagCounts.green} Green</Badge>
           </div>
+          <div className="w-px h-4 bg-slate-200 mx-1" />
+          {canEdit && (
+            editMode ? (
+              <>
+                <Button size="sm" variant="outline" onClick={cancelEdit} disabled={savingEdits}>
+                  <X className="w-3.5 h-3.5" /> Cancel
+                </Button>
+                <Button size="sm" onClick={saveEdits} disabled={savingEdits}>
+                  <Save className="w-3.5 h-3.5" /> {savingEdits ? 'Saving...' : 'Save Output'}
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" variant="outline" onClick={startEdit}>
+                <Pencil className="w-3.5 h-3.5" /> Edit Output
+              </Button>
+            )
+          )}
           <div className="w-px h-4 bg-slate-200 mx-1" />
           <ExportReportButton
             html={summaryHtml}
@@ -117,28 +160,30 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
 
       {/* Section content */}
       <div className="p-6 min-h-[400px]">
-        {activeTab === 'snapshot' && <SnapshotTable rows={report.snapshotTable} />}
+        {activeTab === 'snapshot' && <SnapshotTable rows={visibleReport.snapshotTable} />}
         {activeTab === 'findings' && (
           <DetailedFindings
-            findings={report.detailedFindings}
-            raw={report.raw}
-            report={report}
+            findings={visibleReport.detailedFindings}
+            raw={visibleReport.raw}
+            report={visibleReport}
             adminMode={adminMode}
-            onReportUpdated={onReportUpdated}
+            onReportUpdated={editMode ? undefined : onReportUpdated}
+            editMode={editMode}
+            onReportDraftChange={setDraftReport}
           />
         )}
         {activeTab === 'flags' && (
           <FlagAnalysis
-            riskCards={report.contractRiskCards || []}
-            red={report.redFlags}
-            orange={report.orangeFlags}
-            green={report.greenFlags}
-            report={report}
+            riskCards={visibleReport.contractRiskCards || []}
+            red={visibleReport.redFlags}
+            orange={visibleReport.orangeFlags}
+            green={visibleReport.greenFlags}
+            report={visibleReport}
             adminMode={adminMode}
             onReportUpdated={onReportUpdated}
           />
         )}
-        {activeTab === 'documents' && <DocumentInventoryReport rows={report.documentInventory} />}
+        {activeTab === 'documents' && <DocumentInventoryReport rows={visibleReport.documentInventory} />}
       </div>
     </Card>
   )
