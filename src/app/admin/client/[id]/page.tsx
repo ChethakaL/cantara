@@ -31,6 +31,9 @@ import OrgChartReviewTab from '@/components/org-chart/OrgChartReviewTab'
 import LitigationSearchTab from '@/components/litigation-search/LitigationSearchTab'
 import EmployeeCompTab from '@/components/employee-comp/EmployeeCompTab'
 import FacilityReviewTab from '@/components/facility-review/FacilityReviewTab'
+import OwnershipVerificationTab from '@/components/ws1-8/OwnershipVerificationTab'
+import PermitsZoningTab from '@/components/ws1-9/PermitsZoningTab'
+import OwnerGmAssessmentTab from '@/components/owner-gm-assessment/OwnerGmAssessmentTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -50,6 +53,9 @@ const AGENT_TABS = [
   { key: 'org-chart', label: 'Org Chart Review', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'litigation', label: 'Litigation & Liens', badge: null, icon: AlertCircle, group: 'WS1 — Risk & Legal' },
   { key: 'employee-comp', label: 'Employee Staffing & Compensation', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'ownership-verification', label: 'Ownership Verification', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
+  { key: 'permits-zoning', label: 'Permits & Zoning', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
+  { key: 'owner-gm-assessment', label: 'Owner & GM Assessment', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
@@ -433,6 +439,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'employee-comp' && (
               <EmployeeCompTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'ownership-verification' && (
+              <OwnershipVerificationTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'permits-zoning' && (
+              <PermitsZoningTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'owner-gm-assessment' && (
+              <OwnerGmAssessmentTab clientId={client.id} clientName={client.company || client.name} />
             )}
             {activeTab === 'sales-process-review' && (
               <SalesProcessReviewTab clientId={client.id} clientName={client.name} />

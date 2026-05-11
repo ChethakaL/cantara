@@ -317,8 +317,10 @@ model ClientProfile {
   TtmAnalyses                TtmAnalysis[]
   Ws2DerivedReports          Ws2DerivedReport[]
   Ws2RecastAnalyses          Ws2RecastAnalysis[]
-  CimReport                  CimReport?
-  TeaserReport               TeaserReport?
+  CimReport                       CimReport?
+  TeaserReport                    TeaserReport?
+  OwnershipVerificationReports    OwnershipVerificationReport[]
+  PermitsZoningReports            PermitsZoningReport[]
 }
 
 model Branch {
@@ -536,4 +538,30 @@ model TeaserReport {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model OwnershipVerificationReport {
+  id            String        @id @default(cuid())
+  clientId      String
+  markdown      String
+  documentNames String[]      @default([])
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model PermitsZoningReport {
+  id            String        @id @default(cuid())
+  clientId      String
+  markdown      String
+  documentNames String[]      @default([])
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
 }
