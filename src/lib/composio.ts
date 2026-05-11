@@ -31,6 +31,7 @@ function composioApiKey() {
 async function composioFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${COMPOSIO_BASE_URL}${path}`, {
     ...init,
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       "x-api-key": composioApiKey(),
@@ -43,7 +44,13 @@ async function composioFetch<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`Composio request failed (${res.status}): ${detail}`);
   }
 
-  return res.json() as Promise<T>;
+  const text = await res.text();
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return {} as T;
+  }
 }
 
 async function tryComposioFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
@@ -195,7 +202,31 @@ export async function getGoogleDriveConnection() {
     }>;
   }>(`/connected_accounts?${params}`);
 
-  return (connections.items ?? []).find((item) => item.status === "ACTIVE" && !item.is_disabled) ?? connections.items?.[0] ?? null;
+  return (connections.items ?? []).find((item) => item.status === "ACTIVE" && !item.is_disabled) ?? null;
+}
+
+export async function disconnectGoogleDrive() {
+  const params = new URLSearchParams({
+    limit: "50",
+    account_type: "ALL",
+  });
+  params.append("user_ids", ADMIN_DRIVE_USER_ID);
+  params.append("toolkit_slugs", GOOGLEDRIVE_TOOLKIT_SLUG);
+
+  const connections = await composioFetch<{
+    items?: Array<{ id: string; status: string }>;
+  }>(`/connected_accounts?${params}`);
+
+  const toDelete = connections.items ?? [];
+  if (toDelete.length === 0) return;
+
+  await Promise.all(
+    toDelete.map((conn) =>
+      composioFetch(`/connected_accounts/${conn.id}`, {
+        method: "DELETE",
+      }).catch((err) => console.warn(`Failed to delete connection ${conn.id}:`, err))
+    )
+  );
 }
 
 export async function executeGoogleDriveTool<T>(slug: string, argumentsPayload: Record<string, unknown>) {

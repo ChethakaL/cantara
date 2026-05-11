@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink } from 'lucide-react'
+import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink, LogOut } from 'lucide-react'
 import AdminNav from '@/components/admin/AdminNav'
 import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card } from '@/components/ui'
 import { getClients, createClient, getCurrentRole, getAdminName } from '@/lib/store'
@@ -110,6 +110,21 @@ export default function AdminDashboard() {
         window.setTimeout(() => void refreshDriveStatus(), 3000)
         window.setTimeout(() => void refreshDriveStatus(), 8000)
       }
+    } finally {
+      setConnectingDrive(false)
+    }
+  }
+
+  const disconnectDrive = async () => {
+    if (!confirm('Are you sure you want to disconnect Google Drive? This will stop automatic folder creation and document syncing.')) return
+    setConnectingDrive(true)
+    try {
+      const res = await fetch('/api/composio/google-drive/disconnect', { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      await refreshDriveStatus()
+    } catch (err) {
+      console.error(err)
+      alert('Failed to disconnect Google Drive')
     } finally {
       setConnectingDrive(false)
     }
@@ -241,11 +256,18 @@ export default function AdminDashboard() {
                 <Button
                   size="sm"
                   variant={driveStatus?.connected ? 'outline' : 'primary'}
-                  onClick={() => void connectDrive()}
+                  onClick={() => driveStatus?.connected ? void disconnectDrive() : void connectDrive()}
                   disabled={connectingDrive || syncingDrive}
+                  className={driveStatus?.connected ? 'text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200' : ''}
                 >
-                  {connectingDrive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : driveStatus?.connected ? <CheckCircle2 className="w-3.5 h-3.5" /> : <ExternalLink className="w-3.5 h-3.5" />}
-                  {driveStatus?.connected ? 'Reconnect Google Drive' : 'Sign in with Google'}
+                  {connectingDrive ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : driveStatus?.connected ? (
+                    <LogOut className="w-3.5 h-3.5" />
+                  ) : (
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  )}
+                  {driveStatus?.connected ? 'Disconnect' : 'Sign in with Google'}
                 </Button>
               </div>
             </div>
