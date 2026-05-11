@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const boardId = req.nextUrl.searchParams.get("boardId");
-  if (!boardId) return new Response("boardId is required", { status: 400 });
+  if (!boardId || boardId === "undefined") return new Response("boardId is required", { status: 400 });
 
   try {
     const items = await getMondayBoardItems(boardId);

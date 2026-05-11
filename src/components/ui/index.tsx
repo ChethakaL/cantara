@@ -50,9 +50,10 @@ export function Badge({ children, color = 'slate', className }: BadgeProps) {
 }
 
 // ── Card ─────────────────────────────────────────────────────────────────────
-export function Card({ children, className }: { children: React.ReactNode; className?: string }) {
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> { children: React.ReactNode }
+export function Card({ children, className, ...props }: CardProps) {
   return (
-    <div className={cn('bg-cantara-white rounded-2xl border border-cantara-beige', className)}>
+    <div className={cn('bg-cantara-white rounded-2xl border border-cantara-beige', className)} {...props}>
       {children}
     </div>
   )

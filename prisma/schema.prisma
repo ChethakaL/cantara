@@ -317,6 +317,8 @@ model ClientProfile {
   TtmAnalyses                TtmAnalysis[]
   Ws2DerivedReports          Ws2DerivedReport[]
   Ws2RecastAnalyses          Ws2RecastAnalysis[]
+  CimReport                  CimReport?
+  TeaserReport               TeaserReport?
 }
 
 model Branch {
@@ -516,4 +518,22 @@ enum Ws2DerivedReportStatus {
   RUNNING
   COMPLETE
   FAILED
+}
+
+model CimReport {
+  id        String        @id @default(cuid())
+  clientId  String        @unique
+  data      Json
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model TeaserReport {
+  id        String        @id @default(cuid())
+  clientId  String        @unique
+  data      Json
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }

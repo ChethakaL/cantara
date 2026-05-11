@@ -1,6 +1,7 @@
 import { CimInputData } from './types'
 
-function escapeHtml(str: string): string {
+function escapeHtml(str: any): string {
+  if (typeof str !== 'string') return String(str ?? '');
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 

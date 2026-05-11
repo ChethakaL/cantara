@@ -132,6 +132,9 @@ async function getGoogleDriveAuthConfigId() {
           "GOOGLEDRIVE_UPLOAD_FROM_URL",
           "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",
           "GOOGLEDRIVE_DELETE_FILE",
+          "GOOGLEDRIVE_CREATE_PERMISSION",
+          "GOOGLEDRIVE_SHARE_FILE",
+          "GOOGLEDRIVE_GET_FILE_DETAILS",
         ],
       },
     }),
@@ -368,12 +371,36 @@ export async function saveGeneratedReportToDrive(args: {
     }),
   );
 
-  return uploadClientDocumentToDrive({
+  const result = await uploadClientDocumentToDrive({
     folderId: reports.id,
     fileName: resolvedFileName,
     mimeType: "application/pdf",
     sourceUrl: await buildPresignedFileUrl(key),
   });
+
+  // Make the file public after upload
+  const fileId = extractDriveFileId(result?.data ?? result);
+  if (fileId) {
+    console.log(`[Composio] Making file ${fileId} public...`);
+    await executeGoogleDriveTool("GOOGLEDRIVE_CREATE_PERMISSION", {
+      file_id: fileId,
+      role: "reader",
+      type: "anyone",
+    }).catch(err => {
+      console.warn(`[Composio] Failed to make file public: ${err.message}`);
+    });
+  }
+
+  const details = await executeGoogleDriveTool<any>("GOOGLEDRIVE_GET_FILE_DETAILS", {
+    file_id: fileId,
+    fields: "id, name, webViewLink, webContentLink",
+  }).catch(() => null);
+
+  return {
+    ...result,
+    data: details?.data ?? details ?? result?.data ?? result,
+    webViewLink: details?.data?.webViewLink ?? details?.webViewLink ?? (result?.data?.webViewLink ?? result?.webViewLink),
+  };
 }
 
 export async function createQuickBooksConnectLink(args: {
@@ -457,6 +484,7 @@ export async function getQuickBooksConnections(clientId: string) {
 
 const MONDAY_TOOLKIT_SLUG = "MONDAY";
 const ADMIN_MONDAY_USER_ID = "cantara-admin-monday";
+const COMPOSIO_MONDAY_CLIENT_ID = "96b038435fc029e045f9ba800e66fefa";
 
 async function getMondayAuthConfigId() {
   if (process.env.COMPOSIO_MONDAY_AUTH_CONFIG_ID) {
@@ -535,6 +563,10 @@ export async function createMondayConnectLink(callbackUrl: string) {
   return res;
 }
 
+export function getMondayInstallUrl() {
+  return `https://auth.monday.com/oauth2/authorize?client_id=${COMPOSIO_MONDAY_CLIENT_ID}&response_type=install`;
+}
+
 export async function getMondayConnection() {
   const params = new URLSearchParams({
     limit: "10",
@@ -543,7 +575,8 @@ export async function getMondayConnection() {
     order_direction: "desc",
   });
   params.append("user_ids", ADMIN_MONDAY_USER_ID);
-  params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
+  // Temporarily removing toolkit filter to see all connections for this user
+  // params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
 
   const connections = await composioFetch<{
     items?: Array<{
@@ -555,7 +588,13 @@ export async function getMondayConnection() {
     }>;
   }>(`/connected_accounts?${params}`);
 
-  return (connections.items ?? []).find((item) => item.status === "ACTIVE" && !item.is_disabled) ?? connections.items?.[0] ?? null;
+  console.log(`[Composio] Monday connection check for ${ADMIN_MONDAY_USER_ID}:`, JSON.stringify(connections.items ?? [], null, 2));
+
+  // Any status that isn't failed or disabled is considered "connected" for the UI
+  const validStatuses = ["ACTIVE", "VERIFYING", "INITIATED"];
+  const connection = (connections.items ?? []).find((item) => validStatuses.includes(item.status) && !item.is_disabled);
+  
+  return connection ?? connections.items?.[0] ?? null;
 }
 
 async function executeMondayTool<T>(slug: string, argumentsPayload: Record<string, unknown>) {
@@ -569,17 +608,72 @@ async function executeMondayTool<T>(slug: string, argumentsPayload: Record<strin
 }
 
 export async function getMondayBoards() {
-  const result = await executeMondayTool<any>("MONDAY_LIST_BOARDS", { limit: 50 });
-  const boards: Array<{ id: string; name: string }> =
-    result?.data?.boards ?? result?.data?.data?.boards ?? [];
-  return boards.map((b) => ({ id: String(b.id), name: b.name }));
+  let result: any = null;
+  
+  // Try MONDAY_LIST_BOARDS
+  try {
+    result = await executeMondayTool<any>("MONDAY_LIST_BOARDS", { limit: 50 });
+  } catch (e) {
+    console.log("[Composio] MONDAY_LIST_BOARDS failed, trying fallback...");
+  }
+
+  // Fallback to MONDAY_BOARDS
+  if (!result?.successful || !result?.data) {
+    try {
+      result = await executeMondayTool<any>("MONDAY_BOARDS", { limit: 50 });
+    } catch (e) {
+      console.log("[Composio] MONDAY_BOARDS failed as well.");
+    }
+  }
+
+  const rawBoards = 
+    result?.data?.boards ?? 
+    result?.data?.details ?? 
+    result?.data?.raw_response?.data?.boards ??
+    result?.data?.data?.boards ?? 
+    result?.data?.data ?? 
+    [];
+  const boards = Array.isArray(rawBoards) ? rawBoards : [];
+  
+  return boards.map((b: any) => ({ 
+    id: String(b.id || b.board_id || ""), 
+    name: String(b.name || b.title || "Untitled Board") 
+  })).filter(b => b.id);
 }
 
 export async function getMondayBoardItems(boardId: string) {
-  const result = await executeMondayTool<any>("MONDAY_GET_BOARD_ITEMS", { board_id: boardId, limit: 100 });
-  const items: Array<{ id: string; name: string }> =
-    result?.data?.items ?? result?.data?.data?.boards?.[0]?.items_page?.items ?? [];
-  return items.map((i) => ({ id: String(i.id), name: i.name }));
+  let result: any = null;
+  const toolNames = ["MONDAY_GET_BOARD_ITEMS", "MONDAY_LIST_ITEMS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS", "MONDAY_LIST_BOARD_ITEMS"];
+  
+  for (const toolName of toolNames) {
+    try {
+      console.log(`[Composio] Trying ${toolName}...`);
+      result = await executeMondayTool<any>(toolName, { board_id: boardId, limit: 500 });
+      if (result?.successful && result?.data) {
+        console.log(`[Composio] ${toolName} successful! Result:`, JSON.stringify(result, null, 2));
+        break;
+      }
+    } catch (e) {
+      console.log(`[Composio] ${toolName} failed...`);
+    }
+  }
+  
+  const rawItems = 
+    result?.data?.items ?? 
+    result?.data?.details ?? 
+    result?.data?.raw_response?.data?.boards?.[0]?.items_page?.items ??
+    result?.data?.raw_response?.data?.boards?.[0]?.items ??
+    result?.data?.data?.boards?.[0]?.items_page?.items ?? 
+    result?.data?.data?.boards?.[0]?.items ??
+    result?.data?.data?.items ??
+    result?.data?.data ?? 
+    [];
+  const items = Array.isArray(rawItems) ? rawItems : [];
+  
+  return items.map((i: any) => ({ 
+    id: String(i.id || i.item_id || i.pulse_id || ""), 
+    name: String(i.name || i.title || i.text || "Untitled Item") 
+  })).filter(i => i.id);
 }
 
 export async function postMondayUpdate(args: {

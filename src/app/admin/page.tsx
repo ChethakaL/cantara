@@ -26,6 +26,17 @@ function MondaySetupCard({
   connecting: boolean
   onConnect: () => void
 }) {
+  const [installUrl, setInstallUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!status?.connected) {
+      fetch('/api/composio/monday/install-url')
+        .then(res => res.json())
+        .then(data => setInstallUrl(data.url))
+        .catch(console.error)
+    }
+  }, [status?.connected])
+
   return (
     <Card className="p-5 mb-8" style={{ borderColor: 'rgba(255,61,87,0.12)' }}>
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -47,6 +58,11 @@ function MondaySetupCard({
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
               Connect your Monday.com account to link CIM and Teaser PDFs directly to deals on your Monday boards.
+              {!status?.connected && installUrl && (
+                <span className="block mt-2">
+                  First time? <a href={installUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-semibold">Install the Composio app on your Monday workspace first →</a>
+                </span>
+              )}
             </p>
           </div>
         </div>

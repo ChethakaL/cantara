@@ -120,7 +120,7 @@ async function archiveReports(client: any, folderId: string) {
   const tasks: Array<{ label: string; run: () => Promise<unknown> }> = [];
   const clientName = clientDisplayName(client);
 
-  const leases = latestBy(client.LeaseAnalysis ?? [], (item: any) => item.fileName || item.id);
+  const leases = latestBy(client.LeaseAnalysis ?? [], (item: any) => item.fileName || item.id) as any[];
   for (const item of leases) {
     const parsed = asObject(item.parsed) ?? parseLeaseReport(item.report);
     tasks.push({
@@ -133,7 +133,7 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const contracts = latestBy(client.ContractAnalysis ?? [], (item: any) => item.fileName || item.id);
+  const contracts = latestBy(client.ContractAnalysis ?? [], (item: any) => item.fileName || item.id) as any[];
   for (const item of contracts) {
     const parsed = asObject(item.parsed) ?? parseContractReport(item.report);
     tasks.push({
@@ -146,8 +146,8 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const competitors = latestBy(client.CompetitorAnalyses ?? [], () => "latest");
-  for (const item of competitors) {
+  const competitors = latestBy(client.CompetitorAnalyses ?? [], () => "latest") as any[];
+  for (const item of competitors as any[]) {
     const parsed = asObject(item.parsed);
     tasks.push({
       label: `Competitor Analysis`,
@@ -160,15 +160,15 @@ async function archiveReports(client: any, folderId: string) {
           : markdownReportHtml({
               title: "Competitor Analysis Report",
               clientName,
-              markdown: item.report,
+              markdown: (item as any).report,
               generatedAt: item.createdAt,
             }),
       }),
     });
   }
 
-  const employeeReports = latestBy(client.EmployeeObligationsReports ?? [], () => "latest");
-  for (const item of employeeReports) {
+  const employeeReports = latestBy(client.EmployeeObligationsReports ?? [], () => "latest") as any[];
+  for (const item of employeeReports as any[]) {
     const { report, flags } = parseWS16Markdown(item.markdown, clientName);
     tasks.push({
       label: `Employee Obligations`,
@@ -185,8 +185,8 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const ttms = latestBy(client.TtmAnalyses ?? [], () => "latest");
-  for (const item of ttms) {
+  const ttms = latestBy(client.TtmAnalyses ?? [], () => "latest") as any[];
+  for (const item of ttms as any[]) {
     if (!item.reportMarkdown) continue;
     tasks.push({
       label: `TTM Analysis`,
@@ -204,7 +204,7 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const recasts = latestBy(client.Ws2RecastAnalyses ?? [], () => "latest");
+  const recasts = latestBy(client.Ws2RecastAnalyses ?? [], () => "latest") as any[];
   for (const item of recasts) {
     if (!item.reportMarkdown) continue;
     tasks.push({
@@ -223,7 +223,7 @@ async function archiveReports(client: any, folderId: string) {
     });
   }
 
-  const derived = latestBy(client.Ws2DerivedReports ?? [], (item: any) => item.agentId);
+  const derived = latestBy(client.Ws2DerivedReports ?? [], (item: any) => item.agentId) as any[];
   for (const item of derived) {
     if (!item.reportMarkdown) continue;
     tasks.push({

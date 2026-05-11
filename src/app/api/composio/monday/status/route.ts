@@ -6,8 +6,12 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const connection = await getMondayConnection();
+    const isConnected = connection && 
+      ["ACTIVE", "VERIFYING", "INITIATED"].includes(connection.status) && 
+      !connection.is_disabled;
+
     return NextResponse.json({
-      connected: connection?.status === "ACTIVE" && !connection.is_disabled,
+      connected: isConnected,
       connection: connection
         ? {
             id: connection.id,

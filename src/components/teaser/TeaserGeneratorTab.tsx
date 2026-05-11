@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Bot, Download, Eye, FileText, Loader2, Printer, RotateCcw, Sparkles } from 'lucide-react'
+import { Bot, CheckCircle2, Download, Eye, FileText, Loader2, Printer, RotateCcw, Save, Sparkles } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { TeaserInputData, DEFAULT_TEASER_INPUT } from '@/lib/teaser/types'
 import { generateTeaserHtml } from '@/lib/teaser/generate-html'
@@ -18,6 +18,46 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [teaserFileUrl, setTeaserFileUrl] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
+  // ── Load Draft ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    async function loadDraft() {
+      try {
+        const res = await fetch(`/api/teaser/draft?clientId=${clientId}`)
+        if (res.ok) {
+          const { draft } = await res.json()
+          if (draft) {
+            setData(draft)
+            setStatus('editing')
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load Teaser draft:', e)
+      }
+    }
+    void loadDraft()
+  }, [clientId])
+
+  const saveDraft = async () => {
+    setSaving(true)
+    setSaveSuccess(false)
+    try {
+      const res = await fetch('/api/teaser/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, data }),
+      })
+      if (!res.ok) throw new Error('Failed to save draft')
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   function set<K extends keyof TeaserInputData>(key: K, value: TeaserInputData[K]) {
     setData(prev => ({ ...prev, [key]: value }))
@@ -53,9 +93,17 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
   }
 
   const generate = () => {
-    const html = generateTeaserHtml(data)
-    setGeneratedHtml(html)
-    setStatus('preview')
+    console.log('[Teaser] Generating with data:', data)
+    try {
+      setError(null)
+      const html = generateTeaserHtml(data)
+      console.log('[Teaser] HTML generated successfully, length:', html.length)
+      setGeneratedHtml(html)
+      setStatus('preview')
+    } catch (err: any) {
+      console.error('[Teaser] Generation error:', err)
+      setError(err.message || 'Failed to generate teaser')
+    }
   }
 
   const downloadHtml = () => {
@@ -64,7 +112,8 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${clientName.replace(/\s+/g, '-').toLowerCase()}-teaser-${new Date().toISOString().slice(0, 10)}.html`
+    const safeName = (clientName || 'client').replace(/\s+/g, '-').toLowerCase()
+    a.download = `${safeName}-teaser-${new Date().toISOString().slice(0, 10)}.html`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -157,7 +206,7 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
           </div>
         </Card>
 
-        <MondayLinker clientName={clientName} reportType="Teaser" fileUrl={teaserFileUrl} />
+        <MondayLinker clientId={clientId} clientName={clientName} reportType="Teaser" fileUrl={teaserFileUrl} html={generatedHtml} />
 
         <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-lg">
           <iframe
@@ -196,11 +245,27 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={autoFill}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={saveDraft}
+              disabled={saving}
+              className="text-[10px] h-8"
+            >
+              {saving ? (
+                <Loader2 className="w-3 h-3 animate-spin mr-1" />
+              ) : saveSuccess ? (
+                <CheckCircle2 className="w-3 h-3 text-green-500 mr-1" />
+              ) : (
+                <Save className="w-3 h-3 mr-1" />
+              )}
+              {saveSuccess ? 'Saved' : 'Save Draft'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={autoFill} className="text-[10px] h-8">
               <Sparkles className="w-3.5 h-3.5" />
               Re-fill
             </Button>
-            <Button size="sm" onClick={generate}>
+            <Button size="sm" onClick={generate} className="text-[10px] h-8">
               <Bot className="w-3.5 h-3.5" />
               Generate Teaser
             </Button>

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Bot, ChevronDown, ChevronRight, Download, Eye, FileText, Loader2, Plus, Printer, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Bot, CheckCircle2, ChevronDown, ChevronRight, Download, Eye, FileText, Loader2, Plus, Printer, RotateCcw, Save, Sparkles, Trash2 } from 'lucide-react'
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { CimInputData, DEFAULT_CIM_INPUT } from '@/lib/cim/types'
 import { generateCimHtml } from '@/lib/cim/generate-html'
@@ -46,6 +46,46 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
   const [cimFileUrl, setCimFileUrl] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
+  // ── Load Draft ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    async function loadDraft() {
+      try {
+        const res = await fetch(`/api/cim/draft?clientId=${clientId}`)
+        if (res.ok) {
+          const { draft } = await res.json()
+          if (draft) {
+            setData(draft)
+            setStatus('editing')
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load CIM draft:', e)
+      }
+    }
+    void loadDraft()
+  }, [clientId])
+
+  const saveDraft = async () => {
+    setSaving(true)
+    setSaveSuccess(false)
+    try {
+      const res = await fetch('/api/cim/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, data }),
+      })
+      if (!res.ok) throw new Error('Failed to save draft')
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   function set<K extends keyof CimInputData>(key: K, value: CimInputData[K]) {
     setData(prev => ({ ...prev, [key]: value }))
@@ -103,12 +143,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
   }
 
   const generate = () => {
+    console.log('[CIM] Generating with data:', data)
     try {
       setError(null)
       const html = generateCimHtml(data)
+      console.log('[CIM] HTML generated successfully, length:', html.length)
       setGeneratedHtml(html)
       setStatus('preview')
     } catch (err: any) {
+      console.error('[CIM] Generation error:', err)
       setError(err.message || 'Failed to generate CIM')
     }
   }
@@ -119,7 +162,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${clientName.replace(/\s+/g, '-').toLowerCase()}-cim-${new Date().toISOString().slice(0, 10)}.html`
+    const safeName = (clientName || 'client').replace(/\s+/g, '-').toLowerCase()
+    a.download = `${safeName}-cim-${new Date().toISOString().slice(0, 10)}.html`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -252,7 +296,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
           </div>
         </Card>
 
-        <MondayLinker clientName={clientName} reportType="CIM" fileUrl={cimFileUrl} />
+        <MondayLinker clientId={clientId} clientName={clientName} reportType="CIM" fileUrl={cimFileUrl} html={generatedHtml} />
 
         <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-lg">
           <iframe
@@ -282,11 +326,27 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={autoFill}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={saveDraft}
+              disabled={saving}
+              className="text-[10px] h-8"
+            >
+              {saving ? (
+                <Loader2 className="w-3 h-3 animate-spin mr-1" />
+              ) : saveSuccess ? (
+                <CheckCircle2 className="w-3 h-3 text-green-500 mr-1" />
+              ) : (
+                <Save className="w-3 h-3 mr-1" />
+              )}
+              {saveSuccess ? 'Saved' : 'Save Draft'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={autoFill} className="text-[10px] h-8">
               <Sparkles className="w-3.5 h-3.5" />
               Re-fill
             </Button>
-            <Button size="sm" onClick={generate}>
+            <Button size="sm" onClick={generate} className="text-[10px] h-8">
               <Bot className="w-3.5 h-3.5" />
               Generate CIM
             </Button>
