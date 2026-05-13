@@ -54,19 +54,33 @@ export function buildLeaseSummaryHtml(report: LeaseReport, clientName: string): 
 /** Addendum: full detailed findings (multi-page) */
 export function buildLeaseAddendumHtml(report: LeaseReport, clientName: string): string {
   const findingsSections = (report.detailedFindings || []).map(f => {
-    // Include rent schedule inline under section 2.3
+    const isRentSection = f.id === '2.3' || f.title.toLowerCase().includes('rent')
+    const hasScheduleData = report.rentSchedule && report.rentSchedule.length > 0
+
+    // Include rent schedule as a proper HTML table under section 2.3
     let extra = ''
-    if ((f.id === '2.3' || f.title.toLowerCase().includes('rent')) && report.rentSchedule?.length) {
+    if (isRentSection && hasScheduleData) {
       extra = '<div style="margin-top:12px;">' +
         buildHtmlTable(
           ['Lease Year', 'Months', 'Per Annum', 'Per Month'],
-          report.rentSchedule.map(r => [r.leaseYear, r.months, r.perAnnum, r.perMonth]),
+          report.rentSchedule!.map(r => [r.leaseYear, r.months, r.perAnnum, r.perMonth]),
         ) + '</div>'
+    }
+
+    // Strip raw markdown tables from the content to avoid duplicating the rent schedule
+    // (the AI output often includes pipe-delimited tables that don't render well in HTML)
+    let cleanContent = f.content
+    if (isRentSection && hasScheduleData) {
+      // Remove markdown table lines (lines starting with |) and separator lines (|---|)
+      cleanContent = cleanContent
+        .split('\n')
+        .filter(line => !line.trim().startsWith('|'))
+        .join('\n')
     }
 
     return {
       title: `${f.id} — ${f.title}`,
-      content: `<div style="font-size:13px;line-height:1.7;color:#475569;">${f.content.replace(/\n/g, '<br/>')}</div>${extra}`,
+      content: `<div style="font-size:13px;line-height:1.7;color:#475569;">${cleanContent.replace(/\n/g, '<br/>')}</div>${extra}`,
     }
   })
 
