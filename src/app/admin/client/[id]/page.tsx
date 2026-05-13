@@ -34,6 +34,8 @@ import LitigationSearchTab from '@/components/litigation-search/LitigationSearch
 import EmployeeCompTab from '@/components/employee-comp/EmployeeCompTab'
 import FacilityReviewTab from '@/components/facility-review/FacilityReviewTab'
 import OwnershipVerificationTab from '@/components/ws1-8/OwnershipVerificationTab'
+import PricingAnalysisTab from '@/components/pricing-analysis/PricingAnalysisTab'
+import PricingByVerticalTab from '@/components/pricing-vertical/PricingByVerticalTab'
 import PermitsZoningTab from '@/components/ws1-9/PermitsZoningTab'
 import OwnerGmAssessmentTab from '@/components/owner-gm-assessment/OwnerGmAssessmentTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
@@ -62,6 +64,8 @@ const AGENT_TABS = [
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
   { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
+  { key: 'pricing-analysis', label: 'Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
+  { key: 'pricing-vertical', label: 'Pricing by Vertical', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
   // Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again.
   // { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
@@ -451,6 +455,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'owner-gm-assessment' && (
               <OwnerGmAssessmentTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'pricing-analysis' && (
+              <PricingAnalysisTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'pricing-vertical' && (
+              <PricingByVerticalTab clientId={client.id} clientName={client.company || client.name} />
             )}
             {activeTab === 'sales-process-review' && (
               <SalesProcessReviewTab clientId={client.id} clientName={client.name} />

@@ -105,6 +105,76 @@ export function buildLeaseAddendumHtml(report: LeaseReport, clientName: string):
   return generateReportHtml(config)
 }
 
+/** Buyer-facing report: snapshot + rent schedule + detailed findings, NO flags */
+export function buildLeaseBuyerReportHtml(report: LeaseReport, clientName: string): string {
+  const snapshotRows = (report.snapshotTable || []).map(row => [row.field, row.finding])
+  const snapshotContent = buildHtmlTable(['Key Item', 'Finding'], snapshotRows)
+
+  const rentScheduleContent = (report.rentSchedule && report.rentSchedule.length > 0)
+    ? '<h3 style="margin-top:16px;font-size:14px;font-weight:700;color:#21263C;">Rent Schedule</h3>' +
+      buildHtmlTable(
+        ['Lease Year', 'Months', 'Per Annum', 'Per Month'],
+        report.rentSchedule.map(r => [r.leaseYear, r.months, r.perAnnum, r.perMonth]),
+      )
+    : ''
+
+  const findingsSections = (report.detailedFindings || []).map(f => {
+    const isRentSection = f.id === '2.3' || f.title.toLowerCase().includes('rent')
+    const hasScheduleData = report.rentSchedule && report.rentSchedule.length > 0
+
+    let extra = ''
+    if (isRentSection && hasScheduleData) {
+      extra = '<div style="margin-top:12px;">' +
+        buildHtmlTable(
+          ['Lease Year', 'Months', 'Per Annum', 'Per Month'],
+          report.rentSchedule!.map(r => [r.leaseYear, r.months, r.perAnnum, r.perMonth]),
+        ) + '</div>'
+    }
+
+    let cleanContent = f.content
+    if (isRentSection && hasScheduleData) {
+      cleanContent = cleanContent
+        .split('\n')
+        .filter(line => !line.trim().startsWith('|'))
+        .join('\n')
+    }
+
+    return {
+      title: `${f.id} — ${f.title}`,
+      content: `<div style="font-size:13px;line-height:1.7;color:#475569;">${cleanContent.replace(/\n/g, '<br/>')}</div>${extra}`,
+    }
+  })
+
+  const docInventory = (report.documentInventory || []).length > 0
+    ? [{
+        title: 'Document Inventory',
+        content: buildHtmlTable(
+          ['Document', 'Type', 'Date', 'Status'],
+          report.documentInventory.map(d => [d.document, d.documentType || '', d.date || '', d.status || '']),
+        ),
+      }]
+    : []
+
+  const config: ReportConfig = {
+    title: 'Lease Analysis Report',
+    subtitle: 'Lease Summary — Buyer Package',
+    clientName,
+    generatedAt: report.generatedAt,
+    kpis: [
+      { label: 'Key Terms', value: String(snapshotRows.length) },
+      { label: 'Sections', value: String((report.detailedFindings || []).length) },
+      { label: 'Rent Schedule', value: String((report.rentSchedule || []).length) },
+    ],
+    sections: [
+      { title: 'Lease Snapshot', content: snapshotContent + rentScheduleContent },
+      ...findingsSections,
+      ...docInventory,
+    ],
+  }
+
+  return generateReportHtml(config)
+}
+
 /** Legacy: combined report (kept for backwards compat) */
 export function buildLeaseReportHtml(report: LeaseReport, clientName: string): string {
   return buildLeaseSummaryHtml(report, clientName)

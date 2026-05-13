@@ -1,0 +1,144 @@
+import {
+  generateReportHtml,
+  buildHtmlTable,
+  buildBulletList,
+  type ReportConfig,
+} from './generate-report-html'
+import type { PricingVerticalReport } from '@/lib/pricing-vertical/types'
+
+function trendLabel(trend: string): string {
+  switch (trend) {
+    case 'increasing': return 'Increasing'
+    case 'stable': return 'Stable'
+    case 'decreasing': return 'Decreasing'
+    default: return 'Unknown'
+  }
+}
+
+function severityStyle(severity: string): string {
+  switch (severity) {
+    case 'critical': return 'red'
+    case 'warning': return 'orange'
+    case 'positive': return 'green'
+    default: return 'green'
+  }
+}
+
+export function buildPricingVerticalReportHtml(
+  report: PricingVerticalReport,
+  clientName: string,
+): string {
+  const noChangeCount = report.verticalSummaries.filter(v => v.priceChanges24Mo === 0).length
+  const totalChanges = report.priceChanges.length
+  const avgAnnualIncrease = report.verticalSummaries.length > 0
+    ? report.verticalSummaries
+        .filter(v => v.avgChangePercent !== null)
+        .reduce((sum, v) => sum + (v.avgChangePercent ?? 0), 0) /
+      Math.max(1, report.verticalSummaries.filter(v => v.avgChangePercent !== null).length)
+    : 0
+
+  // KPIs
+  const kpis = [
+    { label: 'Verticals Analyzed', value: String(report.verticalSummaries.length) },
+    { label: 'Price Changes (24mo)', value: String(totalChanges) },
+    { label: 'Avg Annual Increase', value: avgAnnualIncrease > 0 ? `${avgAnnualIncrease.toFixed(1)}%` : 'N/A' },
+    { label: 'Verticals with No Change', value: String(noChangeCount) },
+  ]
+
+  // Price Change Timeline table
+  const timelineTable = buildHtmlTable(
+    ['Date', 'Service', 'Previous Price', 'New Price', '$ Change', '% Change', 'Notes'],
+    report.priceChanges.map(c => [
+      c.date,
+      c.serviceVertical,
+      c.previousPrice,
+      c.newPrice,
+      c.dollarChange !== null ? (c.dollarChange >= 0 ? `+$${c.dollarChange.toFixed(2)}` : `-$${Math.abs(c.dollarChange).toFixed(2)}`) : 'N/A',
+      c.percentChange !== null ? `${c.percentChange >= 0 ? '+' : ''}${c.percentChange.toFixed(1)}%` : 'N/A',
+      c.notes,
+    ]),
+  )
+
+  // Vertical-by-Vertical Analysis sections
+  const verticalSections = report.verticalSummaries.map(v => {
+    const trendBadgeColor = v.trend === 'increasing' ? '#166534' : v.trend === 'stable' ? '#92400e' : v.trend === 'decreasing' ? '#b91c1c' : '#64748b'
+    const trendBadgeBg = v.trend === 'increasing' ? '#F0FDF4' : v.trend === 'stable' ? '#FFFBEB' : v.trend === 'decreasing' ? '#FEF2F2' : '#f8fafc'
+
+    return `<div style="margin-bottom:16px;padding:16px;border:1px solid #e2e8f0;border-radius:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <p style="font-size:15px;font-weight:700;color:#1e293b;">${escapeHtml(v.vertical)}</p>
+        <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:${trendBadgeBg};color:${trendBadgeColor};border:1px solid ${trendBadgeColor}20;">${trendLabel(v.trend)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
+          <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Current Price</p>
+          <p style="font-size:14px;font-weight:700;color:#1e293b;">${escapeHtml(v.currentPrice)}</p>
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
+          <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Changes (24mo)</p>
+          <p style="font-size:14px;font-weight:700;color:#1e293b;">${v.priceChanges24Mo}</p>
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
+          <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Revenue Share</p>
+          <p style="font-size:14px;font-weight:700;color:#1e293b;">${escapeHtml(v.revenueShare)}</p>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
+          <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Avg Change %</p>
+          <p style="font-size:13px;font-weight:600;color:#1e293b;">${v.avgChangePercent !== null ? `${v.avgChangePercent.toFixed(1)}%` : 'N/A'}</p>
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
+          <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Last Change</p>
+          <p style="font-size:13px;font-weight:600;color:#1e293b;">${escapeHtml(v.lastChangeDate)}</p>
+        </div>
+      </div>
+      <p style="font-size:12px;color:#475569;"><strong>Recommendation:</strong> ${escapeHtml(v.recommendation)}</p>
+    </div>`
+  }).join('\n')
+
+  // Flags
+  const flagsContent = report.flags.length > 0
+    ? report.flags.map(f => `
+        <div class="flag-item ${severityStyle(f.severity)}">
+          <div class="flag-title">${escapeHtml(f.title)}</div>
+          <div class="flag-detail">${escapeHtml(f.description)}</div>
+        </div>`).join('\n')
+    : '<p>No pricing flags identified.</p>'
+
+  // Recommendations
+  const recsContent = buildBulletList(report.recommendations)
+
+  const flagCounts = {
+    red: report.flags.filter(f => f.severity === 'critical').length,
+    orange: report.flags.filter(f => f.severity === 'warning').length,
+    green: report.flags.filter(f => f.severity === 'positive').length,
+  }
+
+  const config: ReportConfig = {
+    title: 'Pricing by Vertical Analysis',
+    subtitle: '24-Month Price Change Analysis & Recommendations',
+    clientName,
+    generatedAt: report.generatedAt,
+    summary: report.executiveSummary,
+    kpis,
+    flags: flagCounts,
+    sections: [
+      { title: 'Price Change Timeline', content: timelineTable },
+      { title: 'Vertical-by-Vertical Analysis', content: verticalSections },
+      { title: 'Pricing Flags', content: flagsContent },
+      { title: 'Recommendations', content: recsContent },
+    ],
+  }
+
+  return generateReportHtml(config)
+}
+
+function escapeHtml(str: string | number | null | undefined): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}

@@ -10,7 +10,7 @@ import { DocumentInventoryReport } from './report-sections/DocumentInventoryRepo
 import { ReportExportBar } from './ReportExportBar'
 import { getVisibleFlags } from '@/lib/lease-analysis/report-utils'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
-import { buildLeaseSummaryHtml, buildLeaseAddendumHtml } from '@/lib/report-export/build-lease-report'
+import { buildLeaseSummaryHtml, buildLeaseAddendumHtml, buildLeaseBuyerReportHtml } from '@/lib/report-export/build-lease-report'
 
 interface Props {
   report: ILeaseReport
@@ -44,6 +44,7 @@ export function LeaseReport({
   const [savingEdits, setSavingEdits] = useState(false)
   const visibleReport = editMode && draftReport ? draftReport : report
   const summaryHtml = useMemo(() => buildLeaseSummaryHtml(visibleReport, clientName), [visibleReport, clientName])
+  const buyerHtml = useMemo(() => buildLeaseBuyerReportHtml(visibleReport, clientName), [visibleReport, clientName])
   const addendumHtml = useMemo(() => buildLeaseAddendumHtml(visibleReport, clientName), [visibleReport, clientName])
 
   const flagCounts = {
@@ -127,12 +128,17 @@ export function LeaseReport({
           <ExportReportButton
             html={summaryHtml}
             fileName={`lease-summary-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-            label="Summary PDF"
+            label="Export Owner Report"
+          />
+          <ExportReportButton
+            html={buyerHtml}
+            fileName={`lease-buyer-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+            label="Export Buyer Report"
           />
           <ExportReportButton
             html={addendumHtml}
             fileName={`lease-addendum-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-            label="Findings Addendum"
+            label="Export Findings Addendum"
           />
           <div className="w-px h-4 bg-slate-200 mx-1" />
           <ReportExportBar
