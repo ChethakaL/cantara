@@ -166,10 +166,10 @@ export function BaselineValuationReportPanel({
               </Button>
             )}
             <Button size="sm" onClick={() => void runReport()} disabled={disabled || running}>
-              {running ? 'Running...' : report ? 'Refresh Report' : 'Run Report'}
+              {running ? 'Generating...' : report ? 'Refresh Report' : 'Generate Report'}
             </Button>
             <Button size="sm" variant="outline" onClick={() => workbookInputRef.current?.click()} disabled={!report || uploadingWorkbook}>
-              {uploadingWorkbook ? 'Reading XLSX...' : 'Upload Edited XLSX'}
+              {uploadingWorkbook ? 'Reading XLSX...' : 'Import Edited XLSX'}
             </Button>
             <input
               ref={workbookInputRef}

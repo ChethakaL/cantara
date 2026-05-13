@@ -562,7 +562,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
               <ExportReportButton
                 html={reportHtml}
                 fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-                label="Export Litigation Report"
+                label="Export PDF"
               />
             </div>
           </div>

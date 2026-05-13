@@ -950,7 +950,9 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
       <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
         Upload documents for each item your team confirmed in the Assign step. You can upload in batches — progress is saved automatically. Assigned team members have been notified by email.
       </div>
-      <QuickBooksConnectCard clientId={clientId} />
+      {/* QuickBooks integration is temporarily hidden from the client Collection UI until it is tested.
+          Do not delete; re-enable this card when QuickBooks is ready for client use. */}
+      {/* <QuickBooksConnectCard clientId={clientId} /> */}
       {valuationDocs.length > 0 && (
         <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
           <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between">

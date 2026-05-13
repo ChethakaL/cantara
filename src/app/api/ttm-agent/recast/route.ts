@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  addManualWs2RecastAddback,
   actionWs2RecastFlag,
   approveWs2RecastAnalysis,
   runWs2RecastAnalysis,
@@ -69,6 +70,27 @@ export async function POST(req: NextRequest) {
       }
 
       const updated = await approveWs2RecastAnalysis({ recastAnalysisId, actorName });
+      return NextResponse.json(updated);
+    }
+
+    if (body.mode === "manual-addback") {
+      const { recastAnalysisId, description, amount, source, actorName } = body as {
+        recastAnalysisId: string;
+        description: string;
+        amount: number;
+        source?: string | null;
+        actorName?: string;
+      };
+      if (!recastAnalysisId) {
+        return new Response("recastAnalysisId is required", { status: 400 });
+      }
+      const updated = await addManualWs2RecastAddback({
+        recastAnalysisId,
+        description,
+        amount,
+        source,
+        actorName,
+      });
       return NextResponse.json(updated);
     }
 

@@ -2498,6 +2498,127 @@ export async function actionWs2RecastFlag(args: {
   return updated;
 }
 
+export async function addManualWs2RecastAddback(args: {
+  recastAnalysisId: string;
+  description: string;
+  amount: number;
+  source?: string | null;
+  actorName?: string;
+}) {
+  const description = args.description.trim();
+  const amount = args.amount;
+  if (!description) {
+    throw new TtmOrchestratorError("Add-back description is required.", 400);
+  }
+  if (!isFiniteNumber(amount) || amount === 0) {
+    throw new TtmOrchestratorError("Add-back amount must be a non-zero number.", 400);
+  }
+
+  const updated = await (prisma as any).$transaction(async (tx: any) => {
+    const recastRecord = await tx.ws2RecastAnalysis.findUnique({
+      where: { id: args.recastAnalysisId },
+      include: {
+        flags: { orderBy: { createdAt: "asc" } },
+      },
+    });
+
+    if (!recastRecord) {
+      throw new TtmOrchestratorError("WS2-2 analysis not found.", 404);
+    }
+    if (recastRecord.status === "APPROVED") {
+      throw new TtmOrchestratorError("Approved valuations cannot be changed. Re-run valuation first.", 400);
+    }
+
+    const parsedReport = recastRecord.parsedReport && typeof recastRecord.parsedReport === "object"
+      ? { ...(recastRecord.parsedReport as Record<string, unknown>) }
+      : {};
+    const assumptions = (recastRecord.assumptions ?? {}) as Ws2RecastAssumptions;
+    const currentBase =
+      isFiniteNumber(parsedReport.baseNormalizedEbitda) ? parsedReport.baseNormalizedEbitda :
+      isFiniteNumber(parsedReport.normalizedEbitda) ? parsedReport.normalizedEbitda :
+      recastRecord.normalizedEbitda ?? 0;
+    const nextBase = currentBase + amount;
+    const llmValuationResult = parsedReport.llmValuationResult && typeof parsedReport.llmValuationResult === "object"
+      ? { ...(parsedReport.llmValuationResult as Record<string, any>) }
+      : null;
+
+    if (llmValuationResult) {
+      const normLines = Array.isArray(llmValuationResult.normLines) ? [...llmValuationResult.normLines] : [];
+      normLines.push({
+        id: `manual-${Date.now()}`,
+        description,
+        source: args.source?.trim() || "Manual add-back",
+        byPeriod: { LTM: amount },
+      });
+      llmValuationResult.normLines = normLines;
+      llmValuationResult.normalizedEbitda = {
+        ...(llmValuationResult.normalizedEbitda ?? {}),
+        LTM: nextBase,
+      };
+      llmValuationResult.valuation = {
+        ...(llmValuationResult.valuation ?? {}),
+        LTM: {
+          low: assumptions.multipleLow != null ? nextBase * assumptions.multipleLow : null,
+          mid: assumptions.multipleMid != null ? nextBase * assumptions.multipleMid : null,
+          high: assumptions.multipleHigh != null ? nextBase * assumptions.multipleHigh : null,
+        },
+      };
+    }
+
+    const nextParsedReport = {
+      ...parsedReport,
+      baseNormalizedEbitda: nextBase,
+      normalizedEbitda: nextBase,
+      baseValuationLow: assumptions.multipleLow != null ? nextBase * assumptions.multipleLow : null,
+      baseValuationMid: assumptions.multipleMid != null ? nextBase * assumptions.multipleMid : null,
+      baseValuationHigh: assumptions.multipleHigh != null ? nextBase * assumptions.multipleHigh : null,
+      ...(llmValuationResult ? { llmValuationResult } : {}),
+    };
+
+    await tx.ws2RecastAnalysis.update({
+      where: { id: args.recastAnalysisId },
+      data: {
+        hitlStatus: "IN_REVIEW",
+        parsedReport: nextParsedReport,
+        normalizedEbitda: nextBase,
+        valuationLow: assumptions.multipleLow != null ? nextBase * assumptions.multipleLow : null,
+        valuationMid: assumptions.multipleMid != null ? nextBase * assumptions.multipleMid : null,
+        valuationHigh: assumptions.multipleHigh != null ? nextBase * assumptions.multipleHigh : null,
+      },
+    });
+
+    await tx.ws2RecastFlag.create({
+      data: {
+        recastAnalysisId: args.recastAnalysisId,
+        severity: "MEDIUM",
+        title: `Manual add-back: ${description}`,
+        description: args.source?.trim() || "Added manually by Admin because AI may have missed it.",
+        payload: {
+          source: "MANUAL_ADDBACK",
+          description,
+          dollarImpact: amount,
+          sourceNote: args.source?.trim() || null,
+          addedByName: args.actorName || "Admin",
+        },
+      },
+    });
+
+    return tx.ws2RecastAnalysis.findUnique({
+      where: { id: args.recastAnalysisId },
+      select: { ttmAnalysisId: true },
+    });
+  });
+
+  if (!updated?.ttmAnalysisId) {
+    throw new TtmOrchestratorError("Parent WS2-1 analysis not found after manual add-back.", 404);
+  }
+  const analysis = await getTtmAnalysis(updated.ttmAnalysisId);
+  if (!analysis) {
+    throw new TtmOrchestratorError("Parent WS2-1 analysis not found after manual add-back.", 404);
+  }
+  return analysis;
+}
+
 export async function approveWs2RecastAnalysis(args: { recastAnalysisId: string; actorName?: string }) {
   const recast = await (prisma as any).ws2RecastAnalysis.findUnique({
     where: { id: args.recastAnalysisId },

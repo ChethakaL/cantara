@@ -16,7 +16,9 @@ import AdditionalRequirementsAdmin from '@/components/admin/AdditionalRequiremen
 import ClientManager from '@/components/admin/ClientManager'
 import AdminDocumentsView from '@/components/admin/AdminDocuments'
 import SalesProcessReviewTab from '@/components/sales-review/SalesProcessReviewTab'
-import MeetingNotesTab from '@/components/meeting-notes/MeetingNotesTab'
+// Meeting notes agent is temporarily hidden from the client agents dropdown.
+// Keep the component code in place so it can be restored later.
+// import MeetingNotesTab from '@/components/meeting-notes/MeetingNotesTab'
 import { TtmAnalysisTab } from '@/components/ttm-agent/TtmAnalysisTab'
 import DigitalPresenceTab from '@/components/digital-presence/DigitalPresenceTab'
 import CompetitorAnalysisTab from '@/components/competitor-analysis/CompetitorAnalysisTab'
@@ -61,7 +63,8 @@ const AGENT_TABS = [
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
   { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
-  { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
+  // Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again.
+  // { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
   // M&A
   { key: 'net-proceeds', label: 'Net Proceeds Calculator', badge: null, icon: Calculator, group: 'M&A Sale Process' },
   { key: 'teaser', label: 'Deal Teaser Generator', badge: null, icon: Sparkles, group: 'M&A Sale Process' },
@@ -452,9 +455,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             {activeTab === 'sales-process-review' && (
               <SalesProcessReviewTab clientId={client.id} clientName={client.name} />
             )}
-            {activeTab === 'meeting-notes' && (
+            {/* Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again. */}
+            {/* {activeTab === 'meeting-notes' && (
               <MeetingNotesTab clientId={client.id} clientName={client.name} />
-            )}
+            )} */}
             {activeTab === 'net-proceeds' && (
               <NetProceedsCalculator clientId={client.id} clientName={client.name} />
             )}

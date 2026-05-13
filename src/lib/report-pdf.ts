@@ -63,11 +63,13 @@ export async function renderHtmlToPdfBuffer(html: string) {
 
   try {
     const page = await browser.newPage();
-    // Relaxed networkidle2 to handle reports with many assets/images better
+    // Do not wait for network idle here. Reports may reference local/static assets
+    // or external images; PDF export should not block for a minute on best-effort archival.
     await page.setContent(html, { 
-      waitUntil: "networkidle2", 
-      timeout: 60000 
+      waitUntil: "domcontentloaded", 
+      timeout: 15000 
     });
+    await page.emulateMediaType("print");
     
     const pdf = await page.pdf({
       format: "Letter",

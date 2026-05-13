@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Loader2, Play, AlertCircle, RefreshCw } from 'lucide-react'
+import { CheckCircle2, Loader2, Play, AlertCircle, RefreshCw, Plus } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
 import { Badge, Button, Card, Input } from '@/components/ui'
@@ -30,6 +30,10 @@ function Step3ValuationRange({
   const [low, setLow] = useState(''); const [mid, setMid] = useState(''); const [high, setHigh] = useState('')
   const [running, setRunning] = useState(false); const [error, setError] = useState<string | null>(null)
   const [savingFlagId, setSavingFlagId] = useState<string | null>(null)
+  const [manualDescription, setManualDescription] = useState('')
+  const [manualAmount, setManualAmount] = useState('')
+  const [manualSource, setManualSource] = useState('')
+  const [addingManual, setAddingManual] = useState(false)
   const latestRecast = analysis.recastAnalyses?.[0] ?? null
   const isApproved = latestRecast?.status === 'APPROVED'
   const unresolvedFlags = latestRecast?.flags.filter(f => f.resolutionStatus !== 'ACTIONED') ?? []
@@ -66,11 +70,40 @@ function Step3ValuationRange({
     } catch (e) { setError(e instanceof Error ? e.message : 'Approval failed') } finally { setRunning(false) }
   }
 
+  const addManualAddback = async () => {
+    if (!latestRecast) return
+    const amount = parseNum(manualAmount)
+    if (!manualDescription.trim() || amount === null || amount === 0) {
+      setError('Enter a description and non-zero amount for the manual add-back.')
+      return
+    }
+    setAddingManual(true); setError(null)
+    try {
+      const res = await fetch('/api/ttm-agent/recast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'manual-addback',
+          recastAnalysisId: latestRecast.id,
+          description: manualDescription.trim(),
+          amount,
+          source: manualSource.trim() || null,
+          actorName: adminName,
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to add manual add-back'))
+      setManualDescription('')
+      setManualAmount('')
+      setManualSource('')
+      onUpdated(await res.json())
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to add manual add-back') } finally { setAddingManual(false) }
+  }
+
   return (
     <div className="space-y-4">
       <Card className="p-6">
         <h4 className="text-sm font-semibold text-slate-800 mb-1">Set Valuation Multiples</h4>
-        <p className="text-xs text-slate-400 mb-5">Enter low, mid, and high EBITDA multiples, then click Run.</p>
+        <p className="text-xs text-slate-400 mb-5">Enter low, mid, and high EBITDA multiples, then calculate the valuation.</p>
         <div className="grid grid-cols-3 gap-4 max-w-lg">
           <Input label="Low multiple" value={low} onChange={e => setLow(e.target.value)} placeholder="3.5" />
           <Input label="Mid multiple" value={mid} onChange={e => setMid(e.target.value)} placeholder="4.5" />
@@ -78,7 +111,7 @@ function Step3ValuationRange({
         </div>
         <div className="mt-5">
           <Button onClick={() => void runRecast()} disabled={!canRun || running}>
-            {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running...</> : <><Play className="w-3.5 h-3.5" /> Run Valuation</>}
+            {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Calculating...</> : <><Play className="w-3.5 h-3.5" /> Calculate Valuation</>}
           </Button>
         </div>
         {error && <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
@@ -111,10 +144,29 @@ function Step3ValuationRange({
             </div>
             <p className="mt-4 text-xs text-slate-500">Based on Normalized EBITDA of <span className="font-semibold text-slate-700">{fmtCurrency(latestRecast.normalizedEbitda)}</span></p>
           </Card>
+          {!isApproved && (
+            <Card className="p-5">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800">Manual Add-Back</h4>
+                  <p className="mt-1 text-xs text-slate-400">Add an item if the AI missed something. It will appear below for Keep/Remove review.</p>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-[1.5fr_0.6fr_1fr_auto] md:items-end">
+                <Input label="Description" value={manualDescription} onChange={e => setManualDescription(e.target.value)} placeholder="Owner personal travel" />
+                <Input label="Amount" value={manualAmount} onChange={e => setManualAmount(e.target.value)} placeholder="12500" />
+                <Input label="Source / note" value={manualSource} onChange={e => setManualSource(e.target.value)} placeholder="P&L review, FY2024" />
+                <Button size="sm" onClick={() => void addManualAddback()} disabled={addingManual || running}>
+                  {addingManual ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  Add
+                </Button>
+              </div>
+            </Card>
+          )}
           {unresolvedFlags.length > 0 && (
             <Card className="p-5">
               <h4 className="text-sm font-semibold text-slate-800 mb-1">Add-Back Flags</h4>
-              <p className="text-xs text-slate-400 mb-4">The AI flagged {unresolvedFlags.length} add-back item{unresolvedFlags.length > 1 ? 's' : ''} for review. Accept or remove each to unlock approval.</p>
+              <p className="text-xs text-slate-400 mb-4">Review each flagged add-back before finalizing the valuation.</p>
               <div className="space-y-3">
                 {unresolvedFlags.map(flag => (
                   <div key={flag.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
@@ -123,7 +175,7 @@ function Step3ValuationRange({
                       {flag.description && flag.description !== flag.title && (<p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{flag.description}</p>)}
                     </div>
                     <div className="flex gap-2 flex-shrink-0">
-                      <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'RESOLVE')}>Accept</Button>
+                      <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'RESOLVE')}>Keep</Button>
                       <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'ESCALATE_CLIENT')}>Remove</Button>
                     </div>
                   </div>
@@ -133,7 +185,7 @@ function Step3ValuationRange({
           )}
         </>
       )}
-      <div className="flex justify-start"><Button variant="outline" size="sm" onClick={onBack}>← Back to GL Mapping</Button></div>
+      <div className="flex justify-start"><Button variant="outline" size="sm" onClick={onBack}>Back to GL Mapping</Button></div>
     </div>
   )
 }
@@ -146,12 +198,20 @@ function asMappedRows(value: unknown) {
   return Array.isArray(value) ? (value as MappedLedgerRow[]) : []
 }
 
+type GlMappingSaveState = {
+  dirtyCount: number
+  saving: boolean
+  save: () => Promise<TtmAnalysisView | null>
+}
+
 function GlMappingEditor({
   analysis,
   onUpdated,
+  onSaveStateChange,
 }: {
   analysis: TtmAnalysisView
   onUpdated: (analysis: TtmAnalysisView) => void
+  onSaveStateChange?: (state: GlMappingSaveState) => void
 }) {
   const rows = useMemo(() => {
     const mappedPlRows = asMappedRows(analysis.normalizedData?.mappedPlRows)
@@ -171,7 +231,8 @@ function GlMappingEditor({
 
   const dirtyCount = rows.filter((row) => (selectedByKey[glMappingKey(row)] ?? '') !== (row.cantaraCode ?? '')).length
 
-  const submitMappings = async () => {
+  const submitMappings = useCallback(async () => {
+    if (dirtyCount === 0) return null
     setSaving(true)
     setMessage(null)
     try {
@@ -189,12 +250,19 @@ function GlMappingEditor({
       const updated = (await res.json()) as TtmAnalysisView
       onUpdated(updated)
       setMessage('GL mappings saved.')
+      return updated
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to save GL mappings')
+      const message = err instanceof Error ? err.message : 'Failed to save GL mappings'
+      setMessage(message)
+      throw new Error(message)
     } finally {
       setSaving(false)
     }
-  }
+  }, [analysis.id, dirtyCount, onUpdated, rows, selectedByKey])
+
+  useEffect(() => {
+    onSaveStateChange?.({ dirtyCount, saving, save: submitMappings })
+  }, [dirtyCount, onSaveStateChange, saving, submitMappings])
 
   if (!rows.length) return null
 
@@ -206,11 +274,7 @@ function GlMappingEditor({
           <p className="text-xs text-slate-400 mt-1">Review and confirm source GL codes before running downstream WS2 agents.</p>
         </div>
         <div className="flex items-center gap-2">
-          {dirtyCount > 0 && <Badge color="gold">{dirtyCount} changed</Badge>}
-          <Button size="sm" disabled={saving || dirtyCount === 0} onClick={submitMappings}>
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            Submit mappings
-          </Button>
+          {dirtyCount > 0 && <Badge color="gold">{dirtyCount} unsaved</Badge>}
         </div>
       </div>
       {message && <p className="mb-3 text-xs text-slate-500">{message}</p>}
@@ -591,6 +655,8 @@ export function TtmAnalysisTab({
   // Step 3: Valuation range input (WS2-2 recast)
   // Step 4: Final workbook (editable report with all tabs)
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1)
+  const [glMappingSaveState, setGlMappingSaveState] = useState<GlMappingSaveState | null>(null)
+  const [continuingToValuation, setContinuingToValuation] = useState(false)
 
   // Auto-advance wizard based on analysis state (but not while running)
   useEffect(() => {
@@ -604,6 +670,28 @@ export function TtmAnalysisTab({
 
   const unresolvedFlags = activeAnalysis?.flags.filter(f => f.resolutionStatus !== 'ACTIONED').length ?? 0
   const canApproveWs21 = activeAnalysis && !isFailed && unresolvedFlags === 0 && !ws21Approved
+  const continueToValuation = async () => {
+    if (!activeAnalysis) return
+    setContinuingToValuation(true)
+    setError(null)
+    try {
+      await glMappingSaveState?.save()
+      if (!ws21Approved) {
+        const res = await fetch('/api/ttm-agent/hitl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'approve', analysisId: activeAnalysis.id, actorName: adminName }),
+        })
+        if (!res.ok) throw new Error(await res.text().catch(() => 'Approval failed'))
+        handleUpdatedAnalysis(await res.json())
+      }
+      setWizardStep(3)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to continue')
+    } finally {
+      setContinuingToValuation(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -640,7 +728,7 @@ export function TtmAnalysisTab({
         {activeAnalysis && (
           <Button variant="outline" size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
             <RefreshCw className="w-3.5 h-3.5" />
-            {running ? 'Running...' : 'Start New Analysis'}
+            {running ? 'Analyzing...' : 'Re-run Analysis'}
           </Button>
         )}
       </div>
@@ -685,7 +773,7 @@ export function TtmAnalysisTab({
               </div>
             )}
             <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
-              {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Play className="w-3.5 h-3.5" /> Run Analysis</>}
+              {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Play className="w-3.5 h-3.5" /> Start Analysis</>}
             </Button>
           </div>
         </Card>
@@ -732,9 +820,9 @@ export function TtmAnalysisTab({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <p className="text-sm font-semibold text-emerald-800">Step 1 complete — all flags resolved and approved.</p>
+                  <p className="text-sm font-semibold text-emerald-800">Flags reviewed.</p>
                 </div>
-                <Button size="sm" onClick={() => setWizardStep(2)}>Continue to GL Mapping →</Button>
+                <Button size="sm" onClick={() => setWizardStep(2)}>Continue to GL Mapping</Button>
               </div>
             </Card>
           ) : (
@@ -747,7 +835,7 @@ export function TtmAnalysisTab({
               {canApproveWs21 && (
                 <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex justify-end">
                   <Button size="sm" onClick={() => setWizardStep(2)}>
-                    Next: Review GL Mapping →
+                    Continue to GL Mapping
                   </Button>
                 </div>
               )}
@@ -760,31 +848,21 @@ export function TtmAnalysisTab({
       {activeAnalysis && !isFailed && wizardStep === 2 && (
         <div className="space-y-4">
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-            Review the GL code mappings below. Adjust any that look wrong, then continue to set the valuation range.
+            Review the GL code mappings below. Any unsaved changes will be saved when you continue.
           </div>
-          <GlMappingEditor analysis={activeAnalysis} onUpdated={handleUpdatedAnalysis} />
+          <GlMappingEditor
+            analysis={activeAnalysis}
+            onUpdated={handleUpdatedAnalysis}
+            onSaveStateChange={setGlMappingSaveState}
+          />
           <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex items-center justify-between">
             <Button variant="outline" size="sm" onClick={() => setWizardStep(1)}>
-              ← Back to Flags
+              Back to Flags
             </Button>
-            {!ws21Approved ? (
-              <Button size="sm" onClick={() => {
-                // Trigger the approve action from AdminReviewDashboard
-                fetch('/api/ttm-agent/hitl', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ mode: 'approve', analysisId: activeAnalysis.id, actorName: adminName }),
-                }).then(res => res.ok ? res.json() : Promise.reject(new Error('Approval failed')))
-                  .then(updated => { handleUpdatedAnalysis(updated); setWizardStep(3) })
-                  .catch(err => setError(err instanceof Error ? err.message : 'Approval failed'))
-              }}>
-                Approve & Set Valuation Range →
-              </Button>
-            ) : (
-              <Button size="sm" onClick={() => setWizardStep(3)}>
-                Next: Set Valuation Range →
-              </Button>
-            )}
+            <Button size="sm" onClick={() => void continueToValuation()} disabled={continuingToValuation || glMappingSaveState?.saving}>
+              {continuingToValuation || glMappingSaveState?.saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Continue to Valuation Range
+            </Button>
           </div>
         </div>
       )}
@@ -793,7 +871,7 @@ export function TtmAnalysisTab({
       {activeAnalysis && ws21Approved && wizardStep === 3 && (
         <div className="space-y-4">
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-            Enter low, mid, and high EBITDA multiples to generate a valuation range. The AI will apply these to the normalized EBITDA and flag any add-backs for your review.
+            Enter low, mid, and high EBITDA multiples. Then calculate and finalize the valuation.
           </div>
           <Step3ValuationRange
             analysis={activeAnalysis}

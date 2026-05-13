@@ -33,8 +33,8 @@ export function ExportReportButton({ html, fileName, label }: Props) {
     }
   }
 
-  const handlePrint = async () => {
-    await saveReportToDrive()
+  const handlePrint = () => {
+    void saveReportToDrive()
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(html)

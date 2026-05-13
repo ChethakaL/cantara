@@ -3,6 +3,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Calculator, DollarSign, Percent, Download, RotateCcw, Plus, Trash2, Save } from 'lucide-react'
 import { Card, Button, Input, cn } from '@/components/ui'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { buildHtmlTable, generateReportHtml } from '@/lib/report-export/generate-report-html'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -201,6 +203,161 @@ function SectionDivider() {
   return <div className="border-t border-slate-100 my-1" />
 }
 
+function buildNetProceedsReportHtml(
+  clientName: string,
+  calc: ReturnType<typeof buildNetProceedsCalculation>,
+  form: NetProceedsState,
+) {
+  const rows = [
+    ['1. Enterprise Value (EV)', formatUSD(calc.ev)],
+    ['2. + Estimated Cash at Closing', formatUSD(calc.cashAtClosing)],
+    ['3. + Working Capital Adjustment', formatUSD(calc.wcAdjustment)],
+    ['4. - Deferred Revenue / Prepaid Adjustment', formatUSD(-calc.deferredRevenue)],
+    ['5. - Other Seller Cash Obligations', formatUSD(-calc.totalSellerObligations)],
+    ['6. = Base Purchase Price', formatUSD(calc.basePurchasePrice)],
+    ['7. - Total Withheld / Deferred', formatUSD(-calc.totalWithheld)],
+    ['8. - Total Debt Payoffs', formatUSD(-calc.totalDebt)],
+    ['9. - Total Transaction Costs', formatUSD(-calc.totalTransactionCosts)],
+    ['10. = Net Cash to Seller at Closing (Pre-Tax)', formatUSD(calc.netCashAtClosingPreTax)],
+    [`11. - Estimated Taxes at Close (Fed ${calc.fedTaxLabel} + State ${calc.stateTaxLabel})`, formatUSD(-calc.estimatedTaxesAtClose)],
+    ['12. = Estimated Cash to Seller at Closing (Post-Tax)', formatUSD(calc.netCashPostTax)],
+    ['13. Total Net Proceeds Pre-Tax incl. Deferred', formatUSD(calc.totalNetProceedsPreTax)],
+    ['14. = Estimated Total Proceeds on Sale (Post-Tax)', formatUSD(calc.estimatedTotalProceedsPostTax)],
+  ]
+
+  const debtRows = calc.debtDetails.length
+    ? calc.debtDetails.map((debt) => [
+        debt.description || 'Unnamed debt',
+        formatUSD(debt.balance),
+        formatUSD(debt.avgPmt),
+        formatUSD(debt.estimatedPayoff),
+      ])
+    : [['No debt instruments entered', '-', '-', '-']]
+
+  const sellerObligationRows = calc.obligationDetails.length
+    ? calc.obligationDetails.map((item) => [item.description || 'Unnamed obligation', formatUSD(item.parsedAmount)])
+    : [['No seller obligations entered', '-']]
+
+  const costRows = [
+    ['Legal Fees', formatUSD(calc.legal)],
+    ['Advisory Fee', formatUSD(calc.advisory)],
+    ['Accounting', formatUSD(calc.acct)],
+    ['Management Bonuses', formatUSD(calc.bonuses)],
+    ['Payroll Taxes on Management Bonuses', formatUSD(calc.payrollTax)],
+    ...form.otherCosts.map((cost) => [cost.description || 'Other Cost', formatUSD(parseNum(cost.amount))]),
+    ['Total Transaction Costs', formatUSD(calc.totalTransactionCosts)],
+  ]
+
+  return generateReportHtml({
+    title: 'Seller Net Proceeds Report',
+    subtitle: 'Estimated Closing Proceeds Waterfall',
+    clientName,
+    generatedAt: new Date().toISOString(),
+    summary: `Estimated total proceeds after taxes are ${formatUSD(calc.estimatedTotalProceedsPostTax)} based on enterprise value of ${formatUSD(calc.ev)}, closing cash of ${formatUSD(calc.cashAtClosing)}, debt payoffs of ${formatUSD(calc.totalDebt)}, transaction costs of ${formatUSD(calc.totalTransactionCosts)}, and withheld/deferred consideration of ${formatUSD(calc.totalWithheld)}.`,
+    kpis: [
+      { label: 'Enterprise Value', value: formatUSD(calc.ev) },
+      { label: 'Cash at Close Post-Tax', value: formatUSD(calc.netCashPostTax) },
+      { label: 'Deferred Post-Tax', value: formatUSD(calc.netDeferredPostTax) },
+      { label: 'Total Post-Tax Proceeds', value: formatUSD(calc.estimatedTotalProceedsPostTax) },
+    ],
+    sections: [
+      { title: 'Net Proceeds Waterfall', content: buildHtmlTable(['Line Item', 'Amount'], rows) },
+      {
+        title: 'Working Capital & Deferred Revenue',
+        content: buildHtmlTable(['Input', 'Amount'], [
+          ['Estimated Closing Working Capital', formatUSD(calc.actualWC)],
+          ['Target Working Capital Peg', formatUSD(calc.targetWC)],
+          ['Working Capital Adjustment', formatUSD(calc.wcAdjustment)],
+          ['Deferred Revenue / Prepaid Packages', formatUSD(calc.deferredRevenue)],
+        ]),
+      },
+      { title: 'Debt Schedule', content: buildHtmlTable(['Debt', 'Current Balance', 'Avg Monthly Payment', 'Estimated Payoff'], debtRows) },
+      { title: 'Other Seller Cash Obligations', content: buildHtmlTable(['Obligation', 'Amount'], sellerObligationRows) },
+      { title: 'Transaction Costs', content: buildHtmlTable(['Cost', 'Amount'], costRows, { totalRow: true }) },
+      {
+        title: 'Tax Inputs',
+        content: buildHtmlTable(['Tax Item', 'Input', 'Estimated Amount'], [
+          ['Federal Tax', calc.fedTaxLabel, formatUSD(calc.fedTaxAmount)],
+          ['State Tax', calc.stateTaxLabel, formatUSD(calc.stateTaxAmount)],
+          ['Estimated Taxes at Close', '-', formatUSD(calc.estimatedTaxesAtClose)],
+          ['Estimated Taxes on Withheld / Deferred', '-', formatUSD(calc.deferredTaxAmount)],
+          ['Total Estimated Taxes', '-', formatUSD(calc.totalEstimatedTaxes)],
+        ]),
+      },
+    ],
+  })
+}
+
+function buildNetProceedsCalculation(form: NetProceedsState) {
+  const ev = parseNum(form.enterpriseValuation)
+  const cashAtClosing = parseNum(form.estimatedCashAtClosing)
+  const monthsToClose = parseNum(form.monthsToClose)
+
+  const obligationDetails = form.sellerObligations.map((o) => ({
+    ...o,
+    parsedAmount: parseNum(o.amount),
+  }))
+  const totalSellerObligations = obligationDetails.reduce((sum, o) => sum + o.parsedAmount, 0)
+
+  const debtDetails = form.debtInstruments.map((d) => {
+    const balance = parseNum(d.currentBalance)
+    const avgPmt = parseNum(d.avgMonthlyPayment)
+    const estimatedPayoff = Math.max(0, balance - avgPmt * monthsToClose)
+    return { ...d, balance, avgPmt, estimatedPayoff }
+  })
+  const totalDebt = debtDetails.reduce((sum, d) => sum + d.estimatedPayoff, 0)
+
+  const actualWC = parseNum(form.actualWorkingCapital)
+  const targetWC = parseNum(form.targetWorkingCapital)
+  const wcAdjustment = actualWC - targetWC
+  const deferredRevenue = parseNum(form.deferredRevenue)
+  const basePurchasePrice = ev + cashAtClosing + wcAdjustment - deferredRevenue - totalSellerObligations
+
+  const escrow = parseNum(form.escrowHoldback)
+  const sellerNote = parseNum(form.sellerNote)
+  const earnout = parseNum(form.earnout)
+  const rollover = parseNum(form.rolloverEquity)
+  const otherDeferred = parseNum(form.otherDeferredConsideration)
+  const totalWithheld = escrow + sellerNote + earnout + rollover + otherDeferred
+  const cashConsiderationPreTax = basePurchasePrice - totalWithheld
+
+  const legal = parseNum(form.legalFees)
+  const advisory = parseNum(form.advisoryFee)
+  const acct = parseNum(form.accounting)
+  const bonuses = parseNum(form.managementBonuses)
+  const payrollTax = parseNum(form.payrollTaxOnBonuses)
+  const otherCostsTotal = form.otherCosts.reduce((sum, c) => sum + parseNum(c.amount), 0)
+  const totalTransactionCosts = legal + advisory + acct + bonuses + payrollTax + otherCostsTotal
+  const netCashAtClosingPreTax = cashConsiderationPreTax - totalDebt - totalTransactionCosts
+
+  const fedRateInput = parseNum(form.federalTaxRate)
+  const stateRateInput = parseNum(form.stateTaxRate)
+  const fedTaxAmount = form.federalTaxMode === 'dollar' ? fedRateInput : netCashAtClosingPreTax * (fedRateInput / 100)
+  const stateTaxAmount = form.stateTaxMode === 'dollar' ? stateRateInput : netCashAtClosingPreTax * (stateRateInput / 100)
+  const estimatedTaxesAtClose = fedTaxAmount + stateTaxAmount
+  const fedRatePercent = form.federalTaxMode === 'percent' ? fedRateInput / 100 : 0
+  const stateRatePercent = form.stateTaxMode === 'percent' ? stateRateInput / 100 : 0
+  const combinedRate = fedRatePercent + stateRatePercent
+  const netCashPostTax = netCashAtClosingPreTax - estimatedTaxesAtClose
+  const deferredTaxAmount = (form.federalTaxMode === 'dollar' && form.stateTaxMode === 'dollar') ? 0 : totalWithheld * combinedRate
+  const netDeferredPostTax = totalWithheld - deferredTaxAmount
+  const totalNetProceedsPreTax = netCashAtClosingPreTax + totalWithheld
+  const totalEstimatedTaxes = estimatedTaxesAtClose + deferredTaxAmount
+  const estimatedTotalProceedsPostTax = totalNetProceedsPreTax - totalEstimatedTaxes
+  const fedTaxLabel = form.federalTaxMode === 'dollar' ? formatUSD(fedRateInput) : `${fedRateInput}%`
+  const stateTaxLabel = form.stateTaxMode === 'dollar' ? formatUSD(stateRateInput) : `${stateRateInput}%`
+
+  return {
+    ev, cashAtClosing, obligationDetails, totalSellerObligations, monthsToClose, debtDetails, totalDebt,
+    actualWC, targetWC, wcAdjustment, deferredRevenue, basePurchasePrice, escrow, sellerNote, earnout,
+    rollover, otherDeferred, totalWithheld, cashConsiderationPreTax, legal, advisory, acct, bonuses,
+    payrollTax, otherCostsTotal, totalTransactionCosts, netCashAtClosingPreTax, fedRateInput,
+    stateRateInput, fedTaxAmount, stateTaxAmount, estimatedTaxesAtClose, combinedRate, netCashPostTax,
+    deferredTaxAmount, netDeferredPostTax, totalNetProceedsPreTax, totalEstimatedTaxes,
+    estimatedTotalProceedsPostTax, fedTaxLabel, stateTaxLabel,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tax Mode Toggle
 // ---------------------------------------------------------------------------
@@ -350,143 +507,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
   // Calculations
   // ---------------------------------------------------------------------------
 
-  const calc = useMemo(() => {
-    const ev = parseNum(form.enterpriseValuation)
-    const cashAtClosing = parseNum(form.estimatedCashAtClosing)
-    const monthsToClose = parseNum(form.monthsToClose)
-
-    // Seller obligations
-    const obligationDetails = form.sellerObligations.map((o) => ({
-      ...o,
-      parsedAmount: parseNum(o.amount),
-    }))
-    const totalSellerObligations = obligationDetails.reduce((sum, o) => sum + o.parsedAmount, 0)
-
-    // Debt schedule
-    const debtDetails = form.debtInstruments.map((d) => {
-      const balance = parseNum(d.currentBalance)
-      const avgPmt = parseNum(d.avgMonthlyPayment)
-      const estimatedPayoff = Math.max(0, balance - avgPmt * monthsToClose)
-      return { ...d, balance, avgPmt, estimatedPayoff }
-    })
-    const totalDebt = debtDetails.reduce((sum, d) => sum + d.estimatedPayoff, 0)
-
-    // Working capital
-    const actualWC = parseNum(form.actualWorkingCapital)
-    const targetWC = parseNum(form.targetWorkingCapital)
-    const wcAdjustment = actualWC - targetWC
-    const deferredRevenue = parseNum(form.deferredRevenue)
-
-    // Base purchase price — deferredRevenue is now subtracted
-    const basePurchasePrice = ev + cashAtClosing + wcAdjustment - deferredRevenue - totalSellerObligations
-
-    // Deferred / withheld consideration
-    const escrow = parseNum(form.escrowHoldback)
-    const sellerNote = parseNum(form.sellerNote)
-    const earnout = parseNum(form.earnout)
-    const rollover = parseNum(form.rolloverEquity)
-    const otherDeferred = parseNum(form.otherDeferredConsideration)
-    const totalWithheld = escrow + sellerNote + earnout + rollover + otherDeferred
-
-    // Cash consideration at close (pre-tax) — kept for internal use but removed from waterfall
-    const cashConsiderationPreTax = basePurchasePrice - totalWithheld
-
-    // Transaction costs (no R&W Insurance)
-    const legal = parseNum(form.legalFees)
-    const advisory = parseNum(form.advisoryFee)
-    const acct = parseNum(form.accounting)
-    const bonuses = parseNum(form.managementBonuses)
-    const payrollTax = parseNum(form.payrollTaxOnBonuses)
-    const otherCostsTotal = form.otherCosts.reduce((sum, c) => sum + parseNum(c.amount), 0)
-    const totalTransactionCosts = legal + advisory + acct + bonuses + payrollTax + otherCostsTotal
-
-    // Net cash to seller at closing (pre-tax)
-    const netCashAtClosingPreTax = cashConsiderationPreTax - totalDebt - totalTransactionCosts
-
-    // Taxes: support % or $ mode
-    const fedRateInput = parseNum(form.federalTaxRate)
-    const stateRateInput = parseNum(form.stateTaxRate)
-
-    const fedTaxAmount = form.federalTaxMode === 'dollar'
-      ? fedRateInput
-      : netCashAtClosingPreTax * (fedRateInput / 100)
-    const stateTaxAmount = form.stateTaxMode === 'dollar'
-      ? stateRateInput
-      : netCashAtClosingPreTax * (stateRateInput / 100)
-    const estimatedTaxesAtClose = fedTaxAmount + stateTaxAmount
-
-    // Combined rate for deferred tax calc (only meaningful in percent mode)
-    const fedRatePercent = form.federalTaxMode === 'percent' ? fedRateInput / 100 : 0
-    const stateRatePercent = form.stateTaxMode === 'percent' ? stateRateInput / 100 : 0
-    const combinedRate = fedRatePercent + stateRatePercent
-
-    // Post-tax cash at closing
-    const netCashPostTax = netCashAtClosingPreTax - estimatedTaxesAtClose
-
-    // Taxes on deferred/withheld
-    // If fixed dollar, don't double-count
-    const deferredTaxAmount = (form.federalTaxMode === 'dollar' && form.stateTaxMode === 'dollar')
-      ? 0
-      : totalWithheld * combinedRate
-    const netDeferredPostTax = totalWithheld - deferredTaxAmount
-
-    // Memo totals
-    const totalNetProceedsPreTax = netCashAtClosingPreTax + totalWithheld
-    const totalEstimatedTaxes = estimatedTaxesAtClose + deferredTaxAmount
-    const estimatedTotalProceedsPostTax = totalNetProceedsPreTax - totalEstimatedTaxes
-
-    // Tax label helpers
-    const fedTaxLabel = form.federalTaxMode === 'dollar'
-      ? formatUSD(fedRateInput)
-      : `${fedRateInput}%`
-    const stateTaxLabel = form.stateTaxMode === 'dollar'
-      ? formatUSD(stateRateInput)
-      : `${stateRateInput}%`
-
-    return {
-      ev,
-      cashAtClosing,
-      obligationDetails,
-      totalSellerObligations,
-      monthsToClose,
-      debtDetails,
-      totalDebt,
-      actualWC,
-      targetWC,
-      wcAdjustment,
-      deferredRevenue,
-      basePurchasePrice,
-      escrow,
-      sellerNote,
-      earnout,
-      rollover,
-      otherDeferred,
-      totalWithheld,
-      cashConsiderationPreTax,
-      legal,
-      advisory,
-      acct,
-      bonuses,
-      payrollTax,
-      otherCostsTotal,
-      totalTransactionCosts,
-      netCashAtClosingPreTax,
-      fedRateInput,
-      stateRateInput,
-      fedTaxAmount,
-      stateTaxAmount,
-      estimatedTaxesAtClose,
-      combinedRate,
-      netCashPostTax,
-      deferredTaxAmount,
-      netDeferredPostTax,
-      totalNetProceedsPreTax,
-      totalEstimatedTaxes,
-      estimatedTotalProceedsPostTax,
-      fedTaxLabel,
-      stateTaxLabel,
-    }
-  }, [form])
+  const calc = useMemo(() => buildNetProceedsCalculation(form), [form])
 
   function handleReset() {
     setForm(DEFAULT_STATE)
@@ -609,10 +630,17 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
               )}
             </Button>
             {hasInput && (
-              <Button variant="outline" size="sm" onClick={handleExport}>
-                <Download className="w-3.5 h-3.5" />
-                Export CSV
-              </Button>
+              <>
+                <ExportReportButton
+                  html={buildNetProceedsReportHtml(clientName, calc, form)}
+                  fileName={`net-proceeds-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+                  label="Export PDF"
+                />
+                <Button variant="outline" size="sm" onClick={handleExport}>
+                  <Download className="w-3.5 h-3.5" />
+                  Export CSV
+                </Button>
+              </>
             )}
           </div>
         </div>

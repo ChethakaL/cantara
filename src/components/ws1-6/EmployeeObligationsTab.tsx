@@ -758,7 +758,7 @@ export default function EmployeeObligationsTab({
           <ExportReportButton
             html={buildEmployeeObligationsReportHtml(report, flags, clientName)}
             fileName={`employee-obligations-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-            label="Export Obligations Report"
+            label="Export PDF"
           />
         </div>
       </div>
