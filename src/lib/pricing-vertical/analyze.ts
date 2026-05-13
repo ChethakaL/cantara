@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { PricingVerticalReport } from './types'
 
 function extractText(result: Anthropic.Messages.Message): string {
@@ -15,7 +16,7 @@ export async function analyzePricingByVertical(args: {
   mediaType: string
   revenueByVertical: any
 }): Promise<PricingVerticalReport> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) {
     throw new Error('ANTHROPIC_API_KEY is required for pricing-by-vertical analysis.')
   }

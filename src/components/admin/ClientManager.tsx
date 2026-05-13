@@ -1,9 +1,16 @@
 'use client'
-import { useRef, useState } from 'react'
-import { ExternalLink, FolderOpen, Plus, Trash2, Building2, Users, Briefcase, Upload, Image as ImageIcon, Loader2, CheckCircle2, UserPlus, X } from 'lucide-react'
-import { Button, Input, Select, Textarea, Badge, WorkstreamBadge } from '@/components/ui'
-import { saveClient } from '@/lib/store'
-import type { Client, Workstream, BusinessType } from '@/lib/store'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ExternalLink, FolderOpen, Plus, Trash2, Building2, Users, Briefcase, Upload,
+  Image as ImageIcon, Loader2, CheckCircle2, UserPlus, X, Bot, Search,
+  Calculator, FileSpreadsheet, Landmark, ShieldCheck, Scale, Network,
+  AlertCircle, BadgeDollarSign, Globe2, Camera, Tags, ChartNoAxesColumn,
+  MessageSquareText, Sparkles, FileText, Handshake, ClipboardList,
+} from 'lucide-react'
+import { Button, Input, Select, Textarea, Badge, WorkstreamBadge, cn } from '@/components/ui'
+import { deleteWorkstreamTemplate, getWorkstreamTemplates, saveClient, saveWorkstreamTemplate } from '@/lib/store'
+import { type AgentDocumentSelection } from '@/lib/documentData'
+import type { Client, Workstream, BusinessType, WorkstreamTemplate } from '@/lib/store'
 
 interface Owner2Data {
   name: string
@@ -27,6 +34,127 @@ const STAGE_OPTIONS = [
   { value: 'closed', label: 'Closed' },
 ]
 
+const AGENT_ICONS = {
+  ttm: FileSpreadsheet,
+  lease_analysis: Landmark,
+  contract_analysis: Briefcase,
+  insurance_review: ShieldCheck,
+  employee_obligations: Users,
+  professional_advisors: Handshake,
+  vendor_directory: Network,
+  org_chart_review: Network,
+  litigation_search: AlertCircle,
+  employee_comp: BadgeDollarSign,
+  ownership_verification: Scale,
+  permits_zoning: ClipboardList,
+  owner_gm_assessment: Users,
+  digital_presence: Globe2,
+  competitor_analysis: Bot,
+  facility_review: Camera,
+  pricing_analysis: Tags,
+  pricing_vertical: ChartNoAxesColumn,
+  sales_process_review: MessageSquareText,
+  meeting_notes: MessageSquareText,
+  net_proceeds: Calculator,
+  teaser: Sparkles,
+  cim: FileText,
+} as const
+
+function getAgentIcon(agentId: string) {
+  return AGENT_ICONS[agentId as keyof typeof AGENT_ICONS] ?? Bot
+}
+
+const AGENT_CATALOG = [
+  { id: 'ttm', name: 'Valuation Agent', defaultDocumentIds: [] },
+  { id: 'lease_analysis', name: 'Lease Analysis Agent', defaultDocumentIds: ['leases'] },
+  { id: 'contract_analysis', name: 'Material Contracts Agent', defaultDocumentIds: [] },
+  { id: 'insurance_review', name: 'Insurance Review Agent', defaultDocumentIds: ['insurance_policies', 'insurance_claims_12m'] },
+  { id: 'employee_obligations', name: 'Employee Obligations Agent', defaultDocumentIds: ['employee_list', 'key_employee_contracts', 'employee_comp_payroll'] },
+  { id: 'professional_advisors', name: 'Professional Advisors Agent', defaultDocumentIds: [] },
+  { id: 'vendor_directory', name: 'Software & Vendors Agent', defaultDocumentIds: ['vendor_contracts', 'material_contracts', 'software_subscriptions'] },
+  { id: 'org_chart_review', name: 'Org Chart Review Agent', defaultDocumentIds: [] },
+  { id: 'litigation_search', name: 'Litigation & Liens Agent', defaultDocumentIds: ['litigation_search_docs', 'pending_litigation'] },
+  { id: 'employee_comp', name: 'Employee Staffing & Compensation Agent', defaultDocumentIds: [] },
+  { id: 'ownership_verification', name: 'Ownership Verification Agent', defaultDocumentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
+  { id: 'permits_zoning', name: 'Permits & Zoning Agent', defaultDocumentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
+  { id: 'owner_gm_assessment', name: 'Owner & GM Assessment Agent', defaultDocumentIds: ['employee_list', 'org_chart', 'sop_manual'] },
+  { id: 'digital_presence', name: 'Digital Presence Agent', defaultDocumentIds: [] },
+  { id: 'competitor_analysis', name: 'Competitor Analysis Agent', defaultDocumentIds: [] },
+  { id: 'facility_review', name: 'Facility Review Agent', defaultDocumentIds: ['health_safety', 'violations'] },
+  { id: 'pricing_analysis', name: 'Pricing Analysis Agent', defaultDocumentIds: ['pricing_schedule', 'revenue_breakdown'] },
+  { id: 'pricing_vertical', name: 'Pricing by Vertical Agent', defaultDocumentIds: ['revenue_breakdown', 'pricing_schedule'] },
+  { id: 'sales_process_review', name: 'Sales Process Review Agent', defaultDocumentIds: ['sales_process_transcript', 'pricing_schedule'] },
+  { id: 'meeting_notes', name: 'Meeting Notes Agent', defaultDocumentIds: ['meeting_notes'] },
+  { id: 'net_proceeds', name: 'Net Proceeds Calculator Agent', defaultDocumentIds: [] },
+  { id: 'teaser', name: 'Deal Teaser Generator Agent', defaultDocumentIds: [] },
+  { id: 'cim', name: 'CIM Generator Agent', defaultDocumentIds: [] },
+]
+
+const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentSelection[]> = {
+  ws1: [
+    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
+    { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] },
+    { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: [] },
+    { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts', 'employee_comp_payroll'] },
+    { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
+    { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
+    { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: ['vendor_contracts', 'material_contracts', 'software_subscriptions'] },
+    { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: [] },
+    { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
+    { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: [] },
+    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
+    { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
+    { agentId: 'owner_gm_assessment', agentName: 'Owner & GM Assessment Agent', documentIds: ['employee_list', 'org_chart', 'sop_manual'] },
+  ],
+  ws2: [
+    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
+    { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
+    { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent', documentIds: [] },
+    { agentId: 'facility_review', agentName: 'Facility Review Agent', documentIds: ['health_safety', 'violations'] },
+    { agentId: 'pricing_analysis', agentName: 'Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
+    { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent', documentIds: ['revenue_breakdown', 'pricing_schedule'] },
+    { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent', documentIds: ['sales_process_transcript', 'pricing_schedule'] },
+  ],
+  both: [],
+  ma: [
+    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
+    { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent', documentIds: [] },
+    { agentId: 'teaser', agentName: 'Deal Teaser Generator Agent', documentIds: [] },
+    { agentId: 'cim', agentName: 'CIM Generator Agent', documentIds: [] },
+    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
+    { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
+  ],
+}
+SYSTEM_WORKSTREAM_AGENTS.both = [...SYSTEM_WORKSTREAM_AGENTS.ws1, ...SYSTEM_WORKSTREAM_AGENTS.ws2].filter(
+  (agent, index, agents) => agents.findIndex(item => item.agentId === agent.agentId) === index,
+)
+
+function mergeAgents(baseAgents: AgentDocumentSelection[], extraAgents: AgentDocumentSelection[]) {
+  return [...baseAgents, ...extraAgents].filter(
+    (agent, index, agents) => agents.findIndex(item => item.agentId === agent.agentId) === index,
+  )
+}
+
+function agentKey(agents: AgentDocumentSelection[]) {
+  return agents.map(agent => agent.agentId).sort().join('|')
+}
+
+function agentsEqual(left: AgentDocumentSelection[], right: AgentDocumentSelection[]) {
+  return agentKey(left) === agentKey(right)
+}
+
+function getBaseAgentsForClient(client: Client, customDraftMode: boolean): AgentDocumentSelection[] {
+  if (customDraftMode) return []
+  if (client.customWorkstream) {
+    return client.customWorkstream.agents.map(agent => ({
+      agentId: agent.agentId,
+      agentName: agent.agentName,
+      documentIds: agent.documentIds,
+    }))
+  }
+  return client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
+}
+
 export default function ClientManager({ client: initial, onSaved }: {
   client: Client
   onSaved: (c: Client) => void
@@ -39,6 +167,15 @@ export default function ClientManager({ client: initial, onSaved }: {
   const [addingMember, setAddingMember] = useState(false)
   const [addingAdvisor, setAddingAdvisor] = useState(false)
   const [uploadingAdvisorImage, setUploadingAdvisorImage] = useState(false)
+  const [workstreamTemplates, setWorkstreamTemplates] = useState<WorkstreamTemplate[]>([])
+  const [selectedAgentId, setSelectedAgentId] = useState('')
+  const [agentSearchOpen, setAgentSearchOpen] = useState(false)
+  const [agentSearch, setAgentSearch] = useState('')
+  const [draftWorkstreamName, setDraftWorkstreamName] = useState('')
+  const [draftAgents, setDraftAgents] = useState<AgentDocumentSelection[]>([])
+  const [customDraftMode, setCustomDraftMode] = useState(false)
+  const [savingTemplate, setSavingTemplate] = useState(false)
+  const [deletingTemplate, setDeletingTemplate] = useState(false)
   const advisorImageInputRef = useRef<HTMLInputElement | null>(null)
 
   // Second owner support — stored in sectionSubmissions.owner2
@@ -52,6 +189,113 @@ export default function ClientManager({ client: initial, onSaved }: {
 
   const update = <K extends keyof Client>(key: K, val: Client[K]) =>
     setClient(p => ({ ...p, [key]: val }))
+
+  useEffect(() => {
+    void getWorkstreamTemplates().then(setWorkstreamTemplates)
+  }, [])
+
+  useEffect(() => {
+    if (customDraftMode) return
+    const clientSpecificAgents = client.workstreamAgents?.map(agent => ({
+      agentId: agent.agentId,
+      agentName: agent.agentName,
+      documentIds: agent.documentIds,
+    })) ?? []
+    if (client.customWorkstreamId && client.customWorkstream) {
+      setDraftWorkstreamName(client.customWorkstream.name)
+      const templateAgents = client.customWorkstream.agents.map(agent => ({
+        agentId: agent.agentId,
+        agentName: agent.agentName,
+        documentIds: agent.documentIds,
+      }))
+      setDraftAgents(mergeAgents(templateAgents, clientSpecificAgents))
+      return
+    }
+    setDraftWorkstreamName('')
+    const systemAgents = client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
+    setDraftAgents(mergeAgents(systemAgents, clientSpecificAgents))
+  }, [client.customWorkstreamId, client.customWorkstream, client.workstream, client.workstreamAgents, customDraftMode])
+
+  const workstreamOptions = useMemo(() => [
+    ...WS_OPTIONS,
+    { value: 'custom', label: 'Custom workstream — blank' },
+    ...workstreamTemplates.map(template => ({ value: `template:${template.id}`, label: template.name })),
+  ], [workstreamTemplates])
+  const availableAgents = useMemo(() => AGENT_CATALOG.filter(agent => !draftAgents.some(item => item.agentId === agent.id)), [draftAgents])
+  const filteredAgents = useMemo(() => {
+    const q = agentSearch.trim().toLowerCase()
+    if (!q) return availableAgents
+    return availableAgents.filter(agent => agent.name.toLowerCase().includes(q))
+  }, [agentSearch, availableAgents])
+
+  const applyWorkstreamSelection = (value: string) => {
+    if (value === 'custom') {
+      setCustomDraftMode(true)
+      setClient(p => ({ ...p, workstream: 'both', customWorkstreamId: null, customWorkstream: null, workstreamAgents: [] }))
+      setDraftWorkstreamName('')
+      setDraftAgents([])
+      return
+    }
+    setCustomDraftMode(false)
+    if (value.startsWith('template:')) {
+      const template = workstreamTemplates.find(t => t.id === value.slice('template:'.length))
+      setClient(p => ({ ...p, workstream: 'both', customWorkstreamId: template?.id ?? null, customWorkstream: template ?? null, workstreamAgents: [] }))
+      return
+    }
+    setClient(p => ({ ...p, workstream: (value || null) as Workstream, customWorkstreamId: null, customWorkstream: null, workstreamAgents: [] }))
+  }
+
+  const addAgentToDraft = () => {
+    const agent = AGENT_CATALOG.find(item => item.id === selectedAgentId)
+    if (!agent || draftAgents.some(item => item.agentId === agent.id)) return
+    setDraftAgents(prev => [...prev, { agentId: agent.id, agentName: agent.name, documentIds: [] }])
+    setSelectedAgentId('')
+    setAgentSearch('')
+    setAgentSearchOpen(false)
+  }
+
+  const removeDraftAgent = (agentId: string) => {
+    setDraftAgents(prev => prev.filter(agent => agent.agentId !== agentId))
+  }
+
+  const saveDraftWorkstream = async () => {
+    if (!draftWorkstreamName.trim()) return
+    setSavingTemplate(true)
+    try {
+      const savedTemplate = await saveWorkstreamTemplate({
+        id: client.customWorkstreamId || undefined,
+        name: draftWorkstreamName.trim(),
+        agents: draftAgents,
+      })
+      if (!savedTemplate) return
+      setWorkstreamTemplates(prev => [savedTemplate, ...prev.filter(template => template.id !== savedTemplate.id)])
+      setCustomDraftMode(false)
+      setClient(p => ({ ...p, workstream: 'both', customWorkstreamId: savedTemplate.id, customWorkstream: savedTemplate, workstreamAgents: [] }))
+      setDraftAgents(savedTemplate.agents.map(agent => ({
+        agentId: agent.agentId,
+        agentName: agent.agentName,
+        documentIds: agent.documentIds,
+      })))
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  const deleteSelectedWorkstream = async () => {
+    if (!client.customWorkstreamId || deletingTemplate) return
+    const confirmed = window.confirm(`Delete "${client.customWorkstream?.name || 'this workstream'}" from the saved workstream dropdown? This will not delete the client.`)
+    if (!confirmed) return
+    setDeletingTemplate(true)
+    try {
+      const deleted = await deleteWorkstreamTemplate(client.customWorkstreamId)
+      if (!deleted) return
+      setWorkstreamTemplates(prev => prev.filter(template => template.id !== client.customWorkstreamId))
+      setClient(p => ({ ...p, customWorkstreamId: null, customWorkstream: null }))
+      setDraftWorkstreamName('')
+    } finally {
+      setDeletingTemplate(false)
+    }
+  }
 
   const handleSave = async () => {
     const now = new Date().toISOString()
@@ -91,11 +335,14 @@ export default function ClientManager({ client: initial, onSaved }: {
       delete mergedSectionSubmissions.owner2
     }
 
+    const baseAgents = getBaseAgentsForClient(client, customDraftMode)
+    const clientSpecificAgents = agentsEqual(baseAgents, draftAgents) ? [] : draftAgents
     const updated = {
       ...client,
       provisionedAt: isFirstProvision ? now : client.provisionedAt,
       driveFolder,
       sectionSubmissions: mergedSectionSubmissions,
+      workstreamAgents: clientSpecificAgents.map(agent => ({ id: agent.agentId, ...agent })),
     }
     saveClient(updated)
     setSaved(true)
@@ -261,9 +508,9 @@ export default function ClientManager({ client: initial, onSaved }: {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <Select
             label="Workstream"
-            value={client.workstream ?? ''}
-            onChange={e => update('workstream', (e.target.value || null) as Workstream)}
-            options={WS_OPTIONS}
+            value={customDraftMode ? 'custom' : client.customWorkstreamId ? `template:${client.customWorkstreamId}` : client.workstream ?? ''}
+            onChange={e => applyWorkstreamSelection(e.target.value)}
+            options={workstreamOptions}
           />
           <Select
             label="Stage"
@@ -283,6 +530,124 @@ export default function ClientManager({ client: initial, onSaved }: {
           </div>
         )}
       </section>
+
+      {client.workstream && (
+        <section>
+          <h4 className="text-sm font-semibold text-slate-700 mb-1 pb-2 border-b border-slate-100 flex items-center gap-2">
+            <Bot className="w-4 h-4" /> Workstream Agents
+            <span className="text-xs font-normal text-slate-400">— agent docs are requested in client portal</span>
+          </h4>
+          <div className="mt-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_260px] gap-4 items-start">
+            <div className="max-h-[420px] overflow-y-auto pr-2 space-y-3 rounded-xl">
+              {draftAgents.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-400">
+                  Blank workstream. Add agents here. Client portal will request documents based on backend agent-document mapping. Valuation documents still show in portal.
+                </div>
+              ) : draftAgents.map(agent => (
+                <div key={agent.agentId} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                  {(() => {
+                    const Icon = getAgentIcon(agent.agentId)
+                    return (
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-400">
+                    <Icon className="w-4 h-4" />
+                  </div>
+                    )
+                  })()}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-800">{agent.agentName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Document requests are resolved from agent-document mapping.</p>
+                  </div>
+                  <button onClick={() => removeDraftAgent(agent.agentId)} className="text-slate-300 hover:text-rose-400 transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4 h-fit space-y-3">
+              <div className="relative space-y-1.5">
+                <label className="block text-xs font-medium text-slate-600">Add agent</label>
+                <button
+                  type="button"
+                  onClick={() => setAgentSearchOpen(open => !open)}
+                  className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 transition-all hover:border-amber-300 focus:border-cantara-gold focus:outline-none focus:ring-2 focus:ring-cantara-gold/20"
+                >
+                  <span className={selectedAgentId ? 'text-slate-800' : 'text-slate-400'}>
+                    {AGENT_CATALOG.find(agent => agent.id === selectedAgentId)?.name || 'Search agents...'}
+                  </span>
+                  <Search className="h-4 w-4 text-slate-300" />
+                </button>
+
+                {agentSearchOpen && (
+                  <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                    <div className="border-b border-slate-100 p-2">
+                      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                        <Search className="h-3.5 w-3.5 text-slate-400" />
+                        <input
+                          autoFocus
+                          value={agentSearch}
+                          onChange={e => setAgentSearch(e.target.value)}
+                          placeholder="Type agent name..."
+                          className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-1">
+                      {filteredAgents.length === 0 ? (
+                        <div className="px-3 py-3 text-xs text-slate-400">No agents found.</div>
+                      ) : filteredAgents.map(agent => (
+                        (() => {
+                          const Icon = getAgentIcon(agent.id)
+                          return (
+                        <button
+                          key={agent.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedAgentId(agent.id)
+                            setAgentSearchOpen(false)
+                            setAgentSearch('')
+                          }}
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors',
+                            selectedAgentId === agent.id ? 'bg-amber-50 text-amber-700' : 'text-slate-700 hover:bg-slate-50',
+                          )}
+                        >
+                          <Icon className={cn('h-3.5 w-3.5 shrink-0', selectedAgentId === agent.id ? 'text-amber-500' : 'text-slate-300')} />
+                          <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+                        </button>
+                          )
+                        })()
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <Button variant="outline" size="sm" onClick={addAgentToDraft} disabled={!selectedAgentId}>
+                <Plus className="w-3.5 h-3.5" /> Add Agent
+              </Button>
+              <div className="pt-3 border-t border-amber-100 space-y-3">
+                <Input
+                  label="Save as workstream"
+                  placeholder="e.g. Growth diligence"
+                  value={draftWorkstreamName}
+                  onChange={e => setDraftWorkstreamName(e.target.value)}
+                />
+                <Button size="sm" onClick={() => void saveDraftWorkstream()} disabled={!draftWorkstreamName.trim() || savingTemplate}>
+                  {savingTemplate ? 'Saving...' : 'Save Workstream'}
+                </Button>
+                {client.customWorkstreamId && (
+                  <Button size="sm" variant="outline" onClick={() => void deleteSelectedWorkstream()} disabled={deletingTemplate}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {deletingTemplate ? 'Deleting...' : 'Delete Workstream'}
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-amber-700">
+                Business valuation documents are always requested separately. Some agents can have no mapped documents.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Business structure */}
       <section>

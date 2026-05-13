@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { prisma } from '@/lib/prisma'
 import { TeaserInputData } from '@/lib/teaser/types'
 import { generateTeaserWithAI, ClientContext } from '@/lib/teaser/ai-autofill'
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
     } catch { /* table may not exist yet */ }
 
     // ── AI-powered auto-fill (falls back to static logic below) ────────
-    if (process.env.ANTHROPIC_API_KEY) {
+    if (await getAnthropicApiKey()) {
       try {
         const aiContext: ClientContext = {
           clientProfile: client,

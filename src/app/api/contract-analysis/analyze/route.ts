@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { NextRequest } from "next/server";
 import { CONTRACT_ANALYSIS_SYSTEM_PROMPT } from "@/lib/contract-analysis/prompt";
 
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
     }
 
     const client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY ?? "",
+      apiKey: await getAnthropicApiKey(),
     });
 
     const userContent: Anthropic.Messages.ContentBlockParam[] = [

@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { buildCompetitorAnalysisReport } from '@/lib/competitor-analysis/claude-analyzer';
 import { findNearbyCompetitors, lookupSpecifiedCompetitors, inferPetBusinessCategory, lookupSubjectBusiness } from '@/lib/competitor-analysis/google-places';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
   };
 
   const googleApiKey = process.env.GOOGLE_SERVICES_API;
-  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  const anthropicApiKey = await getAnthropicApiKey()
   const tavilyApiKey = process.env.TAVILY_API_KEY;
 
   if (!googleApiKey || !anthropicApiKey) {

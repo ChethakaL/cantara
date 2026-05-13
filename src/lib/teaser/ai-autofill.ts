@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { TeaserInputData } from './types'
 
 export interface ClientContext {
@@ -13,7 +14,7 @@ export interface ClientContext {
 }
 
 export async function generateTeaserWithAI(context: ClientContext): Promise<TeaserInputData> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
 
   const client = new Anthropic({ apiKey })

@@ -37,6 +37,18 @@ export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) 
           <button className="p-2 rounded hover:bg-cantara-sun/5 transition-colors text-cantara-sun/30 hover:text-cantara-sun/70">
             <Bell className="w-4 h-4" />
           </button>
+          <Link
+            href="/admin/settings"
+            className={cn(
+              "p-2 rounded hover:bg-cantara-sun/5 transition-colors",
+              pathname?.startsWith("/admin/settings")
+                ? "text-cantara-gold"
+                : "text-cantara-sun/30 hover:text-cantara-sun/70",
+            )}
+            title="Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
           <button onClick={handleLogout} className="p-2 rounded hover:bg-cantara-sun/5 transition-colors text-cantara-sun/30 hover:text-rose-400">
             <LogOut className="w-4 h-4" />
           </button>

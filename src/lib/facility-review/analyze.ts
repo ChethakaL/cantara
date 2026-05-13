@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { FacilityRating, FacilityReviewReport } from './types'
 
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
@@ -96,7 +97,7 @@ export async function analyzeFacilityImages(args: {
   notes?: string
   images: Array<{ fileName: string; base64: string; mediaType: string }>
 }): Promise<FacilityReviewReport> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
   if (!args.images.length) throw new Error('At least one facility image is required')
 

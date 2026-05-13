@@ -74,6 +74,27 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
     businessCategory: client.businessCategory || "",
     websiteUrl: client.websiteUrl || "",
     workstream: client.workstream ? client.workstream.toLowerCase() : null,
+    customWorkstreamId: client.customWorkstreamId ?? null,
+    customWorkstream: client.customWorkstream
+      ? {
+          id: client.customWorkstream.id,
+          name: client.customWorkstream.name,
+          description: client.customWorkstream.description ?? null,
+          isSystem: client.customWorkstream.isSystem,
+          agents: (client.customWorkstream.agents ?? []).map((agent: any) => ({
+            id: agent.id,
+            agentId: agent.agentId,
+            agentName: agent.agentName,
+            documentIds: agent.documentIds ?? [],
+          })),
+        }
+      : null,
+    workstreamAgents: (client.ClientWorkstreamAgents ?? []).map((agent: any) => ({
+      id: agent.id,
+      agentId: agent.agentId,
+      agentName: agent.agentName,
+      documentIds: agent.documentIds ?? [],
+    })),
     stage: client.stage ? client.stage.toLowerCase() : "onboarding",
     businessType: client.businessType ? client.businessType.toLowerCase() : "single",
     branches: client.Branches.map((branch) => ({ id: branch.id, name: branch.name })),

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import {
   ChannelType,
   ChannelResearchData,
@@ -99,7 +100,7 @@ export async function researchAllChannels(
   _tavilyKey: string, // kept for interface compat but unused
   onProgress?: ProgressCallback
 ): Promise<ChannelResearchData[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY required for Claude web search')
 
   const { businessName } = formData

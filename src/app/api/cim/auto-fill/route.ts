@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CimInputData } from '@/lib/cim/types'
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 
 export const maxDuration = 120
 export const runtime = 'nodejs'
@@ -186,9 +187,9 @@ export async function POST(req: NextRequest) {
 
     // ── Use AI for the narrative text sections ──────────────────────────
     let aiSections: any = {}
-    if (process.env.ANTHROPIC_API_KEY) {
+    if (await getAnthropicApiKey()) {
       try {
-        const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+        const anthropic = new Anthropic({ apiKey: await getAnthropicApiKey() })
         const context = [
           `Business: ${client.businessName}`,
           `Address: ${client.businessAddress || ''}`,

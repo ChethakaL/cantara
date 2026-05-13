@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { mapClientForFrontend } from "@/lib/client-mappers";
+import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
 
 // GET /api/clients - Get all clients for admin dashboard
 export async function GET(req: NextRequest) {
@@ -10,6 +11,8 @@ export async function GET(req: NextRequest) {
         Branches: true,
         TeamMembers: true,
         AdvisorProfiles: true,
+        customWorkstream: { include: { agents: true } },
+        ClientWorkstreamAgents: true,
         ClientDocumentStatuses: true,
         ClientDocument: true,
         User: true,
@@ -22,6 +25,7 @@ export async function GET(req: NextRequest) {
     });
 
     // Map to match the frontend expected structure
+    const requirements = await (prisma as any).agentDocumentRequirement.findMany();
     const mappedClients = await Promise.all(clients.map(async (c: any) => {
       const unreadCount = await prisma.chatMessage.count({
         where: {
@@ -31,7 +35,7 @@ export async function GET(req: NextRequest) {
         },
       });
 
-      return mapClientForFrontend(c, unreadCount);
+      return mapClientForFrontend(applyAgentDocumentRequirements(c, requirements), unreadCount);
     }));
 
     return NextResponse.json(mappedClients);

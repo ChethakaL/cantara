@@ -9,7 +9,7 @@ import {
   FileText, HelpCircle, ChevronDown, ChevronUp, Map, Briefcase, Lock, Loader2, ExternalLink
 } from 'lucide-react'
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
-import { getDocsForWorkstream, getValuationDocsForWorkstream } from '@/lib/documentData'
+import { getDocsForAgentSelections, getDocsForWorkstream, getValuationDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
 import { getClients, getMessages, saveMessage, getRequirements, getCurrentRole, logout, getClient, saveClient, updateRequirement } from '@/lib/store'
 import type { Client, DocumentStatus, ChatMessage, AdditionalRequirement } from '@/lib/store'
 
@@ -299,7 +299,12 @@ export default function ClientDashboard() {
   const getDocStatus = (docId: string): DocumentStatus =>
     docStatuses[docId] ?? { id: docId, hasDoc: null, assignedTo: null, uploadedAt: null, fileName: null, notApplicable: false }
 
-  const categories = getDocsForWorkstream(client.workstream, client.businessType)
+  const categories = mergeDocumentCategories([
+    ...(client.customWorkstream
+      ? getDocsForAgentSelections(client.customWorkstream.agents)
+      : getDocsForWorkstream(client.workstream, client.businessType)),
+    ...getDocsForAgentSelections(client.workstreamAgents ?? []),
+  ])
   const valuationDocs = getValuationDocsForWorkstream(client.workstream)
   const diligenceDocs = categories.flatMap(c => c.documents)
   const allDocs = [...valuationDocs, ...diligenceDocs]

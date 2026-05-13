@@ -284,6 +284,7 @@ model ClientProfile {
   email                      String?
   phone                      String?
   workstream                 Workstream?
+  customWorkstreamId         String?
   businessType               BusinessType                @default(SINGLE)
   stage                      ClientStage                 @default(ONBOARDING)
   driveFolderId              String?
@@ -321,6 +322,66 @@ model ClientProfile {
   TeaserReport                    TeaserReport?
   OwnershipVerificationReports    OwnershipVerificationReport[]
   PermitsZoningReports            PermitsZoningReport[]
+  customWorkstream                WorkstreamTemplate? @relation(fields: [customWorkstreamId], references: [id], onDelete: SetNull)
+  ClientWorkstreamAgents          ClientWorkstreamAgent[]
+
+  @@index([customWorkstreamId])
+}
+
+model WorkstreamTemplate {
+  id          String                    @id @default(cuid())
+  name        String                    @unique
+  description String?
+  isSystem    Boolean                   @default(false)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  agents      WorkstreamTemplateAgent[]
+  clients     ClientProfile[]
+}
+
+model WorkstreamTemplateAgent {
+  id           String             @id @default(cuid())
+  workstreamId String
+  agentId      String
+  agentName    String
+  documentIds  String[]           @default([])
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  workstream   WorkstreamTemplate @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
+
+  @@unique([workstreamId, agentId])
+  @@index([workstreamId])
+}
+
+model ClientWorkstreamAgent {
+  id          String        @id @default(cuid())
+  clientId    String
+  agentId     String
+  agentName   String
+  documentIds String[]      @default([])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  client      ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, agentId])
+  @@index([clientId])
+}
+
+model AgentDocumentRequirement {
+  id          String   @id @default(cuid())
+  agentId     String   @unique
+  agentName   String
+  documentIds String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AppSecret {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Branch {

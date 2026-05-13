@@ -7,6 +7,21 @@ export type Workstream = 'ws1' | 'ws2' | 'both' | 'ma' | null
 export type BusinessType = 'single' | 'multi' | 'parent'
 export type ClientStage = 'onboarding' | 'collection' | 'review' | 'final' | 'closed'
 
+export interface WorkstreamAgent {
+  id: string
+  agentId: string
+  agentName: string
+  documentIds: string[]
+}
+
+export interface WorkstreamTemplate {
+  id: string
+  name: string
+  description?: string | null
+  isSystem: boolean
+  agents: WorkstreamAgent[]
+}
+
 export interface TeamMember {
   id: string
   name: string
@@ -122,6 +137,9 @@ export interface Client {
   businessCategory: string
   websiteUrl: string
   workstream: Workstream
+  customWorkstreamId?: string | null
+  customWorkstream?: WorkstreamTemplate | null
+  workstreamAgents?: WorkstreamAgent[]
   stage: ClientStage
   businessType: BusinessType
   branches: Branch[]
@@ -185,6 +203,49 @@ export async function createClient(data: Partial<Client>): Promise<Client> {
     body: JSON.stringify(data),
   });
   return await res.json();
+}
+
+export async function getWorkstreamTemplates(): Promise<WorkstreamTemplate[]> {
+  try {
+    const res = await fetch('/api/workstream-templates', { cache: 'no-store' });
+    if (!res.ok) throw new Error('Failed to fetch workstream templates');
+    return await res.json();
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+export async function saveWorkstreamTemplate(data: {
+  id?: string
+  name: string
+  description?: string
+  agents: Array<{ agentId: string; agentName: string; documentIds: string[] }>
+}): Promise<WorkstreamTemplate | null> {
+  try {
+    const res = await fetch('/api/workstream-templates', {
+      method: data.id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return await res.json();
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+export async function deleteWorkstreamTemplate(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/workstream-templates?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    return res.ok;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
 }
 
 // ── Chat CRUD ───────────────────────────────────────────────────────────────

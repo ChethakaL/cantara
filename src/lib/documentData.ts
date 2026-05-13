@@ -19,6 +19,12 @@ export interface CategoryDef {
   documents: DocumentDef[]
 }
 
+export interface AgentDocumentSelection {
+  agentId: string
+  agentName: string
+  documentIds: string[]
+}
+
 // Business Valuation - standalone, always first, all workstreams
 export const VALUATION_DOCS: DocumentDef[] = [
   {
@@ -165,4 +171,31 @@ export function getDocsForWorkstream(ws: Workstream, businessType: BusinessType)
     ...cat,
     documents: cat.documents.filter(doc => doc.workstreams.includes(ws)),
   })).filter(cat => cat.documents.length > 0)
+}
+
+export function getAllDiligenceDocs(): DocumentDef[] {
+  return DOCUMENT_CATEGORIES.flatMap(cat => cat.documents)
+}
+
+export function getDocsForAgentSelections(agentSelections: AgentDocumentSelection[] = []): CategoryDef[] {
+  const selected = new Set(agentSelections.flatMap(agent => agent.documentIds))
+  if (selected.size === 0) return []
+  return DOCUMENT_CATEGORIES.map(cat => ({
+    ...cat,
+    documents: cat.documents.filter(doc => selected.has(doc.id)),
+  })).filter(cat => cat.documents.length > 0)
+}
+
+export function mergeDocumentCategories(categories: CategoryDef[]): CategoryDef[] {
+  const byCategory = new Map<string, CategoryDef>()
+  for (const category of categories) {
+    const existing = byCategory.get(category.id)
+    if (!existing) {
+      byCategory.set(category.id, { ...category, documents: [...category.documents] })
+      continue
+    }
+    const seen = new Set(existing.documents.map(doc => doc.id))
+    existing.documents.push(...category.documents.filter(doc => !seen.has(doc.id)))
+  }
+  return Array.from(byCategory.values()).filter(category => category.documents.length > 0)
 }

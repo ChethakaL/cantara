@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { CheckCircle, Clock, AlertTriangle, FileText, Loader2, MessageSquareMore, Trash2, Upload } from 'lucide-react'
 import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
-import { VALUATION_DOCS, getDocsForWorkstream } from '@/lib/documentData'
-import { parseStoredInsuranceReview } from '@/lib/insurance-review'
+import { VALUATION_DOCS, getDocsForAgentSelections, getDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
+import { parseStoredInsuranceReview } from '@/lib/insurance-review-shared'
 import { getAdminEmail, saveRequirement } from '@/lib/store'
 import type { Client } from '@/lib/store'
 
@@ -115,7 +115,12 @@ const EMPTY_FOLLOW_UP = {
 
 export default function AdminDocumentsView({ client, onClientUpdated }: { client: Client; onClientUpdated?: (client: Client) => void }) {
   const { workstream, businessType, documentStatuses, uploadedDocuments } = client
-  const categories = getDocsForWorkstream(workstream, businessType)
+  const categories = mergeDocumentCategories([
+    ...(client.customWorkstream
+      ? getDocsForAgentSelections(client.customWorkstream.agents)
+      : getDocsForWorkstream(workstream, businessType)),
+    ...getDocsForAgentSelections(client.workstreamAgents ?? []),
+  ])
   const [followUpOpen, setFollowUpOpen] = useState(false)
   const [savingFollowUp, setSavingFollowUp] = useState(false)
   const [followUpForm, setFollowUpForm] = useState(EMPTY_FOLLOW_UP)
