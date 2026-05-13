@@ -93,23 +93,23 @@ const AGENT_CATALOG = [
 const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentSelection[]> = {
   ws1: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
-    { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] },
-    { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: [] },
     { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts', 'employee_comp_payroll'] },
-    { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
-    { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
-    { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: ['vendor_contracts', 'material_contracts', 'software_subscriptions'] },
-    { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: [] },
-    { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
     { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: [] },
+    { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
+    { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] },
+    { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
+    { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: [] },
+    { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: [] },
+    { agentId: 'owner_gm_assessment', agentName: 'Owner & GM Assessment Agent', documentIds: ['employee_list', 'org_chart', 'sop_manual'] },
     { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
-    { agentId: 'owner_gm_assessment', agentName: 'Owner & GM Assessment Agent', documentIds: ['employee_list', 'org_chart', 'sop_manual'] },
+    { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
+    { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: ['vendor_contracts', 'material_contracts', 'software_subscriptions'] },
   ],
   ws2: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
-    { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent', documentIds: [] },
+    { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
     { agentId: 'facility_review', agentName: 'Facility Review Agent', documentIds: ['health_safety', 'violations'] },
     { agentId: 'pricing_analysis', agentName: 'Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent', documentIds: ['revenue_breakdown', 'pricing_schedule'] },
@@ -118,9 +118,9 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentS
   both: [],
   ma: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
-    { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent', documentIds: [] },
-    { agentId: 'teaser', agentName: 'Deal Teaser Generator Agent', documentIds: [] },
     { agentId: 'cim', agentName: 'CIM Generator Agent', documentIds: [] },
+    { agentId: 'teaser', agentName: 'Deal Teaser Generator Agent', documentIds: [] },
+    { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent', documentIds: [] },
     { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
   ],
@@ -221,7 +221,12 @@ export default function ClientManager({ client: initial, onSaved }: {
     { value: 'custom', label: 'Custom workstream — blank' },
     ...workstreamTemplates.map(template => ({ value: `template:${template.id}`, label: template.name })),
   ], [workstreamTemplates])
-  const availableAgents = useMemo(() => AGENT_CATALOG.filter(agent => !draftAgents.some(item => item.agentId === agent.id)), [draftAgents])
+  const availableAgents = useMemo(
+    () => AGENT_CATALOG
+      .filter(agent => !draftAgents.some(item => item.agentId === agent.id))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [draftAgents],
+  )
   const filteredAgents = useMemo(() => {
     const q = agentSearch.trim().toLowerCase()
     if (!q) return availableAgents
