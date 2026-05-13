@@ -786,8 +786,8 @@ export function TtmAnalysisTab({
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
               <div>
-                <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Generating valuation report...'}</p>
-                <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running...')}</p>
+                <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Building workbook & report...'}</p>
+                <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running downstream WS2 report agents...')}</p>
               </div>
             </div>
             {baselineBuildState.running && (

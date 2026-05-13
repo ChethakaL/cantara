@@ -1,5 +1,6 @@
 import type { TtmAnalysisView, Ws2RecastView } from '@/lib/ttm-agent/types'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
+import { filterNormLinesExcludedByRemovedManualFlags } from '@/lib/ttm-agent/ws2-workbook-export-model'
 import {
   generateReportHtml,
   buildHtmlTable,
@@ -42,8 +43,20 @@ export function buildValuationReportHtml(
   ]
   const plTable = buildHtmlTable(['Metric', fy1, fy2, fy3, 'TTM'], plRows)
 
-  // Add-backs summary
-  const addBacks = ws2Report.ws22?.recastSchedule.addBackItems ?? []
+  const rawNormLines = ((recast as unknown as { parsedReport?: { llmValuationResult?: { normLines?: Array<{
+    description?: string
+    byPeriod?: Record<string, number>
+  }> } } }).parsedReport?.llmValuationResult?.normLines ?? [])
+  const llmNormLines = filterNormLinesExcludedByRemovedManualFlags(rawNormLines, recast.flags ?? [])
+
+  // Add-backs summary. LLM-only recasts store accepted/kept items in parsedReport,
+  // while deterministic adapter items can be empty.
+  const addBacks = llmNormLines.length > 0
+    ? llmNormLines.map((line) => ({
+        description: line.description ?? 'Normalization item',
+        ttmAmount: line.byPeriod?.LTM ?? line.byPeriod?.TTM ?? 0,
+      }))
+    : (ws2Report.ws22?.recastSchedule.addBackItems ?? [])
   const totalAddBacks = addBacks.reduce((sum, item) => sum + item.ttmAmount, 0)
   const addBackRows = addBacks
     .filter(item => item.ttmAmount !== 0)

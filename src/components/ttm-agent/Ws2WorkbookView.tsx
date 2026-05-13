@@ -1,7 +1,9 @@
 'use client'
 
 import React, { useCallback, useMemo, useState } from 'react'
-import { Download } from 'lucide-react'
+import { Download, Printer } from 'lucide-react'
+import { buildWs2WorkbookReportHtml } from '@/lib/report-export/build-ws2-workbook-report'
+import { parseWorkbookAddBackItems } from '@/lib/ttm-agent/ws2-workbook-export-model'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import type { TtmAnalysisView, Ws2DerivedReportView, Ws2RecastView } from '@/lib/ttm-agent/types'
 import type { AddBackItem } from '@/lib/ws2/ws2-types'
@@ -86,6 +88,17 @@ export function Ws2WorkbookView({
   const years = analysis.annualModel?.years ?? []
   const multiple = recast.assumptions?.multipleMid ?? 0
 
+  /** Same mechanism as lease analysis: self-contained HTML from `generateReportHtml` (no Tailwind snapshot). */
+  const exportPdf = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const html = buildWs2WorkbookReportHtml(analysis, recast, clientName)
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    setTimeout(() => win.print(), 500)
+  }, [analysis, recast, clientName])
+
   // Debug: log whether add-back items were parsed
   const adapterItems = ws2Report.ws22?.recastSchedule.addBackItems ?? []
   if (adapterItems.length === 0 && recast.reportMarkdown) {
@@ -112,106 +125,11 @@ export function Ws2WorkbookView({
 
   // ── Add-back data with overrides applied ────────────────────────────────
 
-  // Parse add-back items from LLM valuation result, adapter, or reportMarkdown
-  const addBackItems = useMemo(() => {
-    // Priority 1: LLM valuation result (most accurate)
-    const llmResult = (recast as any).parsedReport?.llmValuationResult
-    if (llmResult?.normLines?.length > 0) {
-      console.log('[Ws2WorkbookView] Using LLM valuation normLines:', llmResult.normLines.length)
-      return llmResult.normLines.map((line: any, i: number) => ({
-        id: line.id || `llm-${i}`,
-        description: line.description || 'Unknown',
-        glCode: line.source || '',
-        ttmAmount: line.byPeriod?.['LTM'] ?? line.byPeriod?.['TTM'] ?? 0,
-        fy3Amount: line.byPeriod?.['FY3'] ?? 0,
-        fy2Amount: line.byPeriod?.['FY2'] ?? 0,
-        fy1Amount: line.byPeriod?.['FY1'] ?? 0,
-      }))
-    }
-
-    // Priority 2: Export adapter items
-    const fromAdapter = ws2Report.ws22?.recastSchedule.addBackItems ?? []
-    if (fromAdapter.length > 0) return fromAdapter
-
-    const md = recast.reportMarkdown
-    if (!md) return []
-
-    function parseCur(raw: string): number {
-      const cleaned = raw.replace(/\*\*/g, '').replace(/\$/g, '').replace(/,/g, '').trim().replace(/^\((.*)\)$/, '-$1')
-      const n = Number(cleaned)
-      return Number.isFinite(n) ? n : 0
-    }
-
-    // Find EBITDA RECAST SCHEDULE section
-    const sectionMatch = md.match(/## EBITDA RECAST SCHEDULE([\s\S]*?)(?:\n## 3-YEAR|\n## FLAG LIST|\n## PRELIMINARY|$)/i)
-    if (!sectionMatch) return []
-
-    const tableLines = sectionMatch[1]
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.startsWith('|'))
-      .filter(l => !/^\|\s*-+/.test(l))
-      .map(l => l.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim().replace(/\*\*/g, '')))
-
-    if (tableLines.length < 2) return []
-
-    // Detect format from header row
-    const header = tableLines[0]
-    const dataRows = tableLines.slice(1)
-
-    // Determine which columns hold TTM/LTM, FY3, FY2, FY1
-    // Format A: "Normalization Items | TTM (...) | FY3 (...) | FY2 (...) | FY1 (...) | Comments"
-    // Format B: "# | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status"
-    // Format C: "# | Category | Item Description | GL Reference | TTM Amount | Status"
-    let nameCol = 0, ttmCol = -1, fy3Col = -1, fy2Col = -1, fy1Col = -1
-    for (let i = 0; i < header.length; i++) {
-      const h = header[i].toLowerCase()
-      if (/normalization items|item description/i.test(header[i])) nameCol = i
-      if (/^(ttm|ltm)/.test(h) || h === 'ttm amount') ttmCol = i
-      if (/^fy3|^fy\s*3/.test(h) || /fy3\s*\(/i.test(header[i])) fy3Col = i
-      if (/^fy2|^fy\s*2/.test(h) || /fy2\s*\(/i.test(header[i])) fy2Col = i
-      if (/^fy1|^fy\s*1/.test(h) || /fy1\s*\(/i.test(header[i])) fy1Col = i
-    }
-
-    if (ttmCol === -1) {
-      // Try positional: first numeric column after name
-      ttmCol = nameCol + 1
-      if (header.length > ttmCol + 3) {
-        fy3Col = ttmCol + 1
-        fy2Col = ttmCol + 2
-        fy1Col = ttmCol + 3
-      }
-    }
-
-    let itemIndex = 0
-    return dataRows
-      .filter(c => {
-        const name = c[nameCol] ?? ''
-        return !/Total Adjustments|Revised Net Income|Revenue|Net Income\/EBITDA|^Multiple$|^Valuation$|^—$|^-$/i.test(name) &&
-               !/Total Adjustments|Revised|Multiple|Valuation/i.test(name)
-      })
-      .map(c => {
-        itemIndex++
-        const name = c[nameCol] ?? ''
-        const catGuess = /Insurance|Consulting|Draw|Salary|Replacement|Owner|Officer/i.test(name) ? 1
-          : /Donation|Gift|Meal|Travel|Church/i.test(name) ? 2
-          : /Non-Recurring|Repair|One-Off/i.test(name) ? 3
-          : /Tenant|TI|Leasehold/i.test(name) ? 4
-          : /Rent|FMR/i.test(name) ? 5
-          : 2
-        return {
-          id: String(itemIndex),
-          category: catGuess as AddBackItem['category'],
-          description: name,
-          glCode: undefined,
-          ttmAmount: ttmCol >= 0 ? parseCur(c[ttmCol] ?? '0') : 0,
-          fy3Amount: fy3Col >= 0 ? parseCur(c[fy3Col] ?? '0') : undefined,
-          fy2Amount: fy2Col >= 0 ? parseCur(c[fy2Col] ?? '0') : undefined,
-          fy1Amount: fy1Col >= 0 ? parseCur(c[fy1Col] ?? '0') : undefined,
-          status: 'VERIFIED' as AddBackItem['status'],
-        }
-      })
-  }, [ws2Report, recast.reportMarkdown])
+  // Parse add-back items from LLM valuation result, adapter, or reportMarkdown (shared with PDF export).
+  const addBackItems = useMemo(
+    () => parseWorkbookAddBackItems(ws2Report, recast),
+    [ws2Report, recast],
+  )
 
   const getItemValue = useCallback(
     (item: AddBackItem, periodKey: PeriodKey): number => {
@@ -1475,6 +1393,10 @@ export function Ws2WorkbookView({
         </div>
         <div className="flex items-center gap-2">
           <Badge color="green">WS2-2 Approved</Badge>
+          <Button size="sm" variant="outline" onClick={exportPdf}>
+            <Printer className="mr-1.5 h-3.5 w-3.5" />
+            Export PDF
+          </Button>
           {onExportXlsx && (
             <Button size="sm" variant="outline" onClick={onExportXlsx}>
               <Download className="mr-1.5 h-3.5 w-3.5" />
