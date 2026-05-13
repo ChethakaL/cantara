@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Bot, CheckCircle2, ChevronDown, ChevronRight, Download, Eye, FileText, Loader2, Plus, Printer, RotateCcw, Save, Sparkles, Trash2 } from 'lucide-react'
+import { Bot, CheckCircle2, ChevronDown, ChevronRight, Circle, Download, Eye, FileText, Loader2, Plus, Printer, RotateCcw, Save, Sparkles, Trash2, AlertCircle } from 'lucide-react'
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { CimInputData, DEFAULT_CIM_INPUT } from '@/lib/cim/types'
 import { generateCimHtml } from '@/lib/cim/generate-html'
@@ -13,12 +13,12 @@ interface Props {
 }
 
 const CIM_PREREQUISITES = [
-  { label: 'Financial Analysis & Valuation', tag: 'WS2-1' },
-  { label: 'Lease Analysis', tag: '' },
-  { label: 'Competitor Analysis', tag: '' },
-  { label: 'Employee Obligations Report', tag: 'WS1-6' },
-  { label: 'Digital Presence Report', tag: '' },
-  { label: 'Org Chart Review', tag: '' },
+  { key: 'ttmAnalysis', label: 'Financial Analysis & Valuation (WS2-1)' },
+  { key: 'lease', label: 'Lease Analysis' },
+  { key: 'competitor', label: 'Competitor Analysis' },
+  { key: 'employeeObligations', label: 'Employee Obligations (WS1-6)' },
+  { key: 'digitalPresence', label: 'Digital Presence Report' },
+  { key: 'orgChart', label: 'Org Chart Review' },
 ]
 
 // Collapsible section wrapper
@@ -48,6 +48,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
   const [cimFileUrl, setCimFileUrl] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [prereqs, setPrereqs] = useState<Record<string, boolean> | null>(null)
+
+  // ── Load prerequisite agent status ──────────────────────────────────────────
+  useEffect(() => {
+    fetch(`/api/agent-status?clientId=${clientId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setPrereqs(data) })
+      .catch(() => {})
+  }, [clientId])
 
   // ── Load Draft ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -207,22 +216,44 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
         )}
 
-        {/* Prerequisite Documents */}
-        <Card className="p-5 space-y-4">
-          <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Prerequisite Documents</p>
-          <p className="text-xs text-slate-500">The following analyses should be completed before generating the CIM. Auto-fill pulls data from each.</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {CIM_PREREQUISITES.map((prereq, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/50 px-4 py-3">
-                <span className="w-6 h-6 rounded-lg bg-slate-800 text-amber-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-slate-700 truncate">{prereq.label}</p>
-                  {prereq.tag && <p className="text-[10px] text-slate-400">{prereq.tag}</p>}
-                </div>
+        {/* Prerequisite Agents — live status */}
+        {(() => {
+          const completedCount = prereqs ? CIM_PREREQUISITES.filter(p => prereqs[p.key]).length : 0
+          const allComplete = prereqs ? CIM_PREREQUISITES.every(p => prereqs[p.key]) : false
+          return (
+            <Card className="p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">Prerequisite Agents</h4>
+                {prereqs && (
+                  <Badge color={allComplete ? 'green' : completedCount > 0 ? 'gold' : 'red'}>
+                    {completedCount}/{CIM_PREREQUISITES.length} complete
+                  </Badge>
+                )}
               </div>
-            ))}
-          </div>
-        </Card>
+              <p className="text-xs text-slate-500 mb-4">The CIM auto-fill pulls data from these agents. Missing agents will result in empty sections.</p>
+              <div className="space-y-2">
+                {CIM_PREREQUISITES.map(p => {
+                  const done = prereqs?.[p.key] ?? false
+                  return (
+                    <div key={p.key} className={cn(
+                      'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm',
+                      done ? 'bg-emerald-50 border border-emerald-100 text-emerald-800' : 'bg-slate-50 border border-slate-100 text-slate-500'
+                    )}>
+                      {done ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" /> : <Circle className="w-4 h-4 text-slate-300 flex-shrink-0" />}
+                      {p.label}
+                    </div>
+                  )
+                })}
+              </div>
+              {prereqs && !allComplete && (
+                <p className="text-xs text-amber-600 mt-3 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Some agents haven&apos;t been run yet. You can still auto-fill, but some sections may be empty.
+                </p>
+              )}
+            </Card>
+          )
+        })()}
 
         {/* Acknowledgment */}
         <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-3 hover:bg-slate-50 transition-colors">

@@ -1,6 +1,6 @@
 'use client'
 
-import { Bot, CheckCircle2, Download, Eye, FileText, Loader2, Printer, RotateCcw, Save, Sparkles } from 'lucide-react'
+import { Bot, CheckCircle2, Download, Eye, FileText, Loader2, Printer, RotateCcw, Save, Sparkles, Circle, AlertCircle } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { TeaserInputData, DEFAULT_TEASER_INPUT } from '@/lib/teaser/types'
@@ -20,6 +20,15 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
   const [teaserFileUrl, setTeaserFileUrl] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [prereqs, setPrereqs] = useState<Record<string, boolean> | null>(null)
+
+  // ── Load prerequisite agent status ──────────────────────────────────────────
+  useEffect(() => {
+    fetch(`/api/agent-status?clientId=${clientId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setPrereqs(data) })
+      .catch(() => {})
+  }, [clientId])
 
   // ── Load Draft ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -128,7 +137,18 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
   }
 
   // ---------- IDLE STATE ----------
+  const TEASER_PREREQS = [
+    { key: 'ttmAnalysis', label: 'Financial Analysis & Valuation (WS2-1)' },
+    { key: 'lease', label: 'Lease Analysis' },
+    { key: 'competitor', label: 'Competitor Analysis' },
+    { key: 'employeeObligations', label: 'Employee Obligations (WS1-6)' },
+    { key: 'digitalPresence', label: 'Digital Presence Report' },
+  ]
+
   if (status === 'idle') {
+    const completedCount = prereqs ? TEASER_PREREQS.filter(p => prereqs[p.key]).length : 0
+    const allComplete = prereqs ? TEASER_PREREQS.every(p => prereqs[p.key]) : false
+
     return (
       <div className="space-y-6">
         <Card className="p-5">
@@ -147,13 +167,46 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
         )}
 
-        <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/30 p-12 text-center space-y-4">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center">
-            <Sparkles className="w-8 h-8 text-amber-600" />
+        {/* Prerequisite agent checklist */}
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">Prerequisite Agents</h4>
+            {prereqs && (
+              <Badge color={allComplete ? 'green' : completedCount > 0 ? 'gold' : 'red'}>
+                {completedCount}/{TEASER_PREREQS.length} complete
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-slate-500 mb-4">The teaser auto-fill pulls data from these agents. Missing agents will result in empty sections.</p>
+          <div className="space-y-2">
+            {TEASER_PREREQS.map(p => {
+              const done = prereqs?.[p.key] ?? false
+              return (
+                <div key={p.key} className={cn(
+                  'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm',
+                  done ? 'bg-emerald-50 border border-emerald-100 text-emerald-800' : 'bg-slate-50 border border-slate-100 text-slate-500'
+                )}>
+                  {done ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" /> : <Circle className="w-4 h-4 text-slate-300 flex-shrink-0" />}
+                  {p.label}
+                </div>
+              )
+            })}
+          </div>
+          {prereqs && !allComplete && (
+            <p className="text-xs text-amber-600 mt-3 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Some agents haven&apos;t been run yet. You can still auto-fill, but some sections may be empty.
+            </p>
+          )}
+        </Card>
+
+        <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/30 p-8 text-center space-y-4">
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center">
+            <Sparkles className="w-7 h-7 text-amber-600" />
           </div>
           <h4 className="text-lg font-semibold text-slate-800">Auto-Fill from Client Data</h4>
           <p className="text-sm text-slate-500 max-w-md mx-auto">
-            Pull data from the Valuation Agent, Lease Analysis, Competitor Analysis, and other agents to pre-populate the teaser. You can review and edit everything before generating.
+            Pull data from completed agents to pre-populate the teaser. You can review and edit everything before generating.
           </p>
           <Button size="lg" onClick={autoFill}>
             <Sparkles className="w-4 h-4" />
