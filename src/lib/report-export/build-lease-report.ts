@@ -166,7 +166,7 @@ export function buildLeaseBuyerReportHtml(report: LeaseReport, clientName: strin
       { label: 'Rent Schedule', value: String((report.rentSchedule || []).length) },
     ],
     sections: [
-      { title: 'Lease Snapshot', content: snapshotContent + rentScheduleContent },
+      { title: 'Lease Snapshot', content: snapshotContent },
       ...findingsSections,
       ...docInventory,
     ],
