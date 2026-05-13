@@ -33,16 +33,20 @@ export function buildEmployeeObligationsReportHtml(
     { label: 'Coverage Gaps', value: String(report.coverageGaps.length) },
   ]
 
-  // Buyer Summary
+  // Buyer Summary — structured with bold subheadings for the Executive Summary section
   const bs = report.buyerSummary
-  const summaryText = [
-    bs.workforceOverview,
-    bs.nonCompeteProtections ? `Non-Compete Protections: ${bs.nonCompeteProtections}` : '',
-    bs.assumedBenefitObligations ? `Benefit Obligations: ${bs.assumedBenefitObligations}` : '',
-    bs.retirementAndPTO ? `Retirement & PTO: ${bs.retirementAndPTO}` : '',
-    bs.independentContractorRisk ? `IC Risk: ${bs.independentContractorRisk}` : '',
-    bs.transitionConsiderations ? `Transition: ${bs.transitionConsiderations}` : '',
-  ].filter(Boolean).join(' | ')
+  const summaryItems = [
+    { heading: 'Workforce Overview', text: bs.workforceOverview },
+    { heading: 'Non-Compete Protections', text: bs.nonCompeteProtections },
+    { heading: 'Benefit Obligations', text: bs.assumedBenefitObligations },
+    { heading: 'Retirement & PTO', text: bs.retirementAndPTO },
+    { heading: 'Independent Contractor Risk', text: bs.independentContractorRisk },
+    { heading: 'Transition Considerations', text: bs.transitionConsiderations },
+  ].filter(item => item.text)
+  const executiveSummaryHtml = summaryItems
+    .map(item => `<p style="margin:0 0 14px 0;font-size:13px;line-height:1.7;color:#475569;"><strong style="color:#1e293b;font-size:13px;">${item.heading}</strong><br/>${(item.text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+    .join('')
+  const shortSummary = bs.workforceOverview || ''
 
   // Documents table
   const docsContent = report.documents.length > 0
@@ -140,9 +144,10 @@ export function buildEmployeeObligationsReportHtml(
     subtitle: 'WS1-6 Analysis',
     clientName,
     generatedAt: report.generatedAt,
-    summary: summaryText,
+    summary: shortSummary,
     kpis,
     sections: [
+      { title: 'Executive Summary', content: executiveSummaryHtml },
       { title: 'Document Inventory', content: docsContent },
       { title: 'Employment Agreements', content: agreementsContent },
       { title: 'Benefits & Obligations', content: benefitsContent },
