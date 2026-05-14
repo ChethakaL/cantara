@@ -58,13 +58,28 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, fileName, base64, mediaType, websiteUrl: websiteUrlOverride } = await req.json()
+    const {
+      clientId,
+      fileName,
+      base64,
+      mediaType,
+      websiteUrl: websiteUrlOverride,
+      reanalyzeFromEdits,
+      existingReport,
+    } = await req.json()
 
     if (!clientId) {
       return new Response('Missing required field: clientId', { status: 400 })
     }
-    if ((base64 || fileName || mediaType) && (!fileName || !base64 || !mediaType)) {
+    if (
+      !reanalyzeFromEdits &&
+      (base64 || fileName || mediaType) &&
+      (!fileName || !base64 || !mediaType)
+    ) {
       return new Response('When uploading a file, fileName, base64, and mediaType are required', { status: 400 })
+    }
+    if (reanalyzeFromEdits && (!existingReport || typeof existingReport !== 'object')) {
+      return new Response('reanalyzeFromEdits requires existingReport object', { status: 400 })
     }
 
     const clientProfile = await (prisma as any).clientProfile.findUnique({
@@ -129,12 +144,15 @@ export async function POST(req: NextRequest) {
       businessName: clientProfile.businessName,
       websiteResearch,
       documentEvidence,
+      existingReport: reanalyzeFromEdits ? (existingReport as PricingVerticalReport) : null,
     })
-    const report = mergeStructuredDocumentPrices(
-      analyzedReport,
-      documentEvidence.structuredPricingRows ?? [],
-      documentEvidence.pricingPeriods,
-    )
+    const report = reanalyzeFromEdits
+      ? analyzedReport
+      : mergeStructuredDocumentPrices(
+          analyzedReport,
+          documentEvidence.structuredPricingRows ?? [],
+          documentEvidence.pricingPeriods,
+        )
 
     // Store result in sectionSubmissions.pricingVertical
     const existing = (clientProfile.sectionSubmissions as Record<string, any>) ?? {}

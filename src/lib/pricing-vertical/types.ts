@@ -16,7 +16,8 @@ export interface VerticalPricingSummary {
   totalChangePercent: number | null
   lastChangeDate: string
   trend: 'increasing' | 'stable' | 'decreasing' | 'unknown'
-  revenueShare: string  // from WS2-3 e.g. "42% of TTM revenue"
+  /** Deprecated for output: kept for backward compatibility with saved JSON; leave empty. */
+  revenueShare?: string
   recommendation: string
 }
 

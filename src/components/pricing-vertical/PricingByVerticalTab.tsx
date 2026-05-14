@@ -96,6 +96,7 @@ export default function PricingByVerticalTab({
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedBadge, setSavedBadge] = useState(false)
+  const [reanalyzeNotice, setReanalyzeNotice] = useState<string | null>(null)
   const [websiteUrl, setWebsiteUrl] = useState('')
 
   // Load saved data on mount
@@ -106,7 +107,13 @@ export default function PricingByVerticalTab({
         if (res.ok) {
           const data = await res.json()
           if (data && data.executiveSummary) {
-            setResult(data)
+            setResult({
+              ...data,
+              verticalSummaries: (data.verticalSummaries ?? []).map((v: VerticalPricingSummary) => ({
+                ...v,
+                revenueShare: '',
+              })),
+            })
           }
         }
       } catch { /* ignore */ }
@@ -127,6 +134,59 @@ export default function PricingByVerticalTab({
     maxFiles: 1,
     multiple: false,
   })
+
+  const handleReanalyze = async () => {
+    if (!result) return
+    setAnalyzing(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/pricing-vertical', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          websiteUrl: websiteUrl.trim() || undefined,
+          reanalyzeFromEdits: true,
+          existingReport: result,
+        }),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || `Re-run failed (${res.status})`)
+      }
+      const data: PricingVerticalReport = await res.json()
+      setResult(data)
+      setEditMode(false)
+      setReanalyzeNotice(
+        'Analysis re-run complete. Your latest grid and timeline edits were applied, summaries refreshed, and the report is saved. You are back in view mode—click Edit anytime to change values again.',
+      )
+      window.setTimeout(() => setReanalyzeNotice(null), 9000)
+      void persistPricingVerticalToServer(data, { silent: true })
+    } catch (err: any) {
+      setError(err.message || 'Re-run failed')
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  const renamePricingPeriodLabel = (periodIndex: number, nextLabelRaw: string) => {
+    if (!result) return
+    const periods = [...(result.pricingPeriods ?? ['Current'])]
+    if (periodIndex < 0 || periodIndex >= periods.length) return
+    const oldLabel = periods[periodIndex]!
+    const newLabel = nextLabelRaw.trim()
+    if (!newLabel || oldLabel === newLabel) return
+    periods[periodIndex] = newLabel
+    const grid = (result.pricingGrid ?? []).map((row) => {
+      const prices = { ...(row.prices ?? {}) }
+      if (Object.prototype.hasOwnProperty.call(prices, oldLabel)) {
+        prices[newLabel] = prices[oldLabel] as string
+        delete prices[oldLabel]
+      }
+      return { ...row, prices }
+    })
+    setResult({ ...result, pricingPeriods: periods, pricingGrid: grid })
+  }
 
   const handleAnalyze = async () => {
     setAnalyzing(true)
@@ -324,6 +384,17 @@ export default function PricingByVerticalTab({
               fileName={`pricing-vertical-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
               label="Export PDF"
             />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={analyzing}
+              onClick={() => void handleReanalyze()}
+              className="text-xs"
+            >
+              <RefreshCw className={cn('w-3.5 h-3.5', analyzing && 'animate-spin')} />
+              Re-run analysis
+            </Button>
             <button
               onClick={handleReset}
               className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
@@ -333,6 +404,20 @@ export default function PricingByVerticalTab({
             </button>
           </div>
         </div>
+
+        {reanalyzeNotice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex items-start gap-3 text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-lg shadow-sm"
+          >
+            <CheckCircle className="w-5 h-5 flex-shrink-0 text-emerald-600 mt-0.5" />
+            <div>
+              <p className="font-semibold text-emerald-900">Success</p>
+              <p className="text-emerald-800/95 mt-0.5 leading-relaxed">{reanalyzeNotice}</p>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-4 py-3 rounded-lg">
@@ -390,18 +475,31 @@ export default function PricingByVerticalTab({
 
         {/* Editable 24-month pricing grid */}
         <Card className="overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-slate-400" />
               <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
                 24-Month Service Pricing Grid ({result.pricingGrid?.length ?? 0})
               </h3>
             </div>
-            {editMode && (
-              <button onClick={addPricingRow} className="text-xs text-amber-600 hover:text-amber-800 font-medium">
-                + Add Service
-              </button>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={analyzing}
+                onClick={() => void handleReanalyze()}
+                className="text-xs"
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5', analyzing && 'animate-spin')} />
+                Re-run analysis
+              </Button>
+              {editMode && (
+                <button onClick={addPricingRow} className="text-xs text-amber-600 hover:text-amber-800 font-medium">
+                  + Add Service
+                </button>
+              )}
+            </div>
           </div>
           {(() => {
             const periods = result.pricingPeriods ?? ['Current']
@@ -416,7 +514,7 @@ export default function PricingByVerticalTab({
                       <line key={i} x1="60" x2="820" y1={50 + i * 56} y2={50 + i * 56} stroke="#e2e8f0" strokeWidth="1" />
                     ))}
                     {periods.map((period, i) => (
-                      <text key={period} x={60 + (i / Math.max(1, periods.length - 1)) * 760} y="282" textAnchor="middle" fontSize="11" fill="#64748b">
+                      <text key={`p-${i}`} x={60 + (i / Math.max(1, periods.length - 1)) * 760} y="282" textAnchor="middle" fontSize="11" fill="#64748b">
                         {period}
                       </text>
                     ))}
@@ -445,16 +543,30 @@ export default function PricingByVerticalTab({
               </div>
             )
           })()}
+            {editMode && (
+              <p className="text-[11px] text-amber-800/90 px-5 pb-2 -mt-1">
+                Edit the time column headers to match this resort&apos;s pricing cadence (e.g. quarterly vs. 6-month lookbacks). Labels sync to the chart and exported PDF.
+              </p>
+            )}
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/50">
                   <th className="text-left px-4 py-2.5 font-semibold text-slate-500 min-w-[180px]">Service</th>
                   <th className="text-left px-4 py-2.5 font-semibold text-slate-500 min-w-[120px]">Vertical</th>
-                  {(result.pricingPeriods ?? ['Current']).map(period => (
-                    <th key={period} className="text-left px-4 py-2.5 font-semibold text-slate-500 min-w-[110px]">{period}</th>
+                  {(result.pricingPeriods ?? ['Current']).map((period, periodIndex) => (
+                    <th key={periodIndex} className="text-left px-4 py-2.5 font-semibold text-slate-500 min-w-[110px]">
+                      {editMode ? (
+                        <input
+                          value={period}
+                          onChange={e => renamePricingPeriodLabel(periodIndex, e.target.value)}
+                          className="w-full min-w-[72px] bg-white border border-amber-300 text-xs font-semibold text-slate-600 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      ) : (
+                        period
+                      )}
+                    </th>
                   ))}
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Source</th>
                   {editMode && <th className="px-4 py-2.5" />}
                 </tr>
               </thead>
@@ -481,8 +593,8 @@ export default function PricingByVerticalTab({
                           editMode={editMode}
                         />
                       </td>
-                      {periods.map(period => (
-                        <td key={period} className="px-4 py-2.5">
+                  {periods.map((period, pi) => (
+                        <td key={`${row.id}-${period}-${pi}`} className="px-4 py-2.5">
                           <EditableCell
                             value={row.prices?.[period] ?? ''}
                             onChange={v => updatePricingGridCell(rowIndex, period, v)}
@@ -490,9 +602,6 @@ export default function PricingByVerticalTab({
                           />
                         </td>
                       ))}
-                      <td className="px-4 py-2.5">
-                        <span className="text-slate-500">{row.source} · {row.confidence}</span>
-                      </td>
                       {editMode && (
                         <td className="px-4 py-2.5 text-right">
                           <button onClick={() => removePricingRow(rowIndex)} className="text-red-400 hover:text-red-600 text-xs">
@@ -505,7 +614,10 @@ export default function PricingByVerticalTab({
                 })}
                 {(!result.pricingGrid || result.pricingGrid.length === 0) && (
                   <tr>
-                    <td colSpan={(result.pricingPeriods?.length ?? 1) + 4} className="px-4 py-6 text-center text-slate-400 text-sm">
+                    <td
+                      colSpan={2 + (result.pricingPeriods?.length ?? 1) + (editMode ? 1 : 0)}
+                      className="px-4 py-6 text-center text-slate-400 text-sm"
+                    >
                       No current service prices found. Enter services manually in edit mode.
                     </td>
                   </tr>
@@ -682,21 +794,48 @@ export default function PricingByVerticalTab({
                     <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
                       <p className="text-[10px] uppercase tracking-wide text-slate-400">Avg Change %</p>
                       <p className="text-sm font-bold text-slate-800 mt-0.5">
-                        {vs.avgChangePercent !== null ? `${vs.avgChangePercent.toFixed(1)}%` : 'N/A'}
+                        {typeof vs.avgChangePercent === 'number' && Number.isFinite(vs.avgChangePercent)
+                          ? `${vs.avgChangePercent.toFixed(1)}%`
+                          : 'N/A'}
                       </p>
                     </div>
                     <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wide text-slate-400">Revenue Share</p>
+                      <p className="text-[10px] uppercase tracking-wide text-slate-400">Last change</p>
                       {editMode ? (
                         <input
-                          value={vs.revenueShare}
-                          onChange={e => updateVerticalSummary(i, 'revenueShare', e.target.value)}
+                          value={vs.lastChangeDate}
+                          onChange={e => updateVerticalSummary(i, 'lastChangeDate', e.target.value)}
                           className="w-full border border-amber-300 rounded px-1 py-0.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400 mt-0.5"
                         />
                       ) : (
-                        <p className="text-sm font-bold text-slate-800 mt-0.5">{vs.revenueShare}</p>
+                        <p className="text-sm font-bold text-slate-800 mt-0.5">{vs.lastChangeDate}</p>
                       )}
                     </div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 mb-3">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Total change (24 mo)</p>
+                    {editMode ? (
+                      <input
+                        type="text"
+                        value={
+                          typeof vs.totalChangePercent === 'number' && Number.isFinite(vs.totalChangePercent)
+                            ? String(vs.totalChangePercent)
+                            : ''
+                        }
+                        onChange={e => {
+                          const val = e.target.value
+                          updateVerticalSummary(i, 'totalChangePercent', val === '' ? null : parseFloat(val) || 0)
+                        }}
+                        placeholder="e.g. 12.5"
+                        className="w-full border border-amber-300 rounded px-1 py-0.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400 mt-0.5"
+                      />
+                    ) : (
+                      <p className="text-sm font-bold text-slate-800 mt-0.5">
+                        {typeof vs.totalChangePercent === 'number' && Number.isFinite(vs.totalChangePercent)
+                          ? `${vs.totalChangePercent.toFixed(1)}%`
+                          : 'N/A'}
+                      </p>
+                    )}
                   </div>
 
                   {/* Hidden per product direction (may restore later): yellow "Recommendation" box on each vertical summary card.
@@ -782,7 +921,7 @@ export default function PricingByVerticalTab({
           Scrape current website prices, then build an editable 24-month price grid for {clientName}
         </p>
         <p className="text-xs text-slate-400 mt-1">
-          Optional upload can add historical rate-card evidence. Revenue by vertical data is automatically loaded from WS2-3.
+          Optional upload can add historical rate-card evidence. Internal WS2-3 data may inform the model but is not shown as revenue mix in this report.
         </p>
       </div>
 

@@ -24,17 +24,23 @@ function severityStyle(severity: string): string {
   }
 }
 
+function fmtPct(n: number | null | undefined, digits = 1): string {
+  return typeof n === 'number' && Number.isFinite(n) ? `${n.toFixed(digits)}%` : 'N/A'
+}
+
 export function buildPricingVerticalReportHtml(
   report: PricingVerticalReport,
   clientName: string,
 ): string {
   const noChangeCount = report.verticalSummaries.filter(v => v.priceChanges24Mo === 0).length
   const totalChanges = report.priceChanges.length
+  const finiteAvg = (v: { avgChangePercent?: number | null }) =>
+    typeof v.avgChangePercent === 'number' && Number.isFinite(v.avgChangePercent)
   const avgAnnualIncrease = report.verticalSummaries.length > 0
     ? report.verticalSummaries
-        .filter(v => v.avgChangePercent !== null)
-        .reduce((sum, v) => sum + (v.avgChangePercent ?? 0), 0) /
-      Math.max(1, report.verticalSummaries.filter(v => v.avgChangePercent !== null).length)
+        .filter(finiteAvg)
+        .reduce((sum, v) => sum + (v.avgChangePercent as number), 0) /
+      Math.max(1, report.verticalSummaries.filter(finiteAvg).length)
     : 0
 
   // KPIs
@@ -48,13 +54,11 @@ export function buildPricingVerticalReportHtml(
   const periods = report.pricingPeriods?.length ? report.pricingPeriods : ['Current']
   const trendChartHtml = buildPricingTrendChartSectionHtml(report)
   const pricingGridTable = buildHtmlTable(
-    ['Service', 'Vertical', ...periods, 'Source', 'Confidence'],
+    ['Service', 'Vertical', ...periods],
     (report.pricingGrid ?? []).map(row => [
       row.serviceName,
       row.vertical,
       ...periods.map(period => row.prices?.[period] ?? ''),
-      row.source,
-      row.confidence,
     ]),
   )
 
@@ -82,7 +86,7 @@ export function buildPricingVerticalReportHtml(
         <p style="font-size:15px;font-weight:700;color:#1e293b;">${escapeHtml(v.vertical)}</p>
         <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:${trendBadgeBg};color:${trendBadgeColor};border:1px solid ${trendBadgeColor}20;">${trendLabel(v.trend)}</span>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
           <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Current Price</p>
           <p style="font-size:14px;font-weight:700;color:#1e293b;">${escapeHtml(v.currentPrice)}</p>
@@ -92,20 +96,18 @@ export function buildPricingVerticalReportHtml(
           <p style="font-size:14px;font-weight:700;color:#1e293b;">${v.priceChanges24Mo}</p>
         </div>
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
-          <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Revenue Share</p>
-          <p style="font-size:14px;font-weight:700;color:#1e293b;">${escapeHtml(v.revenueShare)}</p>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
           <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Avg Change %</p>
-          <p style="font-size:13px;font-weight:600;color:#1e293b;">${v.avgChangePercent !== null ? `${v.avgChangePercent.toFixed(1)}%` : 'N/A'}</p>
+          <p style="font-size:13px;font-weight:600;color:#1e293b;">${fmtPct(v.avgChangePercent)}</p>
         </div>
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">
           <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Last Change</p>
           <p style="font-size:13px;font-weight:600;color:#1e293b;">${escapeHtml(v.lastChangeDate)}</p>
         </div>
       </div>
+      ${typeof v.totalChangePercent === 'number' && Number.isFinite(v.totalChangePercent) ? `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:10px;">
+          <p style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;font-weight:600;">Total change (24 mo)</p>
+          <p style="font-size:13px;font-weight:600;color:#1e293b;">${fmtPct(v.totalChangePercent)}</p>
+        </div>` : ''}
       <p style="font-size:12px;color:#475569;"><strong>Recommendation:</strong> ${escapeHtml(v.recommendation)}</p>
     </div>`
   }).join('\n')
