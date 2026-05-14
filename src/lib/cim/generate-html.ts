@@ -106,6 +106,7 @@ export function generateCimHtml(data: CimInputData): string {
   /* Cover */
   .cover { background: linear-gradient(135deg, #1a2332 0%, #0f172a 100%); color: white; padding: 80px 60px 60px; text-align: center; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
   .cover .brand { font-size: 11px; text-transform: uppercase; letter-spacing: 5px; color: #f59e0b; font-weight: 700; margin-bottom: 24px; }
+  .cover .deal-ref { font-size: 11px; letter-spacing: 2px; color: #94a3b8; margin: -8px 0 20px; font-weight: 600; }
   .cover h1 { font-size: 42px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
   .cover .subtitle { font-size: 20px; color: #94a3b8; margin-bottom: 8px; }
   .cover .region { font-size: 14px; color: #64748b; }
@@ -168,6 +169,7 @@ export function generateCimHtml(data: CimInputData): string {
 <!-- Cover -->
 <div class="cover">
   <div class="brand">Cantara Pet Advisors</div>
+  ${data.dealReference?.trim() ? `<div class="deal-ref">Cantara Deal Reference # ${escapeHtml(data.dealReference.trim())}</div>` : ''}
   <h1>${escapeHtml(data.businessName)}</h1>
   <div class="subtitle">${escapeHtml(data.subtitle)}</div>
   <div class="region">${escapeHtml(data.region)}</div>

@@ -1,5 +1,38 @@
 import { TeaserInputData } from './types'
 
+function escapeHtml(str: any): string {
+  if (typeof str !== 'string') return String(str ?? '')
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+/** Under section 02 headline: one line → paragraph; multiple lines → bullet list. */
+function section02LeadHtml(text: string): string {
+  const raw = String(text ?? '').trim()
+  if (!raw) return ''
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  if (lines.length <= 1) {
+    return `<p class="section02-lead">${escapeHtml(lines[0] ?? raw)}</p>`
+  }
+  return `<ul class="section02-lead-bullets">${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+}
+
+/** Renders textarea content as a bullet list (one non-empty line = one bullet). */
+function multilineToBulletList(text: string): string {
+  const lines = String(text ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  if (!lines.length) {
+    return '<p class="overview-empty" style="font-size:12px;color:#94a3b8;margin:0;">&mdash;</p>'
+  }
+  return `<ul class="overview-bullets">${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+}
+
 export function generateTeaserHtml(data: TeaserInputData): string {
   const currentDate = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 
@@ -47,6 +80,13 @@ export function generateTeaserHtml(data: TeaserInputData): string {
   .overview-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; }
   .overview-card h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #1e293b; font-weight: 700; margin-bottom: 10px; }
   .overview-card p { font-size: 12px; color: #64748b; margin: 0; line-height: 1.6; }
+  .overview-card ul.overview-bullets { margin: 0; padding-left: 18px; }
+  .overview-card ul.overview-bullets li { font-size: 12px; color: #64748b; margin-bottom: 6px; line-height: 1.55; }
+  .overview-card ul.overview-bullets li:last-child { margin-bottom: 0; }
+  .section02-lead { font-size: 14px; color: #475569; margin: 0 0 24px; line-height: 1.7; max-width: 720px; }
+  .section02-lead-bullets { margin: 0 0 24px; padding-left: 20px; max-width: 720px; }
+  .section02-lead-bullets li { font-size: 14px; color: #475569; margin-bottom: 8px; line-height: 1.6; }
+  .section02-lead-bullets li:last-child { margin-bottom: 0; }
 
   /* Financial table */
   .fin-table { width: 100%; border-collapse: collapse; margin: 24px 0; }
@@ -156,36 +196,37 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 <div class="section">
   <div class="section-number">02</div>
   <div class="section-header">Business Overview</div>
-  <h2>A Purpose-Built Premium Pet Resort</h2>
+  <h2>${escapeHtml(data.overviewHeadline || 'A Purpose-Built Premium Pet Resort')}</h2>
+  ${data.section02LeadSummary?.trim() ? section02LeadHtml(data.section02LeadSummary) : ''}
 
   <div class="overview-grid">
     <div class="overview-card">
       <h4>Facility Profile</h4>
-      <p>${escapeHtml(data.facilityProfile)}</p>
+      ${multilineToBulletList(data.facilityProfile)}
     </div>
     <div class="overview-card">
       <h4>Ownership & Management</h4>
-      <p>${escapeHtml(data.ownershipManagement)}</p>
+      ${multilineToBulletList(data.ownershipManagement)}
     </div>
     <div class="overview-card">
       <h4>Client Profile</h4>
-      <p>${escapeHtml(data.clientProfile)}</p>
+      ${multilineToBulletList(data.clientProfile)}
     </div>
     <div class="overview-card">
       <h4>Staff & Operations</h4>
-      <p>${escapeHtml(data.staffOperations)}</p>
+      ${multilineToBulletList(data.staffOperations)}
     </div>
     <div class="overview-card">
       <h4>Real Estate</h4>
-      <p>${escapeHtml(data.realEstate)}</p>
+      ${multilineToBulletList(data.realEstate)}
     </div>
     <div class="overview-card">
       <h4>Technology</h4>
-      <p>${escapeHtml(data.technology)}</p>
+      ${multilineToBulletList(data.technology)}
     </div>
     <div class="overview-card">
       <h4>Permits & Zoning</h4>
-      <p>${escapeHtml(data.permitsZoning)}</p>
+      ${multilineToBulletList(data.permitsZoning)}
     </div>
   </div>
 </div>
@@ -309,14 +350,4 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 
 </body>
 </html>`
-}
-
-function escapeHtml(str: any): string {
-  if (typeof str !== 'string') return String(str ?? '');
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
 }

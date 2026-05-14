@@ -224,6 +224,7 @@ export async function POST(req: NextRequest) {
       subtitle: 'Acquisition Opportunity',
       region: client.businessAddress || '',
       serviceLines: 'Boarding \u00b7 Daycare \u00b7 Grooming \u00b7 Training \u00b7 Wellness',
+      dealReference: '',
       investmentOverview: aiSections.investmentOverview || '',
       investmentThesis: aiSections.investmentThesis || ['', '', '', '', ''],
       sellerOverview: aiSections.sellerOverview || '',

@@ -220,8 +220,14 @@ export async function POST(req: NextRequest) {
       businessOverview: client.businessDescription
         ? client.businessDescription
         : `An opportunity to acquire a well-established ${client.businessCategory || 'pet care business'} in a high-growth market. This business combines strong recurring revenue, a loyal client base, and a full suite of services.`,
-      facilityProfile: leaseInfo || '',
-      ownershipManagement: '',
+      overviewHeadline: 'A Purpose-Built Premium Pet Resort',
+      section02LeadSummary: client.businessDescription
+        ? `Set on a purpose-built facility, this opportunity has built a reputation for premium care and deep client loyalty. The business operates across the full pet care services spectrum with experienced leadership guiding day-to-day operations.`
+        : '',
+      facilityProfile: leaseInfo
+        ? [leaseInfo, 'Multiple service zones and purpose-built layout.', 'Climate-controlled throughout.'].join('\n')
+        : '',
+      ownershipManagement: ['Long-tenured owner-operator with documented SOPs.', 'General Manager in place for daily operations.', 'Motivated seller; seller available to support a transition period.'].join('\n'),
       clientProfile: '',
       staffOperations: '',
       realEstate: leaseInfo ? `Leased facility. ${leaseInfo}` : '',

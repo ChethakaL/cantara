@@ -38,7 +38,11 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
         if (res.ok) {
           const { draft } = await res.json()
           if (draft) {
-            setData(draft)
+            const merged = { ...DEFAULT_TEASER_INPUT, ...draft } as TeaserInputData
+            if (!Array.isArray(merged.investmentHighlights) || merged.investmentHighlights.length !== 5) {
+              merged.investmentHighlights = DEFAULT_TEASER_INPUT.investmentHighlights
+            }
+            setData(merged)
             setStatus('editing')
           }
         }
@@ -92,7 +96,11 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
       if (!res.ok) throw new Error(await res.text() || 'Failed to auto-fill')
       const filled = await res.json()
       // The response may have a nested structure with autoFilled key or be flat
-      const inputData = filled.autoFilled || filled
+      const raw = filled.autoFilled || filled
+      const inputData = { ...DEFAULT_TEASER_INPUT, ...raw } as TeaserInputData
+      if (!Array.isArray(inputData.investmentHighlights) || inputData.investmentHighlights.length !== 5) {
+        inputData.investmentHighlights = DEFAULT_TEASER_INPUT.investmentHighlights
+      }
       setData(inputData)
       setStatus('editing')
     } catch (err: any) {
@@ -275,13 +283,13 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
 
   // ---------- EDITING STATE ----------
   const OVERVIEW_FIELDS = [
-    { key: 'facilityProfile' as const, label: 'Facility Profile' },
-    { key: 'ownershipManagement' as const, label: 'Ownership & Management' },
-    { key: 'clientProfile' as const, label: 'Client Profile' },
-    { key: 'staffOperations' as const, label: 'Staff & Operations' },
-    { key: 'realEstate' as const, label: 'Real Estate' },
-    { key: 'technology' as const, label: 'Technology' },
-    { key: 'permitsZoning' as const, label: 'Permits & Zoning' },
+    { key: 'facilityProfile' as const, label: 'Facility Profile (teaser PDF: one bullet per line)' },
+    { key: 'ownershipManagement' as const, label: 'Ownership & Management (teaser PDF: one bullet per line)' },
+    { key: 'clientProfile' as const, label: 'Client Profile (teaser PDF: one bullet per line)' },
+    { key: 'staffOperations' as const, label: 'Staff & Operations (teaser PDF: one bullet per line)' },
+    { key: 'realEstate' as const, label: 'Real Estate (teaser PDF: one bullet per line)' },
+    { key: 'technology' as const, label: 'Technology (teaser PDF: one bullet per line)' },
+    { key: 'permitsZoning' as const, label: 'Permits & Zoning (teaser PDF: one bullet per line)' },
   ]
 
   return (
@@ -353,16 +361,40 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
         </div>
       </Card>
 
-      {/* Section 3: Business Overview */}
+      {/* Section 3: Business narrative (PDF sections 01 & 02) */}
       <Card className="p-5 space-y-4">
-        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Business Overview</p>
-        <div className="space-y-3">
-          <Textarea label="Business Overview" value={data.businessOverview} onChange={e => set('businessOverview', e.target.value)} rows={3} />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {OVERVIEW_FIELDS.map(({ key, label }) => (
-              <Textarea key={key} label={label} value={data[key]} onChange={e => set(key, e.target.value)} rows={3} />
-            ))}
-          </div>
+        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Section 01 — Transaction snapshot</p>
+        <Textarea
+          label="Deal at a glance"
+          value={data.businessOverview}
+          onChange={e => set('businessOverview', e.target.value)}
+          rows={3}
+        />
+
+        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest pt-2">Section 02 — Business overview (Deal Teaser PDF only)</p>
+        <p className="text-[11px] text-slate-500 -mt-1">
+          These fields control <span className="font-medium text-slate-600">02 — Business overview</span> in the <span className="font-medium text-slate-600">Deal Teaser</span> export only. The CIM uses its own template.
+        </p>
+        <Input
+          label='Headline under "Business Overview"'
+          value={data.overviewHeadline}
+          onChange={e => set('overviewHeadline', e.target.value)}
+          placeholder="e.g. A Purpose-Built Premium Pet Resort"
+        />
+        <Textarea
+          label="Summary under headline"
+          value={data.section02LeadSummary}
+          onChange={e => set('section02LeadSummary', e.target.value)}
+          rows={3}
+          placeholder="One paragraph as a single line — or several lines; each line becomes its own bullet in the teaser PDF."
+        />
+        <p className="text-[11px] text-slate-500">
+          The labeled boxes below map to the teaser reference layout: each line becomes one bullet in the PDF (Facility Profile, Ownership &amp; Management, etc.).
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {OVERVIEW_FIELDS.map(({ key, label }) => (
+            <Textarea key={key} label={label} value={data[key]} onChange={e => set(key, e.target.value)} rows={4} />
+          ))}
         </div>
       </Card>
 

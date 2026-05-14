@@ -66,7 +66,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         if (res.ok) {
           const { draft } = await res.json()
           if (draft) {
-            setData(draft)
+            setData({ ...DEFAULT_CIM_INPUT, ...draft } as CimInputData)
             setStatus('editing')
           }
         }
@@ -142,8 +142,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
       })
       if (!res.ok) throw new Error(await res.text() || 'Failed to auto-fill')
       const filled = await res.json()
-      const inputData = filled.autoFilled || filled
-      setData(inputData)
+      const raw = filled.autoFilled || filled
+      setData({ ...DEFAULT_CIM_INPUT, ...raw } as CimInputData)
       setStatus('editing')
     } catch (err: any) {
       setError(err.message || 'Auto-fill failed')
@@ -396,7 +396,16 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
           <Input label="Subtitle" value={data.subtitle} onChange={e => set('subtitle', e.target.value)} />
           <Input label="Region" value={data.region} onChange={e => set('region', e.target.value)} />
           <Input label="Service Lines" value={data.serviceLines} onChange={e => set('serviceLines', e.target.value)} />
+          <div className="md:col-span-2">
+            <Input
+              label="Cantara deal reference #"
+              value={data.dealReference}
+              onChange={e => set('dealReference', e.target.value)}
+              placeholder="e.g. CD-2026-0142"
+            />
+          </div>
         </div>
+        <p className="text-[11px] text-slate-500">When filled in, this reference is printed on the CIM cover (exported PDF).</p>
       </Section>
 
       {/* 2. Executive Summary */}

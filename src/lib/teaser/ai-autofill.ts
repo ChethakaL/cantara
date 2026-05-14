@@ -42,13 +42,16 @@ Generate a JSON object with these fields. Each field should be thoughtfully writ
 
   "businessOverview": "2-3 sentence compelling overview. Mention key strengths: recurring revenue, service breadth, market position. Do NOT name the business.",
 
-  "facilityProfile": "Describe the facility based on lease and operational data. Include SF, lot size, zones if known.",
-  "ownershipManagement": "Describe owner situation and GM in place. Mention transition readiness.",
-  "clientProfile": "Describe the customer base: loyalty, repeat rate, membership programs.",
-  "staffOperations": "Describe the team: experience, SOPs, key-person dependencies. Include staff balance (full-time vs part-time) if known.",
-  "realEstate": "Summarize lease terms, rent-to-revenue ratio, renewal options. Mention landlord receptiveness if known.",
-  "technology": "Describe booking/POS platform, CRM, review management tools, digital marketing channels, and operational tech stack transferability.",
-  "permitsZoning": "Standard compliance statement unless data suggests issues.",
+  "overviewHeadline": "Section 02 title under Business Overview, e.g. 'A Purpose-Built Premium Pet Resort'",
+  "section02LeadSummary": "2-3 sentence narrative summary for section 02 directly under that headline (lot size, SF, reputation, GM-led operations). Do NOT name the business.",
+
+  "facilityProfile": "NEWLINE-SEPARATED bullet lines only (no paragraph). Example: line1\\nline2\\nline3. Describe facility: SF, kennels, zones, climate.",
+  "ownershipManagement": "NEWLINE-SEPARATED bullet lines only. Owner-operator, GM, seller motivation, transition support.",
+  "clientProfile": "NEWLINE-SEPARATED bullet lines only.",
+  "staffOperations": "NEWLINE-SEPARATED bullet lines only.",
+  "realEstate": "NEWLINE-SEPARATED bullet lines only.",
+  "technology": "NEWLINE-SEPARATED bullet lines only.",
+  "permitsZoning": "NEWLINE-SEPARATED bullet lines only.",
 
   "annualRevenue": "Revenue range from TTM data",
   "revenueGrowth": "YoY growth percentage if available",
@@ -101,6 +104,8 @@ Return ONLY valid JSON. No markdown, no explanation.`
     facilityCapacity: generated.facilityCapacity || '',
     processStage: generated.processStage || 'LOI Solicitation',
     businessOverview: generated.businessOverview || '',
+    overviewHeadline: generated.overviewHeadline || 'A Purpose-Built Premium Pet Resort',
+    section02LeadSummary: generated.section02LeadSummary || '',
     facilityProfile: generated.facilityProfile || '',
     ownershipManagement: generated.ownershipManagement || '',
     clientProfile: generated.clientProfile || '',

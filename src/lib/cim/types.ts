@@ -43,6 +43,8 @@ export interface CimInputData {
   subtitle: string
   region: string
   serviceLines: string
+  /** Printed on the CIM cover when set (Cantara deal reference #). */
+  dealReference: string
 
   // 01 Executive Summary
   investmentOverview: string
@@ -109,6 +111,7 @@ export const DEFAULT_CIM_INPUT: CimInputData = {
   subtitle: 'Acquisition Opportunity',
   region: '',
   serviceLines: 'Boarding \u00b7 Daycare \u00b7 Grooming \u00b7 Training \u00b7 Wellness',
+  dealReference: '',
   investmentOverview: '',
   investmentThesis: ['', '', '', '', ''],
   sellerOverview: '',
