@@ -349,6 +349,87 @@ export function generateReportHtml(config: ReportConfig): string {
     line-height: 1.5;
   }
 
+  /* ── Material contracts print layout ────────────────────────── */
+  .contract-dashboard {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #21263C;
+    margin-bottom: 18px;
+  }
+  .contract-dashboard div {
+    background: #1e293b;
+    color: white;
+    padding: 14px 12px;
+    text-align: center;
+  }
+  .contract-dashboard span {
+    display: block;
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .contract-dashboard strong {
+    display: block;
+    margin-top: 4px;
+    color: #CAA15F;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .contract-snapshot {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .contract-snapshot-row {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) 120px;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    break-inside: avoid;
+  }
+  .contract-snapshot-row:nth-child(odd) { background: #f8fafc; }
+  .contract-snapshot-row:last-child { border-bottom: none; }
+  .contract-snapshot-index {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    background: #21263C;
+    color: #CAA15F;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .contract-snapshot-field {
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.35;
+  }
+  .contract-snapshot-finding {
+    margin-top: 3px;
+    color: #475569;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .contract-snapshot-source {
+    color: #64748b;
+    font-size: 10px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .contract-flag {
+    break-inside: avoid;
+    padding: 12px 14px;
+  }
+
   /* ── Info grid (key-value pairs) ────────────────────────────── */
   .info-grid {
     display: grid;

@@ -265,8 +265,9 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
 
     const competitorPoints = report.discoveredCompetitors.map((competitor, index) => {
       const researched = report.competitors.find((item) => item.placeId === competitor.placeId);
+      const pointId = competitor.placeId ? `${competitor.placeId}-${index}` : `${index}`;
       return {
-      id: competitor.placeId ?? `${index}`,
+      id: pointId,
       label: String(index + 1),
       name: competitor.name,
       distance: competitor.distanceMiles,
@@ -362,11 +363,12 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
             },
           });
 
-          marker.addListener('click', () => setHoveredId(competitor.placeId ?? `${index}`));
-          marker.addListener('mouseover', () => setHoveredId(competitor.placeId ?? `${index}`));
+          const markerId = competitor.placeId ? `${competitor.placeId}-${index}` : `${index}`;
+          marker.addListener('click', () => setHoveredId(markerId));
+          marker.addListener('mouseover', () => setHoveredId(markerId));
 
           return {
-            id: competitor.placeId ?? `${index}`,
+            id: markerId,
             marker,
           };
         });
@@ -416,7 +418,7 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
       return;
     }
 
-    const target = report.discoveredCompetitors.find((competitor, index) => (competitor.placeId ?? `${index}`) === pointId);
+    const target = report.discoveredCompetitors.find((competitor, index) => (competitor.placeId ? `${competitor.placeId}-${index}` : `${index}`) === pointId);
     if (!target) return;
     map.panTo(target.location);
     map.setZoom(Math.max(map.getZoom() ?? 13, 15));

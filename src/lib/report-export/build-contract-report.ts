@@ -2,7 +2,6 @@ import type { ContractReport } from '@/lib/contract-analysis/types'
 import {
   generateReportHtml,
   buildHtmlTable,
-  buildFlagListHtml,
   type ReportConfig,
 } from './generate-report-html'
 
@@ -20,13 +19,19 @@ export function buildContractSummaryHtml(report: ContractReport, clientName: str
   const orangeFlags = getVisibleFlags(report.orangeFlags || [])
   const greenFlags = getVisibleFlags(report.greenFlags || [])
 
-  // Snapshot table
-  const snapshotRows = (report.snapshotTable || []).map(row => [
-    row.field,
-    row.finding,
-    row.sourceSection,
-  ])
-  const snapshotContent = buildHtmlTable(['Field', 'Finding', 'Source'], snapshotRows)
+  const snapshotContent = `
+    <div class="contract-snapshot">
+      ${(report.snapshotTable || []).map((row, index) => `
+        <div class="contract-snapshot-row">
+          <div class="contract-snapshot-index">${index + 1}</div>
+          <div class="contract-snapshot-main">
+            <div class="contract-snapshot-field">${escapeHtml(row.field)}</div>
+            <div class="contract-snapshot-finding">${escapeHtml(row.finding)}</div>
+          </div>
+          <div class="contract-snapshot-source">${escapeHtml(row.sourceSection || 'Source not specified')}</div>
+        </div>
+      `).join('\n')}
+    </div>`
 
   // Flag summary with review statuses
   const buildFlagWithStatus = (flags: Array<{ issue: string; whyItMatters: string; reviewStatus?: string; reviewNotes?: string }>, color: 'red' | 'orange' | 'green') => {
@@ -39,8 +44,8 @@ export function buildContractSummaryHtml(report: ContractReport, clientName: str
         ? `<div class="flag-detail" style="font-style:italic;margin-top:4px;">Note: ${escapeHtml(f.reviewNotes)}</div>`
         : ''
       return `
-        <div class="flag-item ${color}">
-          <div class="flag-title">${escapeHtml(f.issue)}${statusLabel}</div>
+        <div class="flag-item ${color} contract-flag">
+          <div class="flag-title">${riskDot(color)}${escapeHtml(f.issue)}${statusLabel}</div>
           <div class="flag-detail">${escapeHtml(f.whyItMatters)}</div>
           ${notesHtml}
         </div>`
@@ -76,6 +81,11 @@ export function buildContractSummaryHtml(report: ContractReport, clientName: str
   }
 
   return generateReportHtml(config)
+}
+
+function riskDot(color: 'red' | 'orange' | 'green'): string {
+  const dotColor = color === 'red' ? '#dc2626' : color === 'orange' ? '#d97706' : '#16a34a'
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:999px;background:${dotColor};margin-right:8px;vertical-align:1px;"></span>`
 }
 
 /** Addendum: full per-contract risk cards with all details (multi-page) */

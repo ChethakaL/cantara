@@ -75,8 +75,10 @@ export function Ws2WorkbookView({
   onExportXlsx?: () => void
 }) {
   const [activeTab, setActiveTab] = useState<TabId>('valuation')
+  const [editMode, setEditMode] = useState(false)
   const [overrides, setOverrides] = useState<Overrides>({})
   const [tabOverrides, setTabOverrides] = useState<Record<string, Record<string, number>>>({}) // "tab:rowId:periodKey" → value
+  const [inputDrafts, setInputDrafts] = useState<Record<string, string>>({})
   const [editingCell, setEditingCell] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
 
@@ -131,6 +133,44 @@ export function Ws2WorkbookView({
     [ws2Report, recast],
   )
 
+  const getTabOverride = useCallback((tabRowId: string, periodKey: PeriodKey): number | undefined => {
+    return tabOverrides[tabRowId]?.[periodKey]
+  }, [tabOverrides])
+
+  const setTabOverrideValue = useCallback((tabRowId: string, periodKey: PeriodKey, rawValue: string) => {
+    const parsed = Number(rawValue.replace(/[,$x]/gi, ''))
+    if (!Number.isFinite(parsed)) return
+    setTabOverrides((prev) => ({
+      ...prev,
+      [tabRowId]: { ...(prev[tabRowId] ?? {}), [periodKey]: parsed },
+    }))
+  }, [])
+
+  const setItemOverrideValue = useCallback((itemId: string, periodKey: PeriodKey, rawValue: string) => {
+    const parsed = Number(rawValue.replace(/[,$]/g, ''))
+    if (!Number.isFinite(parsed)) return
+    setOverrides((prev) => ({
+      ...prev,
+      [itemId]: { ...(prev[itemId] ?? {}), [periodKey]: parsed },
+    }))
+  }, [])
+
+  const inputValue = (cellId: string, value: number | null | undefined, decimals = 0) => {
+    if (inputDrafts[cellId] !== undefined) return inputDrafts[cellId]
+    const numeric = value ?? 0
+    return decimals > 0 ? Number(numeric).toFixed(decimals) : String(Math.round(numeric))
+  }
+
+  const handleTabInputChange = (cellId: string, rowId: string, periodKey: PeriodKey, rawValue: string) => {
+    setInputDrafts((prev) => ({ ...prev, [cellId]: rawValue }))
+    if (rawValue.trim() !== '') setTabOverrideValue(rowId, periodKey, rawValue)
+  }
+
+  const handleItemInputChange = (cellId: string, itemId: string, periodKey: PeriodKey, rawValue: string) => {
+    setInputDrafts((prev) => ({ ...prev, [cellId]: rawValue }))
+    if (rawValue.trim() !== '') setItemOverrideValue(itemId, periodKey, rawValue)
+  }
+
   const getItemValue = useCallback(
     (item: AddBackItem, periodKey: PeriodKey): number => {
       const override = overrides[item.id]?.[periodKey]
@@ -156,6 +196,8 @@ export function Ws2WorkbookView({
 
   const getPreRecast = useCallback(
     (periodKey: PeriodKey): number => {
+      const override = getTabOverride('valuation:pre-recast', periodKey)
+      if (override !== undefined) return override
       // If LLM valuation result exists, use its preRecast values as source of truth
       if (llmResult?.preRecast) {
         const llmKey = periodKey === 'ltm' ? 'LTM' : periodKey.toUpperCase()
@@ -171,11 +213,13 @@ export function Ws2WorkbookView({
         case 'fy1': return (years[0] as any)?.netIncome ?? years[0]?.ebitdaPreRecast ?? 0
       }
     },
-    [analysis, years, llmResult],
+    [analysis, years, llmResult, getTabOverride],
   )
 
   const getRevenue = useCallback(
     (periodKey: PeriodKey): number => {
+      const override = getTabOverride('valuation:revenue', periodKey)
+      if (override !== undefined) return override
       switch (periodKey) {
         case 'ltm': return analysis.ttmSummary?.totalRevenue ?? 0
         case 'fy3': return years[2]?.totalRevenue ?? 0
@@ -183,7 +227,7 @@ export function Ws2WorkbookView({
         case 'fy1': return years[0]?.totalRevenue ?? 0
       }
     },
-    [analysis, years],
+    [analysis, years, getTabOverride],
   )
 
   // Computed totals per period — LLM values are source of truth when available
@@ -216,7 +260,8 @@ export function Ws2WorkbookView({
         : (key === 'ltm' ? 0 : -20000)
 
       const finalNormEbitda = llmNormEbitda ?? normalized
-      const finalFourWall = llmFourWall ?? (normalized - replacementAmount)
+      const fourWallOverride = getTabOverride('valuation:four-wall-ebitda', key)
+      const finalFourWall = fourWallOverride ?? llmFourWall ?? (normalized - replacementAmount)
 
       result[key] = {
         addBacks: totalAB,
@@ -227,7 +272,7 @@ export function Ws2WorkbookView({
       }
     }
     return result
-  }, [addBackItems, getItemValue, getPreRecast, getRevenue, multiple, llmResult])
+  }, [addBackItems, getItemValue, getPreRecast, getRevenue, multiple, llmResult, getTabOverride])
 
   // ── Inline editing ─────────────────────────────────────────────────────
 
@@ -263,10 +308,6 @@ export function Ws2WorkbookView({
   const cancelEdit = () => {
     setEditingCell(null)
     setEditValue('')
-  }
-
-  const getTabOverride = (tabRowId: string, periodKey: PeriodKey): number | undefined => {
-    return tabOverrides[tabRowId]?.[periodKey]
   }
 
   const totalTabOverrides = Object.values(tabOverrides).reduce((n, o) => n + Object.keys(o).length, 0)
@@ -353,6 +394,79 @@ export function Ws2WorkbookView({
     )
   }
 
+  function EditableSummaryRow({ rowId, label, values, bold, border }: {
+    rowId: string
+    label: string
+    values: number[]
+    bold?: boolean
+    border?: boolean
+  }) {
+    return (
+      <tr className={cn('hover:bg-blue-50/30 group', border && 'border-t-2 border-slate-300', bold && 'bg-slate-50')}>
+        <td className={cn(
+          'sticky left-0 z-10 bg-white px-4 py-1.5 text-sm group-hover:bg-blue-50/30',
+          bold ? 'font-bold text-slate-900 bg-slate-50' : 'text-slate-700',
+        )}>
+          {label}
+        </td>
+        {periods.map((p, i) => {
+          const cellId = `tab:${rowId}:${p.key}`
+          const override = getTabOverride(rowId, p.key)
+          const value = override !== undefined ? override : values[i]
+          const isEditing = editingCell === cellId
+          if (editMode) {
+            return (
+              <td key={p.key} className="px-2 py-1 text-right">
+                <input
+                  type="text"
+                  className={cn(
+                    'w-full rounded border px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300',
+                    override !== undefined ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-slate-900',
+                  )}
+                  value={inputValue(cellId, value)}
+                  onChange={(e) => handleTabInputChange(cellId, rowId, p.key, e.target.value)}
+                />
+              </td>
+            )
+          }
+          if (isEditing) {
+            return (
+              <td key={p.key} className="px-2 py-0.5 text-right">
+                <input
+                  autoFocus
+                  type="text"
+                  className="w-full rounded border border-blue-400 bg-blue-50 px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitTabEdit(rowId, p.key)
+                    if (e.key === 'Escape') cancelEdit()
+                  }}
+                  onBlur={() => commitTabEdit(rowId, p.key)}
+                />
+              </td>
+            )
+          }
+          return (
+            <td
+              key={p.key}
+              className={cn(
+                'px-4 py-1.5 text-right text-sm tabular-nums cursor-pointer hover:bg-blue-100/50 transition-colors',
+                bold ? 'font-bold text-slate-900 bg-slate-50' : 'text-slate-800',
+                negClass(value),
+                override !== undefined && 'bg-amber-50 font-semibold text-amber-900',
+              )}
+              onClick={() => startEdit(cellId, value ?? 0)}
+              title="Click to edit"
+            >
+              {acct(value)}
+            </td>
+          )
+        })}
+      </tr>
+    )
+  }
+
   function EditableRow({ item }: { item: AddBackItem }) {
     return (
       <tr className="hover:bg-blue-50/30 group">
@@ -367,6 +481,21 @@ export function Ws2WorkbookView({
           const value = getItemValue(item, p.key)
           const isEditing = editingCell === cellId
           const hasOverride = overrides[item.id]?.[p.key] !== undefined
+          if (editMode) {
+            return (
+              <td key={p.key} className="px-2 py-1 text-right">
+                <input
+                  type="text"
+                  className={cn(
+                    'w-full rounded border px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300',
+                    hasOverride ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-slate-900',
+                  )}
+                  value={inputValue(cellId, value)}
+                  onChange={(e) => handleItemInputChange(cellId, item.id, p.key, e.target.value)}
+                />
+              </td>
+            )
+          }
 
           if (isEditing) {
             return (
@@ -442,6 +571,21 @@ export function Ws2WorkbookView({
           const isEditing = editingCell === cellId
           const hasOverride = override !== undefined
           const pctVal = percentages?.[i]
+          if (editMode) {
+            return (
+              <td key={periodKey} className="px-2 py-1 text-right">
+                <input
+                  type="text"
+                  className={cn(
+                    'w-full rounded border px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300',
+                    hasOverride ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-slate-900',
+                  )}
+                  value={inputValue(cellId, displayValue)}
+                  onChange={(e) => handleTabInputChange(cellId, rowId, periodKey, e.target.value)}
+                />
+              </td>
+            )
+          }
 
           if (isEditing) {
             return (
@@ -491,6 +635,20 @@ export function Ws2WorkbookView({
     const valuationOverrideCount = Object.values(overrides).reduce((n, o) => n + Object.keys(o).length, 0)
     const totalOverrideCount = valuationOverrideCount + totalTabOverrides
     const hasOverrides = totalOverrideCount > 0
+    const getMultipleLow = (periodKey: PeriodKey) => getTabOverride('valuation:multiple-low', periodKey) ?? recast.assumptions?.multipleLow ?? multiple
+    const getMultipleHigh = (periodKey: PeriodKey) => getTabOverride('valuation:multiple-high', periodKey) ?? recast.assumptions?.multipleHigh ?? multiple
+    const getValuationLow = (periodKey: PeriodKey) => {
+      const override = getTabOverride('valuation:value-low', periodKey)
+      if (override !== undefined) return override
+      const lk = periodKey === 'ltm' ? 'LTM' : periodKey.toUpperCase()
+      return llmResult?.valuation?.[lk]?.low ?? totals[periodKey].normalizedEbitda * getMultipleLow(periodKey)
+    }
+    const getValuationHigh = (periodKey: PeriodKey) => {
+      const override = getTabOverride('valuation:value-high', periodKey)
+      if (override !== undefined) return override
+      const lk = periodKey === 'ltm' ? 'LTM' : periodKey.toUpperCase()
+      return llmResult?.valuation?.[lk]?.high ?? totals[periodKey].normalizedEbitda * getMultipleHigh(periodKey)
+    }
     return (
       <div className="space-y-4">
         {hasOverrides && (
@@ -510,12 +668,14 @@ export function Ws2WorkbookView({
             <tbody className="divide-y divide-slate-100">
               {/* Valuation Summary header section */}
               <SectionHeader label="Valuation Summary" />
-              <DataRow
+              <EditableSummaryRow
+                rowId="valuation:revenue"
                 label="Revenue"
                 values={periods.map((p) => totals[p.key].revenue)}
               />
               <tr><td colSpan={colCount} className="h-1" /></tr>
-              <DataRow
+              <EditableSummaryRow
+                rowId="valuation:pre-recast"
                 label="Net Income / EBITDA (Pre-Normalized)"
                 values={periods.map((p) => getPreRecast(p.key))}
               />
@@ -551,7 +711,8 @@ export function Ws2WorkbookView({
               />
 
               {/* 4-Wall EBITDA */}
-              <DataRow
+              <EditableSummaryRow
+                rowId="valuation:four-wall-ebitda"
                 label="4-Wall EBITDA"
                 values={periods.map((p) => totals[p.key].fourWallEbitda)}
                 bold
@@ -565,8 +726,28 @@ export function Ws2WorkbookView({
                   Multiple
                 </td>
                 {periods.map((p) => {
-                  const low = recast.assumptions?.multipleLow
-                  const high = recast.assumptions?.multipleHigh
+                  const low = getMultipleLow(p.key)
+                  const high = getMultipleHigh(p.key)
+                  if (editMode) {
+                    return (
+                      <td key={p.key} className="px-2 py-1.5 text-right">
+                        <div className="flex justify-end gap-1">
+                          <input
+                            type="text"
+                            className="w-16 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-right text-sm font-bold tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                            value={inputValue(`tab:valuation:multiple-low:${p.key}`, low, 1)}
+                            onChange={(e) => handleTabInputChange(`tab:valuation:multiple-low:${p.key}`, 'valuation:multiple-low', p.key, e.target.value)}
+                          />
+                          <input
+                            type="text"
+                            className="w-16 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-right text-sm font-bold tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                            value={inputValue(`tab:valuation:multiple-high:${p.key}`, high, 1)}
+                            onChange={(e) => handleTabInputChange(`tab:valuation:multiple-high:${p.key}`, 'valuation:multiple-high', p.key, e.target.value)}
+                          />
+                        </div>
+                      </td>
+                    )
+                  }
                   const rangeStr = low && high ? `${Number(low).toFixed(1)}x – ${Number(high).toFixed(1)}x` : acctMult(multiple)
                   return (
                     <td key={p.key} className="px-4 py-1.5 text-right text-sm font-bold tabular-nums text-slate-900">
@@ -582,31 +763,31 @@ export function Ws2WorkbookView({
                   Valuation
                 </td>
                 {periods.map((p) => {
-                  const low = recast.assumptions?.multipleLow
-                  const high = recast.assumptions?.multipleHigh
-                  const lk = p.key === 'ltm' ? 'LTM' : p.key.toUpperCase()
-                  const llmVal = llmResult?.valuation?.[lk]
-                  // Use LLM valuation if available
-                  if (llmVal) {
+                  const valLow = getValuationLow(p.key)
+                  const valHigh = getValuationHigh(p.key)
+                  if (editMode) {
                     return (
-                      <td key={p.key} className="px-4 py-3 text-right text-sm font-bold tabular-nums text-amber-300">
-                        {acct(llmVal.low)} – {acct(llmVal.high)}
-                      </td>
-                    )
-                  }
-                  const norm = totals[p.key].normalizedEbitda
-                  if (low && high) {
-                    const valLow = norm * Number(low)
-                    const valHigh = norm * Number(high)
-                    return (
-                      <td key={p.key} className="px-4 py-3 text-right text-sm font-bold tabular-nums text-amber-300">
-                        {acct(valLow)} – {acct(valHigh)}
+                      <td key={p.key} className="px-2 py-2 text-right">
+                        <div className="flex justify-end gap-1">
+                          <input
+                            type="text"
+                            className="w-24 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-right text-sm font-bold tabular-nums text-slate-900 outline-none focus:ring-2 focus:ring-blue-300"
+                            value={inputValue(`tab:valuation:value-low:${p.key}`, valLow)}
+                            onChange={(e) => handleTabInputChange(`tab:valuation:value-low:${p.key}`, 'valuation:value-low', p.key, e.target.value)}
+                          />
+                          <input
+                            type="text"
+                            className="w-24 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-right text-sm font-bold tabular-nums text-slate-900 outline-none focus:ring-2 focus:ring-blue-300"
+                            value={inputValue(`tab:valuation:value-high:${p.key}`, valHigh)}
+                            onChange={(e) => handleTabInputChange(`tab:valuation:value-high:${p.key}`, 'valuation:value-high', p.key, e.target.value)}
+                          />
+                        </div>
                       </td>
                     )
                   }
                   return (
-                    <td key={p.key} className="px-4 py-3 text-right text-lg font-bold tabular-nums text-amber-300">
-                      {acct(totals[p.key].valuation)}
+                    <td key={p.key} className="px-4 py-3 text-right text-sm font-bold tabular-nums text-amber-300">
+                      {acct(valLow)} – {acct(valHigh)}
                     </td>
                   )
                 })}
@@ -638,7 +819,10 @@ export function Ws2WorkbookView({
             { label: 'High', mult: recast.assumptions?.multipleHigh, tone: 'slate', llmField: 'high' as const },
           ].map(({ label, mult, tone, llmField }) => {
             const llmLtmVal = llmResult?.valuation?.['LTM']
-            const val = llmLtmVal ? llmLtmVal[llmField] : (totals.ltm.normalizedEbitda) * (mult ?? 0)
+            const valueRow = llmField === 'low' ? 'valuation:value-low' : llmField === 'high' ? 'valuation:value-high' : 'valuation:value-mid'
+            const multipleRow = llmField === 'low' ? 'valuation:multiple-low' : llmField === 'high' ? 'valuation:multiple-high' : 'valuation:multiple-mid'
+            const effectiveMult = getTabOverride(multipleRow, 'ltm') ?? mult ?? multiple
+            const val = getTabOverride(valueRow, 'ltm') ?? (llmLtmVal ? llmLtmVal[llmField] : (totals.ltm.normalizedEbitda) * effectiveMult)
             return (
               <div
                 key={label}
@@ -648,11 +832,23 @@ export function Ws2WorkbookView({
                 )}
               >
                 <p className={cn('text-[11px] font-bold uppercase tracking-widest', tone === 'amber' ? 'text-slate-300' : 'text-slate-400')}>
-                  {label} &middot; {acctMult(mult)}
+                  {label} &middot; {acctMult(effectiveMult)}
                 </p>
-                <p className={cn('mt-2 text-3xl font-semibold tabular-nums', tone === 'amber' ? 'text-amber-300' : 'text-slate-900')}>
-                  {acct(val)}
-                </p>
+                {editMode ? (
+                  <input
+                    type="text"
+                    className={cn(
+                      'mt-2 w-full rounded border border-blue-200 bg-blue-50 px-2 py-1 text-center text-2xl font-semibold tabular-nums outline-none focus:ring-2 focus:ring-blue-300',
+                      tone === 'amber' ? 'text-slate-900' : 'text-slate-900',
+                    )}
+                    value={inputValue(`tab:${valueRow}:ltm`, val)}
+                    onChange={(e) => handleTabInputChange(`tab:${valueRow}:ltm`, valueRow, 'ltm', e.target.value)}
+                  />
+                ) : (
+                  <p className={cn('mt-2 text-3xl font-semibold tabular-nums', tone === 'amber' ? 'text-amber-300' : 'text-slate-900')}>
+                    {acct(val)}
+                  </p>
+                )}
               </div>
             )
           })}
@@ -820,6 +1016,22 @@ export function Ws2WorkbookView({
                           const isEditing = editingCell === cellId
                           const hasOverride = override !== undefined
 
+                          if (editMode) {
+                            return (
+                              <td key={periodKey} className="px-2 py-1 text-right">
+                                <input
+                                  type="text"
+                                  className={cn(
+                                    'w-full rounded border px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300',
+                                    hasOverride ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-slate-900',
+                                  )}
+                                  value={inputValue(cellId, displayValue)}
+                  onChange={(e) => handleTabInputChange(cellId, rowId, periodKey, e.target.value)}
+                                />
+                              </td>
+                            )
+                          }
+
                           if (isEditing) {
                             return (
                               <td key={periodKey} className="px-2 py-0.5 text-right">
@@ -973,6 +1185,22 @@ export function Ws2WorkbookView({
                       const isEditing = editingCell === cellId
                       const hasOverride = override !== undefined
                       const pctVal = [v.ltmPct, v.fy3Pct, v.fy2Pct, v.fy1Pct][i]
+
+                      if (editMode) {
+                        return (
+                          <td key={periodKey} className="px-2 py-1 text-right">
+                            <input
+                              type="text"
+                              className={cn(
+                                'w-full rounded border px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300',
+                                hasOverride ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-slate-900',
+                              )}
+                              value={inputValue(cellId, val)}
+                              onChange={(e) => handleTabInputChange(cellId, rowId, periodKey, e.target.value)}
+                            />
+                          </td>
+                        )
+                      }
 
                       if (isEditing) {
                         return (
@@ -1128,6 +1356,22 @@ export function Ws2WorkbookView({
                       const hasOverride = override !== undefined
                       const pctVal = rawPcts[i]
 
+                      if (editMode) {
+                        return (
+                          <td key={periodKey} className="px-2 py-1 text-right">
+                            <input
+                              type="text"
+                              className={cn(
+                                'w-full rounded border px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300',
+                                hasOverride ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-slate-900',
+                              )}
+                              value={inputValue(cellId, displayValue)}
+                  onChange={(e) => handleTabInputChange(cellId, rowId, periodKey, e.target.value)}
+                            />
+                          </td>
+                        )
+                      }
+
                       if (isEditing) {
                         return (
                           <td key={periodKey} className="px-2 py-0.5 text-right">
@@ -1212,6 +1456,49 @@ export function Ws2WorkbookView({
     const labor = useMemo(() => computeLaborAnalysis(analysis, replSalary), [analysis, replSalary])
     const flagColor = (f: string) => f === 'RED' ? 'bg-rose-50 text-rose-700 border-rose-200' : f === 'YELLOW' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
     const laborOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('labor:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
+    const periodKeys = periods.map((period) => period.key)
+    const rowByCategory = new Map(labor.rows.map((row) => [row.category, row]))
+    const rawLaborValue = (category: string, periodKey: PeriodKey): number => {
+      const row = rowByCategory.get(category)
+      if (!row) return 0
+      if (periodKey === 'ltm') return row.ltmDollar ?? 0
+      if (periodKey === 'fy3') return row.fy3Dollar ?? 0
+      if (periodKey === 'fy2') return row.fy2Dollar ?? 0
+      return row.fy1Dollar ?? 0
+    }
+    const laborValue = (category: string, periodKey: PeriodKey): number =>
+      getTabOverride(`labor:${category}`, periodKey) ?? rawLaborValue(category, periodKey)
+    const laborRevenue = (periodKey: PeriodKey) => getRevenue(periodKey) || 0
+    const directLaborValues = periodKeys.map((key) => laborValue('Staff and Direct Labor', key) + laborValue('Management Labor', key))
+    const allInLaborValues = periodKeys.map((key) =>
+      laborValue('Staff and Direct Labor', key) +
+      laborValue('Management Labor', key) +
+      laborValue('Owner Compensation', key) +
+      laborValue('Payroll Taxes and Benefits', key) +
+      laborValue('Tips Paid Out', key),
+    )
+    const buyerAdjustedValues = periodKeys.map((key) =>
+      laborValue('Staff and Direct Labor', key) +
+      laborValue('Management Labor', key) +
+      laborValue('Payroll Taxes and Benefits', key),
+    )
+    const pctOfRevenue = (value: number, periodKey: PeriodKey) => {
+      const revenue = laborRevenue(periodKey)
+      return revenue ? value / revenue : 0
+    }
+    const directLaborPct = pctOfRevenue(directLaborValues[0] ?? 0, 'ltm')
+    const allInLaborPct = pctOfRevenue(allInLaborValues[0] ?? 0, 'ltm')
+    const buyerAdjustedPct = pctOfRevenue(buyerAdjustedValues[0] ?? 0, 'ltm')
+    const laborStatus = directLaborPct > 0.45 ? 'RED' : directLaborPct > 0.42 ? 'YELLOW' : 'GREEN'
+    const laborStatusNote = laborStatus === 'RED'
+      ? `Direct labor at ${(directLaborPct * 100).toFixed(1)}% exceeds the 45% Cantara deal-risk threshold.`
+      : laborStatus === 'YELLOW'
+        ? `Direct labor at ${(directLaborPct * 100).toFixed(1)}% is near the 45% Cantara deal-risk threshold.`
+        : `Direct labor at ${(directLaborPct * 100).toFixed(1)}% is within the Cantara benchmark range.`
+    const derivedTotalByCategory: Record<string, number[]> = {
+      'Total All-In Labor': allInLaborValues,
+      'Buyer-Adjusted Labor': buyerAdjustedValues,
+    }
 
     return (
       <div className="space-y-4">
@@ -1231,30 +1518,30 @@ export function Ws2WorkbookView({
         )}
 
         {/* Benchmark status */}
-        <div className={cn('rounded-lg border px-4 py-3', flagColor(labor.benchmarkStatus))}>
-          <span className="font-bold">{labor.benchmarkStatus}:</span> {labor.benchmarkNote}
+        <div className={cn('rounded-lg border px-4 py-3', flagColor(laborStatus))}>
+          <span className="font-bold">{laborStatus}:</span> {laborStatusNote}
         </div>
 
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center">
             <p className="text-[10px] uppercase tracking-wide text-slate-400">Direct Labor (Staff + Management)</p>
-            <p className={cn('mt-1 text-2xl font-bold tabular-nums', labor.directLaborPct > 0.45 ? 'text-rose-600' : 'text-slate-900')}>
-              {(labor.directLaborPct * 100).toFixed(1)}%
+            <p className={cn('mt-1 text-2xl font-bold tabular-nums', directLaborPct > 0.45 ? 'text-rose-600' : 'text-slate-900')}>
+              {(directLaborPct * 100).toFixed(1)}%
             </p>
             <p className="text-[10px] text-slate-400">Benchmark: 35%-45%</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center">
             <p className="text-[10px] uppercase tracking-wide text-slate-400">All-In Labor</p>
             <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-              {(labor.allInLaborPct * 100).toFixed(1)}%
+              {(allInLaborPct * 100).toFixed(1)}%
             </p>
             <p className="text-[10px] text-slate-400">Includes owner + tips</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center">
             <p className="text-[10px] uppercase tracking-wide text-slate-400">Buyer-Adjusted Labor</p>
             <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-              {(labor.buyerAdjustedPct * 100).toFixed(1)}%
+              {(buyerAdjustedPct * 100).toFixed(1)}%
             </p>
             <p className="text-[10px] text-slate-400">Post-acquisition view</p>
           </div>
@@ -1277,22 +1564,27 @@ export function Ws2WorkbookView({
               {labor.rows.map((row) => {
                 // Total rows remain read-only
                 if (row.isTotal) {
+                  const derivedValues = derivedTotalByCategory[row.category] ?? [
+                    row.ltmDollar,
+                    row.fy3Dollar,
+                    row.fy2Dollar,
+                    row.fy1Dollar,
+                  ]
                   return (
                     <tr key={row.category} className="bg-slate-50 border-t-2 border-slate-300">
                       <td className="sticky left-0 z-10 bg-slate-50 px-4 py-2 text-sm font-bold text-slate-900">
                         {row.category}
                       </td>
-                      {[
-                        { dollar: row.ltmDollar, pctVal: row.ltmPct },
-                        { dollar: row.fy3Dollar, pctVal: row.fy3Pct },
-                        { dollar: row.fy2Dollar, pctVal: row.fy2Pct },
-                        { dollar: row.fy1Dollar, pctVal: row.fy1Pct },
-                      ].map(({ dollar, pctVal }, i) => (
+                      {derivedValues.map((dollar, i) => {
+                        const periodKey = periodKeys[i] ?? 'ltm'
+                        const pctVal = pctOfRevenue(dollar, periodKey)
+                        return (
                         <td key={i} className="px-3 py-2 text-right text-sm tabular-nums font-bold text-slate-900">
                           {acct(dollar)}
                           <span className="ml-1 text-[10px] text-slate-400">({(pctVal * 100).toFixed(1)}%)</span>
                         </td>
-                      ))}
+                        )
+                      })}
                     </tr>
                   )
                 }
@@ -1314,7 +1606,23 @@ export function Ws2WorkbookView({
                       const displayValue = override !== undefined ? override : dollar
                       const isEditing = editingCell === cellId
                       const hasOverride = override !== undefined
-                      const pctVal = rawPcts[i]
+                      const pctVal = pctOfRevenue(displayValue ?? 0, periodKey)
+
+                      if (editMode) {
+                        return (
+                          <td key={periodKey} className="px-2 py-1 text-right">
+                            <input
+                              type="text"
+                              className={cn(
+                                'w-full rounded border px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300',
+                                hasOverride ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-slate-900',
+                              )}
+                              value={inputValue(cellId, displayValue)}
+                  onChange={(e) => handleTabInputChange(cellId, rowId, periodKey, e.target.value)}
+                            />
+                          </td>
+                        )
+                      }
 
                       if (isEditing) {
                         return (
@@ -1393,6 +1701,9 @@ export function Ws2WorkbookView({
         </div>
         <div className="flex items-center gap-2">
           <Badge color="green">WS2-2 Approved</Badge>
+          <Button size="sm" variant={editMode ? 'primary' : 'outline'} onClick={() => { setEditMode((value) => !value); cancelEdit() }}>
+            {editMode ? 'Done Editing' : 'Edit'}
+          </Button>
           <Button size="sm" variant="outline" onClick={exportPdf}>
             <Printer className="mr-1.5 h-3.5 w-3.5" />
             Export PDF
