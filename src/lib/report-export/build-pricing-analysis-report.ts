@@ -49,15 +49,33 @@ export function buildPricingAnalysisReportHtml(
 
   // Service Pricing Comparison table
   const comparisonTable = buildHtmlTable(
-    ['Service', 'Seller Price', 'Market Avg', 'Range', 'Variance', 'Status', 'Uplift Opportunity'],
+    ['Service', 'Specific Basis', 'Seller Price', 'Seller Normalized', 'Competitor Basis', 'Avg Across Competitors', 'Range', 'Variance', 'Status', 'Uplift Opportunity'],
     report.serviceComparisons.map(s => [
       s.serviceCategory,
+      s.sellerServiceBasis || s.serviceDetail || '',
       s.sellerPrice,
+      s.sellerNormalizedPrice || '',
+      s.competitorServiceBasis || '',
       s.competitorAvgPrice,
       s.competitorRange,
       s.variance,
       statusLabel(s.status),
       s.upliftOpportunity,
+    ]),
+  )
+
+  const competitorInventoryTable = buildHtmlTable(
+    ['Competitor', 'Service', 'Category', 'Listed Price', 'Basis', 'Duration Hrs', 'Normalized $/Hr', 'Comparable To', 'Notes'],
+    (report.competitorServiceDetails ?? []).map(s => [
+      s.competitorName,
+      s.serviceName,
+      s.serviceCategory,
+      s.listedPrice,
+      s.serviceBasis,
+      s.durationHours ?? 'N/A',
+      s.normalizedPriceLabel,
+      s.comparableToSellerService,
+      s.notes,
     ]),
   )
 
@@ -87,14 +105,15 @@ export function buildPricingAnalysisReportHtml(
   }
 
   const config: ReportConfig = {
-    title: 'Competitive Pricing Analysis',
-    subtitle: 'Market Comparison & Revenue Uplift Assessment',
+    title: 'Competitor Pricing Analysis',
+    subtitle: 'Detailed Website-Based Competitor Comparison & Revenue Uplift Assessment',
     clientName,
     generatedAt: report.generatedAt,
     summary: report.executiveSummary,
     kpis,
     flags: flagCounts,
     sections: [
+      { title: 'Competitor Service Inventory', content: competitorInventoryTable },
       { title: 'Service Pricing Comparison', content: comparisonTable },
       { title: 'Revenue Uplift Analysis', content: upliftContent },
       { title: 'Pricing Flags', content: flagsContent },

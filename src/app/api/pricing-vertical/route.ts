@@ -2,9 +2,39 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { analyzePricingByVertical } from '@/lib/pricing-vertical/analyze'
 import type { PricingVerticalReport } from '@/lib/pricing-vertical/types'
+import type { ServicePricingRow } from '@/lib/pricing-vertical/types'
+import { researchWebsite } from '@/lib/competitor-analysis/website-research'
+import { collectPricingDocumentEvidence } from '@/lib/pricing-vertical/document-evidence'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+function mergeStructuredDocumentPrices(report: PricingVerticalReport, rows: ServicePricingRow[], periods?: string[]) {
+  if (!rows.length) return report
+
+  const nextPeriods = periods?.length ? periods : ['Current', 'Nov 2025', 'May 2025', 'Nov 2024', 'May 2024']
+  const existingRows = report.pricingGrid ?? []
+  const byName = new Map<string, ServicePricingRow>()
+
+  for (const row of existingRows) {
+    byName.set(row.serviceName.toLowerCase(), row)
+  }
+
+  for (const row of rows) {
+    const key = row.serviceName.toLowerCase()
+    const existing = byName.get(key)
+    byName.set(key, existing ? { ...existing, ...row, prices: { ...existing.prices, ...row.prices } } : row)
+  }
+
+  return {
+    ...report,
+    pricingPeriods: nextPeriods,
+    pricingGrid: Array.from(byName.values()).map((row) => ({
+      ...row,
+      prices: Object.fromEntries(nextPeriods.map((period) => [period, row.prices?.[period] ?? ''])),
+    })),
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,10 +58,27 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, fileName, base64, mediaType } = await req.json()
+    const { clientId, fileName, base64, mediaType, websiteUrl: websiteUrlOverride } = await req.json()
 
-    if (!clientId || !fileName || !base64 || !mediaType) {
-      return new Response('Missing required fields: clientId, fileName, base64, mediaType', { status: 400 })
+    if (!clientId) {
+      return new Response('Missing required field: clientId', { status: 400 })
+    }
+    if ((base64 || fileName || mediaType) && (!fileName || !base64 || !mediaType)) {
+      return new Response('When uploading a file, fileName, base64, and mediaType are required', { status: 400 })
+    }
+
+    const clientProfile = await (prisma as any).clientProfile.findUnique({
+      where: { id: clientId },
+      select: {
+        businessName: true,
+        businessCategory: true,
+        websiteUrl: true,
+        sectionSubmissions: true,
+      },
+    })
+
+    if (!clientProfile) {
+      return new Response('Client not found', { status: 404 })
     }
 
     // Load WS2-3 revenue by vertical from DB
@@ -55,21 +102,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const websiteUrl = (websiteUrlOverride || clientProfile.websiteUrl || '').trim()
+    const websiteResearch = websiteUrl && process.env.TAVILY_API_KEY
+      ? await researchWebsite({
+          websiteUrl,
+          businessName: clientProfile.businessName,
+          businessCategory: clientProfile.businessCategory || 'pet resort',
+          tavilyApiKey: process.env.TAVILY_API_KEY,
+        })
+      : websiteUrl
+        ? await researchWebsite({
+            websiteUrl,
+            businessName: clientProfile.businessName,
+            businessCategory: clientProfile.businessCategory || 'pet resort',
+            tavilyApiKey: null,
+          })
+        : null
+    const documentEvidence = await collectPricingDocumentEvidence(clientId)
+
     // Run analysis
-    const report = await analyzePricingByVertical({
+    const analyzedReport = await analyzePricingByVertical({
       fileName,
       base64,
       mediaType,
       revenueByVertical,
+      businessName: clientProfile.businessName,
+      websiteResearch,
+      documentEvidence,
     })
+    const report = mergeStructuredDocumentPrices(
+      analyzedReport,
+      documentEvidence.structuredPricingRows ?? [],
+      documentEvidence.pricingPeriods,
+    )
 
     // Store result in sectionSubmissions.pricingVertical
-    const client = await (prisma as any).clientProfile.findUnique({
-      where: { id: clientId },
-      select: { sectionSubmissions: true },
-    })
-
-    const existing = (client?.sectionSubmissions as Record<string, any>) ?? {}
+    const existing = (clientProfile.sectionSubmissions as Record<string, any>) ?? {}
     existing.pricingVertical = report
 
     await (prisma as any).clientProfile.update({

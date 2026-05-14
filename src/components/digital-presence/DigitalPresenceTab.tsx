@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Search, Wifi } from 'lucide-react';
 import DigitalPresenceForm from './DigitalPresenceForm';
 import DigitalPresenceScorecard from './DigitalPresenceScorecard';
@@ -46,6 +46,22 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
   const [lastFormData, setLastFormData] = useState<DigitalAssetFormData | null>(null);
   const [manualOverrides, setManualOverrides] = useState<ManualOverride[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSavedForm() {
+      try {
+        const res = await fetch(`/api/client-data/${clientId}?section=digitalPresenceForm`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data) setLastFormData(data);
+      } catch {
+        // Saved client portal form data is optional.
+      }
+    }
+    void loadSavedForm();
+    return () => { cancelled = true; };
+  }, [clientId]);
 
   function appendLog(entry: Omit<LogEntry, 'id'>) {
     setLog(prev => [...prev, { ...entry, id: ++_logId }]);

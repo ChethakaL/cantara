@@ -81,21 +81,21 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
   return (
     <Card className="overflow-hidden border-slate-200/60 shadow-sm">
       {/* Report header */}
-      <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap bg-slate-50/30">
-        <div>
+      <div className="p-5 border-b border-slate-100 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 bg-slate-50/30">
+        <div className="min-w-0">
           <h4 className="font-semibold text-slate-800">Material Contracts Report</h4>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-400 mt-0.5 break-words">
             {fileName} · Generated {new Date(report.generatedAt).toLocaleString()}
           </p>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap justify-end">
-          <div className="flex items-center gap-1.5">
+        <div className="flex w-full xl:w-auto flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-1.5 justify-start xl:justify-end">
             <Badge color="red">🔴 {flagCounts.red} Red</Badge>
             <Badge color="gold">🟡 {flagCounts.orange} Orange</Badge>
             <Badge color="green">🟢 {flagCounts.green} Green</Badge>
           </div>
-          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <div className="flex flex-wrap items-center gap-2 justify-start xl:justify-end">
           {canEdit && (
             editMode ? (
               <>
@@ -112,7 +112,6 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
               </Button>
             )
           )}
-          <div className="w-px h-4 bg-slate-200 mx-1" />
           <ExportReportButton
             html={summaryHtml}
             fileName={`contract-summary-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
@@ -123,13 +122,13 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
             fileName={`contract-addendum-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             label="Risk Cards Addendum"
           />
-          <div className="w-px h-4 bg-slate-200 mx-1" />
           <ReportExportBar
             reportMarkdown={report.raw}
             clientName={clientName}
             onNewAnalysis={onNewAnalysis}
             onDelete={onDelete}
           />
+          </div>
         </div>
       </div>
 
@@ -159,7 +158,7 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
       </div>
 
       {/* Section content */}
-      <div className="p-6 min-h-[400px]">
+      <div className="p-4 sm:p-6 min-h-[400px]">
         {activeTab === 'snapshot' && <SnapshotTable rows={visibleReport.snapshotTable} />}
         {activeTab === 'findings' && (
           <DetailedFindings

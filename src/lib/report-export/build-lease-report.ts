@@ -110,14 +110,6 @@ export function buildLeaseBuyerReportHtml(report: LeaseReport, clientName: strin
   const snapshotRows = (report.snapshotTable || []).map(row => [row.field, row.finding])
   const snapshotContent = buildHtmlTable(['Key Item', 'Finding'], snapshotRows)
 
-  const rentScheduleContent = (report.rentSchedule && report.rentSchedule.length > 0)
-    ? '<h3 style="margin-top:16px;font-size:14px;font-weight:700;color:#21263C;">Rent Schedule</h3>' +
-      buildHtmlTable(
-        ['Lease Year', 'Months', 'Per Annum', 'Per Month'],
-        report.rentSchedule.map(r => [r.leaseYear, r.months, r.perAnnum, r.perMonth]),
-      )
-    : ''
-
   const findingsSections = (report.detailedFindings || []).map(f => {
     const isRentSection = f.id === '2.3' || f.title.toLowerCase().includes('rent')
     const hasScheduleData = report.rentSchedule && report.rentSchedule.length > 0
@@ -166,7 +158,7 @@ export function buildLeaseBuyerReportHtml(report: LeaseReport, clientName: strin
       { label: 'Rent Schedule', value: String((report.rentSchedule || []).length) },
     ],
     sections: [
-      { title: 'Lease Snapshot', content: snapshotContent + rentScheduleContent },
+      { title: 'Lease Snapshot', content: snapshotContent },
       ...findingsSections,
       ...docInventory,
     ],

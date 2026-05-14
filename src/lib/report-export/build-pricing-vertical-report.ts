@@ -1,10 +1,10 @@
 import {
   generateReportHtml,
   buildHtmlTable,
-  buildBulletList,
   type ReportConfig,
 } from './generate-report-html'
 import type { PricingVerticalReport } from '@/lib/pricing-vertical/types'
+import { buildPricingTrendChartSectionHtml } from '@/lib/pricing-vertical/pricing-trend-chart'
 
 function trendLabel(trend: string): string {
   switch (trend) {
@@ -44,6 +44,19 @@ export function buildPricingVerticalReportHtml(
     { label: 'Avg Annual Increase', value: avgAnnualIncrease > 0 ? `${avgAnnualIncrease.toFixed(1)}%` : 'N/A' },
     { label: 'Verticals with No Change', value: String(noChangeCount) },
   ]
+
+  const periods = report.pricingPeriods?.length ? report.pricingPeriods : ['Current']
+  const trendChartHtml = buildPricingTrendChartSectionHtml(report)
+  const pricingGridTable = buildHtmlTable(
+    ['Service', 'Vertical', ...periods, 'Source', 'Confidence'],
+    (report.pricingGrid ?? []).map(row => [
+      row.serviceName,
+      row.vertical,
+      ...periods.map(period => row.prices?.[period] ?? ''),
+      row.source,
+      row.confidence,
+    ]),
+  )
 
   // Price Change Timeline table
   const timelineTable = buildHtmlTable(
@@ -97,37 +110,37 @@ export function buildPricingVerticalReportHtml(
     </div>`
   }).join('\n')
 
-  // Flags
-  const flagsContent = report.flags.length > 0
-    ? report.flags.map(f => `
+  const activeFlags = report.flags.filter(f => f.resolution !== 'declined')
+
+  // Flags (declined flags excluded from PDF, same as advisor queue)
+  const flagsContent = activeFlags.length > 0
+    ? activeFlags.map(f => `
         <div class="flag-item ${severityStyle(f.severity)}">
           <div class="flag-title">${escapeHtml(f.title)}</div>
           <div class="flag-detail">${escapeHtml(f.description)}</div>
         </div>`).join('\n')
     : '<p>No pricing flags identified.</p>'
 
-  // Recommendations
-  const recsContent = buildBulletList(report.recommendations)
-
   const flagCounts = {
-    red: report.flags.filter(f => f.severity === 'critical').length,
-    orange: report.flags.filter(f => f.severity === 'warning').length,
-    green: report.flags.filter(f => f.severity === 'positive').length,
+    red: activeFlags.filter(f => f.severity === 'critical').length,
+    orange: activeFlags.filter(f => f.severity === 'warning').length,
+    green: activeFlags.filter(f => f.severity === 'positive').length,
   }
 
   const config: ReportConfig = {
     title: 'Pricing by Vertical Analysis',
-    subtitle: '24-Month Price Change Analysis & Recommendations',
+    subtitle: '24-Month Price Change Analysis',
     clientName,
     generatedAt: report.generatedAt,
     summary: report.executiveSummary,
     kpis,
     flags: flagCounts,
     sections: [
+      { title: 'Service Price Trend', content: trendChartHtml },
+      { title: 'Editable 24-Month Pricing Grid', content: pricingGridTable },
       { title: 'Price Change Timeline', content: timelineTable },
       { title: 'Vertical-by-Vertical Analysis', content: verticalSections },
       { title: 'Pricing Flags', content: flagsContent },
-      { title: 'Recommendations', content: recsContent },
     ],
   }
 

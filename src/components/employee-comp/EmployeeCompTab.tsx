@@ -135,7 +135,7 @@ function EditableCell({
       <select
         value={String(value ?? '')}
         onChange={e => onChange(e.target.value)}
-        className="w-full bg-transparent text-xs text-slate-700 border-0 focus:ring-1 focus:ring-amber-300 rounded px-1 py-1 cursor-pointer"
+        className="w-full bg-amber-50/40 text-xs text-slate-700 border border-dashed border-amber-200 hover:border-amber-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 rounded px-2 py-1.5 cursor-pointer transition-colors"
       >
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
@@ -147,14 +147,17 @@ function EditableCell({
       <div
         onClick={() => setEditing(true)}
         className={cn(
-          'min-h-[28px] px-1 py-1 rounded cursor-pointer hover:bg-amber-50/50 transition-colors flex items-center text-xs text-slate-700',
+          'group/cell min-h-[30px] px-2 py-1.5 rounded cursor-pointer bg-amber-50/40 border border-dashed border-amber-200 hover:border-amber-400 hover:bg-amber-50 transition-colors flex items-center gap-2 text-xs text-slate-700',
           !value && 'text-slate-300 italic',
           className
         )}
         title="Click to edit"
       >
-        {type === 'number' && value !== null && value !== '' ? formatCurrency(Number(value)) : (value ?? '')}
-        {!value && '\u2014'}
+        <span className="min-w-0 flex-1 truncate">
+          {type === 'number' && value !== null && value !== '' ? formatCurrency(Number(value)) : (value ?? '')}
+          {!value && '\u2014'}
+        </span>
+        <PenLine className="w-3 h-3 shrink-0 text-amber-500 opacity-60 group-hover/cell:opacity-100" />
       </div>
     )
   }
@@ -565,6 +568,11 @@ export default function EmployeeCompTab({
                 </>
               )}
             </button>
+          </div>
+
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-2 text-xs text-amber-800">
+            <PenLine className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>Amber dashed cells are editable. Click any cell to update it, then save the table.</span>
           </div>
 
           {/* Table */}

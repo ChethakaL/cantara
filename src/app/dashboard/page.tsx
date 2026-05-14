@@ -56,6 +56,7 @@ function ClientNav({ clientName, unreadCount, onSettings, showSettings }: {
 const PHASES = [
   { id: 'overview', label: 'Overview' },
   { id: 'assign', label: 'Assign' },
+  { id: 'information', label: 'Required Info' },
   { id: 'collection', label: 'Collection' },
   { id: 'requirements', label: 'Additional Requirements' },
   { id: 'roadmap', label: 'Roadmap', disabled: true },
@@ -416,7 +417,7 @@ export default function ClientDashboard() {
             <div className="space-y-1">
               {PHASES.map(p => {
                 const isActive = phase === p.id
-                const hasBadge = p.id === 'requirements' && openReqs.length > 0
+                const hasBadge = (p.id === 'requirements' && openReqs.length > 0) || p.id === 'information'
                 const disabled = Boolean((p as any).disabled)
                 return (
                   <button
@@ -439,10 +440,13 @@ export default function ClientDashboard() {
                       {disabled && <Lock className="w-3.5 h-3.5" />}
                       <span className="truncate">{p.label}</span>
                     </span>
-                    {hasBadge && (
+                    {hasBadge && p.id === 'requirements' && (
                       <span className="w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: '#f43f5e', color: 'white' }}>
                         {openReqs.length}
                       </span>
+                    )}
+                    {hasBadge && p.id === 'information' && (
+                      <span className="w-2 h-2 rounded-full" style={{ background: '#d4a843' }} />
                     )}
                   </button>
                 )
@@ -460,6 +464,7 @@ export default function ClientDashboard() {
             >
               {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} />}
               {phase === 'assign' && <AssignTab valuationDocs={valuationDocs} categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
+              {phase === 'information' && <AgentInformationTab clientId={client.id} />}
               {phase === 'collection' && (
                 <CollectionTab
                   valuationDocs={valuationDocs}
@@ -641,6 +646,7 @@ export default function ClientDashboard() {
 function OverviewTab({ client, wsLabel }: { client: Client; wsLabel: Record<string, string> }) {
   const steps = [
     { title: 'Assign Documents', desc: 'Review the requested checklist and assign each document to yourself or a team member who will upload it.' },
+    { title: 'Required Information', desc: 'Complete any short forms needed by your advisor tools, such as websites, profiles, and competitor names.' },
     { title: 'Collection', desc: 'Upload the required documents, including the valuation materials highlighted by your Cantara team.' },
     { title: 'Review', desc: 'Your advisor team will review materials and follow up through the chat button in the bottom right corner.' },
   ]
@@ -907,6 +913,325 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
 }
 
 // ── Collection Tab ────────────────────────────────────────────────────────────
+type ClientPortalFormQuestion = {
+  id: string
+  fieldKey: string
+  label: string
+  description?: string | null
+  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number'
+  placeholder?: string | null
+  required: boolean
+  options?: string[] | null
+  groupKey?: string | null
+  groupLabel?: string | null
+}
+
+const STRUCTURED_FORM_COLUMNS: Record<string, Array<{ key: string; label: string; placeholder?: string }>> = {
+  professionalAdvisorsList: [
+    { key: 'role', label: 'Role', placeholder: 'Accountant' },
+    { key: 'name', label: 'Name', placeholder: 'Rex John' },
+    { key: 'company', label: 'Company', placeholder: 'Rex Dog Hotel' },
+    { key: 'email', label: 'Email', placeholder: 'email@example.com' },
+    { key: 'phone', label: 'Phone', placeholder: '555-123-4567' },
+    { key: 'willing', label: 'Willing', placeholder: 'yes/no/unknown' },
+    { key: 'notes', label: 'Notes', placeholder: 'Context' },
+  ],
+  vendorDirectoryList: [
+    { key: 'name', label: 'Tool name', placeholder: 'Gingr' },
+    { key: 'vendor', label: 'Vendor', placeholder: 'Gingr' },
+    { key: 'category', label: 'Category', placeholder: 'Booking/POS' },
+    { key: 'annualCost', label: 'Annual cost', placeholder: '3600' },
+    { key: 'contractStatus', label: 'Contract status', placeholder: 'Active' },
+    { key: 'transferable', label: 'Transferable', placeholder: 'yes/no/unknown' },
+    { key: 'loginAccess', label: 'Login access', placeholder: 'Owner Only' },
+    { key: 'notes', label: 'Notes', placeholder: 'Context' },
+  ],
+}
+
+function parsePipeRows(value: string, fieldKey: string): Record<string, string>[] {
+  const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
+  return String(value || '')
+    .replace(/\\n/g, '\n')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const parts = line.split('|').map(part => part.trim())
+      return columns.reduce<Record<string, string>>((row, column, index) => {
+        row[column.key] = parts[index] ?? ''
+        return row
+      }, {})
+    })
+}
+
+function serializePipeRows(rows: Record<string, string>[], fieldKey: string): string {
+  const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
+  // Do not drop all-whitespace lines — empty rows must round-trip so "Add Row" works before any cell is filled.
+  return rows.map(row => columns.map(column => row[column.key] ?? '').join(' | ')).join('\n')
+}
+
+function StructuredRowsInput({
+  question,
+  value,
+  onChange,
+  onUpload,
+  extracting,
+}: {
+  question: ClientPortalFormQuestion
+  value: string
+  onChange: (value: string) => void
+  onUpload: (file: File | null) => void
+  extracting: boolean
+}) {
+  const columns = STRUCTURED_FORM_COLUMNS[question.fieldKey] ?? []
+  const rows = parsePipeRows(value, question.fieldKey)
+  const visibleRows = rows.length ? rows : [columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})]
+
+  function updateCell(rowIndex: number, key: string, nextValue: string) {
+    const next = [...visibleRows]
+    next[rowIndex] = { ...next[rowIndex], [key]: nextValue }
+    onChange(serializePipeRows(next, question.fieldKey))
+  }
+
+  function addRow() {
+    onChange(serializePipeRows([...visibleRows, columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})], question.fieldKey))
+  }
+
+  function removeRow(index: number) {
+    onChange(serializePipeRows(visibleRows.filter((_, rowIndex) => rowIndex !== index), question.fieldKey))
+  }
+
+  return (
+    <div className="mt-2 space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          id={`upload-${question.fieldKey}`}
+          type="file"
+          accept=".txt,.md,text/plain,text/markdown"
+          className="hidden"
+          onChange={e => onUpload(e.target.files?.[0] ?? null)}
+        />
+        <label
+          htmlFor={`upload-${question.fieldKey}`}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          {extracting ? 'Extracting...' : 'Upload TXT transcript to auto-fill'}
+        </label>
+        <button
+          type="button"
+          onClick={addRow}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Row
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full min-w-[980px] text-xs">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              {columns.map(column => <th key={column.key} className="px-3 py-2 text-left font-semibold">{column.label}</th>)}
+              <th className="w-12 px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {visibleRows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {columns.map(column => (
+                  <td key={column.key} className="px-2 py-2">
+                    <input
+                      value={row[column.key] ?? ''}
+                      onChange={e => updateCell(rowIndex, column.key, e.target.value)}
+                      placeholder={column.placeholder}
+                      className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </td>
+                ))}
+                <td className="px-2 py-2 text-right">
+                  <button type="button" onClick={() => removeRow(rowIndex)} className="rounded-md p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function AgentInformationTab({ clientId }: { clientId: string }) {
+  const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
+  const [formResponses, setFormResponses] = useState<Record<string, string>>({})
+  const [savingFormResponses, setSavingFormResponses] = useState(false)
+  const [extractingField, setExtractingField] = useState<string | null>(null)
+  const [formSaved, setFormSaved] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadFormQuestions() {
+      try {
+        const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(clientId)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setFormQuestions(data.questions ?? [])
+        setFormResponses(data.responses ?? {})
+      } catch {
+        if (!cancelled) setFormQuestions([])
+      }
+    }
+    void loadFormQuestions()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  function updateFormResponse(fieldKey: string, value: string) {
+    setFormResponses(prev => ({ ...prev, [fieldKey]: value }))
+    setFormError('')
+  }
+
+  async function saveFormResponses() {
+    const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
+    if (missing.length) {
+      setFormError(`Please complete required fields: ${missing.slice(0, 3).map(q => q.label).join(', ')}${missing.length > 3 ? '...' : ''}`)
+      return
+    }
+    setSavingFormResponses(true)
+    setFormSaved(false)
+    setFormError('')
+    try {
+      const res = await fetch('/api/client-form-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, responses: formResponses }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setFormSaved(true)
+      setTimeout(() => setFormSaved(false), 2000)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not save information.')
+    } finally {
+      setSavingFormResponses(false)
+    }
+  }
+
+  async function handleTranscriptUpload(question: ClientPortalFormQuestion, file: File | null) {
+    if (!file) return
+    setExtractingField(question.fieldKey)
+    setFormError('')
+    try {
+      const transcript = await file.text()
+      const res = await fetch('/api/client-form-questions/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fieldKey: question.fieldKey, transcript }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      updateFormResponse(question.fieldKey, data.text ?? transcript)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not extract the uploaded transcript.')
+    } finally {
+      setExtractingField(null)
+    }
+  }
+
+  const groupedQuestions = formQuestions.reduce<Record<string, ClientPortalFormQuestion[]>>((acc, question) => {
+    const key = question.groupLabel || 'Business Information'
+    acc[key] = [...(acc[key] ?? []), question]
+    return acc
+  }, {})
+
+  if (!formQuestions.length) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-sm text-slate-500">
+        No extra form information is required for the selected workstream right now.
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100">
+        <h4 className="text-sm font-semibold text-slate-700">Required Information</h4>
+        <p className="text-xs text-slate-500 mt-1">
+          Complete these fields once. Cantara uses the saved answers to prefill related advisor tools.
+        </p>
+      </div>
+      <div className="p-5 space-y-5">
+        {Object.entries(groupedQuestions).map(([groupLabel, questions]) => (
+          <div key={groupLabel} className="space-y-3">
+            <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{groupLabel}</h5>
+            <div className="grid gap-3 md:grid-cols-2">
+              {questions.map(question => {
+                const commonClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
+                const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
+                // Do not wrap structured tables in <label>: first labelable descendant would be the hidden file input,
+                // so clicks (e.g. "Add Row") can incorrectly open the file picker (HTML label activation behavior).
+                const Shell = structured ? 'div' : 'label'
+                const shellClass = (question.inputType === 'textarea' || structured) ? 'md:col-span-2' : ''
+                return (
+                  <Shell key={question.id} className={shellClass}>
+                    <span className="text-xs font-semibold text-slate-500">
+                      {question.label}
+                      {question.required && <span className="text-amber-600"> *</span>}
+                    </span>
+                    {question.description && <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>}
+                    {structured ? (
+                      <StructuredRowsInput
+                        question={question}
+                        value={formResponses[question.fieldKey] ?? ''}
+                        onChange={value => updateFormResponse(question.fieldKey, value)}
+                        onUpload={file => void handleTranscriptUpload(question, file)}
+                        extracting={extractingField === question.fieldKey}
+                      />
+                    ) : question.inputType === 'textarea' ? (
+                      <>
+                        <textarea
+                          value={formResponses[question.fieldKey] ?? ''}
+                          onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                          placeholder={question.placeholder ?? ''}
+                          className={`${commonClass} mt-1 min-h-[84px] resize-y`}
+                        />
+                      </>
+                    ) : question.inputType === 'select' ? (
+                      <select
+                        value={formResponses[question.fieldKey] ?? ''}
+                        onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                        className={`${commonClass} mt-1 bg-white`}
+                      >
+                        <option value="">Select...</option>
+                        {(question.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
+                        value={formResponses[question.fieldKey] ?? ''}
+                        onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                        placeholder={question.placeholder ?? ''}
+                        className={`${commonClass} mt-1`}
+                      />
+                    )}
+                  </Shell>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+        {formError && <p className="text-xs text-red-600">{formError}</p>}
+        <div className="flex items-center gap-3">
+          <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
+            {savingFormResponses ? 'Saving...' : 'Save Information'}
+          </Button>
+          {formSaved && <span className="text-xs text-emerald-600">Saved</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
@@ -914,10 +1239,70 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
   clientId: string
   uploaderEmail: string
-  sectionSubmissions: Record<string, { submittedAt: string }>
+  sectionSubmissions: Record<string, any>
   onSubmitSection: (sectionId: string) => Promise<void>
   submittingSectionId: string | null
 }) {
+  const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
+  const [formResponses, setFormResponses] = useState<Record<string, string>>({})
+  const [savingFormResponses, setSavingFormResponses] = useState(false)
+  const [formSaved, setFormSaved] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadFormQuestions() {
+      try {
+        const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(clientId)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setFormQuestions(data.questions ?? [])
+        setFormResponses(data.responses ?? {})
+      } catch {
+        if (!cancelled) setFormQuestions([])
+      }
+    }
+    void loadFormQuestions()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  function updateFormResponse(fieldKey: string, value: string) {
+    setFormResponses(prev => ({ ...prev, [fieldKey]: value }))
+    setFormError('')
+  }
+
+  async function saveFormResponses() {
+    const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
+    if (missing.length) {
+      setFormError(`Please complete required fields: ${missing.slice(0, 3).map(q => q.label).join(', ')}${missing.length > 3 ? '...' : ''}`)
+      return
+    }
+    setSavingFormResponses(true)
+    setFormSaved(false)
+    setFormError('')
+    try {
+      const res = await fetch('/api/client-form-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, responses: formResponses }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setFormSaved(true)
+      setTimeout(() => setFormSaved(false), 2000)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not save information.')
+    } finally {
+      setSavingFormResponses(false)
+    }
+  }
+
+  const groupedQuestions = formQuestions.reduce<Record<string, ClientPortalFormQuestion[]>>((acc, question) => {
+    const key = question.groupLabel || 'Business Information'
+    acc[key] = [...(acc[key] ?? []), question]
+    return acc
+  }, {})
+
   const renderSectionFooter = (sectionId: string, totalCount: number, uploadedCount: number) => {
     const isSubmitted = Boolean(sectionSubmissions[sectionId])
     const canSubmit = totalCount > 0 && uploadedCount === totalCount
@@ -958,6 +1343,69 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
       {/* QuickBooks integration is temporarily hidden from the client Collection UI until it is tested.
           Do not delete; re-enable this card when QuickBooks is ready for client use. */}
       {/* <QuickBooksConnectCard clientId={clientId} /> */}
+      {false && formQuestions.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <h4 className="text-sm font-semibold text-slate-700">Required Information</h4>
+            <p className="text-xs text-slate-500 mt-1">
+              Complete these fields once. Cantara uses the saved answers to prefill related advisor tools.
+            </p>
+          </div>
+          <div className="p-5 space-y-5">
+            {Object.entries(groupedQuestions).map(([groupLabel, questions]) => (
+              <div key={groupLabel} className="space-y-3">
+                <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{groupLabel}</h5>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {questions.map(question => {
+                    const commonClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
+                    return (
+                      <label key={question.id} className={question.inputType === 'textarea' ? 'md:col-span-2' : ''}>
+                        <span className="text-xs font-semibold text-slate-500">
+                          {question.label}
+                          {question.required && <span className="text-amber-600"> *</span>}
+                        </span>
+                        {question.description && <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>}
+                        {question.inputType === 'textarea' ? (
+                          <textarea
+                            value={formResponses[question.fieldKey] ?? ''}
+                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                            placeholder={question.placeholder ?? ''}
+                            className={`${commonClass} mt-1 min-h-[84px] resize-y`}
+                          />
+                        ) : question.inputType === 'select' ? (
+                          <select
+                            value={formResponses[question.fieldKey] ?? ''}
+                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                            className={`${commonClass} mt-1 bg-white`}
+                          >
+                            <option value="">Select...</option>
+                            {(question.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        ) : (
+                          <input
+                            type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
+                            value={formResponses[question.fieldKey] ?? ''}
+                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                            placeholder={question.placeholder ?? ''}
+                            className={`${commonClass} mt-1`}
+                          />
+                        )}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+            {formError && <p className="text-xs text-red-600">{formError}</p>}
+            <div className="flex items-center gap-3">
+              <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
+                {savingFormResponses ? 'Saving...' : 'Save Information'}
+              </Button>
+              {formSaved && <span className="text-xs text-emerald-600">Saved</span>}
+            </div>
+          </div>
+        </div>
+      )}
       {valuationDocs.length > 0 && (
         <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
           <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between">

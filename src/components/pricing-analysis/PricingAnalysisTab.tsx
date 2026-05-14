@@ -1,13 +1,9 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { useDropzone } from 'react-dropzone'
 import {
-  Upload,
   AlertTriangle,
-  CheckCircle,
   RefreshCw,
-  FileText,
   Save,
   Pencil,
   TrendingUp,
@@ -15,17 +11,9 @@ import {
   BarChart3,
 } from 'lucide-react'
 import { Card, Badge, cn } from '@/components/ui'
-import type { PricingAnalysisReport, ServicePricingComparison, PricingFlag } from '@/lib/pricing-analysis/types'
+import type { CompetitorPricingInput, CompetitorServicePricingDetail, PricingAnalysisReport, ServicePricingComparison, PricingFlag } from '@/lib/pricing-analysis/types'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildPricingAnalysisReportHtml } from '@/lib/report-export/build-pricing-analysis-report'
-
-const ACCEPTED_TYPES: Record<string, string[]> = {
-  'application/pdf': ['.pdf'],
-  'image/png': ['.png'],
-  'image/jpeg': ['.jpg', '.jpeg'],
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-  'application/vnd.ms-excel': ['.xls'],
-}
 
 const STATUS_COLORS: Record<string, { badge: 'red' | 'green' | 'blue' | 'slate'; label: string; className: string }> = {
   underpriced: { badge: 'red', label: 'Underpriced', className: 'bg-red-50 text-red-700 border-red-200' },
@@ -76,23 +64,33 @@ export default function PricingAnalysisTab({
   clientId: string
   clientName: string
 }) {
-  const [file, setFile] = useState<File | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<PricingAnalysisReport | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedBadge, setSavedBadge] = useState(false)
+  const [sellerWebsiteUrl, setSellerWebsiteUrl] = useState('')
+  const [competitors, setCompetitors] = useState<CompetitorPricingInput[]>(
+    Array.from({ length: 5 }, () => ({ name: '', websiteUrl: '' })),
+  )
+  const [savingInputs, setSavingInputs] = useState(false)
+  const [inputsSaved, setInputsSaved] = useState(false)
 
   // Load saved data on mount
   useEffect(() => {
     const loadSaved = async () => {
       try {
-        const res = await fetch(`/api/pricing-analysis?clientId=${encodeURIComponent(clientId)}`)
+        const res = await fetch(`/api/pricing-analysis?clientId=${encodeURIComponent(clientId)}&includePrefill=1`)
         if (res.ok) {
           const data = await res.json()
-          if (data && data.executiveSummary) {
-            setResult(data)
+          if (data?.report?.executiveSummary) {
+            setResult(data.report)
+          }
+          if (data?.prefill) {
+            setSellerWebsiteUrl(data.prefill.sellerWebsiteUrl ?? '')
+            const prefillCompetitors = [...(data.prefill.competitors ?? [])].slice(0, 5)
+            setCompetitors(Array.from({ length: 5 }, (_, index) => prefillCompetitors[index] ?? { name: '', websiteUrl: '' }))
           }
         }
       } catch { /* ignore */ }
@@ -100,38 +98,26 @@ export default function PricingAnalysisTab({
     loadSaved()
   }, [clientId])
 
-  const onDrop = useCallback((accepted: File[]) => {
-    if (accepted.length > 0) {
-      setFile(accepted[0])
-      setError(null)
-    }
-  }, [])
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: ACCEPTED_TYPES,
-    maxFiles: 1,
-    multiple: false,
-  })
-
   const handleAnalyze = async () => {
-    if (!file) return
+    const completeCompetitors = competitors.filter(c => c.name.trim() && c.websiteUrl.trim())
+    if (!sellerWebsiteUrl.trim()) {
+      setError('Seller website URL is required.')
+      return
+    }
+    if (completeCompetitors.length !== 5) {
+      setError('All 5 competitor names and websites are required.')
+      return
+    }
     setAnalyzing(true)
     setError(null)
     try {
-      const buffer = await file.arrayBuffer()
-      const base64 = btoa(
-        new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ''),
-      )
-
       const res = await fetch('/api/pricing-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientId,
-          fileName: file.name,
-          base64,
-          mediaType: file.type || 'application/pdf',
+          sellerWebsiteUrl: sellerWebsiteUrl.trim(),
+          competitors: completeCompetitors,
         }),
       })
       if (!res.ok) {
@@ -148,7 +134,6 @@ export default function PricingAnalysisTab({
   }
 
   const handleReset = async () => {
-    setFile(null)
     setResult(null)
     setError(null)
     setEditMode(false)
@@ -184,10 +169,50 @@ export default function PricingAnalysisTab({
     setResult({ ...result, serviceComparisons: comparisons })
   }
 
+  const updateCompetitor = (index: number, field: keyof CompetitorPricingInput, value: string) => {
+    const next = [...competitors]
+    next[index] = { ...next[index], [field]: value }
+    setCompetitors(next)
+  }
+
+  const saveCompetitorInputs = async () => {
+    setSavingInputs(true)
+    setInputsSaved(false)
+    setError(null)
+    try {
+      const res = await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'competitorPricingInputs',
+          data: {
+            sellerWebsiteUrl: sellerWebsiteUrl.trim(),
+            competitors: competitors.filter(c => c.name.trim() || c.websiteUrl.trim()),
+            updatedAt: new Date().toISOString(),
+          },
+        }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      setInputsSaved(true)
+      setTimeout(() => setInputsSaved(false), 2000)
+    } catch (err: any) {
+      setError(err.message || 'Save failed')
+    } finally {
+      setSavingInputs(false)
+    }
+  }
+
   const updateFlag = (index: number, field: keyof PricingFlag, value: string) => {
     if (!result) return
     const flags = [...result.flags]
     flags[index] = { ...flags[index], [field]: value }
+    setResult({ ...result, flags })
+  }
+
+  const removeFlag = (index: number) => {
+    if (!result) return
+    const flags = [...result.flags]
+    flags.splice(index, 1)
     setResult({ ...result, flags })
   }
 
@@ -210,6 +235,13 @@ export default function PricingAnalysisTab({
     setResult({ ...result, recommendations: recs })
   }
 
+  const chartRows = (details: CompetitorServicePricingDetail[]) =>
+    details
+      .filter(item => item.normalizedHourlyPrice !== null && Number.isFinite(item.normalizedHourlyPrice))
+      .slice(0, 14)
+
+  const maxHourly = result ? Math.max(1, ...chartRows(result.competitorServiceDetails ?? []).map(item => item.normalizedHourlyPrice ?? 0)) : 1
+
   // ── Results view ────────────────────────────────────────────────────────────
   if (result) {
     return (
@@ -217,7 +249,7 @@ export default function PricingAnalysisTab({
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
+            <h2 className="text-lg font-semibold text-slate-800">Competitor Pricing Analysis</h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {clientName} &mdash; {result.competitorsAnalyzed} competitors analyzed &mdash; Generated{' '}
               {new Date(result.generatedAt).toLocaleString()}
@@ -255,7 +287,7 @@ export default function PricingAnalysisTab({
             )}
             <ExportReportButton
               html={buildPricingAnalysisReportHtml(result, clientName)}
-              fileName={`pricing-analysis-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+              fileName={`competitor-pricing-analysis-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
               label="Export PDF"
             />
             <button
@@ -327,6 +359,69 @@ export default function PricingAnalysisTab({
         </Card>
 
         {/* Service Pricing Comparison Table */}
+        {(result.competitorServiceDetails ?? []).length > 0 && (
+          <Card className="overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-slate-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                Competitor Service Inventory ({result.competitorServiceDetails.length})
+              </h3>
+            </div>
+            {chartRows(result.competitorServiceDetails).length > 0 && (
+              <div className="p-5 border-b border-slate-100">
+                <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Normalized Hourly Price Chart</h4>
+                <div className="space-y-2">
+                  {chartRows(result.competitorServiceDetails).map((item, index) => (
+                    <div key={`${item.competitorName}-${item.serviceName}-${index}`} className="grid grid-cols-[220px_1fr_70px] items-center gap-3 text-xs">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-slate-700">{item.serviceName}</p>
+                        <p className="truncate text-slate-400">{item.competitorName}</p>
+                      </div>
+                      <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-amber-500"
+                          style={{ width: `${Math.max(4, ((item.normalizedHourlyPrice ?? 0) / maxHourly) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-right font-semibold text-slate-700">{item.normalizedPriceLabel}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50">
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Competitor</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Service</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Category</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Listed Price</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Basis</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">$/Hr</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Comparable To</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.competitorServiceDetails.map((item, i) => (
+                    <tr key={i} className="border-b border-slate-50 align-top">
+                      <td className="px-4 py-2.5 font-medium text-slate-800">{item.competitorName}</td>
+                      <td className="px-4 py-2.5 text-slate-700">{item.serviceName}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{item.serviceCategory}</td>
+                      <td className="px-4 py-2.5 text-slate-700">{item.listedPrice}</td>
+                      <td className="px-4 py-2.5 text-slate-600 min-w-[180px]">{item.serviceBasis}</td>
+                      <td className="px-4 py-2.5 font-semibold text-slate-700">{item.normalizedPriceLabel}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{item.comparableToSellerService}</td>
+                      <td className="px-4 py-2.5 text-slate-500 min-w-[220px]">{item.notes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
         <Card className="overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-slate-400" />
@@ -339,8 +434,11 @@ export default function PricingAnalysisTab({
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/50">
                   <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Service</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Seller Price</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Market Avg</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Seller Basis</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Seller Listed</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Seller Normalized</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Competitor Basis</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Avg Across Competitors</th>
                   <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Range</th>
                   <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Variance</th>
                   <th className="text-center px-4 py-2.5 font-semibold text-slate-500">Status</th>
@@ -361,8 +459,29 @@ export default function PricingAnalysisTab({
                       </td>
                       <td className="px-4 py-2.5">
                         <EditableCell
+                          value={svc.sellerServiceBasis ?? ''}
+                          onChange={v => updateComparison(i, 'sellerServiceBasis', v)}
+                          editMode={editMode}
+                        />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <EditableCell
                           value={svc.sellerPrice}
                           onChange={v => updateComparison(i, 'sellerPrice', v)}
+                          editMode={editMode}
+                        />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <EditableCell
+                          value={svc.sellerNormalizedPrice ?? ''}
+                          onChange={v => updateComparison(i, 'sellerNormalizedPrice', v)}
+                          editMode={editMode}
+                        />
+                      </td>
+                      <td className="px-4 py-2.5 min-w-[180px]">
+                        <EditableCell
+                          value={svc.competitorServiceBasis ?? ''}
+                          onChange={v => updateComparison(i, 'competitorServiceBasis', v)}
                           editMode={editMode}
                         />
                       </td>
@@ -444,6 +563,12 @@ export default function PricingAnalysisTab({
                   ) : (
                     <span className="text-xs font-semibold text-slate-800">{flag.title}</span>
                   )}
+                  <button
+                    onClick={() => removeFlag(i)}
+                    className="ml-auto rounded border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-white"
+                  >
+                    Remove
+                  </button>
                 </div>
                 {editMode ? (
                   <input
@@ -459,7 +584,7 @@ export default function PricingAnalysisTab({
           </div>
         </Card>
 
-        {/* Recommendations */}
+        {/* Recommendations hidden per product direction. Keep code for quick restore.
         <Card className="p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">Recommendations</h3>
@@ -492,7 +617,7 @@ export default function PricingAnalysisTab({
               </li>
             ))}
           </ol>
-        </Card>
+        </Card> */}
       </div>
     )
   }
@@ -501,44 +626,48 @@ export default function PricingAnalysisTab({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
+        <h2 className="text-lg font-semibold text-slate-800">Competitor Pricing Analysis</h2>
         <p className="text-xs text-slate-400 mt-0.5">
-          Upload the seller&apos;s current pricing schedule to compare against local competitor pricing data for {clientName}
+          Compare {clientName} pricing against exactly 5 named competitors using seller and competitor websites.
         </p>
         <p className="text-xs text-slate-400 mt-1">
-          Competitor pricing data is automatically loaded from the Competitor Analysis agent.
+          Competitors are prefilled from Competitor Analysis or client collection inputs when available.
         </p>
       </div>
 
-      {/* Dropzone */}
-      <div
-        {...getRootProps()}
-        className={cn(
-          'border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors',
-          isDragActive
-            ? 'border-amber-400 bg-amber-50/50'
-            : file
-              ? 'border-emerald-300 bg-emerald-50/30'
-              : 'border-slate-200 hover:border-slate-300 bg-slate-50/50',
-        )}
-      >
-        <input {...getInputProps()} />
-        {file ? (
-          <div className="flex flex-col items-center gap-2">
-            <FileText className="w-8 h-8 text-emerald-500" />
-            <p className="text-sm font-medium text-slate-700">{file.name}</p>
-            <p className="text-xs text-slate-400">Click or drag to replace</p>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <Upload className="w-8 h-8 text-slate-300" />
-            <p className="text-sm text-slate-500">
-              {isDragActive ? 'Drop file here...' : 'Drag & drop a pricing schedule, or click to browse'}
-            </p>
-            <p className="text-xs text-slate-400">PDF, PNG, JPG, XLSX, or XLS</p>
-          </div>
-        )}
-      </div>
+      <Card className="p-5">
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Seller Website</label>
+        <input
+          value={sellerWebsiteUrl}
+          onChange={e => setSellerWebsiteUrl(e.target.value)}
+          placeholder="https://seller-website.com/pricing"
+          className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+        />
+      </Card>
+
+      <Card className="p-5">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Competitors (all 5 required)</h3>
+        <div className="space-y-3">
+          {competitors.map((competitor, index) => (
+            <div key={index} className="grid gap-3 md:grid-cols-[1fr_1.4fr]">
+              <input
+                value={competitor.name}
+                onChange={e => updateCompetitor(index, 'name', e.target.value)}
+                placeholder={`Competitor ${index + 1} name`}
+                required
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+              <input
+                value={competitor.websiteUrl}
+                onChange={e => updateCompetitor(index, 'websiteUrl', e.target.value)}
+                placeholder="https://competitor.com/pricing"
+                required
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+          ))}
+        </div>
+      </Card>
 
       {error && (
         <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-4 py-3 rounded-lg">
@@ -549,10 +678,10 @@ export default function PricingAnalysisTab({
 
       <button
         onClick={handleAnalyze}
-        disabled={!file || analyzing}
+        disabled={analyzing || !sellerWebsiteUrl.trim() || competitors.filter(c => c.name.trim() && c.websiteUrl.trim()).length !== 5}
         className={cn(
           'flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold transition-all w-full md:w-auto',
-          file && !analyzing
+          !analyzing && sellerWebsiteUrl.trim() && competitors.filter(c => c.name.trim() && c.websiteUrl.trim()).length === 5
             ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-sm'
             : 'bg-slate-100 text-slate-400 cursor-not-allowed',
         )}
@@ -560,14 +689,22 @@ export default function PricingAnalysisTab({
         {analyzing ? (
           <>
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Analyzing Pricing...
+            Researching Competitor Pricing...
           </>
         ) : (
           <>
             <BarChart3 className="w-4 h-4" />
-            Analyze Pricing
+            Run Competitor Pricing Analysis
           </>
         )}
+      </button>
+      <button
+        onClick={saveCompetitorInputs}
+        disabled={savingInputs}
+        className="ml-3 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+      >
+        <Save className="w-4 h-4" />
+        {savingInputs ? 'Saving...' : inputsSaved ? 'Saved' : 'Save Inputs'}
       </button>
     </div>
   )

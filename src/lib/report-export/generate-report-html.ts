@@ -62,7 +62,7 @@ export function generateReportHtml(config: ReportConfig): string {
     ${idx > 0 ? '<div class="section-divider"></div>' : ''}
     <div class="report-section">
       <h2>${escapeHtml(section.title)}</h2>
-      ${section.content}
+      ${renderInlineMarkdown(section.content)}
     </div>`).join('\n')
 
   return `<!DOCTYPE html>
@@ -521,4 +521,8 @@ function escapeHtml(str: string | number | null | undefined): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+function renderInlineMarkdown(html: string): string {
+  return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
 }

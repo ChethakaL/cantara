@@ -153,6 +153,12 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   useEffect(() => {
     const loadSaved = async () => {
       try {
+        const inputsRes = await fetch(`/api/client-data/${clientId}?section=facilityReviewInputs`)
+        if (inputsRes.ok) {
+          const inputs = await inputsRes.json()
+          if (inputs?.location) setLocation(inputs.location)
+          if (inputs?.notes) setNotes(inputs.notes)
+        }
         const res = await fetch(`/api/client-data/${clientId}?section=facilityReview`)
         if (res.ok) {
           const data = await res.json()

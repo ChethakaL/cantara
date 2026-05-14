@@ -1191,6 +1191,25 @@ export default function CompetitorAnalysisTab({
     async function loadSavedReport() {
       setInitializing(true);
       try {
+        const formRes = await fetch(`/api/client-data/${clientId}?section=agentFormResponses`);
+        if (formRes.ok) {
+          const savedInputs = await formRes.json();
+          if (!cancelled && savedInputs) {
+            setForm((current) => ({
+              ...current,
+              websiteUrl: savedInputs.businessWebsite || current.websiteUrl,
+              businessAddress: savedInputs.businessAddress || current.businessAddress,
+              businessCategory: savedInputs.businessCategory || current.businessCategory,
+              manualCompetitors: (Array.from({ length: 5 }, (_, index): ManualCompetitorEntry => ({
+                name: savedInputs[`competitor${index + 1}Name`] || '',
+                address: '',
+                websiteUrl: savedInputs[`competitor${index + 1}Website`] || '',
+              })).filter(item => item.name || item.websiteUrl) as ManualCompetitorEntry[])
+                .concat(current.manualCompetitors ?? [])
+                .slice(0, 5),
+            }));
+          }
+        }
         const analyses = await getCompetitorAnalyses(clientId);
         if (cancelled) return;
         const latest = analyses[0] ?? null;
