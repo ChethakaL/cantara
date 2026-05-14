@@ -160,7 +160,8 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
     return (
       <div className="space-y-6">
         <Card className="p-5">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
               <FileText className="w-5 h-5 text-amber-600" />
             </div>
@@ -169,6 +170,15 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
               <p className="text-xs text-slate-400 mt-0.5">Generate a professional investment teaser from client data across all agents.</p>
             </div>
           </div>
+          <a
+            href="/samples/Cantara_Deal_Teaser_v2.docx"
+            download="Cantara_Deal_Teaser_v2.docx"
+            className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-cantara-beige text-slate-700 hover:bg-cantara-beige/50 px-3 py-1.5 text-xs bg-white"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download sample teaser
+          </a>
+        </div>
         </Card>
 
         {error && (
@@ -301,7 +311,17 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
               <FileText className="w-4 h-4 text-amber-600" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-800">Deal Teaser — Edit & Review</h3>
+              <div className="flex items-center gap-3">
+                <h3 className="text-sm font-semibold text-slate-800">Deal Teaser — Edit & Review</h3>
+                <a
+                  href="/samples/Cantara_Deal_Teaser_v2.docx"
+                  download="Cantara_Deal_Teaser_v2.docx"
+                  className="flex items-center gap-1.5 text-[10px] font-medium text-amber-600 hover:text-amber-700 hover:underline"
+                >
+                  <Download className="w-3 h-3" />
+                  Download sample teaser
+                </a>
+              </div>
               <p className="text-xs text-slate-400">Review the auto-filled data below. Edit any fields, then generate the teaser.</p>
             </div>
           </div>

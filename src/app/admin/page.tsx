@@ -362,40 +362,6 @@ export default function AdminDashboard() {
             </Button>
           </div>
 
-          <Card className="p-5 mb-8 border-slate-200/80">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-start gap-4 min-w-0">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-slate-100 border border-slate-200">
-                  <FileText className="w-5 h-5 text-slate-600" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-semibold text-slate-800">Sample deal teaser &amp; CIM (reference)</h3>
-                  <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
-                    Client-provided Word references for layout and copy.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <a
-                  href="/samples/Cantara_Deal_Teaser_v2.docx"
-                  download="Cantara_Deal_Teaser_v2.docx"
-                  className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-cantara-beige text-slate-700 hover:bg-cantara-beige/50 px-3 py-1.5 text-xs"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Download sample teaser
-                </a>
-                <a
-                  href="/samples/Cantara_CIM_v3.docx"
-                  download="Cantara_CIM_v3.docx"
-                  className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-cantara-beige text-slate-700 hover:bg-cantara-beige/50 px-3 py-1.5 text-xs"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Download sample CIM
-                </a>
-              </div>
-            </div>
-          </Card>
-
           <Card className="p-5 mb-8 border-cantara-gold/20">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-start gap-4">

@@ -202,12 +202,12 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               </div>
             </div>
             <a
-              href="/brand/Cantara_CIM_Reference_Template.pdf"
-              download
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors"
+              href="/samples/Cantara_CIM_v3.docx"
+              download="Cantara_CIM_v3.docx"
+              className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-cantara-beige text-slate-700 hover:bg-cantara-beige/50 px-3 py-1.5 text-xs bg-white"
             >
               <Download className="w-3.5 h-3.5" />
-              CIM Reference Template
+              Download sample CIM
             </a>
           </div>
         </Card>
@@ -352,7 +352,17 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <FileText className="w-4 h-4 text-amber-600" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-800">CIM — Edit & Review</h3>
+              <div className="flex items-center gap-3">
+                <h3 className="text-sm font-semibold text-slate-800">CIM — Edit & Review</h3>
+                <a
+                  href="/samples/Cantara_CIM_v3.docx"
+                  download="Cantara_CIM_v3.docx"
+                  className="flex items-center gap-1.5 text-[10px] font-medium text-amber-600 hover:text-amber-700 hover:underline"
+                >
+                  <Download className="w-3 h-3" />
+                  Download sample CIM
+                </a>
+              </div>
               <p className="text-xs text-slate-400">Review the auto-filled data below. Edit any fields, then generate the CIM.</p>
             </div>
           </div>
