@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload,
@@ -33,6 +33,7 @@ import {
   formatPricingChartAxisLabel,
   PRICING_CHART_LINE_COLORS,
 } from '@/lib/pricing-vertical/pricing-trend-chart'
+import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
   'application/pdf': ['.pdf'],
@@ -99,7 +100,15 @@ export default function PricingByVerticalTab({
   const [reanalyzeNotice, setReanalyzeNotice] = useState<string | null>(null)
   const [websiteUrl, setWebsiteUrl] = useState('')
 
-  // Load saved data on mount
+  const enrichedResult = useMemo(
+    () => (result ? enrichVerticalSummariesInReport(result) : null),
+    [result],
+  )
+
+  const verticalSummariesView = editMode
+    ? (result?.verticalSummaries ?? [])
+    : (enrichedResult?.verticalSummaries ?? result?.verticalSummaries ?? [])
+
   useEffect(() => {
     const loadSaved = async () => {
       try {
@@ -380,7 +389,7 @@ export default function PricingByVerticalTab({
               </div>
             )}
             <ExportReportButton
-              html={buildPricingVerticalReportHtml(result, clientName)}
+              html={buildPricingVerticalReportHtml(enrichedResult ?? result, clientName)}
               fileName={`pricing-vertical-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
               label="Export PDF"
             />
@@ -482,24 +491,11 @@ export default function PricingByVerticalTab({
                 24-Month Service Pricing Grid ({result.pricingGrid?.length ?? 0})
               </h3>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={analyzing}
-                onClick={() => void handleReanalyze()}
-                className="text-xs"
-              >
-                <RefreshCw className={cn('w-3.5 h-3.5', analyzing && 'animate-spin')} />
-                Re-run analysis
-              </Button>
-              {editMode && (
-                <button onClick={addPricingRow} className="text-xs text-amber-600 hover:text-amber-800 font-medium">
-                  + Add Service
-                </button>
-              )}
-            </div>
+            {editMode && (
+              <button type="button" onClick={addPricingRow} className="text-xs text-amber-600 hover:text-amber-800 font-medium">
+                + Add Service
+              </button>
+            )}
           </div>
           {(() => {
             const periods = result.pricingPeriods ?? ['Current']
@@ -741,10 +737,10 @@ export default function PricingByVerticalTab({
         {/* Vertical Summaries — Cards */}
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">
-            Vertical Summaries ({result.verticalSummaries.length})
+            Vertical Summaries ({verticalSummariesView.length})
           </h3>
           <div className="grid gap-4 md:grid-cols-2">
-            {result.verticalSummaries.map((vs, i) => {
+            {verticalSummariesView.map((vs, i) => {
               const trendConfig = TREND_CONFIG[vs.trend] || TREND_CONFIG.unknown
               const TrendIcon = trendConfig.icon
               return (

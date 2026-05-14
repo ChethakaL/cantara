@@ -5,6 +5,7 @@ import type { PricingVerticalReport } from '@/lib/pricing-vertical/types'
 import type { ServicePricingRow } from '@/lib/pricing-vertical/types'
 import { researchWebsite } from '@/lib/competitor-analysis/website-research'
 import { collectPricingDocumentEvidence } from '@/lib/pricing-vertical/document-evidence'
+import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -49,7 +50,8 @@ export async function GET(req: NextRequest) {
     })
 
     const data = (client?.sectionSubmissions as Record<string, any>) ?? {}
-    return NextResponse.json(data.pricingVertical ?? null)
+    const raw = data.pricingVertical as PricingVerticalReport | null | undefined
+    return NextResponse.json(raw ? enrichVerticalSummariesInReport(raw) : null)
   } catch (error) {
     console.error('[pricing-vertical] GET error:', error)
     return new Response('Internal Server Error', { status: 500 })

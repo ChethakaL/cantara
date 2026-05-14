@@ -4,6 +4,8 @@ import type { PricingVerticalReport } from './types'
 import type { ServicePricingRow } from './types'
 import type { WebsiteResearchData } from '@/lib/competitor-analysis/types'
 import { safeParseModelJson } from '@/lib/pricing-vertical/parse-model-json'
+import { mergeVerticalSummariesForRerun, normalizeVerticalSummary } from '@/lib/pricing-vertical/normalize-vertical-summaries'
+import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
 
 function extractText(result: Anthropic.Messages.Message): string {
   return result.content
@@ -231,10 +233,13 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
   const parsed = safeParseModelJson(cleaned) as Record<string, unknown>
 
-  const stripRevenueShare = (r: PricingVerticalReport): PricingVerticalReport => ({
-    ...r,
-    verticalSummaries: (r.verticalSummaries ?? []).map((v) => ({ ...v, revenueShare: '' })),
-  })
+  const stripRevenueShare = (r: PricingVerticalReport): PricingVerticalReport =>
+    enrichVerticalSummariesInReport({
+      ...r,
+      verticalSummaries: (r.verticalSummaries ?? []).map((v) =>
+        normalizeVerticalSummary(v as unknown as Record<string, unknown>, v),
+      ),
+    })
 
   if (args.existingReport) {
     const ex = args.existingReport
@@ -251,9 +256,10 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
       currentPricingSource:
         (parsed.currentPricingSource as PricingVerticalReport['currentPricingSource']) ??
         ex.currentPricingSource,
-      verticalSummaries: Array.isArray(parsed.verticalSummaries)
-        ? (parsed.verticalSummaries as PricingVerticalReport['verticalSummaries'])
-        : ex.verticalSummaries,
+      verticalSummaries:
+        Array.isArray(parsed.verticalSummaries) && parsed.verticalSummaries.length > 0
+          ? mergeVerticalSummariesForRerun(ex.verticalSummaries, parsed.verticalSummaries)
+          : ex.verticalSummaries,
       executiveSummary:
         typeof parsed.executiveSummary === 'string' ? parsed.executiveSummary : ex.executiveSummary,
       overallTrend: typeof parsed.overallTrend === 'string' ? parsed.overallTrend : ex.overallTrend,
