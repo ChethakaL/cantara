@@ -56,14 +56,14 @@ export function buildFullDayNormalizedRows(report: PricingAnalysisReport): FullD
     for (const competitor of row.competitorPrices ?? []) {
       const competitorBasis = `${service} ${competitor.serviceBasis ?? ''}`
       competitors[competitor.name] = toFullDayPrice(
-        competitor.normalizedPrice || competitor.price,
+        competitor.price,
         competitorBasis,
       )
     }
 
     return {
       service,
-      sellerPrice: toFullDayPrice(row.sellerNormalizedPrice || row.sellerPrice, sellerBasis),
+      sellerPrice: toFullDayPrice(row.sellerPrice, sellerBasis),
       competitors,
     }
   })
