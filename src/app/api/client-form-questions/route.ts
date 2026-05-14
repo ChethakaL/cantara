@@ -39,7 +39,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<string, AgentSelection[]> = {
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent' },
     { agentId: 'digital_presence', agentName: 'Digital Presence Agent' },
     { agentId: 'facility_review', agentName: 'Facility Review Agent' },
-    { agentId: 'pricing_analysis', agentName: 'Competitor Pricing Analysis Agent' },
+    { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent' },
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent' },
     { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent' },
   ],

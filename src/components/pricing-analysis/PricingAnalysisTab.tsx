@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { Card, Badge, cn } from '@/components/ui'
 import type { CompetitorPricingInput, CompetitorServicePricingDetail, PricingAnalysisReport, ServicePricingComparison, PricingFlag } from '@/lib/pricing-analysis/types'
+import { buildFullDayNormalizedRows } from '@/lib/pricing-analysis/day-normalization'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildPricingAnalysisReportHtml } from '@/lib/report-export/build-pricing-analysis-report'
 
@@ -27,6 +28,18 @@ const SEVERITY_COLORS: Record<string, 'red' | 'gold' | 'green' | 'blue'> = {
   warning: 'gold',
   positive: 'green',
   informational: 'blue',
+}
+
+function daycareRows(report: PricingAnalysisReport) {
+  return (report.serviceComparisons ?? []).filter((item) =>
+    /daycare|day camp|half day|full day|hour|package/i.test(`${item.serviceCategory} ${item.serviceDetail ?? ''} ${item.sellerServiceBasis ?? ''}`),
+  )
+}
+
+function competitorNamesForMatrix(report: PricingAnalysisReport) {
+  const names = report.competitors.map((item) => item.name).filter(Boolean)
+  if (names.length) return names
+  return Array.from(new Set((report.competitorServiceDetails ?? []).map((item) => item.competitorName).filter(Boolean))).slice(0, 5)
 }
 
 // ── Editable Cell helper ────────────────────────────────────────────────────
@@ -70,7 +83,9 @@ export default function PricingAnalysisTab({
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedBadge, setSavedBadge] = useState(false)
+  const [rerunComplete, setRerunComplete] = useState(false)
   const [sellerWebsiteUrl, setSellerWebsiteUrl] = useState('')
+  const [sellerManualPricingText, setSellerManualPricingText] = useState('')
   const [competitors, setCompetitors] = useState<CompetitorPricingInput[]>(
     Array.from({ length: 5 }, () => ({ name: '', websiteUrl: '' })),
   )
@@ -89,6 +104,7 @@ export default function PricingAnalysisTab({
           }
           if (data?.prefill) {
             setSellerWebsiteUrl(data.prefill.sellerWebsiteUrl ?? '')
+            setSellerManualPricingText(data.prefill.sellerManualPricingText ?? '')
             const prefillCompetitors = [...(data.prefill.competitors ?? [])].slice(0, 5)
             setCompetitors(Array.from({ length: 5 }, (_, index) => prefillCompetitors[index] ?? { name: '', websiteUrl: '' }))
           }
@@ -117,6 +133,7 @@ export default function PricingAnalysisTab({
         body: JSON.stringify({
           clientId,
           sellerWebsiteUrl: sellerWebsiteUrl.trim(),
+          sellerManualPricingText: sellerManualPricingText.trim(),
           competitors: completeCompetitors,
         }),
       })
@@ -126,6 +143,9 @@ export default function PricingAnalysisTab({
       }
       const data: PricingAnalysisReport = await res.json()
       setResult(data)
+      setEditMode(false)
+      setRerunComplete(true)
+      setTimeout(() => setRerunComplete(false), 3500)
     } catch (err: any) {
       setError(err.message || 'Analysis failed')
     } finally {
@@ -187,6 +207,7 @@ export default function PricingAnalysisTab({
           section: 'competitorPricingInputs',
           data: {
             sellerWebsiteUrl: sellerWebsiteUrl.trim(),
+            sellerManualPricingText: sellerManualPricingText.trim(),
             competitors: competitors.filter(c => c.name.trim() || c.websiteUrl.trim()),
             updatedAt: new Date().toISOString(),
           },
@@ -242,6 +263,41 @@ export default function PricingAnalysisTab({
 
   const maxHourly = result ? Math.max(1, ...chartRows(result.competitorServiceDetails ?? []).map(item => item.normalizedHourlyPrice ?? 0)) : 1
 
+  const manualEvidencePanel = (
+    <Card className="p-5">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Manual Pricing Evidence</h3>
+      <p className="text-xs text-slate-500 mb-4">
+        If AI misses prices, paste copied website pricing text here. Run AI again and it will parse this text into the tables and charts.
+      </p>
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">Seller pricing text</label>
+          <textarea
+            value={sellerManualPricingText}
+            onChange={e => setSellerManualPricingText(e.target.value)}
+            placeholder={'Full Day $62\nHalf Day $39\n10 Day Package $490\n20 Day Package $969'}
+            rows={5}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+          />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {competitors.map((competitor, index) => (
+            <div key={`manual-${index}`}>
+              <label className="text-xs font-semibold text-slate-500">{competitor.name || `Competitor ${index + 1}`} pricing text</label>
+              <textarea
+                value={competitor.manualPricingText ?? ''}
+                onChange={e => updateCompetitor(index, 'manualPricingText', e.target.value)}
+                placeholder="Paste competitor pricing rows here..."
+                rows={4}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  )
+
   // ── Results view ────────────────────────────────────────────────────────────
   if (result) {
     return (
@@ -249,13 +305,18 @@ export default function PricingAnalysisTab({
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-800">Competitor Pricing Analysis</h2>
+            <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {clientName} &mdash; {result.competitorsAnalyzed} competitors analyzed &mdash; Generated{' '}
               {new Date(result.generatedAt).toLocaleString()}
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {rerunComplete && (
+              <span className="px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Analysis updated
+              </span>
+            )}
             <button
               onClick={() => setEditMode(e => !e)}
               className={cn(
@@ -268,6 +329,16 @@ export default function PricingAnalysisTab({
               <Pencil className="w-3.5 h-3.5" />
               {editMode ? 'Editing' : 'Edit'}
             </button>
+            {editMode && (
+              <button
+                onClick={handleAnalyze}
+                disabled={analyzing}
+                className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-70"
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5', analyzing && 'animate-spin')} />
+                {analyzing ? 'Updating analysis...' : 'Run AI Again'}
+              </button>
+            )}
             {editMode && (
               <div className="relative">
                 <button
@@ -305,6 +376,22 @@ export default function PricingAnalysisTab({
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>
+        )}
+
+        {editMode && manualEvidencePanel}
+
+        {analyzing && result && (
+          <Card className="p-5 border-amber-200 bg-amber-50">
+            <div className="flex items-center gap-3">
+              <RefreshCw className="w-4 h-4 text-amber-700 animate-spin" />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Re-running AI analysis</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Manual evidence is being parsed into the pricing tables, normalized matrix, charts, and report.
+                </p>
+              </div>
+            </div>
+          </Card>
         )}
 
         {/* Executive Summary */}
@@ -357,6 +444,88 @@ export default function PricingAnalysisTab({
             </>
           )}
         </Card>
+
+        {daycareRows(result).length > 0 && (
+          <Card className="overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-slate-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                Daycare Competitive Pricing Matrix
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-cyan-50">
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-600">Item</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">{result.businessName}</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Unit Price</th>
+                    {competitorNamesForMatrix(result).map((name) => (
+                      <th key={name} className="text-right px-4 py-2.5 font-semibold text-slate-600">{name}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {daycareRows(result).map((row, index) => {
+                    const competitorPrices = new Map(row.competitorPrices.map((price) => [price.name, price.normalizedPrice || price.price]))
+                    return (
+                      <tr key={`${row.serviceCategory}-${index}`} className="border-b border-slate-100">
+                        <td className="px-4 py-2.5 font-semibold text-slate-800">{row.serviceCategory}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">{row.sellerPrice || 'N/A'}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{row.sellerNormalizedPrice || 'N/A'}</td>
+                        {competitorNamesForMatrix(result).map((name) => (
+                          <td key={name} className="px-4 py-2.5 text-right bg-emerald-50 text-slate-800">
+                            {competitorPrices.get(name) ?? 'N/A'}
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        {buildFullDayNormalizedRows(result).length > 0 && (
+          <Card className="overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-slate-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                Full-Day Normalized Competitor Pricing
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-cyan-50">
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-600">Service</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">{result.businessName}</th>
+                    {competitorNamesForMatrix(result).map((name) => (
+                      <th key={name} className="text-right px-4 py-2.5 font-semibold text-slate-600">{name}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {buildFullDayNormalizedRows(result).map((row, index) => (
+                    <tr key={`${row.service}-${index}`} className="border-b border-slate-100">
+                      <td className="px-4 py-2.5 font-semibold text-slate-800">{row.service}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">{row.sellerPrice}</td>
+                      {competitorNamesForMatrix(result).map((name) => (
+                        <td key={name} className="px-4 py-2.5 text-right bg-emerald-50 text-slate-800">
+                          {row.competitors[name] ?? 'N/A'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-100 text-[11px] text-slate-500">
+              Half-day prices are doubled, hourly prices assume an 8-hour full day, and package prices are divided by the package day count.
+            </div>
+          </Card>
+        )}
 
         {/* Service Pricing Comparison Table */}
         {(result.competitorServiceDetails ?? []).length > 0 && (
@@ -626,7 +795,7 @@ export default function PricingAnalysisTab({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-800">Competitor Pricing Analysis</h2>
+            <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
         <p className="text-xs text-slate-400 mt-0.5">
           Compare {clientName} pricing against exactly 5 named competitors using seller and competitor websites.
         </p>
@@ -689,12 +858,12 @@ export default function PricingAnalysisTab({
         {analyzing ? (
           <>
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Researching Competitor Pricing...
+            Researching Competitive Pricing...
           </>
         ) : (
           <>
             <BarChart3 className="w-4 h-4" />
-            Run Competitor Pricing Analysis
+            Run Competitive Pricing Analysis
           </>
         )}
       </button>

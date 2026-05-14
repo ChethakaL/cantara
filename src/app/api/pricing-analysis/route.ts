@@ -10,8 +10,9 @@ export const dynamic = 'force-dynamic'
 function normalizeCompetitorInput(item: any): CompetitorPricingInput | null {
   const name = String(item?.name ?? '').trim()
   const websiteUrl = String(item?.websiteUrl ?? '').trim()
+  const manualPricingText = String(item?.manualPricingText ?? '').trim()
   if (!name || !websiteUrl) return null
-  return { name, websiteUrl }
+  return { name, websiteUrl, ...(manualPricingText ? { manualPricingText } : {}) }
 }
 
 function extractCompetitorsFromReport(parsed: any): CompetitorPricingInput[] {
@@ -54,6 +55,7 @@ export async function GET(req: NextRequest) {
       report: data.pricingAnalysis ?? null,
       prefill: {
         sellerWebsiteUrl: data.competitorPricingInputs?.sellerWebsiteUrl ?? '',
+        sellerManualPricingText: data.competitorPricingInputs?.sellerManualPricingText ?? '',
         competitors: manualCompetitors.length ? manualCompetitors : reportCompetitors,
       },
     })
@@ -65,7 +67,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, sellerWebsiteUrl, competitors } = await req.json()
+    const { clientId, sellerWebsiteUrl, sellerManualPricingText, competitors } = await req.json()
 
     if (!clientId) {
       return new Response('Missing required field: clientId', { status: 400 })
@@ -145,6 +147,15 @@ export async function POST(req: NextRequest) {
       businessCategory: clientProfile.businessCategory || 'pet resort',
       tavilyApiKey,
     })
+    const manualSellerEvidence = String(sellerManualPricingText || existing.competitorPricingInputs?.sellerManualPricingText || '').trim()
+    const sellerResearchWithManual = manualSellerEvidence
+      ? {
+          ...(sellerPricingResearch ?? {}),
+          websiteUrl: resolvedSellerWebsite,
+          manualPricingText: manualSellerEvidence,
+          pricePoints: [...(sellerPricingResearch?.pricePoints ?? []), `ADMIN PROVIDED SELLER PRICING:\n${manualSellerEvidence}`],
+        }
+      : sellerPricingResearch
     const researchedCompetitors = await Promise.all(competitorInputs.map(async (competitor) => ({
       ...competitor,
       research: await researchWebsite({
@@ -159,7 +170,7 @@ export async function POST(req: NextRequest) {
     const report = await analyzePricing({
       businessName: clientProfile.businessName,
       sellerWebsiteUrl: resolvedSellerWebsite,
-      sellerPricingResearch,
+      sellerPricingResearch: sellerResearchWithManual,
       competitors: competitorInputs,
       competitorData: {
         ...competitorData,
@@ -171,6 +182,7 @@ export async function POST(req: NextRequest) {
     existing.pricingAnalysis = report
     existing.competitorPricingInputs = {
       sellerWebsiteUrl: resolvedSellerWebsite,
+      sellerManualPricingText: manualSellerEvidence,
       competitors: competitorInputs,
       updatedAt: new Date().toISOString(),
     }

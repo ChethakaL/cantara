@@ -30,6 +30,7 @@ You will receive:
 1. Seller website pricing research from public web evidence
 2. Up to 5 named competitor websites and their pricing research
 3. Competitor pricing data extracted from the competitor analysis agent, when already available
+4. Optional admin-provided free-text pricing evidence copied from websites
 
 Your task:
 - Produce a very detailed competitor pricing analysis. Be specific about service variants, inclusions, duration, unit, and conditions.
@@ -59,6 +60,10 @@ Your task:
 - Write a concise executive summary (3-5 sentences)
 - Write a detailed revenue uplift summary explaining assumptions and uncertainty.
 - Provide 5-8 specific actionable recommendations, including exact service/rate changes where evidence supports it.
+- For daycare, produce a simple spreadsheet-style comparison in serviceComparisons: rows should include Day Price / Full Day, Half Day Price, Hourly Price when available, 10/20/40 day packages when available. Use N/A where a competitor has no evidence. This output should be useful even if only daycare has strong evidence.
+- Also make serviceComparisons usable for a full-day normalized table: every row is a service, every competitor price should include serviceBasis/normalizedPrice where possible. Normalize full day as: full-day daily price stays as-is, half-day x 2, hourly x 8 hours, packages divided by number of days. If normalization cannot be supported, leave that competitor N/A and explain in notes.
+- If seller pricing evidence is present in sellerPricingResearch.priceEvidence or pricePoints, do not say seller pricing is unavailable. Treat those extracted seller price points as seller services and compare where possible.
+- If admin-provided manualPricingText exists for the seller or a competitor, treat it as high-priority pricing evidence. Parse services, package quantities, prices, duration, and notes from that text even if website scraping is weak.
 
 Return ONLY valid JSON matching this exact structure (no markdown, no code fences):
 {

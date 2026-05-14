@@ -1,6 +1,7 @@
 export interface CompetitorPricingInput {
   name: string
   websiteUrl: string
+  manualPricingText?: string
 }
 
 export interface ServicePricingComparison {
