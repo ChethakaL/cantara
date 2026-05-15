@@ -1,9 +1,10 @@
 /**
- * WS2 valuation workbook PDF — same pipeline as lease analysis (`generateReportHtml`)
+ * WS2 valuation PDF — same pipeline as lease analysis (`generateReportHtml`)
  * and same **tables** as the on-screen workbook (Valuation + P&L tabs, then WS2-3–5 summaries).
+ * Cover title: **Valuation Report**; TTM Low/Mid/High cards appear first, then the valuation workbook grid.
  */
 
-import type { TtmAnalysisView, Ws2RecastView } from '@/lib/ttm-agent/types'
+import type { AnnualModelYear, TtmAnalysisView, Ws2RecastView } from '@/lib/ttm-agent/types'
 import { computeRevenueByVertical } from '@/lib/ttm-agent/ws3-revenue'
 import { computeBenchmarks } from '@/lib/ttm-agent/ws4-benchmarks'
 import { computeLaborAnalysis } from '@/lib/ttm-agent/ws5-labor'
@@ -65,6 +66,40 @@ function fmtPctSummary(v: number | null | undefined) {
 function fmtMultSummary(v: number | null | undefined) {
   if (typeof v !== 'number' || !Number.isFinite(v)) return 'n/a'
   return `${v.toFixed(1)}x`
+}
+
+/** Calendar month ranges for PDF section titles (V6). */
+function periodFootnote(analysis: TtmAnalysisView): string {
+  const bits: string[] = []
+  const ts = analysis.ttmSummary
+  if (ts?.startMonth && ts?.endMonth) {
+    bits.push(`LTM ${ts.startMonth}–${ts.endMonth}`)
+  }
+  for (const y of analysis.annualModel?.years ?? []) {
+    if (y.fiscalYear && y.periodStart && y.periodEnd) {
+      bits.push(`${y.fiscalYear}: ${y.periodStart}–${y.periodEnd}`)
+    } else if (y.fiscalYear) {
+      bits.push(y.fiscalYear)
+    }
+  }
+  return bits.join(' · ')
+}
+
+function sectionTitleWithPeriods(base: string, analysis: TtmAnalysisView): string {
+  const p = periodFootnote(analysis)
+  return p ? `${base} · ${p}` : base
+}
+
+function fyTableHeader(y: AnnualModelYear | undefined, fiscalFallback: string): string {
+  if (y?.fiscalYear && y.periodStart && y.periodEnd) {
+    return `${y.fiscalYear}\n${y.periodStart}–${y.periodEnd}`
+  }
+  return y?.fiscalYear ?? fiscalFallback
+}
+
+function yoyRatio(prev: number, next: number): number | null {
+  if (prev === 0) return next === 0 ? 0 : null
+  return (next - prev) / Math.abs(prev)
 }
 
 function thPeriod(p: { label: string; sublabel: string }): string {
@@ -331,36 +366,97 @@ export function buildWs2WorkbookReportHtml(
   const m = computeWs2WorkbookExportModel(clientName, analysis, recast)
   const { recast: r, analysis: a } = m
 
-  const ltmLabel =
-    a.ttmSummary?.startMonth && a.ttmSummary?.endMonth
-      ? ` · LTM: ${a.ttmSummary.startMonth} — ${a.ttmSummary.endMonth}`
-      : ''
   const multipleMid = r.assumptions?.multipleMid
-  const multLabel =
-    multipleMid != null && Number.isFinite(multipleMid) ? ` · Multiple (mid): ${fmtMultSummary(multipleMid)}` : ''
+  const periodLine = periodFootnote(a)
+  const subtitleParts: string[] = ['WS2 financial analysis']
+  if (periodLine) subtitleParts.push(periodLine)
+  if (multipleMid != null && Number.isFinite(multipleMid)) {
+    subtitleParts.push(`Multiple (mid): ${fmtMultSummary(multipleMid)}`)
+  }
+  const subtitle = subtitleParts.join(' · ')
 
-  const valuationSection = `${buildValuationWorkbookTable(m)}${buildValuationRangeCards(m)}`
+  const ttmValuationSection = `<p style="font-size:13px;color:#475569;line-height:1.65;margin-bottom:14px;">
+    <strong>TTM valuation range.</strong> Implied enterprise value from <strong>TTM normalized EBITDA</strong>
+    (${acct(m.totals.ltm.normalizedEbitda)}) times the low, mid, and high EBITDA multiple assumptions (same inputs as the valuation workbook below).
+  </p>
+  ${buildValuationRangeCards(m)}`
+
+  const valuationWorkbookTableOnly = buildValuationWorkbookTable(m)
 
   const plSection = buildPlWorkbookTable(m)
 
   const fy1 = m.years[0]?.fiscalYear ?? 'FY1'
   const fy2 = m.years[1]?.fiscalYear ?? 'FY2'
   const fy3 = m.years[2]?.fiscalYear ?? 'FY3'
+  const y1 = m.years[0]
+  const y2 = m.years[1]
+  const y3 = m.years[2]
+  const rng = (y: AnnualModelYear | undefined) => (y?.periodStart && y?.periodEnd ? `${y.periodStart}–${y.periodEnd}` : '')
+  const y1range = rng(y1)
+  const y2range = rng(y2)
+  const y3range = rng(y3)
+  const ltmRng =
+    a.ttmSummary?.startMonth && a.ttmSummary?.endMonth ? `${a.ttmSummary.startMonth}–${a.ttmSummary.endMonth}` : ''
+  const ltmHdrMoney = ltmRng ? `LTM $\n${ltmRng}` : 'LTM $'
 
   const rev = computeRevenueByVertical(a)
-  const revRows = rev.verticals.map(v => [
-    v.name,
-    v.health,
-    fmtCurrencySummary(v.ltm),
-    fmtCurrencySummary(v.fy3),
-    fmtCurrencySummary(v.fy2),
-    fmtCurrencySummary(v.fy1),
-    v.yoyFy2toFy3 != null ? fmtPctSummary(v.yoyFy2toFy3) : '—',
-    v.yoyFy1toFy2 != null ? fmtPctSummary(v.yoyFy1toFy2) : '—',
-  ])
+  const tr = rev.totalRevenue
+  const hasRevTotals = [tr.ltm, tr.fy3, tr.fy2, tr.fy1].some((x) => typeof x === 'number' && Number.isFinite(x) && x !== 0)
+  const totalYoy23 = yoyRatio(tr.fy2, tr.fy3)
+  const totalYoy12 = yoyRatio(tr.fy1, tr.fy2)
+
+  const revRows =
+    rev.verticals.length > 0
+      ? rev.verticals.map((v) => [
+          v.name,
+          v.health,
+          fmtCurrencySummary(Number(v.ltm)),
+          fmtCurrencySummary(Number(v.fy3)),
+          fmtCurrencySummary(Number(v.fy2)),
+          fmtCurrencySummary(Number(v.fy1)),
+          v.yoyFy2toFy3 != null ? fmtPctSummary(v.yoyFy2toFy3) : '—',
+          v.yoyFy1toFy2 != null ? fmtPctSummary(v.yoyFy1toFy2) : '—',
+        ])
+      : hasRevTotals
+        ? [
+            [
+              'Total revenue (map GL lines to Cantara REV-* codes for a vertical breakdown)',
+              '—',
+              fmtCurrencySummary(tr.ltm),
+              fmtCurrencySummary(tr.fy3),
+              fmtCurrencySummary(tr.fy2),
+              fmtCurrencySummary(tr.fy1),
+              totalYoy23 != null ? fmtPctSummary(totalYoy23) : '—',
+              totalYoy12 != null ? fmtPctSummary(totalYoy12) : '—',
+            ],
+          ]
+        : [
+            [
+              'No mapped vertical revenue',
+              '—',
+              '—',
+              '—',
+              '—',
+              '—',
+              '—',
+              '—',
+            ],
+          ]
+
+  const ltmRevHdr = ltmRng ? `LTM\n${ltmRng}` : 'LTM'
   const revTable = buildHtmlTable(
-    ['Vertical', 'Health', 'LTM', fy3, fy2, fy1, 'YoY FY2→3', 'YoY FY1→2'],
+    [
+      'Vertical',
+      'Health',
+      ltmRevHdr,
+      fyTableHeader(y3, fy3),
+      fyTableHeader(y2, fy2),
+      fyTableHeader(y1, fy1),
+      `YoY (${fy2}→${fy3})`,
+      `YoY (${fy1}→${fy2})`,
+    ],
     revRows,
+    { prelineHeaders: true },
   )
   const revFlags =
     rev.concentrationFlags.length > 0
@@ -383,8 +479,17 @@ export function buildWs2WorkbookReportHtml(
     fmtPctSummary(b.fy1Pct),
   ])
   const bmTable = buildHtmlTable(
-    ['Category', 'Flag', 'LTM $', 'LTM % rev', `${fy3} %`, `${fy2} %`, `${fy1} %`],
+    [
+      'Category',
+      'Flag',
+      ltmHdrMoney,
+      ltmRng ? `LTM % rev\n${ltmRng}` : 'LTM % rev',
+      y3range ? `${fy3} %\n${y3range}` : `${fy3} %`,
+      y2range ? `${fy2} %\n${y2range}` : `${fy2} %`,
+      y1range ? `${fy1} %\n${y1range}` : `${fy1} %`,
+    ],
     bmRows,
+    { prelineHeaders: true },
   )
   const bmNote = `<p style="margin-top:12px;color:#475569;font-size:13px;line-height:1.6;"><strong>Overall:</strong> ${bm.overallHealth} — ${bm.overallNote}</p>`
   const bmOpps =
@@ -407,8 +512,15 @@ export function buildWs2WorkbookReportHtml(
     fmtPctSummary(row.fy3Pct),
   ])
   const laborTable = buildHtmlTable(
-    ['Labor category', 'LTM $', 'LTM % rev', 'FY3 $', 'FY3 % rev'],
+    [
+      'Labor category',
+      ltmHdrMoney,
+      ltmRng ? `LTM % rev\n${ltmRng}` : 'LTM % rev',
+      y3range ? `FY3 $\n${y3range}` : 'FY3 $',
+      y3range ? `FY3 % rev\n${y3range}` : 'FY3 % rev',
+    ],
     laborRows,
+    { prelineHeaders: true },
   )
   const laborSummary = `<p style="margin-top:0;color:#475569;font-size:13px;line-height:1.6;">
     Direct labor (staff + mgmt) LTM: ${fmtPctSummary(labor.directLaborPct)} of revenue. All-in labor: ${fmtPctSummary(labor.allInLaborPct)}.
@@ -422,18 +534,19 @@ export function buildWs2WorkbookReportHtml(
   const laborSection = `${laborSummary}${laborTable}${laborFlags ? `<div style="margin-top:12px">${laborFlags}</div>` : ''}`
 
   const config: ReportConfig = {
-    title: 'Valuation Workbook & Report',
-    subtitle: `WS2 Financial Analysis${ltmLabel}${multLabel}`,
+    title: 'Valuation Report',
+    subtitle,
     clientName,
     generatedAt: a.updatedAt,
     /* No `kpis` here: the lease-style KPI strip used `recast.valuation*` which can disagree with the
        workbook table + Low/Mid/High cards (those use LLM or normalized EBITDA × multiples). One summary only. */
     sections: [
-      { title: 'Valuation (workbook view)', content: valuationSection },
-      { title: 'P&L / 4-Wall EBITDA', content: plSection },
-      { title: 'Revenue by Vertical', content: revSection },
-      { title: 'Expense Benchmarks', content: bmSection },
-      { title: 'Labor Analysis', content: laborSection },
+      { title: sectionTitleWithPeriods('TTM valuation range', a), content: ttmValuationSection },
+      { title: sectionTitleWithPeriods('Valuation workbook', a), content: valuationWorkbookTableOnly },
+      { title: sectionTitleWithPeriods('P&L / 4-Wall EBITDA', a), content: plSection },
+      { title: sectionTitleWithPeriods('Revenue by Vertical', a), content: revSection },
+      { title: sectionTitleWithPeriods('Expense Benchmarks', a), content: bmSection },
+      { title: sectionTitleWithPeriods('Labor Analysis', a), content: laborSection },
     ],
   }
 

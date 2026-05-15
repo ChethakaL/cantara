@@ -103,6 +103,30 @@ function EditableMetric({ metric, editing, onSave }: { metric: KeyMetric; editin
   );
 }
 
+function EditableSummaryText({ value, editing, onSave }: { value: string; editing: boolean; onSave: (value: string) => void }) {
+  const [val, setVal] = useState(value);
+
+  if (!editing) {
+    return <p className="text-xs text-slate-600 leading-relaxed">{value}</p>;
+  }
+
+  return (
+    <textarea
+      value={val}
+      onChange={e => setVal(e.target.value)}
+      onBlur={() => onSave(val)}
+      onKeyDown={e => {
+        // Save with Ctrl/Cmd+Enter so Enter can still be used for newlines.
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          onSave(val);
+          (e.target as HTMLTextAreaElement).blur();
+        }
+      }}
+      className="w-full text-xs text-amber-900 bg-white border border-amber-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none leading-relaxed min-h-[44px]"
+    />
+  );
+}
+
 function ChannelCard({ channel, editMode, onMetricUpdate }: { channel: ChannelAssessment; editMode: boolean; onMetricUpdate: (channelType: ChannelType, metricIndex: number, value: string) => void }) {
   const iconStyle = CHANNEL_COLORS[channel.channelType] ?? 'text-slate-500 bg-slate-100';
   const criticalFlags = channel.flags.filter(f => f.severity === 'critical');
@@ -153,7 +177,11 @@ function ChannelCard({ channel, editMode, onMetricUpdate }: { channel: ChannelAs
 
       {/* Summary */}
       {channel.summary && (
-        <p className="text-xs text-slate-600 leading-relaxed">{channel.summary}</p>
+        <EditableSummaryText
+          value={channel.summary}
+          editing={editMode}
+          onSave={(v) => onMetricUpdate(channel.channelType, -1, v)}
+        />
       )}
 
       {/* Key Metrics */}
@@ -223,8 +251,14 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
       ...prev,
       channels: prev.channels.map(ch => {
         if (ch.channelType !== channelType) return ch;
+        if (metricIndex === -1) {
+          return { ...ch, summary: value };
+        }
+
         const updatedMetrics = [...ch.keyMetrics];
-        updatedMetrics[metricIndex] = { ...updatedMetrics[metricIndex], value };
+        if (metricIndex >= 0 && metricIndex < updatedMetrics.length) {
+          updatedMetrics[metricIndex] = { ...updatedMetrics[metricIndex], value };
+        }
         return { ...ch, keyMetrics: updatedMetrics };
       }),
     }));
@@ -299,7 +333,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3">
           <Pencil className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-700 leading-relaxed">
-            Edit mode is active. Click on any metric value to update it manually. Changes are saved in real-time.
+            Edit mode is active. Click on any metric value or summary text to update it manually. Changes are saved in real-time.
           </p>
         </div>
       )}

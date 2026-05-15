@@ -1,5 +1,60 @@
 import type { Flag, FlagReviewStatus, LeaseReport, SnapshotRow } from "./types";
 
+/** Section 2.3 is the canonical home for the operative rent schedule in buyer-facing output. */
+export function isRentFindingSection(id: string, title?: string): boolean {
+  if (id === "2.3") return true;
+  const t = (title ?? "").trim().toLowerCase();
+  return t === "rent" || t.startsWith("rent ");
+}
+
+/** Snapshot rows that duplicate the full rent schedule table (belongs only in §2.3). */
+export function isRentScheduleSnapshotRow(row: SnapshotRow): boolean {
+  const field = (row.field ?? "").trim().toLowerCase();
+  if (/complete rent schedule|^rent schedule$/i.test(field)) return true;
+
+  const finding = row.finding ?? "";
+  const hasRentTableHeader =
+    /\|\s*lease\s*year/i.test(finding) &&
+    (/\|\s*per\s*annum/i.test(finding) || /\|\s*per\s*month/i.test(finding));
+  const pipeRows = finding.split("\n").filter((l) => l.trim().startsWith("|")).length;
+  return hasRentTableHeader && pipeRows >= 2;
+}
+
+/** Buyer package snapshot: summary table only — no full rent schedule grid. */
+export function filterSnapshotRowsForBuyerPackage(rows: SnapshotRow[]): SnapshotRow[] {
+  return normalizeSummaryRows(rows).filter((row) => !isRentScheduleSnapshotRow(row));
+}
+
+/**
+ * Remove markdown/HTML rent schedule tables from §2.3 narrative when we render a structured table separately.
+ */
+export function stripRentScheduleFromFindingContent(content: string): string {
+  const lines = content.split("\n");
+  const kept: string[] = [];
+  let skippingTable = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("|")) {
+      skippingTable = true;
+      continue;
+    }
+    if (skippingTable && trimmed === "") {
+      skippingTable = false;
+      continue;
+    }
+    if (!skippingTable) kept.push(line);
+  }
+
+  let text = kept.join("\n");
+  text = text.replace(
+    /\*\*Complete Rent Schedule\*\*[^\n]*\n([\s\S]*?)(?=\n\*\*[A-Za-z]|\n###|\n---|\n$)/gi,
+    "",
+  );
+  text = text.replace(/<table[\s\S]*?<\/table>/gi, "");
+  return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 const HIDDEN_SUMMARY_FIELDS = new Set([
   "Legal Address / Legal Description",
   "Security Deposit",

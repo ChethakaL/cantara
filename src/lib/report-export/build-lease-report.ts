@@ -1,5 +1,10 @@
 import type { LeaseReport } from '@/lib/lease-analysis/types'
-import { getVisibleFlags } from '@/lib/lease-analysis/report-utils'
+import {
+  filterSnapshotRowsForBuyerPackage,
+  getVisibleFlags,
+  isRentFindingSection,
+  stripRentScheduleFromFindingContent,
+} from '@/lib/lease-analysis/report-utils'
 import {
   generateReportHtml,
   buildHtmlTable,
@@ -7,7 +12,36 @@ import {
   type ReportConfig,
 } from './generate-report-html'
 
-/** Summary report: snapshot table + flags (1-2 pages) */
+function mapFindingSectionsForExport(report: LeaseReport): Array<{ title: string; content: string }> {
+  const hasScheduleData = Boolean(report.rentSchedule?.length)
+
+  return (report.detailedFindings || []).map((f) => {
+    const isRentSection = isRentFindingSection(f.id, f.title)
+
+    let extra = ''
+    if (isRentSection && hasScheduleData) {
+      extra =
+        '<div style="margin-top:12px;">' +
+        buildHtmlTable(
+          ['Lease Year', 'Months', 'Per Annum', 'Per Month'],
+          report.rentSchedule!.map((r) => [r.leaseYear, r.months, r.perAnnum, r.perMonth]),
+        ) +
+        '</div>'
+    }
+
+    let cleanContent = f.content
+    if (isRentSection && hasScheduleData) {
+      cleanContent = stripRentScheduleFromFindingContent(f.content)
+    }
+
+    return {
+      title: `${f.id} — ${f.title}`,
+      content: `<div style="font-size:13px;line-height:1.7;color:#475569;">${cleanContent.replace(/\n/g, '<br/>')}</div>${extra}`,
+    }
+  })
+}
+
+/** Summary report: snapshot table + flags (1-2 pages). Owner PDF has no §2.3 — rent schedule lives in snapshot only. */
 export function buildLeaseSummaryHtml(report: LeaseReport, clientName: string): string {
   const redFlags = getVisibleFlags(report.redFlags || [])
   const orangeFlags = getVisibleFlags(report.orangeFlags || [])
@@ -53,36 +87,7 @@ export function buildLeaseSummaryHtml(report: LeaseReport, clientName: string): 
 
 /** Addendum: full detailed findings (multi-page) */
 export function buildLeaseAddendumHtml(report: LeaseReport, clientName: string): string {
-  const findingsSections = (report.detailedFindings || []).map(f => {
-    const isRentSection = f.id === '2.3' || f.title.toLowerCase().includes('rent')
-    const hasScheduleData = report.rentSchedule && report.rentSchedule.length > 0
-
-    // Include rent schedule as a proper HTML table under section 2.3
-    let extra = ''
-    if (isRentSection && hasScheduleData) {
-      extra = '<div style="margin-top:12px;">' +
-        buildHtmlTable(
-          ['Lease Year', 'Months', 'Per Annum', 'Per Month'],
-          report.rentSchedule!.map(r => [r.leaseYear, r.months, r.perAnnum, r.perMonth]),
-        ) + '</div>'
-    }
-
-    // Strip raw markdown tables from the content to avoid duplicating the rent schedule
-    // (the AI output often includes pipe-delimited tables that don't render well in HTML)
-    let cleanContent = f.content
-    if (isRentSection && hasScheduleData) {
-      // Remove markdown table lines (lines starting with |) and separator lines (|---|)
-      cleanContent = cleanContent
-        .split('\n')
-        .filter(line => !line.trim().startsWith('|'))
-        .join('\n')
-    }
-
-    return {
-      title: `${f.id} — ${f.title}`,
-      content: `<div style="font-size:13px;line-height:1.7;color:#475569;">${cleanContent.replace(/\n/g, '<br/>')}</div>${extra}`,
-    }
-  })
+  const findingsSections = mapFindingSectionsForExport(report)
 
   const docInventory = (report.documentInventory || []).length > 0
     ? [{
@@ -105,37 +110,15 @@ export function buildLeaseAddendumHtml(report: LeaseReport, clientName: string):
   return generateReportHtml(config)
 }
 
-/** Buyer-facing report: snapshot + rent schedule + detailed findings, NO flags */
+/** Buyer-facing report: snapshot summary + detailed findings (rent schedule only in §2.3), NO flags */
 export function buildLeaseBuyerReportHtml(report: LeaseReport, clientName: string): string {
-  const snapshotRows = (report.snapshotTable || []).map(row => [row.field, row.finding])
+  const snapshotRows = filterSnapshotRowsForBuyerPackage(report.snapshotTable || []).map((row) => [
+    row.field,
+    row.finding,
+  ])
   const snapshotContent = buildHtmlTable(['Key Item', 'Finding'], snapshotRows)
 
-  const findingsSections = (report.detailedFindings || []).map(f => {
-    const isRentSection = f.id === '2.3' || f.title.toLowerCase().includes('rent')
-    const hasScheduleData = report.rentSchedule && report.rentSchedule.length > 0
-
-    let extra = ''
-    if (isRentSection && hasScheduleData) {
-      extra = '<div style="margin-top:12px;">' +
-        buildHtmlTable(
-          ['Lease Year', 'Months', 'Per Annum', 'Per Month'],
-          report.rentSchedule!.map(r => [r.leaseYear, r.months, r.perAnnum, r.perMonth]),
-        ) + '</div>'
-    }
-
-    let cleanContent = f.content
-    if (isRentSection && hasScheduleData) {
-      cleanContent = cleanContent
-        .split('\n')
-        .filter(line => !line.trim().startsWith('|'))
-        .join('\n')
-    }
-
-    return {
-      title: `${f.id} — ${f.title}`,
-      content: `<div style="font-size:13px;line-height:1.7;color:#475569;">${cleanContent.replace(/\n/g, '<br/>')}</div>${extra}`,
-    }
-  })
+  const findingsSections = mapFindingSectionsForExport(report)
 
   const docInventory = (report.documentInventory || []).length > 0
     ? [{

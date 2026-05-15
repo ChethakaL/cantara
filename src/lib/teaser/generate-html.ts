@@ -1,4 +1,5 @@
 import { TeaserInputData } from './types'
+import { CANTARA_COVER_BRAND_CSS, buildCantaraCoverBrandHtml } from '@/lib/report-export/cantara-cover-branding'
 
 function escapeHtml(str: any): string {
   if (typeof str !== 'string') return String(str ?? '')
@@ -53,12 +54,12 @@ export function generateTeaserHtml(data: TeaserInputData): string {
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 0; }
 
   /* Cover */
-  .cover { background: linear-gradient(135deg, #1a2332 0%, #0f172a 100%); color: white; padding: 80px 60px 60px; text-align: center; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
-  .cover .brand { font-size: 11px; text-transform: uppercase; letter-spacing: 5px; color: #f59e0b; font-weight: 700; margin-bottom: 24px; }
+  .cover { background: linear-gradient(135deg, #21263C 0%, #161a2e 100%); color: white; padding: 80px 60px 60px; text-align: center; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  ${CANTARA_COVER_BRAND_CSS}
   .cover h1 { font-size: 42px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
   .cover .subtitle { font-size: 20px; color: #94a3b8; margin-bottom: 8px; }
   .cover .region { font-size: 14px; color: #64748b; }
-  .cover .divider { width: 60px; height: 3px; background: #f59e0b; margin: 40px auto; border-radius: 2px; }
+  .cover .divider { width: 60px; height: 3px; background: #CAA15F; margin: 40px auto; border-radius: 2px; }
   .cover .confidential { font-size: 10px; text-transform: uppercase; letter-spacing: 3px; color: #475569; margin-top: 40px; }
 
   /* Section styling */
@@ -138,13 +139,12 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 
 <!-- COVER PAGE -->
 <div class="cover">
-  <div class="brand">Cantara</div>
-  <div class="brand" style="color: #64748b; letter-spacing: 3px; font-size: 10px;">Pet Business Advisors</div>
+  ${buildCantaraCoverBrandHtml()}
   <div class="divider"></div>
   <h1>${escapeHtml(data.businessDisplayName)}</h1>
   <div class="subtitle">${escapeHtml(data.teaserSubtitle)}</div>
   <div class="region">${escapeHtml(data.regionLabel)}</div>
-  <div class="confidential" style="margin-top: 60px;">Confidential Information Memorandum</div>
+  <div class="confidential" style="margin-top: 60px;">Confidential Investment Teaser</div>
   <div style="font-size: 11px; color: #475569; margin-top: 8px;">${currentDate}</div>
 </div>
 

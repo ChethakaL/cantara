@@ -705,7 +705,7 @@ export function TtmAnalysisTab({
                 { n: 1, label: 'Accept / Exclude / Escalate' },
                 { n: 2, label: 'Review GL Mapping' },
                 { n: 3, label: 'Set Valuation Range' },
-                { n: 4, label: 'Workbook & Report' },
+                { n: 4, label: 'Valuation report' },
               ].map(({ n, label }) => {
                 const isActive = wizardStep === n
                 const isDone = wizardStep > n || (n === 1 && ws21Approved) || (n === 3 && hasStyledBaselineReport)

@@ -21,16 +21,29 @@ export function buildContractSummaryHtml(report: ContractReport, clientName: str
 
   const snapshotContent = `
     <div class="contract-snapshot">
-      ${(report.snapshotTable || []).map((row, index) => `
-        <div class="contract-snapshot-row">
-          <div class="contract-snapshot-index">${index + 1}</div>
-          <div class="contract-snapshot-main">
+      ${(report.snapshotTable || []).map((row, index) => {
+        const parts = splitFinding(row.finding)
+        const pillsHtml = parts.length
+          ? parts.map(p => {
+              const colon = p.indexOf(':')
+              if (colon > 0 && colon < 40) {
+                const label = escapeHtml(p.slice(0, colon).trim())
+                const val = escapeHtml(p.slice(colon + 1).trim())
+                return `<div class="contract-finding-pill"><span class="contract-finding-label">${label}</span><span class="contract-finding-value">${val}</span></div>`
+              }
+              return `<div class="contract-finding-pill contract-finding-pill-plain">${escapeHtml(p)}</div>`
+            }).join('')
+          : `<div class="contract-finding-pill contract-finding-pill-plain">${escapeHtml(row.finding || 'Not specified')}</div>`
+        return `
+        <div class="contract-snapshot-card">
+          <div class="contract-snapshot-card-header">
+            <div class="contract-snapshot-index">${index + 1}</div>
             <div class="contract-snapshot-field">${escapeHtml(row.field)}</div>
-            <div class="contract-snapshot-finding">${escapeHtml(row.finding)}</div>
+            ${row.sourceSection ? `<div class="contract-snapshot-badge">${escapeHtml(row.sourceSection)}</div>` : ''}
           </div>
-          <div class="contract-snapshot-source">${escapeHtml(row.sourceSection || 'Source not specified')}</div>
-        </div>
-      `).join('\n')}
+          <div class="contract-finding-pills">${pillsHtml}</div>
+        </div>`
+      }).join('\n')}
     </div>`
 
   // Flag summary with review statuses
@@ -152,6 +165,13 @@ export function buildContractAddendumHtml(report: ContractReport, clientName: st
 /** Legacy: alias for summary (backwards compat) */
 export function buildContractReportHtml(report: ContractReport, clientName: string): string {
   return buildContractSummaryHtml(report, clientName)
+}
+
+function splitFinding(value: string): string[] {
+  return (value ?? '')
+    .split(/\s+\|\s+/)
+    .map(p => p.trim())
+    .filter(Boolean)
 }
 
 function escapeHtml(str: string): string {

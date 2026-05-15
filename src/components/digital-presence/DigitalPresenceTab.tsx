@@ -76,12 +76,21 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
         const channelOverrides = overrides.filter(o => o.channelType === ch.channelType);
         if (channelOverrides.length === 0) return ch;
         const updatedMetrics = [...ch.keyMetrics];
+        let nextSummary = ch.summary;
+
         for (const override of channelOverrides) {
-          if (override.metricIndex < updatedMetrics.length) {
+          // Sentinel: metricIndex === -1 means "channel.summary".
+          if (override.metricIndex === -1) {
+            nextSummary = override.value;
+            continue;
+          }
+
+          if (override.metricIndex >= 0 && override.metricIndex < updatedMetrics.length) {
             updatedMetrics[override.metricIndex] = { ...updatedMetrics[override.metricIndex], value: override.value };
           }
         }
-        return { ...ch, keyMetrics: updatedMetrics };
+
+        return { ...ch, summary: nextSummary, keyMetrics: updatedMetrics };
       }),
     };
   }
