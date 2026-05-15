@@ -366,6 +366,13 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
           <Input label="Subtitle" value={data.teaserSubtitle} onChange={e => set('teaserSubtitle', e.target.value)} />
           <Input label="Region" value={data.regionLabel} onChange={e => set('regionLabel', e.target.value)} />
         </div>
+        <Input
+          label="Cantara deal reference #"
+          value={data.dealReference ?? ''}
+          onChange={e => set('dealReference', e.target.value)}
+          placeholder="e.g. CD-2026-0142"
+        />
+        <p className="text-[11px] text-slate-500">When filled in, this reference is printed on the teaser cover (exported PDF).</p>
       </Card>
 
       {/* Section 2: Transaction Snapshot */}

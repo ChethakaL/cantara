@@ -137,6 +137,7 @@ Return ONLY valid JSON. No markdown, no explanation.`
     businessDisplayName: generated.businessDisplayName || 'Premium Pet Resort',
     teaserSubtitle: generated.teaserSubtitle || 'Acquisition Opportunity',
     regionLabel: generated.regionLabel || '',
+    dealReference: '',
   }
 }
 

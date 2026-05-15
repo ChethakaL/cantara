@@ -289,6 +289,7 @@ export async function POST(req: NextRequest) {
       businessDisplayName: `Premium ${client.businessCategory || businessTypeLabel || 'Pet Resort'}`,
       teaserSubtitle: 'Acquisition Opportunity',
       regionLabel: location,
+      dealReference: '',
     }
 
     // ── Return result with metadata about data sources ──────────────────

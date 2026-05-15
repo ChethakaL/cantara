@@ -49,6 +49,8 @@ export interface TeaserInputData {
   businessDisplayName: string
   teaserSubtitle: string
   regionLabel: string
+  /** Printed on the teaser cover when set (Cantara deal reference #). */
+  dealReference: string
 }
 
 export interface TeaserGeneratorState {
@@ -97,4 +99,5 @@ export const DEFAULT_TEASER_INPUT: TeaserInputData = {
   businessDisplayName: '',
   teaserSubtitle: 'Acquisition Opportunity',
   regionLabel: '',
+  dealReference: '',
 }
