@@ -91,6 +91,20 @@ function normalizeResponses(input: unknown): Record<string, string> {
   return out
 }
 
+function hasMeaningfulResponse(value: string | undefined): boolean {
+  return String(value ?? '').trim().length > 0
+}
+
+function mergeDraftResponses(existingResponses: unknown, draftResponses: Record<string, string>): Record<string, string> {
+  const existing = normalizeResponses(existingResponses)
+  return Object.entries(draftResponses).reduce<Record<string, string>>((acc, [key, value]) => {
+    if (hasMeaningfulResponse(value) || !hasMeaningfulResponse(acc[key])) {
+      acc[key] = value
+    }
+    return acc
+  }, { ...existing })
+}
+
 function buildPrefillResponses(client: any, existing: Record<string, any>): Record<string, string> {
   const explicit = normalizeResponses(existing.agentFormResponses ?? {})
   const pricingCompetitors = Array.isArray(existing.competitorPricingInputs?.competitors)
@@ -285,6 +299,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const clientId = String(body.clientId ?? '')
   if (!clientId) return new Response('clientId required', { status: 400 })
+  const saveMode = body.mode === 'draft' ? 'draft' : 'final'
 
   const client = await (prisma as any).clientProfile.findUnique({
     where: { id: clientId },
@@ -292,8 +307,10 @@ export async function POST(req: NextRequest) {
   })
   if (!client) return new Response('Not Found', { status: 404 })
 
-  const responses = normalizeResponses(body.responses)
   const existing = (client.sectionSubmissions as Record<string, any>) ?? {}
+  const responses = saveMode === 'draft'
+    ? mergeDraftResponses(existing.agentFormResponses, normalizeResponses(body.responses))
+    : normalizeResponses(body.responses)
   const sectionSubmissions = compatibilitySections(client, existing, responses)
   const websiteUrl = responses.businessWebsite || client.websiteUrl || undefined
 
