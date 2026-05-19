@@ -464,7 +464,7 @@ export default function ClientDashboard() {
             >
               {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} />}
               {phase === 'assign' && <AssignTab valuationDocs={valuationDocs} categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
-              {phase === 'information' && <AgentInformationTab clientId={client.id} />}
+              {phase === 'information' && <AgentInformationTab clientId={client.id} uploaderEmail={client.email} />}
               {phase === 'collection' && (
                 <CollectionTab
                   valuationDocs={valuationDocs}
@@ -948,6 +948,51 @@ const STRUCTURED_FORM_COLUMNS: Record<string, Array<{ key: string; label: string
   ],
 }
 
+const FACILITY_IMAGE_DOCUMENT_ID = 'facility_review_images'
+const FACILITY_IMAGE_LIMIT = 5
+const FACILITY_IMAGE_TYPES = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/webp': ['.webp'],
+}
+const FACILITY_IMAGE_SECTIONS = [
+  {
+    key: 'exterior',
+    title: 'Exterior & Curb Appeal',
+    helper: 'Front facade, exterior signage, parking, entrance approach, visible exterior concerns.',
+  },
+  {
+    key: 'reception',
+    title: 'Reception',
+    helper: 'Entrance view, front desk, flooring, retail display, lighting, condition concerns.',
+  },
+  {
+    key: 'boarding',
+    title: 'Boarding',
+    helper: 'Boarding area, kennel tiers, cat area if applicable, HVAC, floors, equipment issues.',
+  },
+  {
+    key: 'grooming',
+    title: 'Grooming',
+    helper: 'Grooming stations, tables, wash station, dryers, ventilation, organization.',
+  },
+  {
+    key: 'indoor-play',
+    title: 'Indoor Play',
+    helper: 'Indoor play rooms, flooring, enrichment equipment, dividers, condition concerns.',
+  },
+  {
+    key: 'outdoor-play',
+    title: 'Outdoor Play',
+    helper: 'Outdoor yards, fencing, ground surface, shade, gates, structural concerns.',
+  },
+  {
+    key: 'staff-ops',
+    title: 'Staff & Operational Areas',
+    helper: 'Break room, laundry, storage, supplies, operational condition concerns.',
+  },
+] as const
+
 function parsePipeRows(value: string, fieldKey: string): Record<string, string>[] {
   const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
   return String(value || '')
@@ -1061,7 +1106,194 @@ function StructuredRowsInput({
   )
 }
 
-function AgentInformationTab({ clientId }: { clientId: string }) {
+function FacilityImageUploadPanel({
+  clientId,
+  uploaderEmail,
+}: {
+  clientId: string
+  uploaderEmail: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ exterior: true })
+  const [imagesBySection, setImagesBySection] = useState<Record<string, Array<{ id: string; fileName: string; uploadedAt: string }>>>({})
+  const [uploadingSection, setUploadingSection] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadImages() {
+      try {
+        const entries = await Promise.all(FACILITY_IMAGE_SECTIONS.map(async section => {
+          const documentId = `${FACILITY_IMAGE_DOCUMENT_ID}_${section.key}`
+          const res = await fetch(`/api/client-documents?clientId=${encodeURIComponent(clientId)}&documentId=${documentId}&all=true`)
+          if (!res.ok) return [section.key, []] as const
+          const data = await res.json()
+          return [section.key, data.documents ?? []] as const
+        }))
+        if (!cancelled) setImagesBySection(Object.fromEntries(entries))
+      } catch {
+        if (!cancelled) setImagesBySection({})
+      }
+    }
+    void loadImages()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  const totalImages = Object.values(imagesBySection).reduce((sum, images) => sum + images.length, 0)
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(current => !current)}
+        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50"
+      >
+        <div>
+          <h4 className="text-sm font-semibold text-slate-700">Optional Facility Images</h4>
+          <p className="text-xs text-slate-500 mt-1">Upload up to 5 images to support the facility review. This is optional.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge color={totalImages ? 'green' : 'slate'}>{totalImages} uploaded</Badge>
+          {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 p-4 space-y-3">
+          {error && <p className="text-xs text-rose-600">{error}</p>}
+          {FACILITY_IMAGE_SECTIONS.map(section => (
+            <FacilityImageSectionUploader
+              key={section.key}
+              section={section}
+              clientId={clientId}
+              uploaderEmail={uploaderEmail}
+              open={Boolean(openSections[section.key])}
+              onToggle={() => setOpenSections(current => ({ ...current, [section.key]: !current[section.key] }))}
+              images={imagesBySection[section.key] ?? []}
+              uploading={uploadingSection === section.key}
+              onUploadingChange={uploading => setUploadingSection(uploading ? section.key : null)}
+              onError={setError}
+              onUploaded={uploaded => setImagesBySection(current => ({
+                ...current,
+                [section.key]: [...uploaded, ...(current[section.key] ?? [])].slice(0, FACILITY_IMAGE_LIMIT),
+              }))}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FacilityImageSectionUploader({
+  section,
+  clientId,
+  uploaderEmail,
+  open,
+  onToggle,
+  images,
+  uploading,
+  onUploadingChange,
+  onError,
+  onUploaded,
+}: {
+  section: typeof FACILITY_IMAGE_SECTIONS[number]
+  clientId: string
+  uploaderEmail: string
+  open: boolean
+  onToggle: () => void
+  images: Array<{ id: string; fileName: string; uploadedAt: string }>
+  uploading: boolean
+  onUploadingChange: (uploading: boolean) => void
+  onError: (error: string) => void
+  onUploaded: (uploaded: Array<{ id: string; fileName: string; uploadedAt: string }>) => void
+}) {
+  const remainingSlots = Math.max(0, FACILITY_IMAGE_LIMIT - images.length)
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: FACILITY_IMAGE_TYPES,
+    multiple: true,
+    maxFiles: remainingSlots || 1,
+    maxSize: 5 * 1024 * 1024,
+    disabled: uploading || remainingSlots === 0,
+    onDrop: async accepted => {
+      const files = accepted.slice(0, remainingSlots)
+      if (!files.length) return
+      onUploadingChange(true)
+      onError('')
+      try {
+        const uploaded: Array<{ id: string; fileName: string; uploadedAt: string }> = []
+        for (const file of files) {
+          const form = new FormData()
+          form.append('file', file)
+          form.append('clientId', clientId)
+          form.append('documentId', `${FACILITY_IMAGE_DOCUMENT_ID}_${section.key}`)
+          form.append('uploaderEmail', uploaderEmail)
+          const res = await fetch('/api/client-documents/upload', { method: 'POST', body: form })
+          if (!res.ok) throw new Error(await res.text())
+          const data = await res.json()
+          uploaded.push({
+            id: data.id || `${file.name}-${Date.now()}`,
+            fileName: file.name,
+            uploadedAt: new Date().toISOString(),
+          })
+        }
+        onUploaded(uploaded)
+      } catch (err) {
+        onError(err instanceof Error ? err.message : 'Could not upload facility images.')
+      } finally {
+        onUploadingChange(false)
+      }
+    },
+  })
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
+        <div>
+          <p className="text-sm font-semibold text-slate-700">{section.title}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{section.helper}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge color={images.length ? 'green' : 'slate'}>{images.length}/{FACILITY_IMAGE_LIMIT}</Badge>
+          {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 p-4 space-y-3">
+          <div
+            {...getRootProps()}
+            className={`rounded-xl border border-dashed p-5 text-center transition-colors ${
+              remainingSlots === 0
+                ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
+                : isDragActive
+                  ? 'cursor-pointer border-amber-300 bg-amber-50 text-amber-700'
+                  : 'cursor-pointer border-slate-200 text-slate-500 hover:border-amber-300 hover:bg-amber-50/40'
+            }`}
+          >
+            <input {...getInputProps()} />
+            {uploading ? <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" /> : <Upload className="mx-auto mb-2 h-5 w-5" />}
+            <p className="text-xs font-medium">
+              {remainingSlots === 0 ? 'Image limit reached' : uploading ? 'Uploading...' : `Drop ${section.title.toLowerCase()} images here, or click to browse`}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1">Up to 5 images for this section. JPG, PNG, or WebP. 5 MB max per image.</p>
+          </div>
+          {images.length > 0 && (
+            <div className="space-y-2">
+              {images.map(image => (
+                <div key={`${image.id}-${image.fileName}`} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{image.fileName}</span>
+                  <span className="text-[10px] text-slate-400">{new Date(image.uploadedAt).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; uploaderEmail: string }) {
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
   const [savingFormResponses, setSavingFormResponses] = useState(false)
@@ -1143,6 +1375,7 @@ function AgentInformationTab({ clientId }: { clientId: string }) {
     acc[key] = [...(acc[key] ?? []), question]
     return acc
   }, {})
+  const hasFacilityQuestions = formQuestions.some(question => question.fieldKey.startsWith('facility'))
 
   if (!formQuestions.length) {
     return (
@@ -1153,81 +1386,84 @@ function AgentInformationTab({ clientId }: { clientId: string }) {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100">
-        <h4 className="text-sm font-semibold text-slate-700">Required Information</h4>
-        <p className="text-xs text-slate-500 mt-1">
-          Complete these fields once. Cantara uses the saved answers to prefill related advisor tools.
-        </p>
-      </div>
-      <div className="p-5 space-y-5">
-        {Object.entries(groupedQuestions).map(([groupLabel, questions]) => (
-          <div key={groupLabel} className="space-y-3">
-            <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{groupLabel}</h5>
-            <div className="grid gap-3 md:grid-cols-2">
-              {questions.map(question => {
-                const commonClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
-                const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
-                // Do not wrap structured tables in <label>: first labelable descendant would be the hidden file input,
-                // so clicks (e.g. "Add Row") can incorrectly open the file picker (HTML label activation behavior).
-                const Shell = structured ? 'div' : 'label'
-                const shellClass = (question.inputType === 'textarea' || structured) ? 'md:col-span-2' : ''
-                return (
-                  <Shell key={question.id} className={shellClass}>
-                    <span className="text-xs font-semibold text-slate-500">
-                      {question.label}
-                      {question.required && <span className="text-amber-600"> *</span>}
-                    </span>
-                    {question.description && <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>}
-                    {structured ? (
-                      <StructuredRowsInput
-                        question={question}
-                        value={formResponses[question.fieldKey] ?? ''}
-                        onChange={value => updateFormResponse(question.fieldKey, value)}
-                        onUpload={file => void handleTranscriptUpload(question, file)}
-                        extracting={extractingField === question.fieldKey}
-                      />
-                    ) : question.inputType === 'textarea' ? (
-                      <>
-                        <textarea
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h4 className="text-sm font-semibold text-slate-700">Required Information</h4>
+          <p className="text-xs text-slate-500 mt-1">
+            Complete these fields once. Cantara uses the saved answers to prefill related advisor tools.
+          </p>
+        </div>
+        <div className="p-5 space-y-5">
+          {Object.entries(groupedQuestions).map(([groupLabel, questions]) => (
+            <div key={groupLabel} className="space-y-3">
+              <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{groupLabel}</h5>
+              <div className="grid gap-3 md:grid-cols-2">
+                {questions.map(question => {
+                  const commonClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
+                  const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
+                  // Do not wrap structured tables in <label>: first labelable descendant would be the hidden file input,
+                  // so clicks (e.g. "Add Row") can incorrectly open the file picker (HTML label activation behavior).
+                  const Shell = structured ? 'div' : 'label'
+                  const shellClass = (question.inputType === 'textarea' || structured) ? 'md:col-span-2' : ''
+                  return (
+                    <Shell key={question.id} className={shellClass}>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {question.label}
+                        {question.required && <span className="text-amber-600"> *</span>}
+                      </span>
+                      {question.description && <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>}
+                      {structured ? (
+                        <StructuredRowsInput
+                          question={question}
+                          value={formResponses[question.fieldKey] ?? ''}
+                          onChange={value => updateFormResponse(question.fieldKey, value)}
+                          onUpload={file => void handleTranscriptUpload(question, file)}
+                          extracting={extractingField === question.fieldKey}
+                        />
+                      ) : question.inputType === 'textarea' ? (
+                        <>
+                          <textarea
+                            value={formResponses[question.fieldKey] ?? ''}
+                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                            placeholder={question.placeholder ?? ''}
+                            className={`${commonClass} mt-1 min-h-[84px] resize-y`}
+                          />
+                        </>
+                      ) : question.inputType === 'select' ? (
+                        <select
+                          value={formResponses[question.fieldKey] ?? ''}
+                          onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                          className={`${commonClass} mt-1 bg-white`}
+                        >
+                          <option value="">Select...</option>
+                          {(question.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      ) : (
+                        <input
+                          type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
                           value={formResponses[question.fieldKey] ?? ''}
                           onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
                           placeholder={question.placeholder ?? ''}
-                          className={`${commonClass} mt-1 min-h-[84px] resize-y`}
+                          className={`${commonClass} mt-1`}
                         />
-                      </>
-                    ) : question.inputType === 'select' ? (
-                      <select
-                        value={formResponses[question.fieldKey] ?? ''}
-                        onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
-                        className={`${commonClass} mt-1 bg-white`}
-                      >
-                        <option value="">Select...</option>
-                        {(question.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
-                        value={formResponses[question.fieldKey] ?? ''}
-                        onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
-                        placeholder={question.placeholder ?? ''}
-                        className={`${commonClass} mt-1`}
-                      />
-                    )}
-                  </Shell>
-                )
-              })}
+                      )}
+                    </Shell>
+                  )
+                })}
+              </div>
             </div>
+          ))}
+          {formError && <p className="text-xs text-red-600">{formError}</p>}
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
+              {savingFormResponses ? 'Saving...' : 'Save Information'}
+            </Button>
+            {formSaved && <span className="text-xs text-emerald-600">Saved</span>}
           </div>
-        ))}
-        {formError && <p className="text-xs text-red-600">{formError}</p>}
-        <div className="flex items-center gap-3">
-          <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
-            {savingFormResponses ? 'Saving...' : 'Save Information'}
-          </Button>
-          {formSaved && <span className="text-xs text-emerald-600">Saved</span>}
         </div>
       </div>
+      {hasFacilityQuestions && <FacilityImageUploadPanel clientId={clientId} uploaderEmail={uploaderEmail} />}
     </div>
   )
 }

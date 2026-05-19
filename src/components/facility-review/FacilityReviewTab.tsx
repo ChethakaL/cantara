@@ -59,6 +59,15 @@ const PHOTO_SECTIONS = [
   },
 ] as const
 
+const CLIENT_IMAGE_DOCUMENT_IDS: Record<PhotoSectionKey, string[]> = {
+  exterior: ['facility_review_images_exterior'],
+  reception: ['facility_review_images_reception'],
+  boarding: ['facility_review_images_boarding', 'facility_review_images_indoor-play'],
+  grooming: ['facility_review_images_grooming'],
+  outdoor: ['facility_review_images_outdoor-play'],
+  staff: ['facility_review_images_staff-ops'],
+}
+
 const INTAKE_FIELD_LABELS: Record<string, string> = {
   businessAddress: 'Facility address / location',
   facilityExteriorLastPainted: 'Exterior last painted or pressure-washed',
@@ -94,6 +103,13 @@ const INTAKE_FIELD_LABELS: Record<string, string> = {
 
 type PhotoSectionKey = typeof PHOTO_SECTIONS[number]['key']
 type SectionFiles = Record<PhotoSectionKey, File[]>
+type ExistingFacilityImage = {
+  id: string
+  fileName: string
+  fileUrl?: string | null
+  uploadedAt?: string | null
+}
+type ExistingSectionImages = Record<PhotoSectionKey, ExistingFacilityImage[]>
 type FacilityIntakeQuestion = {
   id: string
   fieldKey: string
@@ -113,12 +129,20 @@ function emptySectionFiles(): SectionFiles {
   }, {} as SectionFiles)
 }
 
+function emptyExistingSectionImages(): ExistingSectionImages {
+  return PHOTO_SECTIONS.reduce((acc, section) => {
+    acc[section.key] = []
+    return acc
+  }, {} as ExistingSectionImages)
+}
+
 function SectionUploader({
   sectionKey,
   title,
   prompt,
   helper,
   files,
+  existingImages,
   onAdd,
   onRemove,
 }: {
@@ -127,6 +151,7 @@ function SectionUploader({
   prompt: string
   helper: string
   files: File[]
+  existingImages: ExistingFacilityImage[]
   onAdd: (key: PhotoSectionKey, files: File[]) => void
   onRemove: (key: PhotoSectionKey, index: number) => void
 }) {
@@ -138,7 +163,8 @@ function SectionUploader({
     maxFiles: 5,
     maxSize: 5 * 1024 * 1024,
   })
-  const complete = files.length >= 3
+  const totalCount = existingImages.length + files.length
+  const complete = totalCount >= 3
 
   return (
     <Card className="p-4">
@@ -146,7 +172,7 @@ function SectionUploader({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-            <Badge color={complete ? 'green' : files.length ? 'gold' : 'gray'}>{files.length}/5</Badge>
+            <Badge color={complete ? 'green' : totalCount ? 'gold' : 'gray'}>{totalCount}/5</Badge>
           </div>
           <p className="text-xs font-medium text-slate-600 mt-2">{prompt}</p>
           <p className="text-[11px] text-slate-400 mt-1">{helper}</p>
@@ -163,8 +189,17 @@ function SectionUploader({
         <Upload className="w-5 h-5 text-slate-300 mx-auto mb-2" />
         <p className="text-xs font-medium text-slate-600">Drop photos here, or click to browse</p>
       </div>
-      {files.length > 0 && (
+      {(existingImages.length > 0 || files.length > 0) && (
         <div className="mt-3 space-y-2">
+          {existingImages.map(image => (
+            <div key={image.id} className="flex items-center gap-2 rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2">
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-emerald-800">{image.fileName}</p>
+                <p className="text-[10px] text-emerald-600">Uploaded by client{image.uploadedAt ? ` · ${new Date(image.uploadedAt).toLocaleDateString()}` : ''}</p>
+              </div>
+            </div>
+          ))}
           {files.map((file, index) => (
             <div key={`${file.name}-${index}`} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
               <Camera className="w-3.5 h-3.5 text-slate-400" />
@@ -195,6 +230,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   const [intakeSaved, setIntakeSaved] = useState(false)
   const [draftSaved, setDraftSaved] = useState(false)
   const [sectionFiles, setSectionFiles] = useState<SectionFiles>(() => emptySectionFiles())
+  const [existingSectionImages, setExistingSectionImages] = useState<ExistingSectionImages>(() => emptyExistingSectionImages())
   const [report, setReport] = useState<FacilityReviewReport | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -227,6 +263,16 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
           const data = await res.json()
           if (data?.overallScore) setReport(data)
         }
+        const imageEntries = await Promise.all(PHOTO_SECTIONS.map(async section => {
+          const docs = await Promise.all((CLIENT_IMAGE_DOCUMENT_IDS[section.key] ?? []).map(async documentId => {
+            const docRes = await fetch(`/api/client-documents?clientId=${encodeURIComponent(clientId)}&documentId=${encodeURIComponent(documentId)}&all=true`)
+            if (!docRes.ok) return []
+            const docData = await docRes.json()
+            return docData.documents ?? []
+          }))
+          return [section.key, docs.flat()] as const
+        }))
+        setExistingSectionImages(Object.fromEntries(imageEntries) as ExistingSectionImages)
       } catch {}
     }
     void loadSaved()
@@ -248,8 +294,8 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   }, [])
 
   const sortedZones = useMemo(() => report ? [...report.zones].sort((a, b) => a.score - b.score) : [], [report])
-  const totalFiles = PHOTO_SECTIONS.reduce((sum, section) => sum + sectionFiles[section.key].length, 0)
-  const completeSections = PHOTO_SECTIONS.filter(section => sectionFiles[section.key].length >= 3).length
+  const totalFiles = PHOTO_SECTIONS.reduce((sum, section) => sum + sectionFiles[section.key].length + existingSectionImages[section.key].length, 0)
+  const completeSections = PHOTO_SECTIONS.filter(section => sectionFiles[section.key].length + existingSectionImages[section.key].length >= 3).length
   const facilityIntakeEntries = intakeQuestions
     .map(question => [INTAKE_FIELD_LABELS[question.fieldKey] ?? question.label, String(intakeResponses[question.fieldKey] ?? '').trim()] as const)
     .filter(([, value]) => value)
@@ -323,6 +369,20 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
         ? `Seller intake form responses:\n${facilityIntakeEntries.map(([label, value]) => `- ${label}: ${value}`).join('\n')}`
         : 'Seller intake form responses: not provided.'
       form.append('notes', [intakeText, notes.trim() ? `Admin notes:\n${notes.trim()}` : 'Admin notes: none.'].join('\n\n'))
+      for (const section of PHOTO_SECTIONS) {
+        for (const image of existingSectionImages[section.key]) {
+          if (!image.fileUrl) continue
+          try {
+            const imageRes = await fetch(image.fileUrl)
+            if (!imageRes.ok) continue
+            const blob = await imageRes.blob()
+            form.append('images', new File([blob], image.fileName, { type: blob.type || 'image/jpeg' }))
+            form.append('imageSections', section.title)
+          } catch {
+            // If an existing client image cannot be fetched from the browser, still use all available form data and local files.
+          }
+        }
+      }
       PHOTO_SECTIONS.forEach(section => {
         sectionFiles[section.key].forEach(file => {
           form.append('images', file)
@@ -547,6 +607,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
             prompt={section.prompt}
             helper={section.helper}
             files={sectionFiles[section.key]}
+            existingImages={existingSectionImages[section.key]}
             onAdd={addSectionFiles}
             onRemove={removeSectionFile}
           />
