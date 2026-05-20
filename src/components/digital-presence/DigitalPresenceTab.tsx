@@ -63,6 +63,33 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     return () => { cancelled = true; };
   }, [clientId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSavedReport() {
+      try {
+        const res = await fetch(`/api/client-data/${clientId}?section=digitalPresence`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data) {
+          setReport(data as DigitalPresenceReport);
+          setStatus('complete');
+        }
+      } catch {
+        // Saved report is optional.
+      }
+    }
+    void loadSavedReport();
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  async function persistReport(nextReport: DigitalPresenceReport) {
+    await fetch(`/api/client-data/${clientId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ section: 'digitalPresence', data: nextReport }),
+    });
+  }
+
   function appendLog(entry: Omit<LogEntry, 'id'>) {
     setLog(prev => [...prev, { ...entry, id: ++_logId }]);
     setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -153,8 +180,14 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
             }
             appendLog({ phase: ev.phase, message: ev.message });
           } else if (event.type === 'complete') {
-            setReport(applyOverridesToReport(event.report, manualOverrides));
+            const finalReport = applyOverridesToReport(event.report, manualOverrides);
+            setReport(finalReport);
             setStatus('complete');
+            try {
+              await persistReport(finalReport);
+            } catch {
+              // Non-fatal: UI still shows the run result.
+            }
           } else if (event.type === 'error') {
             throw new Error(event.error ?? 'Analysis failed.');
           }

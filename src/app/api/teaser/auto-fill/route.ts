@@ -98,6 +98,15 @@ export async function POST(req: NextRequest) {
         orderBy: { createdAt: 'desc' },
       })
     } catch { /* table may not exist yet */ }
+    if (!digitalPresence) {
+      try {
+        const clientRow = await (prisma as any).clientProfile.findUnique({
+          where: { id: clientId },
+          select: { sectionSubmissions: true },
+        })
+        digitalPresence = (clientRow?.sectionSubmissions as Record<string, unknown> | null)?.digitalPresence ?? null
+      } catch { /* optional */ }
+    }
 
     // ── AI-powered auto-fill (falls back to static logic below) ────────
     if (await getAnthropicApiKey()) {

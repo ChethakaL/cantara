@@ -196,6 +196,7 @@ export function BaselineValuationReportPanel({
           recast={displayRecast}
           clientName={clientName}
           onExportXlsx={onExportXlsx}
+          onWorkbookSaved={onUpdated}
         />
       )}
 

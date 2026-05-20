@@ -4,7 +4,6 @@ import {
   type ReportConfig,
 } from './generate-report-html'
 import type { PricingVerticalReport } from '@/lib/pricing-vertical/types'
-import { buildPricingTrendChartSectionHtml } from '@/lib/pricing-vertical/pricing-trend-chart'
 
 function trendLabel(trend: string): string {
   switch (trend) {
@@ -58,7 +57,6 @@ export function buildPricingVerticalReportHtml(
   ]
 
   const periods = report.pricingPeriods?.length ? report.pricingPeriods : ['Current']
-  const trendChartHtml = buildPricingTrendChartSectionHtml(report)
   const pricingGridTable = buildHtmlTable(
     ['Service', 'Vertical', ...periods],
     (report.pricingGrid ?? []).map(row => [
@@ -144,7 +142,6 @@ export function buildPricingVerticalReportHtml(
     kpis,
     flags: flagCounts,
     sections: [
-      { title: 'Service Price Trend', content: trendChartHtml },
       { title: 'Editable 24-Month Pricing Grid', content: pricingGridTable },
       { title: 'Price Change Timeline', content: timelineTable },
       { title: 'Vertical-by-Vertical Analysis', content: verticalSections },

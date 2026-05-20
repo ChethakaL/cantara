@@ -68,28 +68,6 @@ function fmtMultSummary(v: number | null | undefined) {
   return `${v.toFixed(1)}x`
 }
 
-/** Calendar month ranges for PDF section titles (V6). */
-function periodFootnote(analysis: TtmAnalysisView): string {
-  const bits: string[] = []
-  const ts = analysis.ttmSummary
-  if (ts?.startMonth && ts?.endMonth) {
-    bits.push(`LTM ${ts.startMonth}–${ts.endMonth}`)
-  }
-  for (const y of analysis.annualModel?.years ?? []) {
-    if (y.fiscalYear && y.periodStart && y.periodEnd) {
-      bits.push(`${y.fiscalYear}: ${y.periodStart}–${y.periodEnd}`)
-    } else if (y.fiscalYear) {
-      bits.push(y.fiscalYear)
-    }
-  }
-  return bits.join(' · ')
-}
-
-function sectionTitleWithPeriods(base: string, analysis: TtmAnalysisView): string {
-  const p = periodFootnote(analysis)
-  return p ? `${base} · ${p}` : base
-}
-
 function fyTableHeader(y: AnnualModelYear | undefined, fiscalFallback: string): string {
   if (y?.fiscalYear && y.periodStart && y.periodEnd) {
     return `${y.fiscalYear}\n${y.periodStart}–${y.periodEnd}`
@@ -261,15 +239,21 @@ function buildValuationWorkbookTable(m: Ws2WorkbookExportModel): string {
 }
 
 function buildValuationRangeCards(m: Ws2WorkbookExportModel): string {
-  const { totals, llmResult, recast } = m
+  const { totals, llmResult, recast, ws2Report } = m
   const llmLtm = llmResult?.valuation?.['LTM']
+  const saved = ws2Report.ws22?.valuation
   const rows = [
     { label: 'Low', mult: recast.assumptions?.multipleLow, llmField: 'low' as const },
     { label: 'Mid', mult: recast.assumptions?.multipleMid, llmField: 'mid' as const },
     { label: 'High', mult: recast.assumptions?.multipleHigh, llmField: 'high' as const },
   ]
   const cells = rows.map(({ label, mult, llmField }) => {
-    const val = llmLtm ? llmLtm[llmField] : totals.ltm.normalizedEbitda * (mult ?? 0)
+    const savedVal =
+      llmField === 'low' ? saved?.valuationLow : llmField === 'mid' ? saved?.valuationMid : saved?.valuationHigh
+    const val =
+      (typeof savedVal === 'number' && Number.isFinite(savedVal) ? savedVal : null) ??
+      (llmLtm ? llmLtm[llmField] : null) ??
+      totals.ltm.normalizedEbitda * (mult ?? 0)
     const isMid = label === 'Mid'
     const bg = isMid ? 'background:#1e293b;border:1px solid #334155;color:#fff;' : 'background:#f8fafc;border:1px solid #e2e8f0;'
     const amtColor = isMid ? 'color:#fbbf24;' : 'color:#0f172a;'
@@ -367,9 +351,7 @@ export function buildWs2WorkbookReportHtml(
   const { recast: r, analysis: a } = m
 
   const multipleMid = r.assumptions?.multipleMid
-  const periodLine = periodFootnote(a)
   const subtitleParts: string[] = ['WS2 financial analysis']
-  if (periodLine) subtitleParts.push(periodLine)
   if (multipleMid != null && Number.isFinite(multipleMid)) {
     subtitleParts.push(`Multiple (mid): ${fmtMultSummary(multipleMid)}`)
   }
@@ -541,12 +523,12 @@ export function buildWs2WorkbookReportHtml(
     /* No `kpis` here: the lease-style KPI strip used `recast.valuation*` which can disagree with the
        workbook table + Low/Mid/High cards (those use LLM or normalized EBITDA × multiples). One summary only. */
     sections: [
-      { title: sectionTitleWithPeriods('TTM valuation range', a), content: ttmValuationSection },
-      { title: sectionTitleWithPeriods('Valuation workbook', a), content: valuationWorkbookTableOnly },
-      { title: sectionTitleWithPeriods('P&L / 4-Wall EBITDA', a), content: plSection },
-      { title: sectionTitleWithPeriods('Revenue by Vertical', a), content: revSection },
-      { title: sectionTitleWithPeriods('Expense Benchmarks', a), content: bmSection },
-      { title: sectionTitleWithPeriods('Labor Analysis', a), content: laborSection },
+      { title: 'TTM valuation range', content: ttmValuationSection },
+      { title: 'Valuation workbook', content: valuationWorkbookTableOnly },
+      { title: 'P&L / 4-Wall EBITDA', content: plSection },
+      { title: 'Revenue by Vertical', content: revSection },
+      { title: 'Expense Benchmarks', content: bmSection },
+      { title: 'Labor Analysis', content: laborSection },
     ],
   }
 

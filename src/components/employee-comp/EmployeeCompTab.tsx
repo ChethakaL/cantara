@@ -255,6 +255,17 @@ export default function EmployeeCompTab({
       const data: EmployeeCompReport = await res.json()
       setEmployees(data.employees)
       setHasData(true)
+      try {
+        const saveRes = await fetch(`/api/client-data/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section: 'employeeCompReport', data }),
+        })
+        if (!saveRes.ok) throw new Error('Save failed')
+        setSaved(true)
+      } catch (saveErr: any) {
+        setError(saveErr.message || 'Analysis completed but failed to save')
+      }
     } catch (err: any) {
       setError(err.message || 'Analysis failed')
     } finally {

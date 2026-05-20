@@ -27,12 +27,6 @@ import type {
 } from '@/lib/pricing-vertical/types'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildPricingVerticalReportHtml } from '@/lib/report-export/build-pricing-vertical-report'
-import {
-  buildPolylinePointsString,
-  buildPricingChartSeries,
-  formatPricingChartAxisLabel,
-  PRICING_CHART_LINE_COLORS,
-} from '@/lib/pricing-vertical/pricing-trend-chart'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
@@ -497,51 +491,9 @@ export default function PricingByVerticalTab({
               </button>
             )}
           </div>
-          {(() => {
-            const periods = result.pricingPeriods ?? ['Current']
-            const chart = buildPricingChartSeries(result.pricingGrid ?? [], periods)
-            if (!chart.series.length) return null
-            return (
-              <div className="border-b border-slate-100 px-5 py-4">
-                <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Service Price Trend</h4>
-                <div className="overflow-x-auto">
-                  <svg width="860" height="300" viewBox="0 0 860 300" className="min-w-[860px]">
-                    {[0, 1, 2, 3].map(i => (
-                      <line key={i} x1="60" x2="820" y1={50 + i * 56} y2={50 + i * 56} stroke="#e2e8f0" strokeWidth="1" />
-                    ))}
-                    {periods.map((period, i) => (
-                      <text key={`p-${i}`} x={60 + (i / Math.max(1, periods.length - 1)) * 760} y="282" textAnchor="middle" fontSize="11" fill="#64748b">
-                        {period}
-                      </text>
-                    ))}
-                    <text x="20" y="54" fontSize="11" fill="#64748b">{formatPricingChartAxisLabel(result.pricingGrid ?? [], chart.max)}</text>
-                    <text x="20" y="226" fontSize="11" fill="#64748b">{formatPricingChartAxisLabel(result.pricingGrid ?? [], chart.min)}</text>
-                    {chart.series.map((item, i) => (
-                      <g key={item.row.id || i} transform="translate(60 0)">
-                        <polyline
-                          points={buildPolylinePointsString(item.values, chart.min, chart.max)}
-                          fill="none"
-                          stroke={PRICING_CHART_LINE_COLORS[i % PRICING_CHART_LINE_COLORS.length]}
-                          strokeWidth="2"
-                        />
-                      </g>
-                    ))}
-                  </svg>
-                </div>
-                <div className="mt-3 grid gap-2 md:grid-cols-3">
-                  {chart.series.map((item, i) => (
-                    <div key={item.row.id || i} className="flex items-center gap-2 text-xs text-slate-600">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PRICING_CHART_LINE_COLORS[i % PRICING_CHART_LINE_COLORS.length] }} />
-                      <span className="truncate">{item.row.serviceName}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })()}
             {editMode && (
-              <p className="text-[11px] text-amber-800/90 px-5 pb-2 -mt-1">
-                Edit the time column headers to match this resort&apos;s pricing cadence (e.g. quarterly vs. 6-month lookbacks). Labels sync to the chart and exported PDF.
+              <p className="text-[11px] text-amber-800/90 px-5 pb-2 border-b border-slate-100">
+                Edit the time column headers to match this resort&apos;s pricing cadence (e.g. quarterly vs. 6-month lookbacks). Labels sync to the exported PDF.
               </p>
             )}
           <div className="overflow-x-auto">

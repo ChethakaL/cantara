@@ -13,7 +13,18 @@ export async function GET(req: NextRequest) {
   try { checks.lease = !!(await prisma.leaseAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.lease = false }
   try { checks.competitor = !!(await (prisma as any).competitorAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.competitor = false }
   try { checks.employeeObligations = !!(await (prisma as any).employeeObligationsReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.employeeObligations = false }
-  try { checks.digitalPresence = !!(await (prisma as any).digitalPresenceReport?.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.digitalPresence = false }
+  try {
+    const digitalFromTable = await (prisma as any).digitalPresenceReport?.findFirst({ where: { clientId }, select: { id: true } })
+    if (digitalFromTable) {
+      checks.digitalPresence = true
+    } else {
+      const client = await prisma.clientProfile.findFirst({
+        where: { id: clientId },
+        select: { sectionSubmissions: true },
+      })
+      checks.digitalPresence = Boolean((client?.sectionSubmissions as Record<string, unknown> | null)?.digitalPresence)
+    }
+  } catch { checks.digitalPresence = false }
   try { checks.orgChart = !!(await prisma.clientProfile.findFirst({ where: { id: clientId, sectionSubmissions: { not: null } }, select: { sectionSubmissions: true } }).then(r => (r?.sectionSubmissions as any)?.orgChart)) } catch { checks.orgChart = false }
 
   return NextResponse.json(checks)

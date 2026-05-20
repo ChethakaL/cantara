@@ -391,7 +391,20 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
       })
       const res = await fetch('/api/facility-review/analyze', { method: 'POST', body: form })
       if (!res.ok) throw new Error(await res.text())
-      setReport(await res.json())
+      const nextReport = await res.json()
+      setReport(nextReport)
+      try {
+        const saveRes = await fetch(`/api/client-data/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section: 'facilityReview', data: nextReport }),
+        })
+        if (!saveRes.ok) throw new Error('Save failed')
+        setSaved(true)
+        setTimeout(() => setSaved(false), 1800)
+      } catch (saveErr: any) {
+        setError(saveErr.message || 'Analysis completed but failed to save')
+      }
       requestAnimationFrame(() => {
         reportTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })

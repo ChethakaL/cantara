@@ -53,14 +53,15 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
     void loadDraft()
   }, [clientId])
 
-  const saveDraft = async () => {
+  const saveDraft = async (payload?: TeaserInputData) => {
+    const toSave = payload ?? data
     setSaving(true)
     setSaveSuccess(false)
     try {
       const res = await fetch('/api/teaser/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, data }),
+        body: JSON.stringify({ clientId, data: toSave }),
       })
       if (!res.ok) throw new Error('Failed to save draft')
       setSaveSuccess(true)
@@ -102,6 +103,7 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
         inputData.investmentHighlights = DEFAULT_TEASER_INPUT.investmentHighlights
       }
       setData(inputData)
+      await saveDraft(inputData)
       setStatus('editing')
     } catch (err: any) {
       setError(err.message || 'Auto-fill failed')
@@ -329,7 +331,7 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
             <Button
               variant="outline"
               size="sm"
-              onClick={saveDraft}
+              onClick={() => void saveDraft()}
               disabled={saving}
               className="text-[10px] h-8"
             >

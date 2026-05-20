@@ -58,6 +58,15 @@ export async function POST(req: NextRequest) {
     // ── 6. Load digital presence report ─────────────────────────────────
     let digitalPresence: any = null
     try { digitalPresence = await (prisma as any).digitalPresenceReport?.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' } }) } catch {}
+    if (!digitalPresence) {
+      try {
+        const clientRow = await (prisma as any).clientProfile.findUnique({
+          where: { id: clientId },
+          select: { sectionSubmissions: true },
+        })
+        digitalPresence = (clientRow?.sectionSubmissions as Record<string, unknown> | null)?.digitalPresence ?? null
+      } catch {}
+    }
 
     // ── 7. Load employee obligations report ─────────────────────────────
     let employeeReport: any = null
