@@ -34,15 +34,23 @@ export function buildPermitsZoningReportHtml(
     { label: 'Deal-Risk Flags', value: String(dealRisks.length) },
   ]
 
-  // Buyer Summary
   const bs = report.buyerSummary
-  const summaryText = [
-    bs.permitsOverview,
-    bs.zoningCompliance ? `Zoning: ${bs.zoningCompliance}` : '',
-    bs.conditionalUseStatus ? `CUP: ${bs.conditionalUseStatus}` : '',
-    bs.grandfatheringRisk ? `Grandfathering: ${bs.grandfatheringRisk}` : '',
-    bs.transferConsiderations ? `Transfer: ${bs.transferConsiderations}` : '',
-  ].filter(Boolean).join(' | ')
+  const escape = (text: string) =>
+    text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const summaryItems = [
+    { heading: 'Permits Overview', text: bs.permitsOverview },
+    { heading: 'Zoning Compliance', text: bs.zoningCompliance },
+    { heading: 'Conditional Use Permit Status', text: bs.conditionalUseStatus },
+    { heading: 'Grandfathering Risk', text: bs.grandfatheringRisk },
+    { heading: 'Transfer Considerations', text: bs.transferConsiderations },
+  ].filter(item => item.text)
+  const executiveSummaryHtml = summaryItems
+    .map(
+      item =>
+        `<p style="margin:0 0 14px 0;font-size:13px;line-height:1.7;color:#475569;"><strong style="color:#1e293b;font-size:13px;">${item.heading}</strong><br/>${escape(item.text ?? '')}</p>`
+    )
+    .join('')
+  const shortSummary = bs.permitsOverview || ''
 
   // Documents table
   const docsContent = report.documents.length > 0
@@ -140,9 +148,10 @@ export function buildPermitsZoningReportHtml(
     subtitle: 'WS1-9 Analysis',
     clientName,
     generatedAt: report.generatedAt,
-    summary: summaryText,
+    summary: shortSummary,
     kpis,
     sections: [
+      { title: 'Executive Summary', content: executiveSummaryHtml || '<p>No summary available.</p>' },
       { title: 'Document Inventory', content: docsContent },
       { title: 'Permit Inventory', content: permitsContent },
       { title: 'Zoning Analysis', content: zoningContent },

@@ -1,12 +1,10 @@
 'use client'
 // WS1-8 Corporate Ownership Verification — Upload Screen
-// 9 document slots for corporate/ownership documents
 
 import { useEffect, useRef, useState } from 'react'
 import { Save } from 'lucide-react'
 import type { UploadedDoc } from '@/hooks/useWS18Analysis'
 
-// All document slots — each is optional (yes/no toggle). Agent runs with whatever is available.
 const ALL_DOCUMENT_SLOTS = [
   {
     key: 'articles_of_org',
@@ -27,18 +25,6 @@ const ALL_DOCUMENT_SLOTS = [
     multi: true,
   },
   {
-    key: 'ownership_certificates',
-    label: 'Ownership / Membership Certificates',
-    note: 'Membership certificates, stock certificates, or cap table showing current ownership.',
-    multi: true,
-  },
-  {
-    key: 'ucc_search',
-    label: 'UCC Search Results',
-    note: 'UCC-1 filing search results from the state of formation and any operating states.',
-    multi: true,
-  },
-  {
     key: 'good_standing',
     label: 'Good Standing Certificate',
     note: 'Certificate of good standing or certificate of existence from the state of formation.',
@@ -46,25 +32,11 @@ const ALL_DOCUMENT_SLOTS = [
   },
   {
     key: 'annual_reports',
-    label: 'Annual Reports / Franchise Tax Filings',
-    note: 'Most recent annual report or franchise tax filing for each state of registration.',
-    multi: true,
-  },
-  {
-    key: 'foreign_qualifications',
-    label: 'Foreign Qualification Certificates',
-    note: 'Certificates of authority or foreign qualification for states other than the state of formation.',
-    multi: true,
-  },
-  {
-    key: 'title_lien_search',
-    label: 'Title / Lien Search Results',
-    note: 'Any title search, lien search, or judgment search results. Includes tax lien certificates.',
+    label: 'Annual Reports',
+    note: 'Most recent annual report for each state of registration.',
     multi: true,
   },
 ] as const
-
-type SlotKey = typeof ALL_DOCUMENT_SLOTS[number]['key']
 
 interface Props {
   clientId: string
@@ -85,11 +57,9 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
   const totalSizeBytes = allUploadedDocs.reduce((acc, doc) => acc + (doc.base64.length * 3) / 4, 0)
   const isOverLimits = totalFileCount > 15 || totalSizeBytes > 25 * 1024 * 1024
 
-  // At least one document must be uploaded to run
   const hasAnyDocs = totalFileCount > 0
   const hasDraftInput = totalFileCount > 0 || Object.keys(hasDocument).length > 0
 
-  // Count how many slots are marked "No"
   const unavailableSlots = ALL_DOCUMENT_SLOTS.filter(
     slot => hasDocument[slot.key] === false
   )
@@ -170,7 +140,6 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
         onDocumentsReady(Object.values(updated).flat())
         return updated
       })
-      // Auto-set to "yes" when files are uploaded
       setHasDocument(prev => ({ ...prev, [slotKey]: true }))
     })
   }
@@ -189,7 +158,6 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
   function toggleHasDocument(slotKey: string, value: boolean) {
     setHasDocument(prev => ({ ...prev, [slotKey]: value }))
     if (!value) {
-      // Clear uploaded files for this slot if marked "No"
       setUploadedBySlot(prev => {
         const updated = { ...prev, [slotKey]: [] }
         onDocumentsReady(Object.values(updated).flat())
@@ -200,14 +168,18 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
 
   return (
     <div className="space-y-5">
-      <div className="bg-stone-50 border border-stone-200 rounded-lg px-4 py-3">
+      <div className="bg-stone-50 border border-stone-200 rounded-lg px-4 py-3 space-y-2">
         <p className="text-[12px] text-stone-500 leading-relaxed">
           For each document type below, indicate whether the seller has this document available.{' '}
           <span className="font-medium text-stone-700">Select &ldquo;Yes&rdquo; to upload, or &ldquo;No&rdquo; if unavailable.</span>{' '}
           The analysis will run with whatever documents are provided. Missing documents will be noted in the report.
         </p>
+        <p className="text-[11px] text-stone-500 leading-relaxed">
+          UCC search results and title/lien searches are handled in the{' '}
+          <span className="font-medium text-stone-700">Litigation &amp; Liens</span> workstream — not here.
+        </p>
         {draftLoaded && (
-          <p className="mt-2 text-[11px] font-medium text-emerald-700">
+          <p className="text-[11px] font-medium text-emerald-700">
             Draft restored for this client.
           </p>
         )}
@@ -294,8 +266,6 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
   )
 }
 
-// --- Sub-components ---
-
 function ToggleUploadSlot({
   slot,
   hasDocument,
@@ -304,7 +274,7 @@ function ToggleUploadSlot({
   onFiles,
   onRemove,
 }: {
-  slot: any
+  slot: { key: string; label: string; note: string; multi: boolean }
   hasDocument: boolean | undefined
   files: UploadedDoc[]
   onToggle: (value: boolean) => void
@@ -323,9 +293,7 @@ function ToggleUploadSlot({
     <div className={`border rounded-lg px-3 py-2.5 transition-colors ${borderColor}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <p className={`text-[12px] font-medium ${hasDocument === false ? 'text-stone-400' : 'text-stone-800'}`}>{slot.label}</p>
-          </div>
+          <p className={`text-[12px] font-medium ${hasDocument === false ? 'text-stone-400' : 'text-stone-800'}`}>{slot.label}</p>
           <p className="text-[11px] text-stone-400 leading-snug mt-0.5">{slot.note}</p>
           {files.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -347,7 +315,6 @@ function ToggleUploadSlot({
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Yes/No toggle */}
           <div className="flex items-center rounded-lg border border-stone-200 overflow-hidden">
             <button
               type="button"
@@ -372,7 +339,6 @@ function ToggleUploadSlot({
               No
             </button>
           </div>
-          {/* Upload button — only shown if "Yes" or undecided */}
           {hasDocument !== false && (
             <>
               <input

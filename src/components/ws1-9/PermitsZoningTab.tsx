@@ -20,6 +20,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildPermitsZoningReportHtml } from '@/lib/report-export/build-permits-zoning-report'
+import { serializeWS19Report } from '@/lib/ws1-9/serialize-report'
+import { PermitsZoningStructuredEditor } from './PermitsZoningEditor'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PREMIUM UI COMPONENTS: Modal & Toast
@@ -109,6 +111,9 @@ export default function PermitsZoningTab({
   const [activeTab, setActiveTab] = useState('summary')
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [releasing, setReleasing] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [draftReport, setDraftReport] = useState<WS19Report | null>(null)
+  const [savingMarkdown, setSavingMarkdown] = useState(false)
 
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS19Analysis({ clientId, clientName, state, dba, propertyAddress, municipality })
@@ -225,8 +230,46 @@ export default function PermitsZoningTab({
   const handleNewAnalysis = () => {
     setSavedReport(null)
     setFlags([])
+    setEditMode(false)
+    setDraftReport(null)
     clearAll()
     showToast('Starting new analysis session')
+  }
+
+  const startEditing = () => {
+    setDraftReport(structuredClone(report))
+    setEditMode(true)
+  }
+
+  const saveEditedMarkdown = async () => {
+    if (!savedReport || !draftReport) return
+    setSavingMarkdown(true)
+    try {
+      const editedMarkdown = serializeWS19Report(draftReport, flags)
+      const response = await fetch(`/api/permits-zoning/reports?clientId=${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          markdown: editedMarkdown,
+          metadata: (savedReport as WS19Persistence).metadata ?? undefined,
+        }),
+      })
+      if (!response.ok) throw new Error(await response.text().catch(() => 'Failed to save final report'))
+      const data = await response.json()
+      if (data.report) {
+        setSavedReport(data.report)
+        const { flags: pFlags } = parseWS19Markdown(data.report.markdown, clientName)
+        setFlags(mergeFlagStatuses(pFlags || [], data.report.metadata))
+      }
+      setEditMode(false)
+      setDraftReport(null)
+      showToast('Final report saved')
+    } catch (err) {
+      console.error('Failed to save edited report:', err)
+      showToast('Failed to save final report.', 'error')
+    } finally {
+      setSavingMarkdown(false)
+    }
   }
 
   const handleDeleteConfirmed = async () => {
@@ -309,8 +352,29 @@ export default function PermitsZoningTab({
           <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} />
         </div>
         <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+          {editMode ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditMode(false)
+                  setDraftReport(null)
+                }}
+                disabled={savingMarkdown}
+              >
+                Cancel
+              </Button>
+              <Button onClick={saveEditedMarkdown} disabled={savingMarkdown}>
+                {savingMarkdown ? 'Saving...' : 'Save Final Version'}
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={startEditing}>
+              Edit Output
+            </Button>
+          )}
           <ExportReportButton
-            html={buildPermitsZoningReportHtml(report, flags, clientName)}
+            html={buildPermitsZoningReportHtml(draftReport ?? report, flags, clientName)}
             fileName={`permits-zoning-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             label="Export Permits & Zoning Report"
           />
@@ -357,13 +421,25 @@ export default function PermitsZoningTab({
         </div>
 
         <div className="min-h-[500px]">
-          {activeTab === 'summary' && <SummaryTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {activeTab === 'documents' && <DocumentsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {activeTab === 'permits' && <PermitsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {activeTab === 'zoning' && <ZoningTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {activeTab === 'conditionaluse' && <ConditionalUseTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {activeTab === 'grandfathering' && <GrandfatheringTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {activeTab === 'review' && <AdminReviewTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} onRelease={handleRelease} isReleasing={releasing} />}
+          {editMode && draftReport && (
+            <PermitsZoningStructuredEditor
+              activeTab={activeTab}
+              report={draftReport}
+              onChange={setDraftReport}
+              flags={flags}
+              onConfirm={id => handleFlagUpdate(id, 'confirmed')}
+              onNA={id => handleFlagUpdate(id, 'na')}
+              onRelease={handleRelease}
+              isReleasing={releasing}
+            />
+          )}
+          {!editMode && activeTab === 'summary' && <SummaryTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
+          {!editMode && activeTab === 'documents' && <DocumentsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
+          {!editMode && activeTab === 'permits' && <PermitsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
+          {!editMode && activeTab === 'zoning' && <ZoningTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
+          {!editMode && activeTab === 'conditionaluse' && <ConditionalUseTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
+          {!editMode && activeTab === 'grandfathering' && <GrandfatheringTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
+          {!editMode && activeTab === 'review' && <AdminReviewTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} onRelease={handleRelease} isReleasing={releasing} />}
         </div>
       </Card>
 

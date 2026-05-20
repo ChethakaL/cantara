@@ -7,6 +7,8 @@ import Anthropic, {
 import { getAnthropicApiKey } from '@/lib/secure-settings'
 import { NextRequest, NextResponse } from 'next/server'
 import { WS18_SYSTEM_PROMPT, buildWS18ContextBlock } from '@/lib/ws1-8/prompt'
+import { prisma } from '@/lib/prisma'
+import { parseReport as parseLeaseReport } from '@/lib/lease-analysis/parse-report'
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const mammoth: { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } = require('mammoth')
@@ -23,7 +25,7 @@ type MessageStream = AsyncIterable<any> & { controller: { abort: () => void } }
 
 export async function POST(req: NextRequest) {
   try {
-    const { documents, clientName, state, dba, entityType } =
+    const { documents, clientName, state, dba, entityType, clientId } =
       await req.json()
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
@@ -34,12 +36,38 @@ export async function POST(req: NextRequest) {
       return new Response('Missing clientName', { status: 400 })
     }
 
-    // Context block injected at top of user message
+    let leaseLandlord: string | undefined
+    let leaseTenant: string | undefined
+    if (clientId) {
+      try {
+        const leaseRecord = await prisma.leaseAnalysis.findFirst({
+          where: { clientId },
+          orderBy: { createdAt: 'desc' },
+        })
+        if (leaseRecord?.report) {
+          const parsed = parseLeaseReport(leaseRecord.report)
+          const findParty = (label: string) => {
+            const row = parsed.snapshotTable.find(r => {
+              const field = r.field?.toLowerCase() ?? ''
+              return field.includes(label) && (field.includes('name') || field === label)
+            })
+            return row?.finding?.trim()
+          }
+          leaseLandlord = findParty('landlord')
+          leaseTenant = findParty('tenant')
+        }
+      } catch {
+        // Lease cross-check is optional; analysis proceeds without it.
+      }
+    }
+
     const contextBlock = buildWS18ContextBlock({
       clientName,
       state: state ?? 'Unknown',
       dba,
       entityType,
+      leaseLandlord,
+      leaseTenant,
     })
 
     // Files Passed to Agent:
