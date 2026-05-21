@@ -4,6 +4,7 @@ import {
   type ReportConfig,
 } from './generate-report-html'
 import type { PricingAnalysisReport } from '@/lib/pricing-analysis/types'
+import { getCompetitorNamesFromReport } from '@/lib/pricing-analysis/normalize-report'
 
 function statusLabel(status: string): string {
   switch (status) {
@@ -45,9 +46,7 @@ function buildPriceMatrixHtml(report: PricingAnalysisReport): string {
   const rows = report.priceMatrix ?? []
   if (!rows.length) return '<p>No price matrix data available.</p>'
 
-  const competitorNames = Array.from(
-    new Set(rows.flatMap(r => r.competitors.map(c => c.name)))
-  ).slice(0, 5)
+  const competitorNames = getCompetitorNamesFromReport(report)
 
   // Header row 1 - main headers
   let header1 = '<th>Service</th><th>Basis</th>'

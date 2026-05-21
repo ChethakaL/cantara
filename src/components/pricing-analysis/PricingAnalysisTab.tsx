@@ -12,6 +12,11 @@ import {
 } from 'lucide-react'
 import { Card, Badge, cn } from '@/components/ui'
 import type { CompetitorPricingInput, PricingAnalysisReport, PriceMatrixRow, PricingSummaryRow, PricingFlag } from '@/lib/pricing-analysis/types'
+import {
+  getCompetitorNamesFromReport,
+  hasPricingTableData,
+  normalizePricingReport,
+} from '@/lib/pricing-analysis/normalize-report'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildPricingAnalysisReportHtml } from '@/lib/report-export/build-pricing-analysis-report'
 
@@ -86,8 +91,9 @@ export default function PricingAnalysisTab({
         const res = await fetch(`/api/pricing-analysis?clientId=${encodeURIComponent(clientId)}&includePrefill=1`)
         if (res.ok) {
           const data = await res.json()
-          if (data?.report?.executiveSummary) {
-            setResult(data.report)
+          const normalized = normalizePricingReport(data?.report)
+          if (normalized) {
+            setResult(normalized)
           }
           if (data?.prefill) {
             setSellerWebsiteUrl(data.prefill.sellerWebsiteUrl ?? '')
@@ -128,7 +134,8 @@ export default function PricingAnalysisTab({
         const text = await res.text()
         throw new Error(text || `Analysis failed (${res.status})`)
       }
-      const data: PricingAnalysisReport = await res.json()
+      const data = normalizePricingReport(await res.json())
+      if (!data) throw new Error('Analysis returned an invalid report. Please run again.')
       setResult(data)
       setEditMode(false)
       setRerunComplete(true)
@@ -171,14 +178,14 @@ export default function PricingAnalysisTab({
   // ── Mutation helpers ────────────────────────────────────────────────────────
   const updateMatrixRow = (index: number, field: keyof PriceMatrixRow, value: any) => {
     if (!result) return
-    const matrix = [...result.priceMatrix]
+    const matrix = [...(result.priceMatrix ?? [])]
     matrix[index] = { ...matrix[index], [field]: value }
     setResult({ ...result, priceMatrix: matrix })
   }
 
   const updateMatrixCompetitor = (rowIndex: number, compIndex: number, field: string, value: string) => {
     if (!result) return
-    const matrix = [...result.priceMatrix]
+    const matrix = [...(result.priceMatrix ?? [])]
     const comps = [...matrix[rowIndex].competitors]
     comps[compIndex] = { ...comps[compIndex], [field]: value }
     matrix[rowIndex] = { ...matrix[rowIndex], competitors: comps }
@@ -187,7 +194,7 @@ export default function PricingAnalysisTab({
 
   const updateSummaryRow = (index: number, field: keyof PricingSummaryRow, value: any) => {
     if (!result) return
-    const summary = [...result.pricingSummary]
+    const summary = [...(result.pricingSummary ?? [])]
     summary[index] = { ...summary[index], [field]: value }
     setResult({ ...result, pricingSummary: summary })
   }
@@ -228,33 +235,33 @@ export default function PricingAnalysisTab({
 
   const updateFlag = (index: number, field: keyof PricingFlag, value: string) => {
     if (!result) return
-    const flags = [...result.flags]
+    const flags = [...(result.flags ?? [])]
     flags[index] = { ...flags[index], [field]: value }
     setResult({ ...result, flags })
   }
 
   const removeFlag = (index: number) => {
     if (!result) return
-    const flags = [...result.flags]
+    const flags = [...(result.flags ?? [])]
     flags.splice(index, 1)
     setResult({ ...result, flags })
   }
 
   const updateRecommendation = (index: number, value: string) => {
     if (!result) return
-    const recs = [...result.recommendations]
+    const recs = [...(result.recommendations ?? [])]
     recs[index] = value
     setResult({ ...result, recommendations: recs })
   }
 
   const addRecommendation = () => {
     if (!result) return
-    setResult({ ...result, recommendations: [...result.recommendations, ''] })
+    setResult({ ...result, recommendations: [...(result.recommendations ?? []), ''] })
   }
 
   const removeRecommendation = (index: number) => {
     if (!result) return
-    const recs = [...result.recommendations]
+    const recs = [...(result.recommendations ?? [])]
     recs.splice(index, 1)
     setResult({ ...result, recommendations: recs })
   }
@@ -294,10 +301,7 @@ export default function PricingAnalysisTab({
     </Card>
   )
 
-  // Collect unique competitor names from the price matrix
-  const competitorNames = result
-    ? Array.from(new Set(result.priceMatrix.flatMap(row => row.competitors.map(c => c.name)))).slice(0, 5)
-    : []
+  const competitorNames = result ? getCompetitorNamesFromReport(result) : []
 
   // ── Results view ────────────────────────────────────────────────────────────
   if (result) {
@@ -381,6 +385,16 @@ export default function PricingAnalysisTab({
 
         {editMode && manualEvidencePanel}
 
+        {!hasPricingTableData(result) && (
+          <Card className="p-5 border-amber-200 bg-amber-50">
+            <p className="text-sm font-semibold text-amber-900">Pricing tables need to be regenerated</p>
+            <p className="text-xs text-amber-700 mt-1">
+              This saved report uses an older format or is missing table data. Click <strong>Edit</strong>, then{' '}
+              <strong>Run AI Again</strong> to rebuild the competitor matrix and summary.
+            </p>
+          </Card>
+        )}
+
         {analyzing && result && (
           <Card className="p-5 border-amber-200 bg-amber-50">
             <div className="flex items-center gap-3">
@@ -447,7 +461,7 @@ export default function PricingAnalysisTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {result.priceMatrix.map((row, ri) => {
+                  {(result.priceMatrix ?? []).map((row, ri) => {
                     const compMap = new Map(row.competitors.map(c => [c.name, c]))
                     return (
                       <tr key={ri} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
@@ -521,7 +535,7 @@ export default function PricingAnalysisTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {result.pricingSummary.map((row, i) => {
+                  {(result.pricingSummary ?? []).map((row, i) => {
                     const statusConfig = STATUS_COLORS[row.status] || STATUS_COLORS.unknown
                     return (
                       <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
@@ -600,7 +614,7 @@ export default function PricingAnalysisTab({
         <Card className="p-5">
           <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Pricing Flags</h3>
           <div className="space-y-2">
-            {result.flags.map((flag, i) => (
+            {(result.flags ?? []).map((flag, i) => (
               <div
                 key={flag.id}
                 className={cn(
@@ -656,7 +670,7 @@ export default function PricingAnalysisTab({
             )}
           </div>
           <ol className="space-y-2">
-            {result.recommendations.map((rec, i) => (
+            {(result.recommendations ?? []).map((rec, i) => (
               <li key={i} className="flex items-start gap-3 text-sm text-slate-700">
                 <span className="flex-shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold flex items-center justify-center mt-0.5">
                   {i + 1}

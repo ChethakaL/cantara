@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { CompetitorPricingInput, PricingAnalysisReport } from './types'
+import { normalizePricingReport } from './normalize-report'
 
 function extractText(result: Anthropic.Messages.Message): string {
   return result.content
@@ -125,5 +126,10 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
 
   const rawText = extractText(response)
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
-  return JSON.parse(cleaned) as PricingAnalysisReport
+  const parsed = JSON.parse(cleaned) as unknown
+  const normalized = normalizePricingReport(parsed)
+  if (!normalized) {
+    throw new Error('AI returned an invalid pricing report. Please run the analysis again.')
+  }
+  return normalized
 }

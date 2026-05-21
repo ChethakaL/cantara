@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { analyzePricing } from '@/lib/pricing-analysis/analyze'
-import type { CompetitorPricingInput, PricingAnalysisReport } from '@/lib/pricing-analysis/types'
+import type { CompetitorPricingInput } from '@/lib/pricing-analysis/types'
+import { normalizePricingReport } from '@/lib/pricing-analysis/normalize-report'
 import { researchWebsite } from '@/lib/competitor-analysis/website-research'
 
 export const runtime = 'nodejs'
@@ -36,7 +37,9 @@ export async function GET(req: NextRequest) {
     })
 
     const data = (client?.sectionSubmissions as Record<string, any>) ?? {}
-    if (!includePrefill) return NextResponse.json(data.pricingAnalysis ?? null)
+    if (!includePrefill) {
+      return NextResponse.json(normalizePricingReport(data.pricingAnalysis) ?? null)
+    }
 
     const competitorAnalysis = await (prisma as any).competitorAnalysis.findFirst({
       where: { clientId },
@@ -52,7 +55,7 @@ export async function GET(req: NextRequest) {
       .slice(0, 5) as CompetitorPricingInput[]
 
     return NextResponse.json({
-      report: data.pricingAnalysis ?? null,
+      report: normalizePricingReport(data.pricingAnalysis) ?? null,
       prefill: {
         sellerWebsiteUrl: data.competitorPricingInputs?.sellerWebsiteUrl ?? '',
         sellerManualPricingText: data.competitorPricingInputs?.sellerManualPricingText ?? '',
