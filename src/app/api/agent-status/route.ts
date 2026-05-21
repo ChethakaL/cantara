@@ -9,23 +9,37 @@ export async function GET(req: NextRequest) {
 
   const checks: Record<string, boolean> = {}
 
-  try { checks.ttmAnalysis = !!(await (prisma as any).ttmAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.ttmAnalysis = false }
+  // TTM Analysis — has its own table
+  try { checks.ttmAnalysis = !!(await prisma.ttmAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.ttmAnalysis = false }
+
+  // Lease Analysis — has its own table
   try { checks.lease = !!(await prisma.leaseAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.lease = false }
+
+  // Competitor Analysis — has its own table
   try { checks.competitor = !!(await prisma.competitorAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.competitor = false }
-  try { checks.employeeObligations = !!(await (prisma as any).employeeObligationsReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.employeeObligations = false }
+
+  // Employee Obligations — has its own table
+  try { checks.employeeObligations = !!(await prisma.employeeObligationsReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.employeeObligations = false }
+
+  // Digital Presence — stored in sectionSubmissions (NO dedicated table)
   try {
-    const digitalFromTable = await (prisma as any).digitalPresenceReport?.findFirst({ where: { clientId }, select: { id: true } })
-    if (digitalFromTable) {
-      checks.digitalPresence = true
-    } else {
-      const client = await prisma.clientProfile.findFirst({
-        where: { id: clientId },
-        select: { sectionSubmissions: true },
-      })
-      checks.digitalPresence = Boolean((client?.sectionSubmissions as Record<string, unknown> | null)?.digitalPresence)
-    }
+    const client = await prisma.clientProfile.findFirst({
+      where: { id: clientId },
+      select: { sectionSubmissions: true },
+    })
+    const submissions = client?.sectionSubmissions as Record<string, unknown> | null
+    checks.digitalPresence = Boolean(submissions?.digitalPresence)
   } catch { checks.digitalPresence = false }
-  try { checks.orgChart = !!(await prisma.clientProfile.findFirst({ where: { id: clientId, sectionSubmissions: { not: null } }, select: { sectionSubmissions: true } }).then(r => (r?.sectionSubmissions as any)?.orgChart)) } catch { checks.orgChart = false }
+
+  // Org Chart — stored in sectionSubmissions
+  try {
+    const client = await prisma.clientProfile.findFirst({
+      where: { id: clientId },
+      select: { sectionSubmissions: true },
+    })
+    const submissions = client?.sectionSubmissions as Record<string, unknown> | null
+    checks.orgChart = Boolean(submissions?.orgChart)
+  } catch { checks.orgChart = false }
 
   return NextResponse.json(checks)
 }
