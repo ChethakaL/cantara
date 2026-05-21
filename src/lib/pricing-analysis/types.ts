@@ -4,45 +4,36 @@ export interface CompetitorPricingInput {
   manualPricingText?: string
 }
 
-export interface ServicePricingComparison {
-  serviceCategory: string
-  serviceDetail?: string
-  sellerServiceBasis?: string
-  competitorServiceBasis?: string
-  normalizedUnit?: string
-  sellerNormalizedPrice?: string
-  sellerPrice: string      // e.g. "$45/night", "$35/day"
-  sellerPriceNumeric: number | null
-  competitorAvgPrice: string
-  competitorAvgNumeric: number | null
-  competitorRange: string  // e.g. "$38-$55/night"
-  competitorPrices: Array<{ name: string; price: string; serviceBasis?: string; normalizedPrice?: string; sourceUrl?: string }>
-  variance: string         // e.g. "-12% below average across competitors"
-  variancePercent: number | null
-  status: 'underpriced' | 'at-market' | 'premium' | 'unknown'
-  upliftOpportunity: string  // e.g. "$5/night increase = $18,250/yr additional revenue"
-  notes: string
+export interface PriceMatrixRow {
+  service: string
+  basis: string  // "Full Day", "Half Day (4hr)", "Per Night", "10-Day Package", etc.
+  sellerPrice: string  // raw listed price e.g. "$35/day"
+  sellerNormalized: string  // normalized daily rate e.g. "$35"
+  sellerNormalizedNumeric: number | null
+  competitors: Array<{
+    name: string
+    listedPrice: string  // raw e.g. "$25/half day"
+    normalized: string   // e.g. "$50" (half day x2)
+    normalizedNumeric: number | null
+    normalizationNote: string  // e.g. "Half day x2"
+  }>
 }
 
-export interface CompetitorServicePricingDetail {
-  competitorName: string
-  websiteUrl: string
-  serviceName: string
-  serviceCategory: string
-  listedPrice: string
-  serviceBasis: string
-  durationHours: number | null
-  normalizedHourlyPrice: number | null
-  normalizedPriceLabel: string
-  comparableToSellerService: string
-  sourceUrl?: string
-  notes: string
+export interface PricingSummaryRow {
+  service: string
+  sellerPrice: string
+  sellerPriceNumeric: number | null
+  competitorAvg: string
+  competitorAvgNumeric: number | null
+  variance: string  // e.g. "-11.4%"
+  variancePercent: number | null
+  status: 'underpriced' | 'at-market' | 'premium' | 'unknown'
+  estAnnualUplift: string
 }
 
 export interface PricingFlag {
   id: string
   severity: 'critical' | 'warning' | 'positive' | 'informational'
-  category: string
   title: string
   description: string
 }
@@ -52,13 +43,12 @@ export interface PricingAnalysisReport {
   businessName: string
   radiusMiles: number
   sellerWebsiteUrl?: string | null
-  competitors: CompetitorPricingInput[]
+  competitors: Array<{ name: string; websiteUrl: string }>
   competitorsAnalyzed: number
-  competitorServiceDetails: CompetitorServicePricingDetail[]
-  serviceComparisons: ServicePricingComparison[]
+  priceMatrix: PriceMatrixRow[]
+  pricingSummary: PricingSummaryRow[]
   flags: PricingFlag[]
   executiveSummary: string
-  revenueUpliftSummary: string
   totalEstimatedUplift: string
   recommendations: string[]
 }

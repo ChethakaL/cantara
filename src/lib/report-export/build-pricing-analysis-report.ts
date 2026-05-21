@@ -1,20 +1,9 @@
 import {
   generateReportHtml,
-  buildHtmlTable,
   buildBulletList,
   type ReportConfig,
 } from './generate-report-html'
 import type { PricingAnalysisReport } from '@/lib/pricing-analysis/types'
-import { buildFullDayNormalizedRows } from '@/lib/pricing-analysis/day-normalization'
-
-function statusColor(status: string): string {
-  switch (status) {
-    case 'underpriced': return 'color:#b91c1c;font-weight:700'
-    case 'at-market': return 'color:#166534;font-weight:700'
-    case 'premium': return 'color:#1d4ed8;font-weight:700'
-    default: return 'color:#64748b'
-  }
-}
 
 function statusLabel(status: string): string {
   switch (status) {
@@ -22,6 +11,15 @@ function statusLabel(status: string): string {
     case 'at-market': return 'At Market'
     case 'premium': return 'Premium'
     default: return 'Unknown'
+  }
+}
+
+function statusStyle(status: string): string {
+  switch (status) {
+    case 'underpriced': return 'color:#b91c1c;font-weight:700'
+    case 'at-market': return 'color:#166534;font-weight:700'
+    case 'premium': return 'color:#1d4ed8;font-weight:700'
+    default: return 'color:#64748b'
   }
 }
 
@@ -43,107 +41,99 @@ function escapeHtml(str: string | number | null | undefined): string {
     .replace(/'/g, '&#039;')
 }
 
-function daycareRows(report: PricingAnalysisReport) {
-  return (report.serviceComparisons ?? []).filter((item) =>
-    /daycare|day camp|half day|full day|hour|package/i.test(`${item.serviceCategory} ${item.serviceDetail ?? ''} ${item.sellerServiceBasis ?? ''}`),
-  )
+function buildPriceMatrixHtml(report: PricingAnalysisReport): string {
+  const rows = report.priceMatrix ?? []
+  if (!rows.length) return '<p>No price matrix data available.</p>'
+
+  const competitorNames = Array.from(
+    new Set(rows.flatMap(r => r.competitors.map(c => c.name)))
+  ).slice(0, 5)
+
+  // Header row 1 - main headers
+  let header1 = '<th>Service</th><th>Basis</th>'
+  header1 += '<th style="background:#fef9c3;text-align:right;">Your Price</th>'
+  header1 += '<th style="background:#fef9c3;text-align:right;">Norm. Daily</th>'
+  for (const name of competitorNames) {
+    header1 += `<th colspan="2" style="background:#dcfce7;text-align:center;border-left:1px solid #e2e8f0;">${escapeHtml(name)}</th>`
+  }
+
+  // Header row 2 - sub-headers
+  let header2 = '<th></th><th></th><th style="background:#fef9c3;"></th><th style="background:#fef9c3;"></th>'
+  for (const _name of competitorNames) {
+    header2 += '<th style="background:#dcfce7;font-size:10px;text-align:right;border-left:1px solid #e2e8f0;">Listed</th>'
+    header2 += '<th style="background:#dcfce7;font-size:10px;text-align:right;">Norm.</th>'
+  }
+
+  const body = rows.map(row => {
+    const compMap = new Map(row.competitors.map(c => [c.name, c]))
+    let cells = `<td><strong>${escapeHtml(row.service)}</strong></td>`
+    cells += `<td>${escapeHtml(row.basis)}</td>`
+    cells += `<td style="background:#fef9c3;font-weight:700;text-align:right;">${escapeHtml(row.sellerPrice)}</td>`
+    cells += `<td style="background:#fef9c3;font-weight:700;text-align:right;">${escapeHtml(row.sellerNormalized)}</td>`
+
+    for (const name of competitorNames) {
+      const comp = compMap.get(name)
+      cells += `<td style="background:#f0fdf4;text-align:right;border-left:1px solid #e2e8f0;">${escapeHtml(comp?.listedPrice ?? '--')}</td>`
+      const normDisplay = comp?.normalized ?? '--'
+      const noteDisplay = comp?.normalizationNote ? `<br/><span style="font-size:9px;color:#94a3b8;">${escapeHtml(comp.normalizationNote)}</span>` : ''
+      cells += `<td style="background:#f0fdf4;text-align:right;">${escapeHtml(normDisplay)}${noteDisplay}</td>`
+    }
+
+    return `<tr>${cells}</tr>`
+  }).join('')
+
+  return `<table class="report-table">
+    <thead><tr>${header1}</tr><tr>${header2}</tr></thead>
+    <tbody>${body}</tbody>
+  </table>`
 }
 
-function competitorNamesForMatrix(report: PricingAnalysisReport) {
-  const names = report.competitors.map((item) => item.name).filter(Boolean)
-  if (names.length) return names
-  return Array.from(new Set((report.competitorServiceDetails ?? []).map((item) => item.competitorName).filter(Boolean))).slice(0, 5)
-}
+function buildSummaryTableHtml(report: PricingAnalysisReport): string {
+  const rows = report.pricingSummary ?? []
+  if (!rows.length) return '<p>No pricing summary data available.</p>'
 
-function buildDaycareMatrix(report: PricingAnalysisReport): string {
-  const rows = daycareRows(report)
-  if (!rows.length) return ''
-  const competitors = competitorNamesForMatrix(report)
-  const header = ['Item', report.businessName, 'Unit Price', ...competitors]
-    .map((item) => `<th>${escapeHtml(item)}</th>`)
-    .join('')
-  const body = rows.map((row) => {
-    const prices = new Map(row.competitorPrices.map((price) => [price.name, price.normalizedPrice || price.price]))
+  const header = '<th>Service</th><th style="text-align:right;">Your Price</th><th style="text-align:right;">Comp. Average</th><th style="text-align:right;">Variance</th><th style="text-align:center;">Status</th><th style="text-align:right;">Est. Annual Uplift</th>'
+
+  const body = rows.map(row => {
+    const style = statusStyle(row.status)
     return `<tr>
-      <td><strong>${escapeHtml(row.serviceCategory)}</strong></td>
-      <td style="background:#fef9c3;font-weight:700;text-align:right;">${escapeHtml(row.sellerPrice || 'N/A')}</td>
-      <td style="text-align:right;">${escapeHtml(row.sellerNormalizedPrice || 'N/A')}</td>
-      ${competitors.map((name) => `<td style="background:#dcfce7;text-align:right;">${escapeHtml(prices.get(name) ?? 'N/A')}</td>`).join('')}
+      <td><strong>${escapeHtml(row.service)}</strong></td>
+      <td style="text-align:right;">${escapeHtml(row.sellerPrice)}</td>
+      <td style="text-align:right;">${escapeHtml(row.competitorAvg)}</td>
+      <td style="text-align:right;font-weight:700;">${escapeHtml(row.variance)}</td>
+      <td style="text-align:center;${style}">${escapeHtml(statusLabel(row.status))}</td>
+      <td style="text-align:right;">${escapeHtml(row.estAnnualUplift)}</td>
     </tr>`
   }).join('')
-  return `<table class="report-table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`
-}
 
-function buildFullDayNormalizedMatrix(report: PricingAnalysisReport): string {
-  const rows = buildFullDayNormalizedRows(report)
-  if (!rows.length) return ''
-  const competitors = competitorNamesForMatrix(report)
-  const header = ['Service', report.businessName, ...competitors]
-    .map((item) => `<th>${escapeHtml(item)}</th>`)
-    .join('')
-  const body = rows.map((row) => `<tr>
-      <td><strong>${escapeHtml(row.service)}</strong></td>
-      <td style="background:#fef9c3;font-weight:700;text-align:right;">${escapeHtml(row.sellerPrice)}</td>
-      ${competitors.map((name) => `<td style="background:#dcfce7;text-align:right;">${escapeHtml(row.competitors[name] ?? 'N/A')}</td>`).join('')}
-    </tr>`).join('')
-  return `<table class="report-table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>
-    <p style="font-size:10px;color:#64748b;margin-top:8px;">Half-day prices are doubled, hourly prices assume an 8-hour full day, and package prices are divided by the package day count.</p>`
+  return `<table class="report-table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`
 }
 
 export function buildPricingAnalysisReportHtml(
   report: PricingAnalysisReport,
   clientName: string,
 ): string {
-  const underpricedCount = report.serviceComparisons.filter(s => s.status === 'underpriced').length
+  const underpricedCount = (report.pricingSummary ?? []).filter(s => s.status === 'underpriced').length
 
   // KPIs
   const kpis = [
     { label: 'Competitors Analyzed', value: String(report.competitorsAnalyzed) },
-    { label: 'Services Compared', value: String(report.serviceComparisons.length) },
+    { label: 'Services Compared', value: String((report.pricingSummary ?? []).length) },
     { label: 'Underpriced Services', value: String(underpricedCount) },
     { label: 'Total Est. Uplift', value: report.totalEstimatedUplift },
   ]
 
-  // Service Pricing Comparison table
-  const comparisonTable = buildHtmlTable(
-    ['Service', 'Specific Basis', 'Seller Price', 'Seller Normalized', 'Competitor Basis', 'Avg Across Competitors', 'Range', 'Variance', 'Status', 'Uplift Opportunity'],
-    report.serviceComparisons.map(s => [
-      s.serviceCategory,
-      s.sellerServiceBasis || s.serviceDetail || '',
-      s.sellerPrice,
-      s.sellerNormalizedPrice || '',
-      s.competitorServiceBasis || '',
-      s.competitorAvgPrice,
-      s.competitorRange,
-      s.variance,
-      statusLabel(s.status),
-      s.upliftOpportunity,
-    ]),
-  )
+  // Price Matrix table
+  const priceMatrixHtml = buildPriceMatrixHtml(report)
 
-  const competitorInventoryTable = buildHtmlTable(
-    ['Competitor', 'Service', 'Category', 'Listed Price', 'Basis', 'Duration Hrs', 'Normalized $/Hr', 'Comparable To', 'Notes'],
-    (report.competitorServiceDetails ?? []).map(s => [
-      s.competitorName,
-      s.serviceName,
-      s.serviceCategory,
-      s.listedPrice,
-      s.serviceBasis,
-      s.durationHours ?? 'N/A',
-      s.normalizedPriceLabel,
-      s.comparableToSellerService,
-      s.notes,
-    ]),
-  )
-  const daycareMatrix = buildDaycareMatrix(report)
-  const fullDayNormalizedMatrix = buildFullDayNormalizedMatrix(report)
+  // Summary & Variance table
+  const summaryTableHtml = buildSummaryTableHtml(report)
 
-  // Revenue Uplift section
-  const upliftContent = `<p>${escapeHtml(report.revenueUpliftSummary)}</p>
-    <div style="margin-top:12px;padding:16px;background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;">
-      <p style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#166534;font-weight:700;margin-bottom:4px;">Total Estimated Annual Uplift</p>
-      <p style="font-size:24px;font-weight:800;color:#166534;">${escapeHtml(report.totalEstimatedUplift)}</p>
-    </div>`
+  // Total Uplift card
+  const upliftContent = `<div style="margin-top:12px;padding:16px;background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;">
+    <p style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#166534;font-weight:700;margin-bottom:4px;">Total Estimated Annual Uplift</p>
+    <p style="font-size:24px;font-weight:800;color:#166534;">${escapeHtml(report.totalEstimatedUplift)}</p>
+  </div>`
 
   // Flags
   const flagsContent = report.flags.length > 0
@@ -172,11 +162,9 @@ export function buildPricingAnalysisReportHtml(
     kpis,
     flags: flagCounts,
     sections: [
-      ...(daycareMatrix ? [{ title: 'Daycare Competitive Pricing Matrix', content: daycareMatrix }] : []),
-      ...(fullDayNormalizedMatrix ? [{ title: 'Full-Day Normalized Competitor Pricing', content: fullDayNormalizedMatrix }] : []),
-      { title: 'Competitor Service Inventory', content: competitorInventoryTable },
-      { title: 'Service Pricing Comparison', content: comparisonTable },
-      { title: 'Revenue Uplift Analysis', content: upliftContent },
+      { title: 'Detailed Competitor Price Matrix', content: priceMatrixHtml },
+      { title: 'Pricing Summary & Variance', content: summaryTableHtml },
+      { title: 'Estimated Revenue Uplift', content: upliftContent },
       { title: 'Pricing Flags', content: flagsContent },
       { title: 'Recommendations', content: recsContent },
     ],

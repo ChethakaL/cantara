@@ -11,16 +11,15 @@ import {
   BarChart3,
 } from 'lucide-react'
 import { Card, Badge, cn } from '@/components/ui'
-import type { CompetitorPricingInput, CompetitorServicePricingDetail, PricingAnalysisReport, ServicePricingComparison, PricingFlag } from '@/lib/pricing-analysis/types'
-import { buildFullDayNormalizedRows } from '@/lib/pricing-analysis/day-normalization'
+import type { CompetitorPricingInput, PricingAnalysisReport, PriceMatrixRow, PricingSummaryRow, PricingFlag } from '@/lib/pricing-analysis/types'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildPricingAnalysisReportHtml } from '@/lib/report-export/build-pricing-analysis-report'
 
-const STATUS_COLORS: Record<string, { badge: 'red' | 'green' | 'blue' | 'slate'; label: string; className: string }> = {
-  underpriced: { badge: 'red', label: 'Underpriced', className: 'bg-red-50 text-red-700 border-red-200' },
-  'at-market': { badge: 'green', label: 'At Market', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  premium: { badge: 'blue', label: 'Premium', className: 'bg-blue-50 text-blue-700 border-blue-200' },
-  unknown: { badge: 'slate', label: 'Unknown', className: 'bg-slate-50 text-slate-700 border-slate-200' },
+const STATUS_COLORS: Record<string, { badge: 'red' | 'green' | 'blue' | 'slate'; label: string }> = {
+  underpriced: { badge: 'red', label: 'Underpriced' },
+  'at-market': { badge: 'green', label: 'At Market' },
+  premium: { badge: 'blue', label: 'Premium' },
+  unknown: { badge: 'slate', label: 'Unknown' },
 }
 
 const SEVERITY_COLORS: Record<string, 'red' | 'gold' | 'green' | 'blue'> = {
@@ -28,18 +27,6 @@ const SEVERITY_COLORS: Record<string, 'red' | 'gold' | 'green' | 'blue'> = {
   warning: 'gold',
   positive: 'green',
   informational: 'blue',
-}
-
-function daycareRows(report: PricingAnalysisReport) {
-  return (report.serviceComparisons ?? []).filter((item) =>
-    /daycare|day camp|half day|full day|hour|package/i.test(`${item.serviceCategory} ${item.serviceDetail ?? ''} ${item.sellerServiceBasis ?? ''}`),
-  )
-}
-
-function competitorNamesForMatrix(report: PricingAnalysisReport) {
-  const names = report.competitors.map((item) => item.name).filter(Boolean)
-  if (names.length) return names
-  return Array.from(new Set((report.competitorServiceDetails ?? []).map((item) => item.competitorName).filter(Boolean))).slice(0, 5)
 }
 
 // ── Editable Cell helper ────────────────────────────────────────────────────
@@ -182,11 +169,27 @@ export default function PricingAnalysisTab({
   }
 
   // ── Mutation helpers ────────────────────────────────────────────────────────
-  const updateComparison = (index: number, field: keyof ServicePricingComparison, value: any) => {
+  const updateMatrixRow = (index: number, field: keyof PriceMatrixRow, value: any) => {
     if (!result) return
-    const comparisons = [...result.serviceComparisons]
-    comparisons[index] = { ...comparisons[index], [field]: value }
-    setResult({ ...result, serviceComparisons: comparisons })
+    const matrix = [...result.priceMatrix]
+    matrix[index] = { ...matrix[index], [field]: value }
+    setResult({ ...result, priceMatrix: matrix })
+  }
+
+  const updateMatrixCompetitor = (rowIndex: number, compIndex: number, field: string, value: string) => {
+    if (!result) return
+    const matrix = [...result.priceMatrix]
+    const comps = [...matrix[rowIndex].competitors]
+    comps[compIndex] = { ...comps[compIndex], [field]: value }
+    matrix[rowIndex] = { ...matrix[rowIndex], competitors: comps }
+    setResult({ ...result, priceMatrix: matrix })
+  }
+
+  const updateSummaryRow = (index: number, field: keyof PricingSummaryRow, value: any) => {
+    if (!result) return
+    const summary = [...result.pricingSummary]
+    summary[index] = { ...summary[index], [field]: value }
+    setResult({ ...result, pricingSummary: summary })
   }
 
   const updateCompetitor = (index: number, field: keyof CompetitorPricingInput, value: string) => {
@@ -256,18 +259,11 @@ export default function PricingAnalysisTab({
     setResult({ ...result, recommendations: recs })
   }
 
-  const chartRows = (details: CompetitorServicePricingDetail[]) =>
-    details
-      .filter(item => item.normalizedHourlyPrice !== null && Number.isFinite(item.normalizedHourlyPrice))
-      .slice(0, 14)
-
-  const maxHourly = result ? Math.max(1, ...chartRows(result.competitorServiceDetails ?? []).map(item => item.normalizedHourlyPrice ?? 0)) : 1
-
   const manualEvidencePanel = (
     <Card className="p-5">
       <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Manual Pricing Evidence</h3>
       <p className="text-xs text-slate-500 mb-4">
-        If AI misses prices, paste copied website pricing text here. Run AI again and it will parse this text into the tables and charts.
+        If AI misses prices, paste copied website pricing text here. Run AI again and it will parse this text into the tables.
       </p>
       <div className="space-y-4">
         <div>
@@ -297,6 +293,11 @@ export default function PricingAnalysisTab({
       </div>
     </Card>
   )
+
+  // Collect unique competitor names from the price matrix
+  const competitorNames = result
+    ? Array.from(new Set(result.priceMatrix.flatMap(row => row.competitors.map(c => c.name)))).slice(0, 5)
+    : []
 
   // ── Results view ────────────────────────────────────────────────────────────
   if (result) {
@@ -387,7 +388,7 @@ export default function PricingAnalysisTab({
               <div>
                 <p className="text-sm font-semibold text-amber-900">Re-running AI analysis</p>
                 <p className="text-xs text-amber-700 mt-0.5">
-                  Manual evidence is being parsed into the pricing tables, normalized matrix, charts, and report.
+                  Manual evidence is being parsed into the pricing tables and report.
                 </p>
               </div>
             </div>
@@ -409,75 +410,86 @@ export default function PricingAnalysisTab({
           )}
         </Card>
 
-        {/* Revenue Uplift Summary */}
-        <Card className="p-5 border-emerald-200 bg-emerald-50/30">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="w-4 h-4 text-emerald-600" />
-            <h3 className="text-xs font-bold uppercase tracking-wide text-emerald-700">Revenue Uplift Summary</h3>
-          </div>
-          {editMode ? (
-            <div className="space-y-3">
-              <textarea
-                value={result.revenueUpliftSummary}
-                onChange={e => setResult({ ...result, revenueUpliftSummary: e.target.value })}
-                rows={3}
-                className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y"
-              />
-              <div>
-                <label className="text-xs text-slate-500">Total Estimated Uplift</label>
-                <input
-                  type="text"
-                  value={result.totalEstimatedUplift}
-                  onChange={e => setResult({ ...result, totalEstimatedUplift: e.target.value })}
-                  className="w-full border border-amber-300 rounded-lg px-3 py-2 text-lg font-bold text-emerald-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
-                />
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="text-sm text-slate-700 leading-relaxed mb-3">{result.revenueUpliftSummary}</p>
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-100 border border-emerald-200 rounded-lg">
-                <DollarSign className="w-5 h-5 text-emerald-600" />
-                <span className="text-lg font-bold text-emerald-700">{result.totalEstimatedUplift}</span>
-                <span className="text-xs text-emerald-600">Total Estimated Annual Uplift</span>
-              </div>
-            </>
-          )}
-        </Card>
-
-        {daycareRows(result).length > 0 && (
+        {/* Table 1: Detailed Competitor Price Matrix */}
+        {(result.priceMatrix ?? []).length > 0 && (
           <Card className="overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-slate-400" />
               <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                Daycare Competitive Pricing Matrix
+                Detailed Competitor Price Matrix
               </h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-cyan-50">
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-600">Item</th>
-                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">{result.businessName}</th>
-                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Unit Price</th>
-                    {competitorNamesForMatrix(result).map((name) => (
-                      <th key={name} className="text-right px-4 py-2.5 font-semibold text-slate-600">{name}</th>
+                  <tr className="border-b border-slate-100 bg-slate-50/50">
+                    <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Service</th>
+                    <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Basis</th>
+                    <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Your Price</th>
+                    <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Norm. Daily</th>
+                    {competitorNames.map(name => (
+                      <th key={`${name}-listed`} colSpan={2} className="text-center px-3 py-2.5 font-semibold text-slate-600 bg-emerald-50 border-l border-slate-100">
+                        {name}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-slate-200 bg-slate-50/30">
+                    <th className="px-3 py-1" />
+                    <th className="px-3 py-1" />
+                    <th className="px-3 py-1 bg-yellow-50" />
+                    <th className="px-3 py-1 bg-yellow-50" />
+                    {competitorNames.map(name => (
+                      <>
+                        <th key={`${name}-sub-listed`} className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">Listed</th>
+                        <th key={`${name}-sub-norm`} className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50">Norm.</th>
+                      </>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {daycareRows(result).map((row, index) => {
-                    const competitorPrices = new Map(row.competitorPrices.map((price) => [price.name, price.normalizedPrice || price.price]))
+                  {result.priceMatrix.map((row, ri) => {
+                    const compMap = new Map(row.competitors.map(c => [c.name, c]))
                     return (
-                      <tr key={`${row.serviceCategory}-${index}`} className="border-b border-slate-100">
-                        <td className="px-4 py-2.5 font-semibold text-slate-800">{row.serviceCategory}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">{row.sellerPrice || 'N/A'}</td>
-                        <td className="px-4 py-2.5 text-right text-slate-700">{row.sellerNormalizedPrice || 'N/A'}</td>
-                        {competitorNamesForMatrix(result).map((name) => (
-                          <td key={name} className="px-4 py-2.5 text-right bg-emerald-50 text-slate-800">
-                            {competitorPrices.get(name) ?? 'N/A'}
-                          </td>
-                        ))}
+                      <tr key={ri} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                        <td className="px-3 py-2.5 font-medium text-slate-800">
+                          <EditableCell value={row.service} onChange={v => updateMatrixRow(ri, 'service', v)} editMode={editMode} />
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-600">
+                          <EditableCell value={row.basis} onChange={v => updateMatrixRow(ri, 'basis', v)} editMode={editMode} />
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
+                          <EditableCell value={row.sellerPrice} onChange={v => updateMatrixRow(ri, 'sellerPrice', v)} editMode={editMode} />
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
+                          <EditableCell value={row.sellerNormalized} onChange={v => updateMatrixRow(ri, 'sellerNormalized', v)} editMode={editMode} />
+                        </td>
+                        {competitorNames.map((name, ci) => {
+                          const comp = compMap.get(name)
+                          const compIdx = row.competitors.findIndex(c => c.name === name)
+                          return (
+                            <>
+                              <td key={`${name}-listed-${ri}`} className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700 border-l border-slate-100">
+                                {editMode && compIdx >= 0 ? (
+                                  <EditableCell value={comp?.listedPrice ?? '--'} onChange={v => updateMatrixCompetitor(ri, compIdx, 'listedPrice', v)} editMode={editMode} />
+                                ) : (
+                                  comp?.listedPrice ?? '--'
+                                )}
+                              </td>
+                              <td key={`${name}-norm-${ri}`} className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700" title={comp?.normalizationNote ?? ''}>
+                                {editMode && compIdx >= 0 ? (
+                                  <EditableCell value={comp?.normalized ?? '--'} onChange={v => updateMatrixCompetitor(ri, compIdx, 'normalized', v)} editMode={editMode} />
+                                ) : (
+                                  <span>
+                                    {comp?.normalized ?? '--'}
+                                    {comp?.normalizationNote && (
+                                      <span className="block text-[9px] text-slate-400 mt-0.5">{comp.normalizationNote}</span>
+                                    )}
+                                  </span>
+                                )}
+                              </td>
+                            </>
+                          )
+                        })}
                       </tr>
                     )
                   })}
@@ -487,222 +499,100 @@ export default function PricingAnalysisTab({
           </Card>
         )}
 
-        {buildFullDayNormalizedRows(result).length > 0 && (
+        {/* Table 2: Pricing Summary & Variance */}
+        {(result.pricingSummary ?? []).length > 0 && (
           <Card className="overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-slate-400" />
+              <TrendingUp className="w-4 h-4 text-slate-400" />
               <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                Full-Day Normalized Competitor Pricing
+                Pricing Summary & Variance
               </h3>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-cyan-50">
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-600">Service</th>
-                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">{result.businessName}</th>
-                    {competitorNamesForMatrix(result).map((name) => (
-                      <th key={name} className="text-right px-4 py-2.5 font-semibold text-slate-600">{name}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {buildFullDayNormalizedRows(result).map((row, index) => (
-                    <tr key={`${row.service}-${index}`} className="border-b border-slate-100">
-                      <td className="px-4 py-2.5 font-semibold text-slate-800">{row.service}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">{row.sellerPrice}</td>
-                      {competitorNamesForMatrix(result).map((name) => (
-                        <td key={name} className="px-4 py-2.5 text-right bg-emerald-50 text-slate-800">
-                          {row.competitors[name] ?? 'N/A'}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="px-5 py-3 border-t border-slate-100 text-[11px] text-slate-500">
-              Half-day prices are doubled, hourly prices assume an 8-hour full day, and package prices are divided by the package day count.
-            </div>
-          </Card>
-        )}
-
-        {/* Service Pricing Comparison Table */}
-        {(result.competitorServiceDetails ?? []).length > 0 && (
-          <Card className="overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-slate-400" />
-              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                Competitor Service Inventory ({result.competitorServiceDetails.length})
-              </h3>
-            </div>
-            {chartRows(result.competitorServiceDetails).length > 0 && (
-              <div className="p-5 border-b border-slate-100">
-                <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Normalized Hourly Price Chart</h4>
-                <div className="space-y-2">
-                  {chartRows(result.competitorServiceDetails).map((item, index) => (
-                    <div key={`${item.competitorName}-${item.serviceName}-${index}`} className="grid grid-cols-[220px_1fr_70px] items-center gap-3 text-xs">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-slate-700">{item.serviceName}</p>
-                        <p className="truncate text-slate-400">{item.competitorName}</p>
-                      </div>
-                      <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-amber-500"
-                          style={{ width: `${Math.max(4, ((item.normalizedHourlyPrice ?? 0) / maxHourly) * 100)}%` }}
-                        />
-                      </div>
-                      <div className="text-right font-semibold text-slate-700">{item.normalizedPriceLabel}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Competitor</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Service</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Category</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Listed Price</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Basis</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">$/Hr</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Comparable To</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Notes</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-slate-600">Service</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Your Price</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Comp. Average</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Variance</th>
+                    <th className="text-center px-4 py-2.5 font-semibold text-slate-600">Status</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Est. Annual Uplift</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {result.competitorServiceDetails.map((item, i) => (
-                    <tr key={i} className="border-b border-slate-50 align-top">
-                      <td className="px-4 py-2.5 font-medium text-slate-800">{item.competitorName}</td>
-                      <td className="px-4 py-2.5 text-slate-700">{item.serviceName}</td>
-                      <td className="px-4 py-2.5 text-slate-600">{item.serviceCategory}</td>
-                      <td className="px-4 py-2.5 text-slate-700">{item.listedPrice}</td>
-                      <td className="px-4 py-2.5 text-slate-600 min-w-[180px]">{item.serviceBasis}</td>
-                      <td className="px-4 py-2.5 font-semibold text-slate-700">{item.normalizedPriceLabel}</td>
-                      <td className="px-4 py-2.5 text-slate-600">{item.comparableToSellerService}</td>
-                      <td className="px-4 py-2.5 text-slate-500 min-w-[220px]">{item.notes}</td>
-                    </tr>
-                  ))}
+                  {result.pricingSummary.map((row, i) => {
+                    const statusConfig = STATUS_COLORS[row.status] || STATUS_COLORS.unknown
+                    return (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                        <td className="px-4 py-2.5 font-medium text-slate-800">
+                          <EditableCell value={row.service} onChange={v => updateSummaryRow(i, 'service', v)} editMode={editMode} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <EditableCell value={row.sellerPrice} onChange={v => updateSummaryRow(i, 'sellerPrice', v)} editMode={editMode} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <EditableCell value={row.competitorAvg} onChange={v => updateSummaryRow(i, 'competitorAvg', v)} editMode={editMode} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold">
+                          <EditableCell
+                            value={row.variance}
+                            onChange={v => updateSummaryRow(i, 'variance', v)}
+                            editMode={editMode}
+                            className={
+                              row.variancePercent !== null && row.variancePercent < -10
+                                ? 'text-red-600'
+                                : row.variancePercent !== null && row.variancePercent > 15
+                                  ? 'text-blue-600'
+                                  : 'text-emerald-600'
+                            }
+                          />
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {editMode ? (
+                            <select
+                              value={row.status}
+                              onChange={e => updateSummaryRow(i, 'status', e.target.value)}
+                              className="bg-white border border-amber-300 text-xs text-slate-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            >
+                              <option value="underpriced">Underpriced</option>
+                              <option value="at-market">At Market</option>
+                              <option value="premium">Premium</option>
+                              <option value="unknown">Unknown</option>
+                            </select>
+                          ) : (
+                            <Badge color={statusConfig.badge}>{statusConfig.label}</Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <EditableCell value={row.estAnnualUplift} onChange={v => updateSummaryRow(i, 'estAnnualUplift', v)} editMode={editMode} />
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           </Card>
         )}
 
-        <Card className="overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-slate-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              Service Pricing Comparison ({result.serviceComparisons.length})
-            </h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Service</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Seller Basis</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Seller Listed</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Seller Normalized</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Competitor Basis</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Avg Across Competitors</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Range</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Variance</th>
-                  <th className="text-center px-4 py-2.5 font-semibold text-slate-500">Status</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-slate-500">Uplift Opportunity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.serviceComparisons.map((svc, i) => {
-                  const statusConfig = STATUS_COLORS[svc.status] || STATUS_COLORS.unknown
-                  return (
-                    <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-2.5 font-medium">
-                        <EditableCell
-                          value={svc.serviceCategory}
-                          onChange={v => updateComparison(i, 'serviceCategory', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <EditableCell
-                          value={svc.sellerServiceBasis ?? ''}
-                          onChange={v => updateComparison(i, 'sellerServiceBasis', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <EditableCell
-                          value={svc.sellerPrice}
-                          onChange={v => updateComparison(i, 'sellerPrice', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <EditableCell
-                          value={svc.sellerNormalizedPrice ?? ''}
-                          onChange={v => updateComparison(i, 'sellerNormalizedPrice', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                      <td className="px-4 py-2.5 min-w-[180px]">
-                        <EditableCell
-                          value={svc.competitorServiceBasis ?? ''}
-                          onChange={v => updateComparison(i, 'competitorServiceBasis', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <EditableCell
-                          value={svc.competitorAvgPrice}
-                          onChange={v => updateComparison(i, 'competitorAvgPrice', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <EditableCell
-                          value={svc.competitorRange}
-                          onChange={v => updateComparison(i, 'competitorRange', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <EditableCell
-                          value={svc.variance}
-                          onChange={v => updateComparison(i, 'variance', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        {editMode ? (
-                          <select
-                            value={svc.status}
-                            onChange={e => updateComparison(i, 'status', e.target.value)}
-                            className="bg-white border border-amber-300 text-xs text-slate-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400"
-                          >
-                            <option value="underpriced">Underpriced</option>
-                            <option value="at-market">At Market</option>
-                            <option value="premium">Premium</option>
-                            <option value="unknown">Unknown</option>
-                          </select>
-                        ) : (
-                          <Badge color={statusConfig.badge}>{statusConfig.label}</Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <EditableCell
-                          value={svc.upliftOpportunity}
-                          onChange={v => updateComparison(i, 'upliftOpportunity', v)}
-                          editMode={editMode}
-                        />
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+        {/* Total Estimated Uplift */}
+        <Card className="p-5 border-emerald-200 bg-emerald-50/30">
+          <div className="flex items-center gap-3">
+            <DollarSign className="w-5 h-5 text-emerald-600" />
+            {editMode ? (
+              <input
+                type="text"
+                value={result.totalEstimatedUplift}
+                onChange={e => setResult({ ...result, totalEstimatedUplift: e.target.value })}
+                className="flex-1 border border-amber-300 rounded-lg px-3 py-2 text-lg font-bold text-emerald-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            ) : (
+              <>
+                <span className="text-lg font-bold text-emerald-700">{result.totalEstimatedUplift}</span>
+                <span className="text-xs text-emerald-600">Total Estimated Annual Uplift</span>
+              </>
+            )}
           </div>
         </Card>
 
@@ -732,12 +622,14 @@ export default function PricingAnalysisTab({
                   ) : (
                     <span className="text-xs font-semibold text-slate-800">{flag.title}</span>
                   )}
-                  <button
-                    onClick={() => removeFlag(i)}
-                    className="ml-auto rounded border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-white"
-                  >
-                    Remove
-                  </button>
+                  {editMode && (
+                    <button
+                      onClick={() => removeFlag(i)}
+                      className="ml-auto rounded border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-white"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
                 {editMode ? (
                   <input
@@ -753,7 +645,7 @@ export default function PricingAnalysisTab({
           </div>
         </Card>
 
-        {/* Recommendations hidden per product direction. Keep code for quick restore.
+        {/* Recommendations */}
         <Card className="p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">Recommendations</h3>
@@ -786,7 +678,7 @@ export default function PricingAnalysisTab({
               </li>
             ))}
           </ol>
-        </Card> */}
+        </Card>
       </div>
     )
   }
@@ -795,7 +687,7 @@ export default function PricingAnalysisTab({
   return (
     <div className="space-y-6">
       <div>
-            <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
+        <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
         <p className="text-xs text-slate-400 mt-0.5">
           Compare {clientName} pricing against exactly 5 named competitors using seller and competitor websites.
         </p>
