@@ -28,11 +28,12 @@ These are the highest-priority checks for every engagement. **You MUST include a
    - Any ownership interest is unnamed, marked "TBD", or ambiguous
    - Total ownership does not sum to 100%
 
-3. **Lease-to-corporate document cross-check** — This is a MANDATORY check. If lease party names are provided in the context block, you MUST:
-   - Compare the lease tenant name against the entity name on Articles of Organization
-   - Compare the lease tenant name against the operating agreement party name
-   - State explicitly whether they match or do not match
-   - If they do not match, flag as Deal Risk and explain the discrepancy
+3. **Cross-check against ALL other workstream documents** — This is a MANDATORY check. The context block may contain party/entity names extracted from other completed analyses (Lease, Material Contracts, Employee Obligations). For EACH source provided:
+   - Compare every entity/party name against the corporate formation documents uploaded to this agent
+   - **Lease cross-check:** Compare the lease tenant name against Articles of Organization and Operating Agreement. State explicitly whether they match.
+   - **Material contracts cross-check:** Compare entity names on material contracts against corporate documents. Flag any contract where the contracting party name differs from the legal entity name.
+   - **Employee agreements cross-check:** Compare the employer entity name on employment documents against corporate formation documents.
+   - If ANY name does not match across ANY source, flag as Deal Risk and list the exact discrepancy (document, name used, expected name)
 
 **UCC search results and title/lien search results are NOT uploaded to this workstream.** They are analyzed in the separate Litigation & Liens workstream. Do not list them as missing document categories in Section 1. If financing or liens appear in uploaded corporate documents, analyze them in Section 4; otherwise note that lien verification requires the Litigation & Liens analysis.
 
@@ -184,8 +185,10 @@ Write this section in clean, professional prose — 4 to 6 paragraphs. This is t
 
 **CRITICAL VERIFICATION CHECKS (place at the very top of Section 6, before the paragraphs below):**
 Produce a clear pass/fail checklist:
-- ✅ or ❌ **Legal Name Consistency:** Do all documents use the same legal entity name? List any discrepancies found.
+- ✅ or ❌ **Legal Name Consistency (Corporate Docs):** Do all uploaded corporate documents use the same legal entity name? List any discrepancies found.
 - ✅ or ❌ **Lease Name Match:** Does the lease tenant name match the entity name on corporate formation documents? State the exact names compared. If no lease data is available, state "Lease data not available for cross-check."
+- ✅ or ❌ **Material Contracts Name Match:** Do the entity names on material contracts match the corporate entity name? If no contract data is available, state "Contract data not available for cross-check."
+- ✅ or ❌ **Employee Agreements Name Match:** Does the employer name on employee agreements match the corporate entity name? If no employee data is available, state "Employee data not available for cross-check."
 - ✅ or ❌ **All Shareholders Identified:** Are all owners/members named consistently on every agreement? Note any gaps.
 - ✅ or ❌ **Ownership Totals 100%:** Does ownership sum to 100% for each entity?
 
@@ -249,6 +252,8 @@ export function buildWS18ContextBlock(params: {
   entityType?: string
   leaseLandlord?: string
   leaseTenant?: string
+  contractPartyNames?: string[]
+  employeeAgreementParties?: string[]
 }) {
   return [
     `CLIENT: ${params.clientName}`,
@@ -256,7 +261,13 @@ export function buildWS18ContextBlock(params: {
     `STATE: ${params.state}`,
     params.entityType ? `ENTITY_TYPE: ${params.entityType}` : null,
     params.leaseLandlord || params.leaseTenant
-      ? `LEASE_PARTIES (from WS1 Lease Analysis — use for legal name cross-check): Landlord: ${params.leaseLandlord ?? 'Not available'} | Tenant: ${params.leaseTenant ?? 'Not available'}`
+      ? `LEASE_PARTIES (from WS1 Lease Analysis — MANDATORY cross-check against all corporate documents):\n  Landlord: ${params.leaseLandlord ?? 'Not available'}\n  Tenant: ${params.leaseTenant ?? 'Not available'}`
+      : null,
+    params.contractPartyNames?.length
+      ? `MATERIAL CONTRACT PARTIES (from WS1 Material Contract Review — cross-check entity names against corporate documents):\n${params.contractPartyNames.map(n => `  - ${n}`).join('\n')}`
+      : null,
+    params.employeeAgreementParties?.length
+      ? `EMPLOYEE AGREEMENT PARTIES (from WS1 Employee Obligations — cross-check entity names against corporate documents):\n${params.employeeAgreementParties.map(n => `  - ${n}`).join('\n')}`
       : null,
     `ENGAGEMENT_TYPE: Business Sale Readiness`,
   ]

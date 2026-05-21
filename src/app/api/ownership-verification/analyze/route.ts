@@ -38,7 +38,11 @@ export async function POST(req: NextRequest) {
 
     let leaseLandlord: string | undefined
     let leaseTenant: string | undefined
+    let contractPartyNames: string[] = []
+    let employeeAgreementParties: string[] = []
+
     if (clientId) {
+      // Pull lease party names
       try {
         const leaseRecord = await prisma.leaseAnalysis.findFirst({
           where: { clientId },
@@ -59,6 +63,61 @@ export async function POST(req: NextRequest) {
       } catch {
         // Lease cross-check is optional; analysis proceeds without it.
       }
+
+      // Pull entity/party names from Material Contracts
+      try {
+        const contractRecords = await prisma.contractAnalysis.findMany({
+          where: { clientId },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: { parsed: true },
+        })
+        for (const cr of contractRecords) {
+          const parsed = cr.parsed as any
+          if (!parsed) continue
+          // Extract party names from snapshot table
+          for (const row of (parsed.snapshotTable ?? [])) {
+            const field = (row.field ?? '').toLowerCase()
+            if (field.includes('party') || field.includes('parties') || field.includes('counterpart') || field.includes('vendor') || field.includes('provider') || field.includes('contractor')) {
+              if (row.finding?.trim()) contractPartyNames.push(row.finding.trim())
+            }
+          }
+          // Extract from risk cards
+          for (const card of (parsed.contractRiskCards ?? [])) {
+            if (card.contractName?.trim()) contractPartyNames.push(card.contractName.trim())
+          }
+          // Extract from document inventory
+          for (const doc of (parsed.documentInventory ?? [])) {
+            if (doc.document?.trim()) contractPartyNames.push(doc.document.trim())
+          }
+        }
+        contractPartyNames = Array.from(new Set(contractPartyNames))
+      } catch {
+        // Contract cross-check is optional.
+      }
+
+      // Pull entity names from Employee Obligations agreements
+      try {
+        const empReport = await (prisma as any).employeeObligationsReport.findFirst({
+          where: { clientId },
+          orderBy: { createdAt: 'desc' },
+          select: { metadata: true },
+        })
+        if (empReport?.metadata) {
+          const meta = empReport.metadata as any
+          // Extract agreement parties from parsed report if available
+          const parsedReport = meta.parsedReport ?? meta
+          for (const agreement of (parsedReport.agreements ?? [])) {
+            if (agreement.role?.trim()) employeeAgreementParties.push(agreement.role.trim())
+          }
+          for (const doc of (parsedReport.documents ?? [])) {
+            if (doc.partiesCovered?.trim()) employeeAgreementParties.push(doc.partiesCovered.trim())
+          }
+        }
+        employeeAgreementParties = Array.from(new Set(employeeAgreementParties))
+      } catch {
+        // Employee obligations cross-check is optional.
+      }
     }
 
     const contextBlock = buildWS18ContextBlock({
@@ -68,6 +127,8 @@ export async function POST(req: NextRequest) {
       entityType,
       leaseLandlord,
       leaseTenant,
+      contractPartyNames: contractPartyNames.length > 0 ? contractPartyNames : undefined,
+      employeeAgreementParties: employeeAgreementParties.length > 0 ? employeeAgreementParties : undefined,
     })
 
     // Files Passed to Agent:
