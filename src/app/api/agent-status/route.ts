@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   try { checks.ttmAnalysis = !!(await (prisma as any).ttmAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.ttmAnalysis = false }
   try { checks.lease = !!(await prisma.leaseAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.lease = false }
-  try { checks.competitor = !!(await (prisma as any).competitorAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.competitor = false }
+  try { checks.competitor = !!(await prisma.competitorAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.competitor = false }
   try { checks.employeeObligations = !!(await (prisma as any).employeeObligationsReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.employeeObligations = false }
   try {
     const digitalFromTable = await (prisma as any).digitalPresenceReport?.findFirst({ where: { clientId }, select: { id: true } })

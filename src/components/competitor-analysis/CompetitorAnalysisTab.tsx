@@ -1193,23 +1193,39 @@ export default function CompetitorAnalysisTab({
     async function loadSavedReport() {
       setInitializing(true);
       try {
-        const formRes = await fetch(`/api/client-data/${clientId}?section=agentFormResponses`);
-        if (formRes.ok) {
-          const savedInputs = await formRes.json();
-          if (!cancelled && savedInputs) {
+        // Load full saved form inputs first (includes addresses, radius, categories)
+        const savedFormRes = await fetch(`/api/client-data/${clientId}?section=competitorAnalysisForm`);
+        if (savedFormRes.ok) {
+          const savedForm = await savedFormRes.json();
+          if (!cancelled && savedForm?.data) {
             setForm((current) => ({
               ...current,
-              websiteUrl: savedInputs.businessWebsite || current.websiteUrl,
-              businessAddress: savedInputs.businessAddress || current.businessAddress,
-              businessCategory: savedInputs.businessCategory || current.businessCategory,
-              manualCompetitors: (Array.from({ length: 5 }, (_, index): ManualCompetitorEntry => ({
-                name: savedInputs[`competitor${index + 1}Name`] || '',
-                address: '',
-                websiteUrl: savedInputs[`competitor${index + 1}Website`] || '',
-              })).filter(item => item.name || item.websiteUrl) as ManualCompetitorEntry[])
-                .concat(current.manualCompetitors ?? [])
-                .slice(0, 5),
+              ...savedForm.data,
+              // Keep props-provided values as fallback
+              businessName: savedForm.data.businessName || current.businessName,
+              businessAddress: savedForm.data.businessAddress || current.businessAddress,
             }));
+          }
+        } else {
+          // Fallback to legacy agentFormResponses
+          const formRes = await fetch(`/api/client-data/${clientId}?section=agentFormResponses`);
+          if (formRes.ok) {
+            const savedInputs = await formRes.json();
+            if (!cancelled && savedInputs) {
+              setForm((current) => ({
+                ...current,
+                websiteUrl: savedInputs.businessWebsite || current.websiteUrl,
+                businessAddress: savedInputs.businessAddress || current.businessAddress,
+                businessCategory: savedInputs.businessCategory || current.businessCategory,
+                manualCompetitors: (Array.from({ length: 5 }, (_, index): ManualCompetitorEntry => ({
+                  name: savedInputs[`competitor${index + 1}Name`] || '',
+                  address: savedInputs[`competitor${index + 1}Address`] || '',
+                  websiteUrl: savedInputs[`competitor${index + 1}Website`] || '',
+                })).filter(item => item.name || item.websiteUrl) as ManualCompetitorEntry[])
+                  .concat(current.manualCompetitors ?? [])
+                  .slice(0, 5),
+              }));
+            }
           }
         }
         const analyses = await getCompetitorAnalyses(clientId);
@@ -1355,6 +1371,12 @@ export default function CompetitorAnalysisTab({
                 parsed: normalizedReport,
               });
               setSavedAnalysis(saved ?? null);
+              // Persist form inputs so they reload next session
+              await fetch(`/api/client-data/${clientId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ section: 'competitorAnalysisForm', data: form }),
+              }).catch(() => {});
               setStatus('complete');
             } finally {
               setSaving(false);
