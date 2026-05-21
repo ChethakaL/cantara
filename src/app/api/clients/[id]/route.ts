@@ -67,6 +67,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           body.sectionSubmissions && typeof body.sectionSubmissions === "object"
             ? body.sectionSubmissions
             : undefined,
+        sectionDeadlines:
+          body.sectionDeadlines && typeof body.sectionDeadlines === "object"
+            ? body.sectionDeadlines
+            : undefined,
         valuationDocUploaded: body.valuationDocUploaded,
         updatedAt: new Date(),
       },
@@ -148,6 +152,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
               fileName: status.fileName ?? null,
               fileUrl: status.fileUrl ?? null,
               notApplicable: Boolean(status.notApplicable),
+              targetDeadline:
+                status.targetDeadline === null || status.targetDeadline === ''
+                  ? null
+                  : status.targetDeadline
+                    ? new Date(status.targetDeadline)
+                    : undefined,
             },
             create: {
               clientId: id,
@@ -158,6 +168,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
               fileName: status.fileName ?? null,
               fileUrl: status.fileUrl ?? null,
               notApplicable: Boolean(status.notApplicable),
+              targetDeadline:
+                status.targetDeadline && status.targetDeadline !== ''
+                  ? new Date(status.targetDeadline)
+                  : null,
             },
           }),
         ),

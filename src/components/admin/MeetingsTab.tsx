@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarDays,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   CheckCircle2,
   Clock3,
   FileUp,
@@ -18,20 +16,9 @@ import {
   Unplug,
   Video,
 } from 'lucide-react'
-import {
-  addMonths,
-  eachDayOfInterval,
-  endOfMonth,
-  endOfWeek,
-  format,
-  isSameDay,
-  isSameMonth,
-  startOfMonth,
-  startOfWeek,
-} from 'date-fns'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Badge, Button, Card, Input, Modal, Textarea } from '@/components/ui'
+import { Badge, Button, Card, DatePicker, Input, Modal, Textarea } from '@/components/ui'
 
 type NylasStatus = {
   configured: boolean
@@ -285,107 +272,6 @@ function CustomTimeInput({
           onBlur={(event) => onChange(clampTime(event.target.value))}
           className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-3 text-sm text-slate-700 outline-none transition-all focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
         />
-      </div>
-    </div>
-  )
-}
-
-function CustomDatePicker({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-}) {
-  const selectedDate = value ? new Date(`${value}T00:00:00`) : new Date()
-  const [open, setOpen] = useState(false)
-  const [monthCursor, setMonthCursor] = useState(startOfMonth(selectedDate))
-
-  useEffect(() => {
-    if (value) setMonthCursor(startOfMonth(new Date(`${value}T00:00:00`)))
-  }, [value])
-
-  const monthStart = startOfMonth(monthCursor)
-  const monthEnd = endOfMonth(monthCursor)
-  const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 })
-  const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
-  const days = eachDayOfInterval({ start: gridStart, end: gridEnd })
-
-  return (
-    <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-slate-600">{label}</label>
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-          className="flex h-[42px] w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition-all hover:border-slate-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
-        >
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-slate-400" />
-            <span className="truncate">{value ? format(selectedDate, 'MMMM dd yyyy') : 'Select date'}</span>
-          </span>
-          <span className="text-xs text-slate-400">▼</span>
-        </button>
-
-        {open ? (
-          <div className="absolute left-0 top-[calc(100%+8px)] z-20 w-[320px] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setMonthCursor((current) => addMonths(current, -1))}
-                className="rounded-lg border border-slate-200 p-2 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <p className="text-sm font-semibold text-slate-900">{format(monthCursor, 'MMMM yyyy')}</p>
-              <button
-                type="button"
-                onClick={() => setMonthCursor((current) => addMonths(current, 1))}
-                className="rounded-lg border border-slate-200 p-2 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
-                <div key={day} className="py-2">
-                  {day}
-                </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-1">
-              {days.map((day) => {
-                const iso = format(day, 'yyyy-MM-dd')
-                const isSelected = value ? isSameDay(day, selectedDate) : false
-                const inMonth = isSameMonth(day, monthCursor)
-
-                return (
-                  <button
-                    key={iso}
-                    type="button"
-                    onClick={() => {
-                      onChange(iso)
-                      setOpen(false)
-                    }}
-                    className={`rounded-xl py-2 text-sm transition-all ${
-                      isSelected
-                        ? 'bg-amber-500 font-semibold text-white shadow-sm'
-                        : inMonth
-                          ? 'text-slate-700 hover:bg-amber-50 hover:text-amber-800'
-                          : 'text-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    {format(day, 'd')}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        ) : null}
       </div>
     </div>
   )
@@ -1216,7 +1102,7 @@ export default function MeetingsTab({ clientId, clientName }: { clientId: string
             placeholder="Management call with seller"
           />
           <div className="grid gap-3 md:grid-cols-3">
-            <CustomDatePicker
+            <DatePicker
               label="Date"
               value={manualForm.startDate}
               onChange={(value) => setManualForm((prev) => ({ ...prev, startDate: value }))}

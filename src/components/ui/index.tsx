@@ -157,6 +157,11 @@ const WS_LABELS: Record<string, { label: string; color: 'gold' | 'blue' | 'green
   both: { label: 'WS1 + WS2', color: 'gold' },
   ma: { label: 'M&A', color: 'red' },
 }
+export { DatePicker } from '@/components/ui/DatePicker'
+export { SearchableSelect } from '@/components/ui/SearchableSelect'
+export type { SearchableSelectOption } from '@/components/ui/SearchableSelect'
+export type { DatePickerProps } from '@/components/ui/DatePicker'
+
 export function WorkstreamBadge({ ws }: { ws: string | null }) {
   if (!ws) return <Badge color="slate">Not Provisioned</Badge>
   const cfg = WS_LABELS[ws] ?? { label: ws, color: 'slate' as const }

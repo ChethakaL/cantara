@@ -62,7 +62,7 @@ function MondaySetupCard({
               )}
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
-              Connect your Monday.com account to link CIM and Teaser PDFs directly to deals on your Monday boards.
+              Connect Monday.com to import leads (name, email, phone, business, website) and link CIM and Teaser PDFs to board items.
               {!status?.connected && installUrl && (
                 <span className="block mt-2">
                   First time? <a href={installUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-semibold">Install the Composio app on your Monday workspace first →</a>

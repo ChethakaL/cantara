@@ -6,25 +6,46 @@ import { useDropzone } from 'react-dropzone'
 import {
   LogOut, Bell, Settings, ChevronRight, CheckCircle, Upload, X,
   MessageSquare, AlertCircle, Send, Users, Plus, Trash2,
-  FileText, HelpCircle, ChevronDown, ChevronUp, Map, Briefcase, Lock, Loader2, ExternalLink
+  FileText, FileSpreadsheet, HelpCircle, ChevronDown, ChevronUp, Map, Briefcase, Lock, Loader2, ExternalLink, Calendar
 } from 'lucide-react'
+import {
+  formatDeadlineLabel,
+  getDeadlineStatus,
+  getEffectiveDocumentDeadline,
+  VALUATION_SECTION_ID,
+} from '@/lib/document-deadlines'
+import { getWorkstreamPortalSubtitle, getWorkstreamPortalTitle } from '@/lib/workstream-display'
+import {
+  STRUCTURED_FORM_COLUMNS,
+  downloadStructuredFormTemplate,
+  isStructuredFormFieldKey,
+  parsePipeRows,
+  parseStructuredFormExcel,
+  serializePipeRows,
+  type StructuredFormFieldKey,
+} from '@/lib/structured-form-excel'
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
 import { getDocsForAgentSelections, getDocsForWorkstream, getValuationDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
 import { getClients, getMessages, saveMessage, getRequirements, getCurrentRole, logout, getClient, saveClient, updateRequirement } from '@/lib/store'
 import type { Client, DocumentStatus, ChatMessage, AdditionalRequirement } from '@/lib/store'
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
-function ClientNav({ clientName, unreadCount, onSettings, showSettings }: {
-  clientName: string; unreadCount: number; onSettings: () => void; showSettings: boolean
+function ClientNav({ workstreamTitle, unreadCount, onSettings, showSettings }: {
+  workstreamTitle: string | null; unreadCount: number; onSettings: () => void; showSettings: boolean
 }) {
   const router = useRouter()
   return (
     <header className="sticky top-0 z-40" style={{ background: '#0d1829' }}>
       <div className="max-w-4xl mx-auto px-4 md:px-6 h-14 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <span className="text-white cantara-serif tracking-[0.18em] text-sm">Cantara</span>
-          <div className="w-px h-3 bg-white/15" />
-          <span className="text-white/30 tracking-[0.18em] uppercase" style={{ fontSize: '0.58rem' }}>Client Portal</span>
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-white cantara-serif tracking-[0.18em] text-sm shrink-0">Cantara</span>
+          <div className="w-px h-3 bg-white/15 shrink-0" />
+          <div className="min-w-0">
+            <span className="text-white/30 tracking-[0.18em] uppercase block" style={{ fontSize: '0.58rem' }}>Client Portal</span>
+            {workstreamTitle && (
+              <span className="text-white/70 text-[11px] truncate block mt-0.5" title={workstreamTitle}>{workstreamTitle}</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <button className="relative p-2 rounded hover:bg-white/5 transition-colors text-white/30 hover:text-white/70">
@@ -61,6 +82,27 @@ const PHASES = [
   { id: 'requirements', label: 'Additional Requirements' },
   { id: 'roadmap', label: 'Roadmap', disabled: true },
 ]
+
+function TargetDeadlineBadge({ deadline, uploaded }: { deadline: string | null; uploaded: boolean }) {
+  const label = formatDeadlineLabel(deadline)
+  if (!label) return null
+  const status = getDeadlineStatus(deadline, uploaded)
+  const tone =
+    status === 'overdue'
+      ? 'border-rose-200 bg-rose-50 text-rose-700'
+      : status === 'due-soon'
+        ? 'border-amber-200 bg-amber-50 text-amber-800'
+        : status === 'done'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : 'border-slate-200 bg-slate-50 text-slate-600'
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium ${tone}`}>
+      <Calendar className="w-3 h-3" />
+      Target: {label}
+      {status === 'overdue' && !uploaded ? ' · Overdue' : ''}
+    </span>
+  )
+}
 
 // ── Document upload dropzone ─────────────────────────────────────────────────
 function DocumentUpload({ docId, docName, clientId, uploaderEmail, onUploaded, currentFileName }: {
@@ -346,11 +388,16 @@ export default function ClientDashboard() {
     both: 'Workstream 1 & 2',
     ma: 'M&A Advisory',
   }
+  const workstreamTitle = getWorkstreamPortalTitle(client)
+  const workstreamSubtitle = getWorkstreamPortalSubtitle(client)
+  const sectionDeadlines = client.sectionDeadlines ?? {}
+  const getDeadline = (docId: string, sectionId: string) =>
+    getEffectiveDocumentDeadline(docId, sectionId, docStatuses, sectionDeadlines)
 
   return (
     <div className="min-h-screen" style={{ background: 'hsl(220,18%,96%)' }}>
       <ClientNav
-        clientName={client.name}
+        workstreamTitle={workstreamTitle}
         unreadCount={unreadMsgs + openReqs.length}
         onSettings={() => setShowSettings(v => !v)}
         showSettings={showSettings}
@@ -372,9 +419,7 @@ export default function ClientDashboard() {
                 <p className="text-sm font-light tracking-wide mb-1" style={{ color: '#d4a843' }}>Welcome back</p>
                 <h2 className="text-2xl font-light text-white cantara-serif">{client.name}</h2>
                 <p className="text-slate-400 mt-1 text-sm font-light">{client.company}</p>
-                {client.workstream && (
-                  <p className="text-xs mt-2" style={{ color: 'rgba(212,168,67,0.7)' }}>{wsLabel[client.workstream]}</p>
-                )}
+                <p className="text-xs mt-2" style={{ color: 'rgba(212,168,67,0.7)' }}>{workstreamSubtitle}</p>
               </div>
               <div className="space-y-2">
                 {openReqs.length > 0 && (
@@ -463,7 +508,17 @@ export default function ClientDashboard() {
               transition={{ duration: 0.2 }}
             >
               {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} />}
-              {phase === 'assign' && <AssignTab valuationDocs={valuationDocs} categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
+              {phase === 'assign' && (
+                <AssignTab
+                  valuationDocs={valuationDocs}
+                  categories={categories}
+                  getStatus={getDocStatus}
+                  setStatus={setDocStatus}
+                  teamMembers={client.teamMembers}
+                  allAssigned={allConfirmedAssigned}
+                  getDeadline={getDeadline}
+                />
+              )}
               {phase === 'information' && <AgentInformationTab clientId={client.id} uploaderEmail={client.email} />}
               {phase === 'collection' && (
                 <CollectionTab
@@ -476,6 +531,8 @@ export default function ClientDashboard() {
                   sectionSubmissions={client.sectionSubmissions ?? {}}
                   onSubmitSection={submitSection}
                   submittingSectionId={submittingSectionId}
+                  getDeadline={getDeadline}
+                  sectionDeadlines={sectionDeadlines}
                 />
               )}
               {phase === 'requirements' && <RequirementsClientTab requirements={requirements} />}
@@ -719,13 +776,14 @@ function OverviewTab({ client, wsLabel }: { client: Client; wsLabel: Record<stri
 // ── Valuation Tab ────────────────────────────────────────────────────────────
 // ── Assign Tab (was Preparation) ─────────────────────────────────────────────
 // UX from meeting: client first says Yes/No per doc, then assigns YES docs only
-function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMembers, allAssigned }: {
+function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMembers, allAssigned, getDeadline }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
   teamMembers: Client['teamMembers']
   allAssigned: boolean
+  getDeadline: (docId: string, sectionId: string) => string | null
 }) {
   const [subView, setSubView] = useState<'yesno' | 'assign'>('yesno')
   const diligenceDocs = categories.flatMap(c => c.documents)
@@ -845,9 +903,10 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
                     return (
                       <div key={doc.id} className="px-5 py-4 bg-white/60 flex items-center gap-4">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-medium text-slate-800">{doc.name}</p>
                             <Badge color="gold">Required</Badge>
+                            <TargetDeadlineBadge deadline={getDeadline(doc.id, VALUATION_SECTION_ID)} uploaded={Boolean(s.fileName)} />
                           </div>
                         </div>
                         <select
@@ -867,9 +926,11 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-700">
                 Required documents and valuation documents appear here automatically. Optional documents appear here once the client confirms they have them.
               </div>
-              {diligenceDocs
-                .filter(doc => doc.type === 'required' || getStatus(doc.id).hasDoc === true)
-                .map(doc => {
+              {categories.map(cat =>
+                diligenceDocs
+                  .filter(doc => cat.documents.some(item => item.id === doc.id))
+                  .filter(doc => doc.type === 'required' || getStatus(doc.id).hasDoc === true)
+                  .map(doc => {
                 const s = getStatus(doc.id)
                 const options = [
                   { value: 'me', label: 'Me (I\'ll upload it)' },
@@ -878,9 +939,10 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
                 return (
                   <div key={doc.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-medium text-slate-800">{doc.name}</p>
                         {doc.type === 'required' && <Badge color="gold">Required</Badge>}
+                        <TargetDeadlineBadge deadline={getDeadline(doc.id, cat.id)} uploaded={Boolean(s.fileName)} />
                       </div>
                     </div>
                     <select
@@ -894,13 +956,13 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
                     {s.assignedTo && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
                   </div>
                 )
-              })}
+              }))}
               {allAssigned && (
                 <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
                   <CheckCircle className="w-5 h-5 text-emerald-500" />
                   <div>
                     <p className="text-sm font-semibold text-emerald-800">All documents assigned</p>
-                    <p className="text-xs text-emerald-600 mt-0.5">Your team has been notified. Head to Collection to start uploading.</p>
+                    <p className="text-xs text-emerald-600 mt-0.5">Head to Collection to upload. Add team members in Settings if others will help upload.</p>
                   </div>
                 </div>
               )}
@@ -924,28 +986,6 @@ type ClientPortalFormQuestion = {
   options?: string[] | null
   groupKey?: string | null
   groupLabel?: string | null
-}
-
-const STRUCTURED_FORM_COLUMNS: Record<string, Array<{ key: string; label: string; placeholder?: string }>> = {
-  professionalAdvisorsList: [
-    { key: 'role', label: 'Role', placeholder: 'Accountant' },
-    { key: 'name', label: 'Name', placeholder: 'Rex John' },
-    { key: 'company', label: 'Company', placeholder: 'Rex Dog Hotel' },
-    { key: 'email', label: 'Email', placeholder: 'email@example.com' },
-    { key: 'phone', label: 'Phone', placeholder: '555-123-4567' },
-    { key: 'willing', label: 'Willing', placeholder: 'yes/no/unknown' },
-    { key: 'notes', label: 'Notes', placeholder: 'Context' },
-  ],
-  vendorDirectoryList: [
-    { key: 'name', label: 'Tool name', placeholder: 'Gingr' },
-    { key: 'vendor', label: 'Vendor', placeholder: 'Gingr' },
-    { key: 'category', label: 'Category', placeholder: 'Booking/POS' },
-    { key: 'annualCost', label: 'Annual cost', placeholder: '3600' },
-    { key: 'contractStatus', label: 'Contract status', placeholder: 'Active' },
-    { key: 'transferable', label: 'Transferable', placeholder: 'yes/no/unknown' },
-    { key: 'loginAccess', label: 'Login access', placeholder: 'Owner Only' },
-    { key: 'notes', label: 'Notes', placeholder: 'Context' },
-  ],
 }
 
 const FACILITY_IMAGE_DOCUMENT_ID = 'facility_review_images'
@@ -993,75 +1033,84 @@ const FACILITY_IMAGE_SECTIONS = [
   },
 ] as const
 
-function parsePipeRows(value: string, fieldKey: string): Record<string, string>[] {
-  const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
-  return String(value || '')
-    .replace(/\\n/g, '\n')
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .map(line => {
-      const parts = line.split('|').map(part => part.trim())
-      return columns.reduce<Record<string, string>>((row, column, index) => {
-        row[column.key] = parts[index] ?? ''
-        return row
-      }, {})
-    })
-}
-
-function serializePipeRows(rows: Record<string, string>[], fieldKey: string): string {
-  const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
-  // Do not drop all-whitespace lines — empty rows must round-trip so "Add Row" works before any cell is filled.
-  return rows.map(row => columns.map(column => row[column.key] ?? '').join(' | ')).join('\n')
-}
-
 function StructuredRowsInput({
   question,
   value,
   onChange,
-  onUpload,
-  extracting,
+  onError,
 }: {
   question: ClientPortalFormQuestion
   value: string
   onChange: (value: string) => void
-  onUpload: (file: File | null) => void
-  extracting: boolean
+  onError: (message: string) => void
 }) {
-  const columns = STRUCTURED_FORM_COLUMNS[question.fieldKey] ?? []
-  const rows = parsePipeRows(value, question.fieldKey)
+  const fieldKey = question.fieldKey as StructuredFormFieldKey
+  const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
+  const rows = parsePipeRows(value, fieldKey)
   const visibleRows = rows.length ? rows : [columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})]
+  const [importing, setImporting] = useState(false)
 
   function updateCell(rowIndex: number, key: string, nextValue: string) {
     const next = [...visibleRows]
     next[rowIndex] = { ...next[rowIndex], [key]: nextValue }
-    onChange(serializePipeRows(next, question.fieldKey))
+    onChange(serializePipeRows(next, fieldKey))
   }
 
   function addRow() {
-    onChange(serializePipeRows([...visibleRows, columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})], question.fieldKey))
+    onChange(serializePipeRows([...visibleRows, columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})], fieldKey))
   }
 
   function removeRow(index: number) {
-    onChange(serializePipeRows(visibleRows.filter((_, rowIndex) => rowIndex !== index), question.fieldKey))
+    onChange(serializePipeRows(visibleRows.filter((_, rowIndex) => rowIndex !== index), fieldKey))
+  }
+
+  async function handleExcelUpload(file: File | null) {
+    if (!file || !isStructuredFormFieldKey(question.fieldKey)) return
+    setImporting(true)
+    onError('')
+    try {
+      const buffer = await file.arrayBuffer()
+      onChange(parseStructuredFormExcel(buffer, question.fieldKey))
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not read the uploaded spreadsheet.')
+    } finally {
+      setImporting(false)
+    }
   }
 
   return (
     <div className="mt-2 space-y-3">
+      <p className="text-[11px] text-slate-400">
+        Download the Excel template, fill in your rows, then upload it here. You can still edit rows in the table below.
+      </p>
       <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            if (!isStructuredFormFieldKey(question.fieldKey)) return
+            downloadStructuredFormTemplate(question.fieldKey)
+          }}
+          className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5" />
+          Download Excel template
+        </button>
         <input
           id={`upload-${question.fieldKey}`}
           type="file"
-          accept=".txt,.md,text/plain,text/markdown"
+          accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
           className="hidden"
-          onChange={e => onUpload(e.target.files?.[0] ?? null)}
+          onChange={e => {
+            void handleExcelUpload(e.target.files?.[0] ?? null)
+            e.target.value = ''
+          }}
         />
         <label
           htmlFor={`upload-${question.fieldKey}`}
           className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100"
         >
           <Upload className="w-3.5 h-3.5" />
-          {extracting ? 'Extracting...' : 'Upload TXT transcript to auto-fill'}
+          {importing ? 'Importing...' : 'Upload completed Excel'}
         </label>
         <button
           type="button"
@@ -1297,7 +1346,6 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
   const [savingFormResponses, setSavingFormResponses] = useState(false)
-  const [extractingField, setExtractingField] = useState<string | null>(null)
   const [formSaved, setFormSaved] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -1349,27 +1397,6 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
     }
   }
 
-  async function handleTranscriptUpload(question: ClientPortalFormQuestion, file: File | null) {
-    if (!file) return
-    setExtractingField(question.fieldKey)
-    setFormError('')
-    try {
-      const transcript = await file.text()
-      const res = await fetch('/api/client-form-questions/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fieldKey: question.fieldKey, transcript }),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
-      updateFormResponse(question.fieldKey, data.text ?? transcript)
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Could not extract the uploaded transcript.')
-    } finally {
-      setExtractingField(null)
-    }
-  }
-
   const groupedQuestions = formQuestions.reduce<Record<string, ClientPortalFormQuestion[]>>((acc, question) => {
     const key = question.groupLabel || 'Business Information'
     acc[key] = [...(acc[key] ?? []), question]
@@ -1418,8 +1445,7 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
                           question={question}
                           value={formResponses[question.fieldKey] ?? ''}
                           onChange={value => updateFormResponse(question.fieldKey, value)}
-                          onUpload={file => void handleTranscriptUpload(question, file)}
-                          extracting={extractingField === question.fieldKey}
+                          onError={setFormError}
                         />
                       ) : question.inputType === 'textarea' ? (
                         <>
@@ -1468,7 +1494,7 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
   )
 }
 
-function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId }: {
+function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId, getDeadline, sectionDeadlines }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
@@ -1478,6 +1504,8 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   sectionSubmissions: Record<string, any>
   onSubmitSection: (sectionId: string) => Promise<void>
   submittingSectionId: string | null
+  getDeadline: (docId: string, sectionId: string) => string | null
+  sectionDeadlines: Record<string, string>
 }) {
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
@@ -1574,7 +1602,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
-        Upload documents for each item your team confirmed in the Assign step. You can upload in batches — progress is saved automatically. Assigned team members have been notified by email.
+        Upload documents for each item your team confirmed in the Assign step. Target deadlines are set by your Cantara team. Progress is saved automatically.
       </div>
       {/* QuickBooks integration is temporarily hidden from the client Collection UI until it is tested.
           Do not delete; re-enable this card when QuickBooks is ready for client use. */}
@@ -1644,11 +1672,16 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
       )}
       {valuationDocs.length > 0 && (
         <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
-          <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between">
+          <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between gap-3 flex-wrap">
             <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
-            <span className="text-xs text-amber-700">
-              {valuationDocs.filter(d => getStatus(d.id).fileName).length}/{valuationDocs.length} uploaded
-            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {sectionDeadlines[VALUATION_SECTION_ID] && (
+                <TargetDeadlineBadge deadline={sectionDeadlines[VALUATION_SECTION_ID]} uploaded={false} />
+              )}
+              <span className="text-xs text-amber-700">
+                {valuationDocs.filter(d => getStatus(d.id).fileName).length}/{valuationDocs.length} uploaded
+              </span>
+            </div>
           </div>
           <div className="divide-y divide-amber-100/80">
             {valuationDocs.map(doc => {
@@ -1658,9 +1691,10 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                 <div key={doc.id} className="px-5 py-4 bg-white/60">
                   <div className="flex items-center gap-3 mb-2">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm text-slate-800">{doc.name}</p>
                         {s.assignedTo && <Badge color="slate">{s.assignedTo}</Badge>}
+                        <TargetDeadlineBadge deadline={getDeadline(doc.id, VALUATION_SECTION_ID)} uploaded={Boolean(s.fileName)} />
                       </div>
                       <p className="text-xs text-amber-700 mt-0.5">{doc.description}</p>
                     </div>
@@ -1701,11 +1735,16 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
         const uploadedCount = docsToShow.filter(d => getStatus(d.id).fileName).length
         return (
           <div key={cat.id} className={`rounded-2xl border overflow-hidden ${isSubmitted ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-white border-slate-200'}`}>
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
               <h4 className="text-sm font-semibold text-slate-700">{cat.title}</h4>
-              <span className="text-xs text-slate-400">
-                {uploadedCount}/{docsToShow.length} uploaded
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                {sectionDeadlines[cat.id] && (
+                  <TargetDeadlineBadge deadline={sectionDeadlines[cat.id]} uploaded={uploadedCount === docsToShow.length} />
+                )}
+                <span className="text-xs text-slate-400">
+                  {uploadedCount}/{docsToShow.length} uploaded
+                </span>
+              </div>
             </div>
             <div className="divide-y divide-slate-50">
               {docsToShow.map(doc => {
@@ -1714,9 +1753,10 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                   <div key={doc.id} className="px-5 py-4">
                     <div className="flex items-center gap-3 mb-2">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <p className="text-sm text-slate-800">{doc.name}</p>
                           {s.assignedTo && <Badge color="slate">{s.assignedTo}</Badge>}
+                          <TargetDeadlineBadge deadline={getDeadline(doc.id, cat.id)} uploaded={Boolean(s.fileName)} />
                         </div>
                         {doc.flagged && <p className="text-xs text-amber-600 mt-0.5">{doc.flagNote}</p>}
                       </div>

@@ -4,6 +4,8 @@ import { CheckCircle, Clock, AlertTriangle, FileText, Loader2, MessageSquareMore
 import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
 import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
 import { VALUATION_DOCS, getDocsForAgentSelections, getDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
+import { VALUATION_SECTION_ID } from '@/lib/document-deadlines'
+import { DocumentDeadlineField, SectionDeadlineField } from '@/components/admin/DocumentDeadlineControls'
 import { parseStoredInsuranceReview } from '@/lib/insurance-review-shared'
 import { getAdminEmail, saveRequirement } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -217,7 +219,9 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     )
   }
 
-  const renderRow = (doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string }) => (
+  const refreshFromSave = (saved: Client) => onClientUpdated?.(saved)
+
+  const renderRow = (doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string }, sectionId: string) => (
     <div key={`${doc.id}-${refreshKey}`} className={`flex items-start gap-3 px-4 py-3 ${doc.flagged ? 'bg-amber-50' : ''}`}>
       {doc.flagged ? <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" /> : <FileText className="w-3.5 h-3.5 text-slate-300 shrink-0" />}
       <div className="flex-1 min-w-0">
@@ -227,6 +231,12 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         {doc.id === 'insurance_claims_12m' && renderInsuranceSummary(doc.id)}
       </div>
       <div className="shrink-0 flex flex-col items-end gap-2">
+        <DocumentDeadlineField
+          client={client}
+          documentId={doc.id}
+          sectionId={sectionId}
+          onSaved={refreshFromSave}
+        />
         <div className="flex items-center gap-2">
           {renderStatus(doc.id)}
           {getAdminEmail() && (
@@ -283,21 +293,39 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         ))}
       </div>
 
+      <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+        Set target upload deadlines per section or per document. Clients see these in their portal; only admins can edit them here.
+      </div>
+
       <section>
         <div className="flex items-center gap-2 mb-3">
           <h4 className="text-sm font-semibold text-slate-700">Business Valuation Documents</h4>
           <Badge color="gold">First Priority</Badge>
         </div>
+        <SectionDeadlineField
+          client={client}
+          sectionId={VALUATION_SECTION_ID}
+          sectionLabel="Valuation documents"
+          documentIds={VALUATION_DOCS.map(doc => doc.id)}
+          onSaved={refreshFromSave}
+        />
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-50">
-          {VALUATION_DOCS.map(renderRow)}
+          {VALUATION_DOCS.map(doc => renderRow(doc, VALUATION_SECTION_ID))}
         </div>
       </section>
 
       {categories.map(cat => (
         <section key={cat.id}>
           <h4 className="text-sm font-semibold text-slate-700 mb-3">{cat.title}</h4>
+          <SectionDeadlineField
+            client={client}
+            sectionId={cat.id}
+            sectionLabel={cat.title}
+            documentIds={cat.documents.map(doc => doc.id)}
+            onSaved={refreshFromSave}
+          />
           <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-50">
-            {cat.documents.map(renderRow)}
+            {cat.documents.map(doc => renderRow(doc, cat.id))}
           </div>
         </section>
       ))}

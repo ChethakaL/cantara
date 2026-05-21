@@ -259,18 +259,19 @@ model AdvisorProfile {
 }
 
 model ClientDocumentStatus {
-  id            String        @id @default(cuid())
-  clientId      String
-  documentId    String
-  hasDoc        Boolean?
-  assignedTo    String?
-  uploadedAt    DateTime?
-  fileName      String?
-  notApplicable Boolean       @default(false)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  fileUrl       String?
-  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id             String        @id @default(cuid())
+  clientId       String
+  documentId     String
+  hasDoc         Boolean?
+  assignedTo     String?
+  uploadedAt     DateTime?
+  fileName       String?
+  notApplicable  Boolean       @default(false)
+  targetDeadline DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  fileUrl        String?
+  client         ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, documentId])
   @@index([clientId, updatedAt])
@@ -295,6 +296,7 @@ model ClientProfile {
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
   sectionSubmissions         Json?
+  sectionDeadlines           Json?
   approvedNormalizedEbitda   Float?
   approvedNormalizedEbitdaAt DateTime?
   businessAddress            String?

@@ -53,6 +53,7 @@ export interface DocumentStatus {
   fileName: string | null
   fileUrl?: string | null
   notApplicable: boolean
+  targetDeadline?: string | null
 }
 
 export interface UploadedDocument {
@@ -146,6 +147,7 @@ export interface Client {
   teamMembers: TeamMember[]
   advisors: AdvisorProfile[]
   sectionSubmissions: Record<string, SectionSubmission>
+  sectionDeadlines: Record<string, string>
   documentStatuses: Record<string, DocumentStatus>
   uploadedDocuments: Record<string, UploadedDocument>
   driveFolder: string | null

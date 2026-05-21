@@ -845,7 +845,7 @@ function extractEmailFromMondayColumns(item: any): string {
   return "";
 }
 
-function slimColumnValuesForApi(item: any): Array<{ id: string; title: string; type: string; text: string }> {
+function slimColumnValuesForApi(item: any): Array<{ id: string; title: string; type: string; text: string; value?: string }> {
   const columnValues = item.column_values || item.values || [];
   if (!Array.isArray(columnValues)) return [];
   return columnValues.map((cv: any) => ({
@@ -853,6 +853,7 @@ function slimColumnValuesForApi(item: any): Array<{ id: string; title: string; t
     title: columnTitle(cv) || String(cv.id ?? ""),
     type: String(cv.type ?? ""),
     text: String(cv.text ?? "").trim(),
+    value: cv.value != null ? (typeof cv.value === "string" ? cv.value : JSON.stringify(cv.value)) : undefined,
   }));
 }
 

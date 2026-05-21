@@ -24,6 +24,7 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
         fileName: status.fileName ?? null,
         fileUrl: status.fileUrl ?? null,
         notApplicable: status.notApplicable,
+        targetDeadline: status.targetDeadline?.toISOString() ?? null,
       },
     ]),
   );
@@ -110,6 +111,7 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
       imageUrl: advisor.imageUrl,
     })),
     sectionSubmissions: (client.sectionSubmissions as Record<string, { submittedAt?: string }> | null) ?? {},
+    sectionDeadlines: (client.sectionDeadlines as Record<string, string> | null) ?? {},
     documentStatuses,
     uploadedDocuments,
     driveFolder: client.driveFolderId,
