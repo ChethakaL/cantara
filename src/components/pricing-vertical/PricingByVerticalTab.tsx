@@ -461,20 +461,7 @@ export default function PricingByVerticalTab({
           )}
         </div>
 
-        {result.currentPricingSource && (
-          <Card className="p-4">
-            <div className="flex items-start gap-3">
-              <Globe className="w-4 h-4 text-slate-400 mt-0.5" />
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">Current Price Source</h3>
-                <p className="text-sm text-slate-700 mt-1">
-                  {result.currentPricingSource.websiteUrl || 'No website URL'} · {result.currentPricingSource.evidenceCount} evidence item(s) · {result.currentPricingSource.confidence} confidence
-                </p>
-                <p className="text-xs text-slate-500 mt-1">{result.currentPricingSource.notes}</p>
-              </div>
-            </div>
-          </Card>
-        )}
+        {/* Current Price Source card removed per client request — Source and Confidence not needed */}
 
         {/* Editable 24-month pricing grid */}
         <Card className="overflow-hidden">
