@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Search, Wifi } from 'lucide-react';
 import DigitalPresenceForm from './DigitalPresenceForm';
 import DigitalPresenceScorecard from './DigitalPresenceScorecard';
@@ -47,6 +47,49 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
   const [manualOverrides, setManualOverrides] = useState<ManualOverride[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSavedForm() {
+      try {
+        const res = await fetch(`/api/client-data/${clientId}?section=digitalPresenceForm`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data) setLastFormData(data);
+      } catch {
+        // Saved client portal form data is optional.
+      }
+    }
+    void loadSavedForm();
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSavedReport() {
+      try {
+        const res = await fetch(`/api/client-data/${clientId}?section=digitalPresence`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data) {
+          setReport(data as DigitalPresenceReport);
+          setStatus('complete');
+        }
+      } catch {
+        // Saved report is optional.
+      }
+    }
+    void loadSavedReport();
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  async function persistReport(nextReport: DigitalPresenceReport) {
+    await fetch(`/api/client-data/${clientId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ section: 'digitalPresence', data: nextReport }),
+    });
+  }
+
   function appendLog(entry: Omit<LogEntry, 'id'>) {
     setLog(prev => [...prev, { ...entry, id: ++_logId }]);
     setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -60,12 +103,21 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
         const channelOverrides = overrides.filter(o => o.channelType === ch.channelType);
         if (channelOverrides.length === 0) return ch;
         const updatedMetrics = [...ch.keyMetrics];
+        let nextSummary = ch.summary;
+
         for (const override of channelOverrides) {
-          if (override.metricIndex < updatedMetrics.length) {
+          // Sentinel: metricIndex === -1 means "channel.summary".
+          if (override.metricIndex === -1) {
+            nextSummary = override.value;
+            continue;
+          }
+
+          if (override.metricIndex >= 0 && override.metricIndex < updatedMetrics.length) {
             updatedMetrics[override.metricIndex] = { ...updatedMetrics[override.metricIndex], value: override.value };
           }
         }
-        return { ...ch, keyMetrics: updatedMetrics };
+
+        return { ...ch, summary: nextSummary, keyMetrics: updatedMetrics };
       }),
     };
   }
@@ -128,8 +180,14 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
             }
             appendLog({ phase: ev.phase, message: ev.message });
           } else if (event.type === 'complete') {
-            setReport(applyOverridesToReport(event.report, manualOverrides));
+            const finalReport = applyOverridesToReport(event.report, manualOverrides);
+            setReport(finalReport);
             setStatus('complete');
+            try {
+              await persistReport(finalReport);
+            } catch {
+              // Non-fatal: UI still shows the run result.
+            }
           } else if (event.type === 'error') {
             throw new Error(event.error ?? 'Analysis failed.');
           }

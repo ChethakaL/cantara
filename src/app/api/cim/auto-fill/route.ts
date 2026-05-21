@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CimInputData } from '@/lib/cim/types'
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 
 export const maxDuration = 120
 export const runtime = 'nodejs'
@@ -57,6 +58,15 @@ export async function POST(req: NextRequest) {
     // ── 6. Load digital presence report ─────────────────────────────────
     let digitalPresence: any = null
     try { digitalPresence = await (prisma as any).digitalPresenceReport?.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' } }) } catch {}
+    if (!digitalPresence) {
+      try {
+        const clientRow = await (prisma as any).clientProfile.findUnique({
+          where: { id: clientId },
+          select: { sectionSubmissions: true },
+        })
+        digitalPresence = (clientRow?.sectionSubmissions as Record<string, unknown> | null)?.digitalPresence ?? null
+      } catch {}
+    }
 
     // ── 7. Load employee obligations report ─────────────────────────────
     let employeeReport: any = null
@@ -186,9 +196,9 @@ export async function POST(req: NextRequest) {
 
     // ── Use AI for the narrative text sections ──────────────────────────
     let aiSections: any = {}
-    if (process.env.ANTHROPIC_API_KEY) {
+    if (await getAnthropicApiKey()) {
       try {
-        const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+        const anthropic = new Anthropic({ apiKey: await getAnthropicApiKey() })
         const context = [
           `Business: ${client.businessName}`,
           `Address: ${client.businessAddress || ''}`,
@@ -223,6 +233,7 @@ export async function POST(req: NextRequest) {
       subtitle: 'Acquisition Opportunity',
       region: client.businessAddress || '',
       serviceLines: 'Boarding \u00b7 Daycare \u00b7 Grooming \u00b7 Training \u00b7 Wellness',
+      dealReference: '',
       investmentOverview: aiSections.investmentOverview || '',
       investmentThesis: aiSections.investmentThesis || ['', '', '', '', ''],
       sellerOverview: aiSections.sellerOverview || '',

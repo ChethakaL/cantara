@@ -4,6 +4,7 @@ import Anthropic, {
   InternalServerError,
   RateLimitError,
 } from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from '@/lib/secure-settings'
 import { NextRequest, NextResponse } from 'next/server'
 import { WS16_SYSTEM_PROMPT, buildWS16ContextBlock } from '@/lib/ws1-6/prompt'
 import { createRequire } from 'module'
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
     ]
 
     const client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY ?? '',
+      apiKey: await getAnthropicApiKey(),
     })
 
     let activeStream: MessageStream | null = null

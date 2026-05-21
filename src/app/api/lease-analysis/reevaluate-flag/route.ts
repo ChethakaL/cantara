@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { NextRequest, NextResponse } from "next/server";
 
 type FlagTone = "red" | "orange" | "green";
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
     }
 
     const client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY ?? "",
+      apiKey: await getAnthropicApiKey(),
     });
 
     const prompt = [

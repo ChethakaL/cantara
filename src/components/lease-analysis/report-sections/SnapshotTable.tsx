@@ -1,13 +1,13 @@
 'use client'
 import { SnapshotRow } from '../../../lib/lease-analysis/types'
-import { normalizeSummaryRows } from '@/lib/lease-analysis/report-utils'
+import { filterSnapshotRowsForBuyerPackage } from '@/lib/lease-analysis/report-utils'
 
 interface Props {
   rows: SnapshotRow[]
 }
 
 export function SnapshotTable({ rows }: Props) {
-  const normalizedRows = normalizeSummaryRows(rows || [])
+  const normalizedRows = filterSnapshotRowsForBuyerPackage(rows || [])
 
   if (!normalizedRows.length) {
     return (

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { prisma } from '@/lib/prisma'
 import { TeaserInputData } from '@/lib/teaser/types'
 import { generateTeaserWithAI, ClientContext } from '@/lib/teaser/ai-autofill'
@@ -97,9 +98,18 @@ export async function POST(req: NextRequest) {
         orderBy: { createdAt: 'desc' },
       })
     } catch { /* table may not exist yet */ }
+    if (!digitalPresence) {
+      try {
+        const clientRow = await (prisma as any).clientProfile.findUnique({
+          where: { id: clientId },
+          select: { sectionSubmissions: true },
+        })
+        digitalPresence = (clientRow?.sectionSubmissions as Record<string, unknown> | null)?.digitalPresence ?? null
+      } catch { /* optional */ }
+    }
 
     // ── AI-powered auto-fill (falls back to static logic below) ────────
-    if (process.env.ANTHROPIC_API_KEY) {
+    if (await getAnthropicApiKey()) {
       try {
         const aiContext: ClientContext = {
           clientProfile: client,
@@ -219,8 +229,14 @@ export async function POST(req: NextRequest) {
       businessOverview: client.businessDescription
         ? client.businessDescription
         : `An opportunity to acquire a well-established ${client.businessCategory || 'pet care business'} in a high-growth market. This business combines strong recurring revenue, a loyal client base, and a full suite of services.`,
-      facilityProfile: leaseInfo || '',
-      ownershipManagement: '',
+      overviewHeadline: 'A Purpose-Built Premium Pet Resort',
+      section02LeadSummary: client.businessDescription
+        ? `Set on a purpose-built facility, this opportunity has built a reputation for premium care and deep client loyalty. The business operates across the full pet care services spectrum with experienced leadership guiding day-to-day operations.`
+        : '',
+      facilityProfile: leaseInfo
+        ? [leaseInfo, 'Multiple service zones and purpose-built layout.', 'Climate-controlled throughout.'].join('\n')
+        : '',
+      ownershipManagement: ['Long-tenured owner-operator with documented SOPs.', 'General Manager in place for daily operations.', 'Motivated seller; seller available to support a transition period.'].join('\n'),
       clientProfile: '',
       staffOperations: '',
       realEstate: leaseInfo ? `Leased facility. ${leaseInfo}` : '',
@@ -282,6 +298,7 @@ export async function POST(req: NextRequest) {
       businessDisplayName: `Premium ${client.businessCategory || businessTypeLabel || 'Pet Resort'}`,
       teaserSubtitle: 'Acquisition Opportunity',
       regionLabel: location,
+      dealReference: '',
     }
 
     // ── Return result with metadata about data sources ──────────────────

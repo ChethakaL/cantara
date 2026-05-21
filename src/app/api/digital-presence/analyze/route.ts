@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { researchAllChannels } from '@/lib/digital-presence/claude-research';
 import { analyzeWithClaude } from '@/lib/digital-presence/claude-analyzer';
 import { AnalyzeRequestBody, ChannelType } from '@/lib/digital-presence/types';
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: 'Business name is required.' }), { status: 400 });
   }
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const anthropicKey = await getAnthropicApiKey()
 
   if (!anthropicKey) {
     return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured.' }), { status: 500 });

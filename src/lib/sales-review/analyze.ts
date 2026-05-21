@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import mammoth from 'mammoth'
 import { createRequire } from 'module'
 import { buildSalesProcessReviewSystemPrompt, normalizeSalesProcessResult } from './prompt'
@@ -71,7 +72,7 @@ export async function analyzeSalesProcessTranscript(args: {
   transcriptText: string
   businessName: string
 }): Promise<SalesProcessReviewResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) {
     throw new Error('ANTHROPIC_API_KEY is not configured.')
   }

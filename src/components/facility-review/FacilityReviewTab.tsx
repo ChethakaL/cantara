@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { AlertTriangle, Camera, CheckCircle, FileText, Loader2, Printer, RefreshCw, Save, Upload, X } from 'lucide-react'
 import { Badge, Card, Input, Textarea, cn } from '@/components/ui'
@@ -59,8 +59,68 @@ const PHOTO_SECTIONS = [
   },
 ] as const
 
+const CLIENT_IMAGE_DOCUMENT_IDS: Record<PhotoSectionKey, string[]> = {
+  exterior: ['facility_review_images_exterior'],
+  reception: ['facility_review_images_reception'],
+  boarding: ['facility_review_images_boarding', 'facility_review_images_indoor-play'],
+  grooming: ['facility_review_images_grooming'],
+  outdoor: ['facility_review_images_outdoor-play'],
+  staff: ['facility_review_images_staff-ops'],
+}
+
+const INTAKE_FIELD_LABELS: Record<string, string> = {
+  businessAddress: 'Facility address / location',
+  facilityExteriorLastPainted: 'Exterior last painted or pressure-washed',
+  facilityExteriorRepairs: 'Outstanding exterior repairs, bylaw violations, or open permits',
+  facilityReceptionLastRefreshed: 'Reception last renovated, repainted, or refreshed',
+  facilityReceptionRetail: 'Retail product sold in reception',
+  facilityKennelPanels: 'Kennel panel material and replacement/refinish history',
+  facilityHvacLastServiced: 'HVAC last professionally serviced',
+  facilityHvacServiceRecord: 'HVAC service record available',
+  facilityBoardingMaintenanceIssues: 'Boarding maintenance issues not visible in photos',
+  facilityGroomingStationCount: 'Number of grooming stations',
+  facilityGroomingTableDetails: 'Grooming table type and age',
+  facilityDryerDetails: 'Dryers in use and service history',
+  facilityGroomingVentilation: 'Grooming suite ventilation',
+  facilityIndoorPlayAreaCount: 'Indoor play area count',
+  facilityIndoorPlayIssues: 'Indoor play maintenance issues not visible in photos',
+  facilityOutdoorFencing: 'Outdoor fencing type and approximate age',
+  facilityOutdoorShade: 'Outdoor shade structure',
+  facilityOutdoorWaterSource: 'Outdoor water source',
+  facilityOutdoorIssues: 'Outdoor fencing, surface, or structural issues not visible in photos',
+  facilityLaundrySetup: 'Laundry setup',
+  facilityLaundryUnitAge: 'Laundry unit age',
+  facilityOperationalIssues: 'Operational/facilities issues not visible in photos',
+  facilityBusinessLicenseExpiry: 'Business license expiry',
+  facilityAnimalCareLicenseExpiry: 'Animal care license expiry',
+  facilityLastMunicipalInspection: 'Last municipal inspection',
+  facilityLastInspectionOutcome: 'Last inspection outcome',
+  facilityRegulatoryItems: 'Outstanding violations, open permits, or regulatory items',
+  facilityRecentCapex: 'Major capital expenditures in last 3 years',
+  facilityExpectedCapex: 'Expected capital investment in next 1-3 years',
+  facilityReviewNotes: 'Additional facility notes',
+}
+
 type PhotoSectionKey = typeof PHOTO_SECTIONS[number]['key']
 type SectionFiles = Record<PhotoSectionKey, File[]>
+type ExistingFacilityImage = {
+  id: string
+  fileName: string
+  fileUrl?: string | null
+  uploadedAt?: string | null
+}
+type ExistingSectionImages = Record<PhotoSectionKey, ExistingFacilityImage[]>
+type FacilityIntakeQuestion = {
+  id: string
+  fieldKey: string
+  label: string
+  description?: string | null
+  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number'
+  placeholder?: string | null
+  required: boolean
+  options?: string[] | null
+  groupLabel?: string | null
+}
 
 function emptySectionFiles(): SectionFiles {
   return PHOTO_SECTIONS.reduce((acc, section) => {
@@ -69,12 +129,20 @@ function emptySectionFiles(): SectionFiles {
   }, {} as SectionFiles)
 }
 
+function emptyExistingSectionImages(): ExistingSectionImages {
+  return PHOTO_SECTIONS.reduce((acc, section) => {
+    acc[section.key] = []
+    return acc
+  }, {} as ExistingSectionImages)
+}
+
 function SectionUploader({
   sectionKey,
   title,
   prompt,
   helper,
   files,
+  existingImages,
   onAdd,
   onRemove,
 }: {
@@ -83,6 +151,7 @@ function SectionUploader({
   prompt: string
   helper: string
   files: File[]
+  existingImages: ExistingFacilityImage[]
   onAdd: (key: PhotoSectionKey, files: File[]) => void
   onRemove: (key: PhotoSectionKey, index: number) => void
 }) {
@@ -94,7 +163,8 @@ function SectionUploader({
     maxFiles: 5,
     maxSize: 5 * 1024 * 1024,
   })
-  const complete = files.length >= 3
+  const totalCount = existingImages.length + files.length
+  const complete = totalCount >= 3
 
   return (
     <Card className="p-4">
@@ -102,7 +172,7 @@ function SectionUploader({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-            <Badge color={complete ? 'green' : files.length ? 'gold' : 'gray'}>{files.length}/5</Badge>
+            <Badge color={complete ? 'green' : totalCount ? 'gold' : 'gray'}>{totalCount}/5</Badge>
           </div>
           <p className="text-xs font-medium text-slate-600 mt-2">{prompt}</p>
           <p className="text-[11px] text-slate-400 mt-1">{helper}</p>
@@ -119,8 +189,17 @@ function SectionUploader({
         <Upload className="w-5 h-5 text-slate-300 mx-auto mb-2" />
         <p className="text-xs font-medium text-slate-600">Drop photos here, or click to browse</p>
       </div>
-      {files.length > 0 && (
+      {(existingImages.length > 0 || files.length > 0) && (
         <div className="mt-3 space-y-2">
+          {existingImages.map(image => (
+            <div key={image.id} className="flex items-center gap-2 rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2">
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-emerald-800">{image.fileName}</p>
+                <p className="text-[10px] text-emerald-600">Uploaded by client{image.uploadedAt ? ` · ${new Date(image.uploadedAt).toLocaleDateString()}` : ''}</p>
+              </div>
+            </div>
+          ))}
           {files.map((file, index) => (
             <div key={`${file.name}-${index}`} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
               <Camera className="w-3.5 h-3.5 text-slate-400" />
@@ -140,10 +219,18 @@ function SectionUploader({
 }
 
 export default function FacilityReviewTab({ clientId, clientName, businessAddress }: { clientId: string; clientName: string; businessAddress?: string }) {
+  const reportTopRef = useRef<HTMLDivElement | null>(null)
   const [businessName, setBusinessName] = useState(clientName)
   const [location, setLocation] = useState(businessAddress || '')
   const [notes, setNotes] = useState('')
+  const [intakeQuestions, setIntakeQuestions] = useState<FacilityIntakeQuestion[]>([])
+  const [intakeResponses, setIntakeResponses] = useState<Record<string, string>>({})
+  const [savingIntake, setSavingIntake] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [intakeSaved, setIntakeSaved] = useState(false)
+  const [draftSaved, setDraftSaved] = useState(false)
   const [sectionFiles, setSectionFiles] = useState<SectionFiles>(() => emptySectionFiles())
+  const [existingSectionImages, setExistingSectionImages] = useState<ExistingSectionImages>(() => emptyExistingSectionImages())
   const [report, setReport] = useState<FacilityReviewReport | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -153,11 +240,39 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   useEffect(() => {
     const loadSaved = async () => {
       try {
+        const inputsRes = await fetch(`/api/client-data/${clientId}?section=facilityReviewInputs`)
+        if (inputsRes.ok) {
+          const inputs = await inputsRes.json()
+          if (inputs?.location) setLocation(inputs.location)
+          if (inputs?.notes) setNotes(inputs.notes)
+        }
+        const questionsRes = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(clientId)}`)
+        if (questionsRes.ok) {
+          const data = await questionsRes.json()
+          const facilityQuestions = (data.questions ?? []).filter((question: FacilityIntakeQuestion) => (
+            question.fieldKey === 'businessAddress' || question.fieldKey.startsWith('facility')
+          ))
+          setIntakeQuestions(facilityQuestions)
+          if (data.responses && typeof data.responses === 'object') {
+            setIntakeResponses(data.responses)
+            if (data.responses.businessAddress) setLocation(data.responses.businessAddress)
+          }
+        }
         const res = await fetch(`/api/client-data/${clientId}?section=facilityReview`)
         if (res.ok) {
           const data = await res.json()
           if (data?.overallScore) setReport(data)
         }
+        const imageEntries = await Promise.all(PHOTO_SECTIONS.map(async section => {
+          const docs = await Promise.all((CLIENT_IMAGE_DOCUMENT_IDS[section.key] ?? []).map(async documentId => {
+            const docRes = await fetch(`/api/client-documents?clientId=${encodeURIComponent(clientId)}&documentId=${encodeURIComponent(documentId)}&all=true`)
+            if (!docRes.ok) return []
+            const docData = await docRes.json()
+            return docData.documents ?? []
+          }))
+          return [section.key, docs.flat()] as const
+        }))
+        setExistingSectionImages(Object.fromEntries(imageEntries) as ExistingSectionImages)
       } catch {}
     }
     void loadSaved()
@@ -179,21 +294,95 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   }, [])
 
   const sortedZones = useMemo(() => report ? [...report.zones].sort((a, b) => a.score - b.score) : [], [report])
-  const totalFiles = PHOTO_SECTIONS.reduce((sum, section) => sum + sectionFiles[section.key].length, 0)
-  const completeSections = PHOTO_SECTIONS.filter(section => sectionFiles[section.key].length >= 3).length
+  const totalFiles = PHOTO_SECTIONS.reduce((sum, section) => sum + sectionFiles[section.key].length + existingSectionImages[section.key].length, 0)
+  const completeSections = PHOTO_SECTIONS.filter(section => sectionFiles[section.key].length + existingSectionImages[section.key].length >= 3).length
+  const facilityIntakeEntries = intakeQuestions
+    .map(question => [INTAKE_FIELD_LABELS[question.fieldKey] ?? question.label, String(intakeResponses[question.fieldKey] ?? '').trim()] as const)
+    .filter(([, value]) => value)
+  const missingRequiredIntake = intakeQuestions.filter(question => question.required && !String(intakeResponses[question.fieldKey] ?? '').trim())
+  const groupedIntakeQuestions = intakeQuestions.reduce<Record<string, FacilityIntakeQuestion[]>>((acc, question) => {
+    const key = question.groupLabel || 'Facility Review'
+    acc[key] = [...(acc[key] ?? []), question]
+    return acc
+  }, {})
+
+  const updateIntakeResponse = (fieldKey: string, value: string) => {
+    setIntakeResponses(current => ({ ...current, [fieldKey]: value }))
+    if (fieldKey === 'businessAddress') setLocation(value)
+    setIntakeSaved(false)
+    setDraftSaved(false)
+    setError(null)
+  }
+
+  const saveIntakeResponses = async ({ draft = false }: { draft?: boolean } = {}) => {
+    if (!draft && missingRequiredIntake.length) {
+      setError(`Complete required intake fields: ${missingRequiredIntake.slice(0, 3).map(q => q.label).join(', ')}${missingRequiredIntake.length > 3 ? '...' : ''}`)
+      return false
+    }
+    if (draft) {
+      setSavingDraft(true)
+    } else {
+      setSavingIntake(true)
+    }
+    setError(null)
+    try {
+      const res = await fetch('/api/client-form-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, responses: intakeResponses, mode: draft ? 'draft' : 'final' }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      if (draft) {
+        setDraftSaved(true)
+        setTimeout(() => setDraftSaved(false), 1800)
+      } else {
+        setIntakeSaved(true)
+        setTimeout(() => setIntakeSaved(false), 1800)
+      }
+      return true
+    } catch (err: any) {
+      setError(err.message || (draft ? 'Could not save intake draft.' : 'Could not save intake responses.'))
+      return false
+    } finally {
+      if (draft) {
+        setSavingDraft(false)
+      } else {
+        setSavingIntake(false)
+      }
+    }
+  }
 
   const analyze = async () => {
-    if (!totalFiles) {
-      setError('Upload facility images first.')
+    if (missingRequiredIntake.length) {
+      setError(`Complete required intake fields: ${missingRequiredIntake.slice(0, 3).map(q => q.label).join(', ')}${missingRequiredIntake.length > 3 ? '...' : ''}`)
       return
     }
     setAnalyzing(true)
     setError(null)
     try {
+      const saved = await saveIntakeResponses({ draft: false })
+      if (!saved) return
       const form = new FormData()
       form.append('businessName', businessName)
       form.append('location', location)
-      form.append('notes', notes)
+      const intakeText = facilityIntakeEntries.length
+        ? `Seller intake form responses:\n${facilityIntakeEntries.map(([label, value]) => `- ${label}: ${value}`).join('\n')}`
+        : 'Seller intake form responses: not provided.'
+      form.append('notes', [intakeText, notes.trim() ? `Admin notes:\n${notes.trim()}` : 'Admin notes: none.'].join('\n\n'))
+      for (const section of PHOTO_SECTIONS) {
+        for (const image of existingSectionImages[section.key]) {
+          if (!image.fileUrl) continue
+          try {
+            const imageRes = await fetch(image.fileUrl)
+            if (!imageRes.ok) continue
+            const blob = await imageRes.blob()
+            form.append('images', new File([blob], image.fileName, { type: blob.type || 'image/jpeg' }))
+            form.append('imageSections', section.title)
+          } catch {
+            // If an existing client image cannot be fetched from the browser, still use all available form data and local files.
+          }
+        }
+      }
       PHOTO_SECTIONS.forEach(section => {
         sectionFiles[section.key].forEach(file => {
           form.append('images', file)
@@ -202,7 +391,23 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
       })
       const res = await fetch('/api/facility-review/analyze', { method: 'POST', body: form })
       if (!res.ok) throw new Error(await res.text())
-      setReport(await res.json())
+      const nextReport = await res.json()
+      setReport(nextReport)
+      try {
+        const saveRes = await fetch(`/api/client-data/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section: 'facilityReview', data: nextReport }),
+        })
+        if (!saveRes.ok) throw new Error('Save failed')
+        setSaved(true)
+        setTimeout(() => setSaved(false), 1800)
+      } catch (saveErr: any) {
+        setError(saveErr.message || 'Analysis completed but failed to save')
+      }
+      requestAnimationFrame(() => {
+        reportTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     } catch (err: any) {
       setError(err.message || 'Facility review failed')
     } finally {
@@ -241,7 +446,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
 
   if (report) {
     return (
-      <div className="space-y-6">
+      <div ref={reportTopRef} className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -312,7 +517,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-slate-800">Facility Review Agent</h2>
-        <p className="text-xs text-slate-400 mt-1">Upload structured facility photos by section. Target 3-5 photos per section for strongest report quality.</p>
+        <p className="text-xs text-slate-400 mt-1">Generate from the mandatory seller intake form. Facility photos are optional supporting evidence.</p>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <Input label="Business name" value={businessName} onChange={e => setBusinessName(e.target.value)} />
@@ -320,13 +525,90 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
       </div>
       <Textarea label="Additional notes" value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Add known maintenance issues, recent upgrades, or context the photos may not show." />
 
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">Facility Intake Form</h3>
+            <p className="text-xs text-slate-400 mt-1">Client answers prefill here. Admins can complete or override missing responses.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge color={missingRequiredIntake.length ? 'gold' : 'green'}>{missingRequiredIntake.length ? `${missingRequiredIntake.length} required missing` : 'Complete'}</Badge>
+            <Badge color="slate">{facilityIntakeEntries.length} answers</Badge>
+          </div>
+        </div>
+        {intakeQuestions.length > 0 ? (
+          <div className="mt-4 space-y-5">
+            {Object.entries(groupedIntakeQuestions).map(([groupLabel, questions]) => (
+              <div key={groupLabel} className="space-y-3">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{groupLabel}</h4>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {questions.map(question => {
+                    const value = intakeResponses[question.fieldKey] ?? ''
+                    const isMissing = question.required && !String(value).trim()
+                    const fieldClass = cn(
+                      'mt-1 w-full rounded-lg border px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20',
+                      isMissing ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200 bg-white'
+                    )
+                    return (
+                      <label key={question.id} className={question.inputType === 'textarea' ? 'md:col-span-2' : ''}>
+                        <span className="text-xs font-medium text-slate-600">
+                          {question.label}
+                          {question.required && <span className="text-amber-600"> *</span>}
+                        </span>
+                        {question.description && <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>}
+                        {question.inputType === 'textarea' ? (
+                          <textarea
+                            value={value}
+                            onChange={e => updateIntakeResponse(question.fieldKey, e.target.value)}
+                            placeholder={question.placeholder ?? ''}
+                            rows={3}
+                            className={cn(fieldClass, 'min-h-[84px] resize-y')}
+                          />
+                        ) : question.inputType === 'select' ? (
+                          <select
+                            value={value}
+                            onChange={e => updateIntakeResponse(question.fieldKey, e.target.value)}
+                            className={fieldClass}
+                          >
+                            <option value="">Select...</option>
+                            {(question.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        ) : (
+                          <input
+                            type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
+                            value={value}
+                            onChange={e => updateIntakeResponse(question.fieldKey, e.target.value)}
+                            placeholder={question.placeholder ?? ''}
+                            className={fieldClass}
+                          />
+                        )}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => void saveIntakeResponses({ draft: true })} disabled={savingDraft || savingIntake} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                <Save className="w-3.5 h-3.5" />
+                {savingDraft ? 'Saving Draft...' : 'Save Draft'}
+              </button>
+              {draftSaved && <span className="text-xs font-semibold text-emerald-600">Draft saved</span>}
+              {intakeSaved && <span className="text-xs font-semibold text-emerald-600">Intake saved</span>}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-4 text-xs text-slate-500">No facility intake questions found for this client workstream.</p>
+        )}
+      </Card>
+
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm font-semibold text-slate-800">Photo checklist</p>
           <Badge color={completeSections === PHOTO_SECTIONS.length ? 'green' : 'gold'}>{completeSections}/{PHOTO_SECTIONS.length} sections complete</Badge>
           <Badge color="slate">{totalFiles} photos uploaded</Badge>
         </div>
-        <p className="text-xs text-amber-800 mt-2">Minimum to run: 1 photo. Recommended: 3-5 photos per section, 10-15+ photos total.</p>
+        <p className="text-xs text-amber-800 mt-2">Photos are optional. Recommended: 3-5 photos per section, 10-15+ photos total.</p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -338,15 +620,16 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
             prompt={section.prompt}
             helper={section.helper}
             files={sectionFiles[section.key]}
+            existingImages={existingSectionImages[section.key]}
             onAdd={addSectionFiles}
             onRemove={removeSectionFile}
           />
           ))}
       </div>
       {error && <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><AlertTriangle className="w-4 h-4 mt-0.5" />{error}</div>}
-      <button onClick={analyze} disabled={analyzing || !totalFiles} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">
+      <button onClick={analyze} disabled={analyzing || savingIntake || savingDraft || missingRequiredIntake.length > 0} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">
         {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-        {analyzing ? 'Analyzing facility images...' : 'Generate Facility Report'}
+        {analyzing ? 'Generating facility report...' : 'Generate Facility Report'}
       </button>
     </div>
   )

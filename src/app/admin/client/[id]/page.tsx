@@ -48,31 +48,31 @@ const AGENT_TABS = [
   // Valuation
   { key: 'ttm', label: 'Valuation Agent', badge: '6 Agents' as const, icon: FileSpreadsheet, group: 'Valuation' },
   // WS1 — Risk & Legal
-  { key: 'lease', label: 'Lease Analysis', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
-  { key: 'contract', label: 'Material Contracts', badge: null, icon: Briefcase, group: 'WS1 — Risk & Legal' },
   { key: 'employee-obligations', label: 'Employee Obligations', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
-  { key: 'insurance', label: 'Insurance Review', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
-  { key: 'advisors', label: 'Professional Advisors', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
-  { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
-  { key: 'org-chart', label: 'Org Chart Review', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
-  { key: 'litigation', label: 'Litigation & Liens', badge: null, icon: AlertCircle, group: 'WS1 — Risk & Legal' },
   { key: 'employee-comp', label: 'Employee Staffing & Compensation', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'insurance', label: 'Insurance Review', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
+  { key: 'lease', label: 'Lease Analysis', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
+  { key: 'litigation', label: 'Litigation & Liens', badge: null, icon: AlertCircle, group: 'WS1 — Risk & Legal' },
+  { key: 'contract', label: 'Material Contracts', badge: null, icon: Briefcase, group: 'WS1 — Risk & Legal' },
+  { key: 'org-chart', label: 'Org Chart Review', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'owner-gm-assessment', label: 'Owner & GM Assessment', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'ownership-verification', label: 'Ownership Verification', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
   { key: 'permits-zoning', label: 'Permits & Zoning', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
-  { key: 'owner-gm-assessment', label: 'Owner & GM Assessment', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'advisors', label: 'Professional Advisors', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
-  { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
+  { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
-  { key: 'pricing-analysis', label: 'Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
+  { key: 'pricing-analysis', label: 'Competitive Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'pricing-vertical', label: 'Pricing by Vertical', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
   // Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again.
   // { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
   // M&A
-  { key: 'net-proceeds', label: 'Net Proceeds Calculator', badge: null, icon: Calculator, group: 'M&A Sale Process' },
-  { key: 'teaser', label: 'Deal Teaser Generator', badge: null, icon: Sparkles, group: 'M&A Sale Process' },
   { key: 'cim', label: 'CIM Generator', badge: null, icon: FileText, group: 'M&A Sale Process' },
+  { key: 'teaser', label: 'Deal Teaser Generator', badge: null, icon: Sparkles, group: 'M&A Sale Process' },
+  { key: 'net-proceeds', label: 'Net Proceeds Calculator', badge: null, icon: Calculator, group: 'M&A Sale Process' },
 ] as const
 
 type AgentKey = typeof AGENT_TABS[number]['key']

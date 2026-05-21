@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { FacilityRating, FacilityReviewReport } from './types'
 
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
@@ -96,9 +97,8 @@ export async function analyzeFacilityImages(args: {
   notes?: string
   images: Array<{ fileName: string; base64: string; mediaType: string }>
 }): Promise<FacilityReviewReport> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
-  if (!args.images.length) throw new Error('At least one facility image is required')
 
   const model = process.env.FACILITY_REVIEW_MODEL || DEFAULT_MODEL
   const client = new Anthropic({ apiKey })
@@ -120,19 +120,21 @@ export async function analyzeFacilityImages(args: {
 
   content.push({
     type: 'text',
-    text: `Create Cantara Pet Business Advisors Facility Assessment Report from uploaded facility images.
+    text: `Create Cantara Pet Business Advisors Facility Assessment Report from the seller intake responses and any uploaded facility images.
 
 Business name: ${args.businessName}
 Location: ${args.location || 'Unknown'}
-Admin notes / image labels: ${args.notes || 'None'}
+Seller intake responses, admin notes, and image labels:
+${args.notes || 'None'}
 
 Use sale-readiness buyer lens for pet boarding, daycare, grooming, training, and veterinary-adjacent facilities. Be practical. Infer only visible conditions.
 
 Important scoring rule:
 - Do not score a zone Critical only because it is missing from uploaded images.
-- If a zone is not visible, mark it as a documentation / coverage gap and usually score 55-65 (Needs Attention), unless uploaded images show a specific visible severe defect.
-- Critical requires visible severe condition, major safety concern, or explicit admin note, not absence of photos alone.
-- Separate "facility condition" from "image coverage". Missing coverage should create recommendations to capture photos, not invented defects.
+- If photos are missing or a zone is not visible, use the seller's factual intake responses for service dates, compliance, capex history, and known issues.
+- Critical requires a visible severe condition, major safety concern, explicit seller disclosure, or explicit admin note, not absence of photos alone.
+- Separate "facility condition" from "image coverage". Missing coverage should create recommendations to capture optional photos, not invented defects.
+- Where the seller disclosed "None" for known issues, treat that as seller-provided disclosure, not independent verification.
 
 Scoring:
 - Excellent = 85-100

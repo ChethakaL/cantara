@@ -12,6 +12,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { PersonalExpenseCategory } from "@/lib/ttm-agent/parsers/personal-expenses";
 
 export type CategoryClass = "SOURCE_B" | "SOURCE_A" | "SKIP";
@@ -62,7 +63,7 @@ export async function classifyCategories(
     `- "${c.category}" (${c.transactionCount} transactions, ${c.subCategories.length > 0 ? 'sub-categories: ' + c.subCategories.join(', ') : 'no sub-categories'})`
   ).join("\n");
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) {
     console.warn("[Classifier] No ANTHROPIC_API_KEY — using fallback hardcoded classification");
     return fallbackClassification(categories);

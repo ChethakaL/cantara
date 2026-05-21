@@ -8,9 +8,35 @@ export async function GET(req: NextRequest) {
   try {
     const clientId = req.nextUrl.searchParams.get("clientId");
     const documentId = req.nextUrl.searchParams.get("documentId");
+    const all = req.nextUrl.searchParams.get("all") === "true";
 
     if (!clientId || !documentId) {
       return new Response("clientId and documentId are required", { status: 400 });
+    }
+
+    if (all) {
+      const docs = await (prisma as any).clientDocument.findMany({
+        where: { clientId, documentId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          googleDriveFileId: true,
+          createdAt: true,
+        },
+      });
+
+      return NextResponse.json({
+        documents: docs.map((doc: any) => ({
+          id: doc.id,
+          fileName: doc.fileName,
+          mimeType: doc.mimeType,
+          fileUrl: doc.googleDriveFileId,
+          uploadedAt: doc.createdAt.toISOString(),
+        })),
+      });
     }
 
     const doc = await (prisma as any).clientDocument.findFirst({

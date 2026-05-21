@@ -38,7 +38,11 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
         if (res.ok) {
           const { draft } = await res.json()
           if (draft) {
-            setData(draft)
+            const merged = { ...DEFAULT_TEASER_INPUT, ...draft } as TeaserInputData
+            if (!Array.isArray(merged.investmentHighlights) || merged.investmentHighlights.length !== 5) {
+              merged.investmentHighlights = DEFAULT_TEASER_INPUT.investmentHighlights
+            }
+            setData(merged)
             setStatus('editing')
           }
         }
@@ -49,14 +53,15 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
     void loadDraft()
   }, [clientId])
 
-  const saveDraft = async () => {
+  const saveDraft = async (payload?: TeaserInputData) => {
+    const toSave = payload ?? data
     setSaving(true)
     setSaveSuccess(false)
     try {
       const res = await fetch('/api/teaser/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, data }),
+        body: JSON.stringify({ clientId, data: toSave }),
       })
       if (!res.ok) throw new Error('Failed to save draft')
       setSaveSuccess(true)
@@ -92,8 +97,13 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
       if (!res.ok) throw new Error(await res.text() || 'Failed to auto-fill')
       const filled = await res.json()
       // The response may have a nested structure with autoFilled key or be flat
-      const inputData = filled.autoFilled || filled
+      const raw = filled.autoFilled || filled
+      const inputData = { ...DEFAULT_TEASER_INPUT, ...raw } as TeaserInputData
+      if (!Array.isArray(inputData.investmentHighlights) || inputData.investmentHighlights.length !== 5) {
+        inputData.investmentHighlights = DEFAULT_TEASER_INPUT.investmentHighlights
+      }
       setData(inputData)
+      await saveDraft(inputData)
       setStatus('editing')
     } catch (err: any) {
       setError(err.message || 'Auto-fill failed')
@@ -152,7 +162,8 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
     return (
       <div className="space-y-6">
         <Card className="p-5">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
               <FileText className="w-5 h-5 text-amber-600" />
             </div>
@@ -161,6 +172,15 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
               <p className="text-xs text-slate-400 mt-0.5">Generate a professional investment teaser from client data across all agents.</p>
             </div>
           </div>
+          <a
+            href="/samples/Cantara_Deal_Teaser_v2.docx"
+            download="Cantara_Deal_Teaser_v2.docx"
+            className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-cantara-beige text-slate-700 hover:bg-cantara-beige/50 px-3 py-1.5 text-xs bg-white"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download sample teaser
+          </a>
+        </div>
         </Card>
 
         {error && (
@@ -275,13 +295,13 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
 
   // ---------- EDITING STATE ----------
   const OVERVIEW_FIELDS = [
-    { key: 'facilityProfile' as const, label: 'Facility Profile' },
-    { key: 'ownershipManagement' as const, label: 'Ownership & Management' },
-    { key: 'clientProfile' as const, label: 'Client Profile' },
-    { key: 'staffOperations' as const, label: 'Staff & Operations' },
-    { key: 'realEstate' as const, label: 'Real Estate' },
-    { key: 'technology' as const, label: 'Technology' },
-    { key: 'permitsZoning' as const, label: 'Permits & Zoning' },
+    { key: 'facilityProfile' as const, label: 'Facility Profile (teaser PDF: one bullet per line)' },
+    { key: 'ownershipManagement' as const, label: 'Ownership & Management (teaser PDF: one bullet per line)' },
+    { key: 'clientProfile' as const, label: 'Client Profile (teaser PDF: one bullet per line)' },
+    { key: 'staffOperations' as const, label: 'Staff & Operations (teaser PDF: one bullet per line)' },
+    { key: 'realEstate' as const, label: 'Real Estate (teaser PDF: one bullet per line)' },
+    { key: 'technology' as const, label: 'Technology (teaser PDF: one bullet per line)' },
+    { key: 'permitsZoning' as const, label: 'Permits & Zoning (teaser PDF: one bullet per line)' },
   ]
 
   return (
@@ -293,7 +313,17 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
               <FileText className="w-4 h-4 text-amber-600" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-800">Deal Teaser — Edit & Review</h3>
+              <div className="flex items-center gap-3">
+                <h3 className="text-sm font-semibold text-slate-800">Deal Teaser — Edit & Review</h3>
+                <a
+                  href="/samples/Cantara_Deal_Teaser_v2.docx"
+                  download="Cantara_Deal_Teaser_v2.docx"
+                  className="flex items-center gap-1.5 text-[10px] font-medium text-amber-600 hover:text-amber-700 hover:underline"
+                >
+                  <Download className="w-3 h-3" />
+                  Download sample teaser
+                </a>
+              </div>
               <p className="text-xs text-slate-400">Review the auto-filled data below. Edit any fields, then generate the teaser.</p>
             </div>
           </div>
@@ -301,7 +331,7 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
             <Button
               variant="outline"
               size="sm"
-              onClick={saveDraft}
+              onClick={() => void saveDraft()}
               disabled={saving}
               className="text-[10px] h-8"
             >
@@ -338,6 +368,13 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
           <Input label="Subtitle" value={data.teaserSubtitle} onChange={e => set('teaserSubtitle', e.target.value)} />
           <Input label="Region" value={data.regionLabel} onChange={e => set('regionLabel', e.target.value)} />
         </div>
+        <Input
+          label="Cantara deal reference #"
+          value={data.dealReference ?? ''}
+          onChange={e => set('dealReference', e.target.value)}
+          placeholder="e.g. CD-2026-0142"
+        />
+        <p className="text-[11px] text-slate-500">When filled in, this reference is printed on the teaser cover (exported PDF).</p>
       </Card>
 
       {/* Section 2: Transaction Snapshot */}
@@ -353,16 +390,40 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
         </div>
       </Card>
 
-      {/* Section 3: Business Overview */}
+      {/* Section 3: Business narrative (PDF sections 01 & 02) */}
       <Card className="p-5 space-y-4">
-        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Business Overview</p>
-        <div className="space-y-3">
-          <Textarea label="Business Overview" value={data.businessOverview} onChange={e => set('businessOverview', e.target.value)} rows={3} />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {OVERVIEW_FIELDS.map(({ key, label }) => (
-              <Textarea key={key} label={label} value={data[key]} onChange={e => set(key, e.target.value)} rows={3} />
-            ))}
-          </div>
+        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Section 01 — Transaction snapshot</p>
+        <Textarea
+          label="Deal at a glance"
+          value={data.businessOverview}
+          onChange={e => set('businessOverview', e.target.value)}
+          rows={3}
+        />
+
+        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest pt-2">Section 02 — Business overview (Deal Teaser PDF only)</p>
+        <p className="text-[11px] text-slate-500 -mt-1">
+          These fields control <span className="font-medium text-slate-600">02 — Business overview</span> in the <span className="font-medium text-slate-600">Deal Teaser</span> export only. The CIM uses its own template.
+        </p>
+        <Input
+          label='Headline under "Business Overview"'
+          value={data.overviewHeadline}
+          onChange={e => set('overviewHeadline', e.target.value)}
+          placeholder="e.g. A Purpose-Built Premium Pet Resort"
+        />
+        <Textarea
+          label="Summary under headline"
+          value={data.section02LeadSummary}
+          onChange={e => set('section02LeadSummary', e.target.value)}
+          rows={3}
+          placeholder="One paragraph as a single line — or several lines; each line becomes its own bullet in the teaser PDF."
+        />
+        <p className="text-[11px] text-slate-500">
+          The labeled boxes below map to the teaser reference layout: each line becomes one bullet in the PDF (Facility Profile, Ownership &amp; Management, etc.).
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {OVERVIEW_FIELDS.map(({ key, label }) => (
+            <Textarea key={key} label={label} value={data[key]} onChange={e => set(key, e.target.value)} rows={4} />
+          ))}
         </div>
       </Card>
 

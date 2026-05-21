@@ -6,6 +6,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import * as XLSX from "xlsx";
 import { CANTARA_TAXONOMY, type TaxonomyEntry } from "@/lib/ttm-agent/taxonomy";
 
@@ -105,8 +106,8 @@ const LLM_MODEL = "claude-sonnet-4-20250514";
 const LLM_TEMPERATURE = 0;
 const LLM_MAX_TOKENS = 8192;
 
-function getClient(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+async function getClient(): Promise<Anthropic> {
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY is not set. Cannot run LLM extraction.");
   }
@@ -296,7 +297,7 @@ export async function extractFinancialsWithLLM(
   plData: string,
   bsData: string | null,
 ): Promise<ExtractedFinancials> {
-  const client = getClient();
+  const client = await getClient();
 
   const userContent = [
     "Here is the Profit & Loss data:\n\n" + plData,
@@ -393,7 +394,7 @@ export async function extractAddbacksWithLLM(
   periods: ExtractedFinancials["periods"],
   plExpenseData?: string | null,
 ): Promise<ExtractedAddbacks> {
-  const client = getClient();
+  const client = await getClient();
 
   const periodContext = periods
     .map((p) => `${p.label} — ${p.startMonth} to ${p.endMonth}`)

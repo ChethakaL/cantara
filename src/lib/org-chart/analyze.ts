@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 
 export interface OrgChartAnalysis {
   summary: string
@@ -29,7 +30,7 @@ export async function analyzeOrgChart(args: {
   base64: string
   mediaType: string
 }): Promise<OrgChartAnalysis> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
 
   const client = new Anthropic({ apiKey })

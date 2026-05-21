@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 
 export interface LitigationSearchResult {
   summary: string
@@ -30,7 +31,7 @@ export async function searchPublicRecords(args: {
   county?: string
   city?: string
 }): Promise<LitigationSearchResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
 
   const client = new Anthropic({ apiKey })
@@ -127,7 +128,7 @@ export async function analyzeUploadedDocument(args: {
   base64: string
   mediaType: string
 }): Promise<LitigationSearchResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
 
   const client = new Anthropic({ apiKey })

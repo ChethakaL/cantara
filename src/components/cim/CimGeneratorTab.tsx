@@ -66,7 +66,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         if (res.ok) {
           const { draft } = await res.json()
           if (draft) {
-            setData(draft)
+            setData({ ...DEFAULT_CIM_INPUT, ...draft } as CimInputData)
             setStatus('editing')
           }
         }
@@ -77,14 +77,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
     void loadDraft()
   }, [clientId])
 
-  const saveDraft = async () => {
+  const saveDraft = async (payload?: CimInputData) => {
+    const toSave = payload ?? data
     setSaving(true)
     setSaveSuccess(false)
     try {
       const res = await fetch('/api/cim/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, data }),
+        body: JSON.stringify({ clientId, data: toSave }),
       })
       if (!res.ok) throw new Error('Failed to save draft')
       setSaveSuccess(true)
@@ -142,8 +143,10 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
       })
       if (!res.ok) throw new Error(await res.text() || 'Failed to auto-fill')
       const filled = await res.json()
-      const inputData = filled.autoFilled || filled
-      setData(inputData)
+      const raw = filled.autoFilled || filled
+      const merged = { ...DEFAULT_CIM_INPUT, ...raw } as CimInputData
+      setData(merged)
+      await saveDraft(merged)
       setStatus('editing')
     } catch (err: any) {
       setError(err.message || 'Auto-fill failed')
@@ -202,12 +205,12 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               </div>
             </div>
             <a
-              href="/brand/Cantara_CIM_Reference_Template.pdf"
-              download
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors"
+              href="/samples/Cantara_CIM_v3.docx"
+              download="Cantara_CIM_v3.docx"
+              className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-cantara-beige text-slate-700 hover:bg-cantara-beige/50 px-3 py-1.5 text-xs bg-white"
             >
               <Download className="w-3.5 h-3.5" />
-              CIM Reference Template
+              Download sample CIM
             </a>
           </div>
         </Card>
@@ -352,7 +355,17 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <FileText className="w-4 h-4 text-amber-600" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-800">CIM — Edit & Review</h3>
+              <div className="flex items-center gap-3">
+                <h3 className="text-sm font-semibold text-slate-800">CIM — Edit & Review</h3>
+                <a
+                  href="/samples/Cantara_CIM_v3.docx"
+                  download="Cantara_CIM_v3.docx"
+                  className="flex items-center gap-1.5 text-[10px] font-medium text-amber-600 hover:text-amber-700 hover:underline"
+                >
+                  <Download className="w-3 h-3" />
+                  Download sample CIM
+                </a>
+              </div>
               <p className="text-xs text-slate-400">Review the auto-filled data below. Edit any fields, then generate the CIM.</p>
             </div>
           </div>
@@ -360,7 +373,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
             <Button
               variant="outline"
               size="sm"
-              onClick={saveDraft}
+              onClick={() => void saveDraft()}
               disabled={saving}
               className="text-[10px] h-8"
             >
@@ -396,7 +409,16 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
           <Input label="Subtitle" value={data.subtitle} onChange={e => set('subtitle', e.target.value)} />
           <Input label="Region" value={data.region} onChange={e => set('region', e.target.value)} />
           <Input label="Service Lines" value={data.serviceLines} onChange={e => set('serviceLines', e.target.value)} />
+          <div className="md:col-span-2">
+            <Input
+              label="Cantara deal reference #"
+              value={data.dealReference}
+              onChange={e => set('dealReference', e.target.value)}
+              placeholder="e.g. CD-2026-0142"
+            />
+          </div>
         </div>
+        <p className="text-[11px] text-slate-500">When filled in, this reference is printed on the CIM cover (exported PDF).</p>
       </Section>
 
       {/* 2. Executive Summary */}

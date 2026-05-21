@@ -9,7 +9,7 @@ import {
   FileText, HelpCircle, ChevronDown, ChevronUp, Map, Briefcase, Lock, Loader2, ExternalLink
 } from 'lucide-react'
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
-import { getDocsForWorkstream, getValuationDocsForWorkstream } from '@/lib/documentData'
+import { getDocsForAgentSelections, getDocsForWorkstream, getValuationDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
 import { getClients, getMessages, saveMessage, getRequirements, getCurrentRole, logout, getClient, saveClient, updateRequirement } from '@/lib/store'
 import type { Client, DocumentStatus, ChatMessage, AdditionalRequirement } from '@/lib/store'
 
@@ -56,6 +56,7 @@ function ClientNav({ clientName, unreadCount, onSettings, showSettings }: {
 const PHASES = [
   { id: 'overview', label: 'Overview' },
   { id: 'assign', label: 'Assign' },
+  { id: 'information', label: 'Required Info' },
   { id: 'collection', label: 'Collection' },
   { id: 'requirements', label: 'Additional Requirements' },
   { id: 'roadmap', label: 'Roadmap', disabled: true },
@@ -299,7 +300,12 @@ export default function ClientDashboard() {
   const getDocStatus = (docId: string): DocumentStatus =>
     docStatuses[docId] ?? { id: docId, hasDoc: null, assignedTo: null, uploadedAt: null, fileName: null, notApplicable: false }
 
-  const categories = getDocsForWorkstream(client.workstream, client.businessType)
+  const categories = mergeDocumentCategories([
+    ...(client.customWorkstream
+      ? getDocsForAgentSelections(client.customWorkstream.agents)
+      : getDocsForWorkstream(client.workstream, client.businessType)),
+    ...getDocsForAgentSelections(client.workstreamAgents ?? []),
+  ])
   const valuationDocs = getValuationDocsForWorkstream(client.workstream)
   const diligenceDocs = categories.flatMap(c => c.documents)
   const allDocs = [...valuationDocs, ...diligenceDocs]
@@ -411,7 +417,7 @@ export default function ClientDashboard() {
             <div className="space-y-1">
               {PHASES.map(p => {
                 const isActive = phase === p.id
-                const hasBadge = p.id === 'requirements' && openReqs.length > 0
+                const hasBadge = (p.id === 'requirements' && openReqs.length > 0) || p.id === 'information'
                 const disabled = Boolean((p as any).disabled)
                 return (
                   <button
@@ -434,10 +440,13 @@ export default function ClientDashboard() {
                       {disabled && <Lock className="w-3.5 h-3.5" />}
                       <span className="truncate">{p.label}</span>
                     </span>
-                    {hasBadge && (
+                    {hasBadge && p.id === 'requirements' && (
                       <span className="w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: '#f43f5e', color: 'white' }}>
                         {openReqs.length}
                       </span>
+                    )}
+                    {hasBadge && p.id === 'information' && (
+                      <span className="w-2 h-2 rounded-full" style={{ background: '#d4a843' }} />
                     )}
                   </button>
                 )
@@ -455,6 +464,7 @@ export default function ClientDashboard() {
             >
               {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} />}
               {phase === 'assign' && <AssignTab valuationDocs={valuationDocs} categories={categories} getStatus={getDocStatus} setStatus={setDocStatus} teamMembers={client.teamMembers} allAssigned={allConfirmedAssigned} />}
+              {phase === 'information' && <AgentInformationTab clientId={client.id} uploaderEmail={client.email} />}
               {phase === 'collection' && (
                 <CollectionTab
                   valuationDocs={valuationDocs}
@@ -636,6 +646,7 @@ export default function ClientDashboard() {
 function OverviewTab({ client, wsLabel }: { client: Client; wsLabel: Record<string, string> }) {
   const steps = [
     { title: 'Assign Documents', desc: 'Review the requested checklist and assign each document to yourself or a team member who will upload it.' },
+    { title: 'Required Information', desc: 'Complete any short forms needed by your advisor tools, such as websites, profiles, and competitor names.' },
     { title: 'Collection', desc: 'Upload the required documents, including the valuation materials highlighted by your Cantara team.' },
     { title: 'Review', desc: 'Your advisor team will review materials and follow up through the chat button in the bottom right corner.' },
   ]
@@ -902,6 +913,561 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
 }
 
 // ── Collection Tab ────────────────────────────────────────────────────────────
+type ClientPortalFormQuestion = {
+  id: string
+  fieldKey: string
+  label: string
+  description?: string | null
+  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number'
+  placeholder?: string | null
+  required: boolean
+  options?: string[] | null
+  groupKey?: string | null
+  groupLabel?: string | null
+}
+
+const STRUCTURED_FORM_COLUMNS: Record<string, Array<{ key: string; label: string; placeholder?: string }>> = {
+  professionalAdvisorsList: [
+    { key: 'role', label: 'Role', placeholder: 'Accountant' },
+    { key: 'name', label: 'Name', placeholder: 'Rex John' },
+    { key: 'company', label: 'Company', placeholder: 'Rex Dog Hotel' },
+    { key: 'email', label: 'Email', placeholder: 'email@example.com' },
+    { key: 'phone', label: 'Phone', placeholder: '555-123-4567' },
+    { key: 'willing', label: 'Willing', placeholder: 'yes/no/unknown' },
+    { key: 'notes', label: 'Notes', placeholder: 'Context' },
+  ],
+  vendorDirectoryList: [
+    { key: 'name', label: 'Tool name', placeholder: 'Gingr' },
+    { key: 'vendor', label: 'Vendor', placeholder: 'Gingr' },
+    { key: 'category', label: 'Category', placeholder: 'Booking/POS' },
+    { key: 'annualCost', label: 'Annual cost', placeholder: '3600' },
+    { key: 'contractStatus', label: 'Contract status', placeholder: 'Active' },
+    { key: 'transferable', label: 'Transferable', placeholder: 'yes/no/unknown' },
+    { key: 'loginAccess', label: 'Login access', placeholder: 'Owner Only' },
+    { key: 'notes', label: 'Notes', placeholder: 'Context' },
+  ],
+}
+
+const FACILITY_IMAGE_DOCUMENT_ID = 'facility_review_images'
+const FACILITY_IMAGE_LIMIT = 5
+const FACILITY_IMAGE_TYPES = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/webp': ['.webp'],
+}
+const FACILITY_IMAGE_SECTIONS = [
+  {
+    key: 'exterior',
+    title: 'Exterior & Curb Appeal',
+    helper: 'Front facade, exterior signage, parking, entrance approach, visible exterior concerns.',
+  },
+  {
+    key: 'reception',
+    title: 'Reception',
+    helper: 'Entrance view, front desk, flooring, retail display, lighting, condition concerns.',
+  },
+  {
+    key: 'boarding',
+    title: 'Boarding',
+    helper: 'Boarding area, kennel tiers, cat area if applicable, HVAC, floors, equipment issues.',
+  },
+  {
+    key: 'grooming',
+    title: 'Grooming',
+    helper: 'Grooming stations, tables, wash station, dryers, ventilation, organization.',
+  },
+  {
+    key: 'indoor-play',
+    title: 'Indoor Play',
+    helper: 'Indoor play rooms, flooring, enrichment equipment, dividers, condition concerns.',
+  },
+  {
+    key: 'outdoor-play',
+    title: 'Outdoor Play',
+    helper: 'Outdoor yards, fencing, ground surface, shade, gates, structural concerns.',
+  },
+  {
+    key: 'staff-ops',
+    title: 'Staff & Operational Areas',
+    helper: 'Break room, laundry, storage, supplies, operational condition concerns.',
+  },
+] as const
+
+function parsePipeRows(value: string, fieldKey: string): Record<string, string>[] {
+  const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
+  return String(value || '')
+    .replace(/\\n/g, '\n')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const parts = line.split('|').map(part => part.trim())
+      return columns.reduce<Record<string, string>>((row, column, index) => {
+        row[column.key] = parts[index] ?? ''
+        return row
+      }, {})
+    })
+}
+
+function serializePipeRows(rows: Record<string, string>[], fieldKey: string): string {
+  const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
+  // Do not drop all-whitespace lines — empty rows must round-trip so "Add Row" works before any cell is filled.
+  return rows.map(row => columns.map(column => row[column.key] ?? '').join(' | ')).join('\n')
+}
+
+function StructuredRowsInput({
+  question,
+  value,
+  onChange,
+  onUpload,
+  extracting,
+}: {
+  question: ClientPortalFormQuestion
+  value: string
+  onChange: (value: string) => void
+  onUpload: (file: File | null) => void
+  extracting: boolean
+}) {
+  const columns = STRUCTURED_FORM_COLUMNS[question.fieldKey] ?? []
+  const rows = parsePipeRows(value, question.fieldKey)
+  const visibleRows = rows.length ? rows : [columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})]
+
+  function updateCell(rowIndex: number, key: string, nextValue: string) {
+    const next = [...visibleRows]
+    next[rowIndex] = { ...next[rowIndex], [key]: nextValue }
+    onChange(serializePipeRows(next, question.fieldKey))
+  }
+
+  function addRow() {
+    onChange(serializePipeRows([...visibleRows, columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})], question.fieldKey))
+  }
+
+  function removeRow(index: number) {
+    onChange(serializePipeRows(visibleRows.filter((_, rowIndex) => rowIndex !== index), question.fieldKey))
+  }
+
+  return (
+    <div className="mt-2 space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          id={`upload-${question.fieldKey}`}
+          type="file"
+          accept=".txt,.md,text/plain,text/markdown"
+          className="hidden"
+          onChange={e => onUpload(e.target.files?.[0] ?? null)}
+        />
+        <label
+          htmlFor={`upload-${question.fieldKey}`}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          {extracting ? 'Extracting...' : 'Upload TXT transcript to auto-fill'}
+        </label>
+        <button
+          type="button"
+          onClick={addRow}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Row
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full min-w-[980px] text-xs">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              {columns.map(column => <th key={column.key} className="px-3 py-2 text-left font-semibold">{column.label}</th>)}
+              <th className="w-12 px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {visibleRows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {columns.map(column => (
+                  <td key={column.key} className="px-2 py-2">
+                    <input
+                      value={row[column.key] ?? ''}
+                      onChange={e => updateCell(rowIndex, column.key, e.target.value)}
+                      placeholder={column.placeholder}
+                      className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </td>
+                ))}
+                <td className="px-2 py-2 text-right">
+                  <button type="button" onClick={() => removeRow(rowIndex)} className="rounded-md p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function FacilityImageUploadPanel({
+  clientId,
+  uploaderEmail,
+}: {
+  clientId: string
+  uploaderEmail: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ exterior: true })
+  const [imagesBySection, setImagesBySection] = useState<Record<string, Array<{ id: string; fileName: string; uploadedAt: string }>>>({})
+  const [uploadingSection, setUploadingSection] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadImages() {
+      try {
+        const entries = await Promise.all(FACILITY_IMAGE_SECTIONS.map(async section => {
+          const documentId = `${FACILITY_IMAGE_DOCUMENT_ID}_${section.key}`
+          const res = await fetch(`/api/client-documents?clientId=${encodeURIComponent(clientId)}&documentId=${documentId}&all=true`)
+          if (!res.ok) return [section.key, []] as const
+          const data = await res.json()
+          return [section.key, data.documents ?? []] as const
+        }))
+        if (!cancelled) setImagesBySection(Object.fromEntries(entries))
+      } catch {
+        if (!cancelled) setImagesBySection({})
+      }
+    }
+    void loadImages()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  const totalImages = Object.values(imagesBySection).reduce((sum, images) => sum + images.length, 0)
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(current => !current)}
+        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50"
+      >
+        <div>
+          <h4 className="text-sm font-semibold text-slate-700">Optional Facility Images</h4>
+          <p className="text-xs text-slate-500 mt-1">Upload up to 5 images to support the facility review. This is optional.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge color={totalImages ? 'green' : 'slate'}>{totalImages} uploaded</Badge>
+          {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 p-4 space-y-3">
+          {error && <p className="text-xs text-rose-600">{error}</p>}
+          {FACILITY_IMAGE_SECTIONS.map(section => (
+            <FacilityImageSectionUploader
+              key={section.key}
+              section={section}
+              clientId={clientId}
+              uploaderEmail={uploaderEmail}
+              open={Boolean(openSections[section.key])}
+              onToggle={() => setOpenSections(current => ({ ...current, [section.key]: !current[section.key] }))}
+              images={imagesBySection[section.key] ?? []}
+              uploading={uploadingSection === section.key}
+              onUploadingChange={uploading => setUploadingSection(uploading ? section.key : null)}
+              onError={setError}
+              onUploaded={uploaded => setImagesBySection(current => ({
+                ...current,
+                [section.key]: [...uploaded, ...(current[section.key] ?? [])].slice(0, FACILITY_IMAGE_LIMIT),
+              }))}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FacilityImageSectionUploader({
+  section,
+  clientId,
+  uploaderEmail,
+  open,
+  onToggle,
+  images,
+  uploading,
+  onUploadingChange,
+  onError,
+  onUploaded,
+}: {
+  section: typeof FACILITY_IMAGE_SECTIONS[number]
+  clientId: string
+  uploaderEmail: string
+  open: boolean
+  onToggle: () => void
+  images: Array<{ id: string; fileName: string; uploadedAt: string }>
+  uploading: boolean
+  onUploadingChange: (uploading: boolean) => void
+  onError: (error: string) => void
+  onUploaded: (uploaded: Array<{ id: string; fileName: string; uploadedAt: string }>) => void
+}) {
+  const remainingSlots = Math.max(0, FACILITY_IMAGE_LIMIT - images.length)
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: FACILITY_IMAGE_TYPES,
+    multiple: true,
+    maxFiles: remainingSlots || 1,
+    maxSize: 5 * 1024 * 1024,
+    disabled: uploading || remainingSlots === 0,
+    onDrop: async accepted => {
+      const files = accepted.slice(0, remainingSlots)
+      if (!files.length) return
+      onUploadingChange(true)
+      onError('')
+      try {
+        const uploaded: Array<{ id: string; fileName: string; uploadedAt: string }> = []
+        for (const file of files) {
+          const form = new FormData()
+          form.append('file', file)
+          form.append('clientId', clientId)
+          form.append('documentId', `${FACILITY_IMAGE_DOCUMENT_ID}_${section.key}`)
+          form.append('uploaderEmail', uploaderEmail)
+          const res = await fetch('/api/client-documents/upload', { method: 'POST', body: form })
+          if (!res.ok) throw new Error(await res.text())
+          const data = await res.json()
+          uploaded.push({
+            id: data.id || `${file.name}-${Date.now()}`,
+            fileName: file.name,
+            uploadedAt: new Date().toISOString(),
+          })
+        }
+        onUploaded(uploaded)
+      } catch (err) {
+        onError(err instanceof Error ? err.message : 'Could not upload facility images.')
+      } finally {
+        onUploadingChange(false)
+      }
+    },
+  })
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
+        <div>
+          <p className="text-sm font-semibold text-slate-700">{section.title}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{section.helper}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge color={images.length ? 'green' : 'slate'}>{images.length}/{FACILITY_IMAGE_LIMIT}</Badge>
+          {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 p-4 space-y-3">
+          <div
+            {...getRootProps()}
+            className={`rounded-xl border border-dashed p-5 text-center transition-colors ${
+              remainingSlots === 0
+                ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
+                : isDragActive
+                  ? 'cursor-pointer border-amber-300 bg-amber-50 text-amber-700'
+                  : 'cursor-pointer border-slate-200 text-slate-500 hover:border-amber-300 hover:bg-amber-50/40'
+            }`}
+          >
+            <input {...getInputProps()} />
+            {uploading ? <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" /> : <Upload className="mx-auto mb-2 h-5 w-5" />}
+            <p className="text-xs font-medium">
+              {remainingSlots === 0 ? 'Image limit reached' : uploading ? 'Uploading...' : `Drop ${section.title.toLowerCase()} images here, or click to browse`}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1">Up to 5 images for this section. JPG, PNG, or WebP. 5 MB max per image.</p>
+          </div>
+          {images.length > 0 && (
+            <div className="space-y-2">
+              {images.map(image => (
+                <div key={`${image.id}-${image.fileName}`} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{image.fileName}</span>
+                  <span className="text-[10px] text-slate-400">{new Date(image.uploadedAt).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; uploaderEmail: string }) {
+  const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
+  const [formResponses, setFormResponses] = useState<Record<string, string>>({})
+  const [savingFormResponses, setSavingFormResponses] = useState(false)
+  const [extractingField, setExtractingField] = useState<string | null>(null)
+  const [formSaved, setFormSaved] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadFormQuestions() {
+      try {
+        const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(clientId)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setFormQuestions(data.questions ?? [])
+        setFormResponses(data.responses ?? {})
+      } catch {
+        if (!cancelled) setFormQuestions([])
+      }
+    }
+    void loadFormQuestions()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  function updateFormResponse(fieldKey: string, value: string) {
+    setFormResponses(prev => ({ ...prev, [fieldKey]: value }))
+    setFormError('')
+  }
+
+  async function saveFormResponses() {
+    const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
+    if (missing.length) {
+      setFormError(`Please complete required fields: ${missing.slice(0, 3).map(q => q.label).join(', ')}${missing.length > 3 ? '...' : ''}`)
+      return
+    }
+    setSavingFormResponses(true)
+    setFormSaved(false)
+    setFormError('')
+    try {
+      const res = await fetch('/api/client-form-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, responses: formResponses }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setFormSaved(true)
+      setTimeout(() => setFormSaved(false), 2000)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not save information.')
+    } finally {
+      setSavingFormResponses(false)
+    }
+  }
+
+  async function handleTranscriptUpload(question: ClientPortalFormQuestion, file: File | null) {
+    if (!file) return
+    setExtractingField(question.fieldKey)
+    setFormError('')
+    try {
+      const transcript = await file.text()
+      const res = await fetch('/api/client-form-questions/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fieldKey: question.fieldKey, transcript }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      updateFormResponse(question.fieldKey, data.text ?? transcript)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not extract the uploaded transcript.')
+    } finally {
+      setExtractingField(null)
+    }
+  }
+
+  const groupedQuestions = formQuestions.reduce<Record<string, ClientPortalFormQuestion[]>>((acc, question) => {
+    const key = question.groupLabel || 'Business Information'
+    acc[key] = [...(acc[key] ?? []), question]
+    return acc
+  }, {})
+  const hasFacilityQuestions = formQuestions.some(question => question.fieldKey.startsWith('facility'))
+
+  if (!formQuestions.length) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-sm text-slate-500">
+        No extra form information is required for the selected workstream right now.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h4 className="text-sm font-semibold text-slate-700">Required Information</h4>
+          <p className="text-xs text-slate-500 mt-1">
+            Complete these fields once. Cantara uses the saved answers to prefill related advisor tools.
+          </p>
+        </div>
+        <div className="p-5 space-y-5">
+          {Object.entries(groupedQuestions).map(([groupLabel, questions]) => (
+            <div key={groupLabel} className="space-y-3">
+              <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{groupLabel}</h5>
+              <div className="grid gap-3 md:grid-cols-2">
+                {questions.map(question => {
+                  const commonClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
+                  const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
+                  // Do not wrap structured tables in <label>: first labelable descendant would be the hidden file input,
+                  // so clicks (e.g. "Add Row") can incorrectly open the file picker (HTML label activation behavior).
+                  const Shell = structured ? 'div' : 'label'
+                  const shellClass = (question.inputType === 'textarea' || structured) ? 'md:col-span-2' : ''
+                  return (
+                    <Shell key={question.id} className={shellClass}>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {question.label}
+                        {question.required && <span className="text-amber-600"> *</span>}
+                      </span>
+                      {question.description && <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>}
+                      {structured ? (
+                        <StructuredRowsInput
+                          question={question}
+                          value={formResponses[question.fieldKey] ?? ''}
+                          onChange={value => updateFormResponse(question.fieldKey, value)}
+                          onUpload={file => void handleTranscriptUpload(question, file)}
+                          extracting={extractingField === question.fieldKey}
+                        />
+                      ) : question.inputType === 'textarea' ? (
+                        <>
+                          <textarea
+                            value={formResponses[question.fieldKey] ?? ''}
+                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                            placeholder={question.placeholder ?? ''}
+                            className={`${commonClass} mt-1 min-h-[84px] resize-y`}
+                          />
+                        </>
+                      ) : question.inputType === 'select' ? (
+                        <select
+                          value={formResponses[question.fieldKey] ?? ''}
+                          onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                          className={`${commonClass} mt-1 bg-white`}
+                        >
+                          <option value="">Select...</option>
+                          {(question.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      ) : (
+                        <input
+                          type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
+                          value={formResponses[question.fieldKey] ?? ''}
+                          onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                          placeholder={question.placeholder ?? ''}
+                          className={`${commonClass} mt-1`}
+                        />
+                      )}
+                    </Shell>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          {formError && <p className="text-xs text-red-600">{formError}</p>}
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
+              {savingFormResponses ? 'Saving...' : 'Save Information'}
+            </Button>
+            {formSaved && <span className="text-xs text-emerald-600">Saved</span>}
+          </div>
+        </div>
+      </div>
+      {hasFacilityQuestions && <FacilityImageUploadPanel clientId={clientId} uploaderEmail={uploaderEmail} />}
+    </div>
+  )
+}
+
 function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
@@ -909,10 +1475,70 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
   clientId: string
   uploaderEmail: string
-  sectionSubmissions: Record<string, { submittedAt: string }>
+  sectionSubmissions: Record<string, any>
   onSubmitSection: (sectionId: string) => Promise<void>
   submittingSectionId: string | null
 }) {
+  const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
+  const [formResponses, setFormResponses] = useState<Record<string, string>>({})
+  const [savingFormResponses, setSavingFormResponses] = useState(false)
+  const [formSaved, setFormSaved] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadFormQuestions() {
+      try {
+        const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(clientId)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setFormQuestions(data.questions ?? [])
+        setFormResponses(data.responses ?? {})
+      } catch {
+        if (!cancelled) setFormQuestions([])
+      }
+    }
+    void loadFormQuestions()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  function updateFormResponse(fieldKey: string, value: string) {
+    setFormResponses(prev => ({ ...prev, [fieldKey]: value }))
+    setFormError('')
+  }
+
+  async function saveFormResponses() {
+    const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
+    if (missing.length) {
+      setFormError(`Please complete required fields: ${missing.slice(0, 3).map(q => q.label).join(', ')}${missing.length > 3 ? '...' : ''}`)
+      return
+    }
+    setSavingFormResponses(true)
+    setFormSaved(false)
+    setFormError('')
+    try {
+      const res = await fetch('/api/client-form-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, responses: formResponses }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setFormSaved(true)
+      setTimeout(() => setFormSaved(false), 2000)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not save information.')
+    } finally {
+      setSavingFormResponses(false)
+    }
+  }
+
+  const groupedQuestions = formQuestions.reduce<Record<string, ClientPortalFormQuestion[]>>((acc, question) => {
+    const key = question.groupLabel || 'Business Information'
+    acc[key] = [...(acc[key] ?? []), question]
+    return acc
+  }, {})
+
   const renderSectionFooter = (sectionId: string, totalCount: number, uploadedCount: number) => {
     const isSubmitted = Boolean(sectionSubmissions[sectionId])
     const canSubmit = totalCount > 0 && uploadedCount === totalCount
@@ -953,6 +1579,69 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
       {/* QuickBooks integration is temporarily hidden from the client Collection UI until it is tested.
           Do not delete; re-enable this card when QuickBooks is ready for client use. */}
       {/* <QuickBooksConnectCard clientId={clientId} /> */}
+      {false && formQuestions.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <h4 className="text-sm font-semibold text-slate-700">Required Information</h4>
+            <p className="text-xs text-slate-500 mt-1">
+              Complete these fields once. Cantara uses the saved answers to prefill related advisor tools.
+            </p>
+          </div>
+          <div className="p-5 space-y-5">
+            {Object.entries(groupedQuestions).map(([groupLabel, questions]) => (
+              <div key={groupLabel} className="space-y-3">
+                <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{groupLabel}</h5>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {questions.map(question => {
+                    const commonClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
+                    return (
+                      <label key={question.id} className={question.inputType === 'textarea' ? 'md:col-span-2' : ''}>
+                        <span className="text-xs font-semibold text-slate-500">
+                          {question.label}
+                          {question.required && <span className="text-amber-600"> *</span>}
+                        </span>
+                        {question.description && <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>}
+                        {question.inputType === 'textarea' ? (
+                          <textarea
+                            value={formResponses[question.fieldKey] ?? ''}
+                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                            placeholder={question.placeholder ?? ''}
+                            className={`${commonClass} mt-1 min-h-[84px] resize-y`}
+                          />
+                        ) : question.inputType === 'select' ? (
+                          <select
+                            value={formResponses[question.fieldKey] ?? ''}
+                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                            className={`${commonClass} mt-1 bg-white`}
+                          >
+                            <option value="">Select...</option>
+                            {(question.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        ) : (
+                          <input
+                            type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
+                            value={formResponses[question.fieldKey] ?? ''}
+                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
+                            placeholder={question.placeholder ?? ''}
+                            className={`${commonClass} mt-1`}
+                          />
+                        )}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+            {formError && <p className="text-xs text-red-600">{formError}</p>}
+            <div className="flex items-center gap-3">
+              <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
+                {savingFormResponses ? 'Saving...' : 'Save Information'}
+              </Button>
+              {formSaved && <span className="text-xs text-emerald-600">Saved</span>}
+            </div>
+          </div>
+        </div>
+      )}
       {valuationDocs.length > 0 && (
         <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
           <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between">

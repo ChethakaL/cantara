@@ -7,8 +7,12 @@ export interface TeaserInputData {
   facilityCapacity: string
   processStage: string
 
-  // Business Overview
+  // Business Overview (section 01 uses businessOverview; section 02 uses headline + lead + bullet fields)
   businessOverview: string
+  /** Section 02 main title under "Business Overview" (PDF). */
+  overviewHeadline: string
+  /** Section 02 lead paragraph below the headline (PDF). */
+  section02LeadSummary: string
   facilityProfile: string
   ownershipManagement: string
   clientProfile: string
@@ -45,6 +49,8 @@ export interface TeaserInputData {
   businessDisplayName: string
   teaserSubtitle: string
   regionLabel: string
+  /** Printed on the teaser cover when set (Cantara deal reference #). */
+  dealReference: string
 }
 
 export interface TeaserGeneratorState {
@@ -62,6 +68,8 @@ export const DEFAULT_TEASER_INPUT: TeaserInputData = {
   facilityCapacity: '',
   processStage: 'LOI Solicitation',
   businessOverview: '',
+  overviewHeadline: 'A Purpose-Built Premium Pet Resort',
+  section02LeadSummary: '',
   facilityProfile: '',
   ownershipManagement: '',
   clientProfile: '',
@@ -91,4 +99,5 @@ export const DEFAULT_TEASER_INPUT: TeaserInputData = {
   businessDisplayName: '',
   teaserSubtitle: 'Acquisition Opportunity',
   regionLabel: '',
+  dealReference: '',
 }

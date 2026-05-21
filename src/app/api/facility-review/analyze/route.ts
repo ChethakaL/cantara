@@ -17,7 +17,6 @@ export async function POST(req: NextRequest) {
     const imageSections = formData.getAll('imageSections').map(section => String(section || '').trim())
 
     if (!businessName) return new Response('Business name is required', { status: 400 })
-    if (!files.length) return new Response('Upload at least one facility image', { status: 400 })
     if (files.length > MAX_IMAGES) return new Response(`Maximum ${MAX_IMAGES} images per run`, { status: 400 })
 
     const images = await Promise.all(files.map(async (file, index) => {

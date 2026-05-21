@@ -1,14 +1,19 @@
 'use client'
 
-import React, { useCallback, useMemo, useState } from 'react'
-import { Download } from 'lucide-react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
+import { Download, Printer } from 'lucide-react'
+import { buildWs2WorkbookReportHtml } from '@/lib/report-export/build-ws2-workbook-report'
+import { parseWorkbookAddBackItems } from '@/lib/ttm-agent/ws2-workbook-export-model'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
+import { buildWorkbookOverrideSnapshotFromUiEdits } from '@/lib/ttm-agent/workbook-overrides'
+import { logWs2Error, logWs2Response } from '@/lib/ttm-agent/browser-debug'
 import type { TtmAnalysisView, Ws2DerivedReportView, Ws2RecastView } from '@/lib/ttm-agent/types'
 import type { AddBackItem } from '@/lib/ws2/ws2-types'
 import { computeRevenueByVertical } from '@/lib/ttm-agent/ws3-revenue'
 import { computeBenchmarks } from '@/lib/ttm-agent/ws4-benchmarks'
 import { computeLaborAnalysis } from '@/lib/ttm-agent/ws5-labor'
 import { Badge, Button, cn } from '@/components/ui'
+import { WorkbookNumberInput } from '@/components/ttm-agent/WorkbookNumberInput'
 
 // ── Accounting Format Helpers ────────────────────────────────────────────────
 
@@ -66,17 +71,26 @@ export function Ws2WorkbookView({
   recast,
   clientName,
   onExportXlsx,
+  onWorkbookSaved,
 }: {
   analysis: TtmAnalysisView
   recast: Ws2RecastView
   clientName: string
   onExportXlsx?: () => void
+  /** Called after inline edits are persisted (Done Editing → DB). Refreshes analysis so Export PDF matches. */
+  onWorkbookSaved?: (analysis: TtmAnalysisView) => void
 }) {
   const [activeTab, setActiveTab] = useState<TabId>('valuation')
+  const [editMode, setEditMode] = useState(false)
+  const [savingEdits, setSavingEdits] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Overrides>({})
   const [tabOverrides, setTabOverrides] = useState<Record<string, Record<string, number>>>({}) // "tab:rowId:periodKey" → value
+  const [inputDrafts, setInputDrafts] = useState<Record<string, string>>({})
   const [editingCell, setEditingCell] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
+  /** In-flight tab edits (not yet blurred into React state). */
+  const pendingTabEditsRef = useRef<Record<string, Partial<Record<PeriodKey, number>>>>({})
 
   const ws2Report = useMemo(
     () => buildWS2ReportAdapter(clientName, analysis, recast, analysis.derivedReports ?? []),
@@ -85,6 +99,17 @@ export function Ws2WorkbookView({
 
   const years = analysis.annualModel?.years ?? []
   const multiple = recast.assumptions?.multipleMid ?? 0
+
+  /** Same mechanism as lease analysis: self-contained HTML from `generateReportHtml` (no Tailwind snapshot). */
+  const exportPdf = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const html = buildWs2WorkbookReportHtml(analysis, recast, clientName)
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    setTimeout(() => win.print(), 500)
+  }, [analysis, recast, clientName])
 
   // Debug: log whether add-back items were parsed
   const adapterItems = ws2Report.ws22?.recastSchedule.addBackItems ?? []
@@ -112,106 +137,125 @@ export function Ws2WorkbookView({
 
   // ── Add-back data with overrides applied ────────────────────────────────
 
-  // Parse add-back items from LLM valuation result, adapter, or reportMarkdown
-  const addBackItems = useMemo(() => {
-    // Priority 1: LLM valuation result (most accurate)
-    const llmResult = (recast as any).parsedReport?.llmValuationResult
-    if (llmResult?.normLines?.length > 0) {
-      console.log('[Ws2WorkbookView] Using LLM valuation normLines:', llmResult.normLines.length)
-      return llmResult.normLines.map((line: any, i: number) => ({
-        id: line.id || `llm-${i}`,
-        description: line.description || 'Unknown',
-        glCode: line.source || '',
-        ttmAmount: line.byPeriod?.['LTM'] ?? line.byPeriod?.['TTM'] ?? 0,
-        fy3Amount: line.byPeriod?.['FY3'] ?? 0,
-        fy2Amount: line.byPeriod?.['FY2'] ?? 0,
-        fy1Amount: line.byPeriod?.['FY1'] ?? 0,
-      }))
+  // Parse add-back items from LLM valuation result, adapter, or reportMarkdown (shared with PDF export).
+  const addBackItems = useMemo(
+    () => parseWorkbookAddBackItems(ws2Report, recast),
+    [ws2Report, recast],
+  )
+
+  const getTabOverride = useCallback((tabRowId: string, periodKey: PeriodKey): number | undefined => {
+    return tabOverrides[tabRowId]?.[periodKey]
+  }, [tabOverrides])
+
+  const getEffectiveTabOverride = useCallback((tabRowId: string, periodKey: PeriodKey): number | undefined => {
+    const cellId = `tab:${tabRowId}:${periodKey}`
+    const draft = inputDrafts[cellId]
+    if (draft !== undefined && draft.trim() !== '') {
+      const parsed = Number(draft.replace(/[,$x]/gi, ''))
+      if (Number.isFinite(parsed)) return parsed
     }
+    const pending = pendingTabEditsRef.current[tabRowId]?.[periodKey]
+    if (pending !== undefined) return pending
+    return tabOverrides[tabRowId]?.[periodKey]
+  }, [inputDrafts, tabOverrides])
 
-    // Priority 2: Export adapter items
-    const fromAdapter = ws2Report.ws22?.recastSchedule.addBackItems ?? []
-    if (fromAdapter.length > 0) return fromAdapter
+  const savedLtmValuation = useCallback(
+    (field: 'low' | 'mid' | 'high'): number | undefined => {
+      const v = ws2Report.ws22?.valuation
+      if (!v) return undefined
+      if (field === 'low') return v.valuationLow
+      if (field === 'mid') return v.valuationMid
+      return v.valuationHigh
+    },
+    [ws2Report.ws22?.valuation],
+  )
 
-    const md = recast.reportMarkdown
-    if (!md) return []
+  const setTabOverrideValue = useCallback((tabRowId: string, periodKey: PeriodKey, rawValue: string) => {
+    const parsed = Number(rawValue.replace(/[,$x]/gi, ''))
+    if (!Number.isFinite(parsed)) return
+    setTabOverrides((prev) => ({
+      ...prev,
+      [tabRowId]: { ...(prev[tabRowId] ?? {}), [periodKey]: parsed },
+    }))
+  }, [])
 
-    function parseCur(raw: string): number {
-      const cleaned = raw.replace(/\*\*/g, '').replace(/\$/g, '').replace(/,/g, '').trim().replace(/^\((.*)\)$/, '-$1')
-      const n = Number(cleaned)
-      return Number.isFinite(n) ? n : 0
+  const setItemOverrideValue = useCallback((itemId: string, periodKey: PeriodKey, rawValue: string) => {
+    const parsed = Number(rawValue.replace(/[,$]/g, ''))
+    if (!Number.isFinite(parsed)) return
+    setOverrides((prev) => ({
+      ...prev,
+      [itemId]: { ...(prev[itemId] ?? {}), [periodKey]: parsed },
+    }))
+  }, [])
+
+  const inputValue = (cellId: string, value: number | null | undefined, decimals = 0) => {
+    if (inputDrafts[cellId] !== undefined) return inputDrafts[cellId]
+    const numeric = value ?? 0
+    return decimals > 0 ? Number(numeric).toFixed(decimals) : String(Math.round(numeric))
+  }
+
+  const registerTabDraft = useCallback((rowId: string, periodKey: PeriodKey, raw: string) => {
+    const parsed = Number(raw.replace(/[,$x]/gi, ''))
+    if (!Number.isFinite(parsed)) return
+    pendingTabEditsRef.current = {
+      ...pendingTabEditsRef.current,
+      [rowId]: { ...pendingTabEditsRef.current[rowId], [periodKey]: parsed },
     }
+  }, [])
 
-    // Find EBITDA RECAST SCHEDULE section
-    const sectionMatch = md.match(/## EBITDA RECAST SCHEDULE([\s\S]*?)(?:\n## 3-YEAR|\n## FLAG LIST|\n## PRELIMINARY|$)/i)
-    if (!sectionMatch) return []
-
-    const tableLines = sectionMatch[1]
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.startsWith('|'))
-      .filter(l => !/^\|\s*-+/.test(l))
-      .map(l => l.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim().replace(/\*\*/g, '')))
-
-    if (tableLines.length < 2) return []
-
-    // Detect format from header row
-    const header = tableLines[0]
-    const dataRows = tableLines.slice(1)
-
-    // Determine which columns hold TTM/LTM, FY3, FY2, FY1
-    // Format A: "Normalization Items | TTM (...) | FY3 (...) | FY2 (...) | FY1 (...) | Comments"
-    // Format B: "# | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status"
-    // Format C: "# | Category | Item Description | GL Reference | TTM Amount | Status"
-    let nameCol = 0, ttmCol = -1, fy3Col = -1, fy2Col = -1, fy1Col = -1
-    for (let i = 0; i < header.length; i++) {
-      const h = header[i].toLowerCase()
-      if (/normalization items|item description/i.test(header[i])) nameCol = i
-      if (/^(ttm|ltm)/.test(h) || h === 'ttm amount') ttmCol = i
-      if (/^fy3|^fy\s*3/.test(h) || /fy3\s*\(/i.test(header[i])) fy3Col = i
-      if (/^fy2|^fy\s*2/.test(h) || /fy2\s*\(/i.test(header[i])) fy2Col = i
-      if (/^fy1|^fy\s*1/.test(h) || /fy1\s*\(/i.test(header[i])) fy1Col = i
-    }
-
-    if (ttmCol === -1) {
-      // Try positional: first numeric column after name
-      ttmCol = nameCol + 1
-      if (header.length > ttmCol + 3) {
-        fy3Col = ttmCol + 1
-        fy2Col = ttmCol + 2
-        fy1Col = ttmCol + 3
+  const commitTabOverride = useCallback((rowId: string, periodKey: PeriodKey, parsed: number | null) => {
+    if (parsed === null) return
+    const row = pendingTabEditsRef.current[rowId]
+    if (row) {
+      const { [periodKey]: _removed, ...rest } = row
+      if (Object.keys(rest).length === 0) {
+        const { [rowId]: _row, ...nextPending } = pendingTabEditsRef.current
+        pendingTabEditsRef.current = nextPending
+      } else {
+        pendingTabEditsRef.current = { ...pendingTabEditsRef.current, [rowId]: rest }
       }
     }
+    setTabOverrides((prev) => ({
+      ...prev,
+      [rowId]: { ...(prev[rowId] ?? {}), [periodKey]: parsed },
+    }))
+  }, [])
 
-    let itemIndex = 0
-    return dataRows
-      .filter(c => {
-        const name = c[nameCol] ?? ''
-        return !/Total Adjustments|Revised Net Income|Revenue|Net Income\/EBITDA|^Multiple$|^Valuation$|^—$|^-$/i.test(name) &&
-               !/Total Adjustments|Revised|Multiple|Valuation/i.test(name)
-      })
-      .map(c => {
-        itemIndex++
-        const name = c[nameCol] ?? ''
-        const catGuess = /Insurance|Consulting|Draw|Salary|Replacement|Owner|Officer/i.test(name) ? 1
-          : /Donation|Gift|Meal|Travel|Church/i.test(name) ? 2
-          : /Non-Recurring|Repair|One-Off/i.test(name) ? 3
-          : /Tenant|TI|Leasehold/i.test(name) ? 4
-          : /Rent|FMR/i.test(name) ? 5
-          : 2
-        return {
-          id: String(itemIndex),
-          category: catGuess as AddBackItem['category'],
-          description: name,
-          glCode: undefined,
-          ttmAmount: ttmCol >= 0 ? parseCur(c[ttmCol] ?? '0') : 0,
-          fy3Amount: fy3Col >= 0 ? parseCur(c[fy3Col] ?? '0') : undefined,
-          fy2Amount: fy2Col >= 0 ? parseCur(c[fy2Col] ?? '0') : undefined,
-          fy1Amount: fy1Col >= 0 ? parseCur(c[fy1Col] ?? '0') : undefined,
-          status: 'VERIFIED' as AddBackItem['status'],
+  const commitItemOverride = useCallback((itemId: string, periodKey: PeriodKey, parsed: number | null) => {
+    if (parsed === null) return
+    setOverrides((prev) => ({
+      ...prev,
+      [itemId]: { ...(prev[itemId] ?? {}), [periodKey]: parsed },
+    }))
+  }, [])
+
+  const flushAllDraftsToOverrides = useCallback(() => {
+    const mergedTab = { ...tabOverrides }
+    for (const [rowId, periods] of Object.entries(pendingTabEditsRef.current)) {
+      mergedTab[rowId] = { ...mergedTab[rowId], ...periods }
+    }
+    const mergedItems = { ...overrides }
+    for (const [cellId, raw] of Object.entries(inputDrafts)) {
+      const tabMatch = cellId.match(/^tab:(.+):(ltm|fy1|fy2|fy3)$/)
+      if (tabMatch) {
+        const parsed = Number(String(raw).replace(/[,$x]/gi, ''))
+        if (Number.isFinite(parsed)) {
+          const [, rowId, periodKey] = tabMatch
+          mergedTab[rowId] = { ...mergedTab[rowId], [periodKey]: parsed }
         }
-      })
-  }, [ws2Report, recast.reportMarkdown])
+        continue
+      }
+      const itemMatch = cellId.match(/^(.+)-(ltm|fy1|fy2|fy3)$/)
+      if (itemMatch) {
+        const parsed = Number(String(raw).replace(/[,$]/g, ''))
+        if (Number.isFinite(parsed)) {
+          const [, itemId, periodKey] = itemMatch
+          mergedItems[itemId] = { ...mergedItems[itemId], [periodKey]: parsed }
+        }
+      }
+    }
+    return { mergedTab, mergedItems }
+  }, [inputDrafts, overrides, tabOverrides])
 
   const getItemValue = useCallback(
     (item: AddBackItem, periodKey: PeriodKey): number => {
@@ -238,6 +282,8 @@ export function Ws2WorkbookView({
 
   const getPreRecast = useCallback(
     (periodKey: PeriodKey): number => {
+      const override = getEffectiveTabOverride('valuation:pre-recast', periodKey)
+      if (override !== undefined) return override
       // If LLM valuation result exists, use its preRecast values as source of truth
       if (llmResult?.preRecast) {
         const llmKey = periodKey === 'ltm' ? 'LTM' : periodKey.toUpperCase()
@@ -253,11 +299,13 @@ export function Ws2WorkbookView({
         case 'fy1': return (years[0] as any)?.netIncome ?? years[0]?.ebitdaPreRecast ?? 0
       }
     },
-    [analysis, years, llmResult],
+    [analysis, years, llmResult, getTabOverride],
   )
 
   const getRevenue = useCallback(
     (periodKey: PeriodKey): number => {
+      const override = getEffectiveTabOverride('valuation:revenue', periodKey)
+      if (override !== undefined) return override
       switch (periodKey) {
         case 'ltm': return analysis.ttmSummary?.totalRevenue ?? 0
         case 'fy3': return years[2]?.totalRevenue ?? 0
@@ -265,7 +313,7 @@ export function Ws2WorkbookView({
         case 'fy1': return years[0]?.totalRevenue ?? 0
       }
     },
-    [analysis, years],
+    [analysis, years, getTabOverride],
   )
 
   // Computed totals per period — LLM values are source of truth when available
@@ -298,7 +346,8 @@ export function Ws2WorkbookView({
         : (key === 'ltm' ? 0 : -20000)
 
       const finalNormEbitda = llmNormEbitda ?? normalized
-      const finalFourWall = llmFourWall ?? (normalized - replacementAmount)
+      const fourWallOverride = getEffectiveTabOverride('valuation:four-wall-ebitda', key)
+      const finalFourWall = fourWallOverride ?? llmFourWall ?? (normalized - replacementAmount)
 
       result[key] = {
         addBacks: totalAB,
@@ -309,7 +358,7 @@ export function Ws2WorkbookView({
       }
     }
     return result
-  }, [addBackItems, getItemValue, getPreRecast, getRevenue, multiple, llmResult])
+  }, [addBackItems, getItemValue, getPreRecast, getRevenue, multiple, llmResult, getTabOverride])
 
   // ── Inline editing ─────────────────────────────────────────────────────
 
@@ -347,11 +396,75 @@ export function Ws2WorkbookView({
     setEditValue('')
   }
 
-  const getTabOverride = (tabRowId: string, periodKey: PeriodKey): number | undefined => {
-    return tabOverrides[tabRowId]?.[periodKey]
-  }
+  const countOverrideCells = (src: Record<string, Record<string, number>>) =>
+    Object.values(src).reduce((n, o) => n + Object.keys(o).length, 0)
 
-  const totalTabOverrides = Object.values(tabOverrides).reduce((n, o) => n + Object.keys(o).length, 0)
+  const hasMergedEdits = (merged: { mergedTab: Record<string, Record<string, number>>; mergedItems: Overrides }) =>
+    countOverrideCells(merged.mergedTab) > 0 || countOverrideCells(merged.mergedItems) > 0
+
+  const persistUiEdits = useCallback(async (premerged?: { mergedTab: Record<string, Record<string, number>>; mergedItems: Overrides }) => {
+    const merged = premerged ?? flushAllDraftsToOverrides()
+    if (!hasMergedEdits(merged) || !onWorkbookSaved) return true
+    setSavingEdits(true)
+    setSaveError(null)
+    try {
+      const { mergedTab, mergedItems } = merged
+      const report = buildWS2ReportAdapter(clientName, analysis, recast, analysis.derivedReports ?? [])
+      const snapshot = buildWorkbookOverrideSnapshotFromUiEdits(report, mergedTab, mergedItems)
+      const res = await fetch(`/api/ttm-agent/reports/${analysis.id}/workbook-overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshot }),
+      })
+      await logWs2Response('WS2 workbook UI save', res)
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Failed to save workbook edits')
+      }
+      const updated = (await res.json()) as TtmAnalysisView
+      onWorkbookSaved(updated)
+      setOverrides({})
+      setTabOverrides({})
+      setInputDrafts({})
+      pendingTabEditsRef.current = {}
+      return true
+    } catch (err) {
+      logWs2Error('WS2 workbook UI save', err, { analysisId: analysis.id })
+      setSaveError(err instanceof Error ? err.message : 'Failed to save workbook edits')
+      return false
+    } finally {
+      setSavingEdits(false)
+    }
+  }, [
+    analysis,
+    clientName,
+    onWorkbookSaved,
+    flushAllDraftsToOverrides,
+    recast,
+  ])
+
+  const handleEditToggle = async () => {
+    if (editMode) {
+      if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+      const premerged = flushAllDraftsToOverrides()
+      if (hasMergedEdits(premerged)) {
+        const saved = await persistUiEdits(premerged)
+        if (!saved) return
+      }
+      pendingTabEditsRef.current = {}
+      setEditMode(false)
+      cancelEdit()
+      return
+    }
+    setSaveError(null)
+    setEditMode(true)
+    cancelEdit()
+  }
 
   // ── Category grouping for normalization items ──────────────────────────
 
@@ -435,6 +548,77 @@ export function Ws2WorkbookView({
     )
   }
 
+  function EditableSummaryRow({ rowId, label, values, bold, border }: {
+    rowId: string
+    label: string
+    values: number[]
+    bold?: boolean
+    border?: boolean
+  }) {
+    return (
+      <tr className={cn('hover:bg-blue-50/30 group', border && 'border-t-2 border-slate-300', bold && 'bg-slate-50')}>
+        <td className={cn(
+          'sticky left-0 z-10 bg-white px-4 py-1.5 text-sm group-hover:bg-blue-50/30',
+          bold ? 'font-bold text-slate-900 bg-slate-50' : 'text-slate-700',
+        )}>
+          {label}
+        </td>
+        {periods.map((p, i) => {
+          const cellId = `tab:${rowId}:${p.key}`
+          const override = getEffectiveTabOverride(rowId, p.key)
+          const value = override !== undefined ? override : values[i]
+          const isEditing = editingCell === cellId
+          if (editMode) {
+            return (
+              <td key={p.key} className="px-2 py-1 text-right">
+                <WorkbookNumberInput
+                  cellKey={cellId}
+                  value={value}
+                  hasOverride={override !== undefined}
+                  onDraft={(raw) => registerTabDraft(rowId, p.key, raw)}
+                  onCommit={(parsed) => commitTabOverride(rowId, p.key, parsed)}
+                />
+              </td>
+            )
+          }
+          if (isEditing) {
+            return (
+              <td key={p.key} className="px-2 py-0.5 text-right">
+                <input
+                  autoFocus
+                  type="text"
+                  className="w-full rounded border border-blue-400 bg-blue-50 px-2 py-1 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-300"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitTabEdit(rowId, p.key)
+                    if (e.key === 'Escape') cancelEdit()
+                  }}
+                  onBlur={() => commitTabEdit(rowId, p.key)}
+                />
+              </td>
+            )
+          }
+          return (
+            <td
+              key={p.key}
+              className={cn(
+                'px-4 py-1.5 text-right text-sm tabular-nums cursor-pointer hover:bg-blue-100/50 transition-colors',
+                bold ? 'font-bold text-slate-900 bg-slate-50' : 'text-slate-800',
+                negClass(value),
+                override !== undefined && 'bg-amber-50 font-semibold text-amber-900',
+              )}
+              onClick={() => startEdit(cellId, value ?? 0)}
+              title="Click to edit"
+            >
+              {acct(value)}
+            </td>
+          )
+        })}
+      </tr>
+    )
+  }
+
   function EditableRow({ item }: { item: AddBackItem }) {
     return (
       <tr className="hover:bg-blue-50/30 group">
@@ -449,6 +633,18 @@ export function Ws2WorkbookView({
           const value = getItemValue(item, p.key)
           const isEditing = editingCell === cellId
           const hasOverride = overrides[item.id]?.[p.key] !== undefined
+          if (editMode) {
+            return (
+              <td key={p.key} className="px-2 py-1 text-right">
+                <WorkbookNumberInput
+                  cellKey={cellId}
+                  value={value}
+                  hasOverride={hasOverride}
+                  onCommit={(parsed) => commitItemOverride(item.id, p.key, parsed)}
+                />
+              </td>
+            )
+          }
 
           if (isEditing) {
             return (
@@ -519,11 +715,24 @@ export function Ws2WorkbookView({
           const periodKey = periods[i]?.key as PeriodKey
           if (!periodKey) return null
           const cellId = `tab:${rowId}:${periodKey}`
-          const override = getTabOverride(rowId, periodKey)
+          const override = getEffectiveTabOverride(rowId, periodKey)
           const displayValue = override !== undefined ? override : v
           const isEditing = editingCell === cellId
           const hasOverride = override !== undefined
           const pctVal = percentages?.[i]
+          if (editMode) {
+            return (
+              <td key={periodKey} className="px-2 py-1 text-right">
+                <WorkbookNumberInput
+                  cellKey={cellId}
+                  value={displayValue ?? 0}
+                  hasOverride={hasOverride}
+                  onDraft={(raw) => registerTabDraft(rowId, periodKey, raw)}
+                  onCommit={(parsed) => commitTabOverride(rowId, periodKey, parsed)}
+                />
+              </td>
+            )
+          }
 
           if (isEditing) {
             return (
@@ -567,12 +776,55 @@ export function Ws2WorkbookView({
     )
   }
 
+  const totalTabOverrides = countOverrideCells(tabOverrides)
+
+  const ltmValuationAmount = useCallback(
+    (field: 'low' | 'mid' | 'high') => {
+      const valueRow =
+        field === 'low' ? 'valuation:value-low' : field === 'mid' ? 'valuation:value-mid' : 'valuation:value-high'
+      const override = getEffectiveTabOverride(valueRow, 'ltm')
+      if (override !== undefined) return override
+      const saved = savedLtmValuation(field)
+      if (typeof saved === 'number' && Number.isFinite(saved)) return saved
+      const llm = llmResult?.valuation?.LTM?.[field]
+      if (typeof llm === 'number' && Number.isFinite(llm)) return llm
+      const multipleRow =
+        field === 'low' ? 'valuation:multiple-low' : field === 'mid' ? 'valuation:multiple-mid' : 'valuation:multiple-high'
+      const effectiveMult =
+        getEffectiveTabOverride(multipleRow, 'ltm') ??
+        (field === 'low'
+          ? recast.assumptions?.multipleLow
+          : field === 'mid'
+            ? recast.assumptions?.multipleMid
+            : recast.assumptions?.multipleHigh) ??
+        multiple
+      return totals.ltm.normalizedEbitda * effectiveMult
+    },
+    [getEffectiveTabOverride, savedLtmValuation, llmResult, totals.ltm.normalizedEbitda, recast.assumptions, multiple],
+  )
+
   // ── TAB: Valuation ─────────────────────────────────────────────────────
 
   function ValuationTab() {
     const valuationOverrideCount = Object.values(overrides).reduce((n, o) => n + Object.keys(o).length, 0)
     const totalOverrideCount = valuationOverrideCount + totalTabOverrides
     const hasOverrides = totalOverrideCount > 0
+    const getMultipleLow = (periodKey: PeriodKey) => getEffectiveTabOverride('valuation:multiple-low', periodKey) ?? recast.assumptions?.multipleLow ?? multiple
+    const getMultipleHigh = (periodKey: PeriodKey) => getEffectiveTabOverride('valuation:multiple-high', periodKey) ?? recast.assumptions?.multipleHigh ?? multiple
+    const getValuationLow = (periodKey: PeriodKey) => {
+      if (periodKey === 'ltm') return ltmValuationAmount('low')
+      const override = getEffectiveTabOverride('valuation:value-low', periodKey)
+      if (override !== undefined) return override
+      const lk = periodKey.toUpperCase()
+      return llmResult?.valuation?.[lk]?.low ?? totals[periodKey].normalizedEbitda * getMultipleLow(periodKey)
+    }
+    const getValuationHigh = (periodKey: PeriodKey) => {
+      if (periodKey === 'ltm') return ltmValuationAmount('high')
+      const override = getEffectiveTabOverride('valuation:value-high', periodKey)
+      if (override !== undefined) return override
+      const lk = periodKey.toUpperCase()
+      return llmResult?.valuation?.[lk]?.high ?? totals[periodKey].normalizedEbitda * getMultipleHigh(periodKey)
+    }
     return (
       <div className="space-y-4">
         {hasOverrides && (
@@ -580,7 +832,7 @@ export function Ws2WorkbookView({
             <span className="text-sm text-amber-800">
               You have edited {totalOverrideCount} cell(s) across all tabs. Totals are recalculated live.
             </span>
-            <Button size="sm" variant="outline" onClick={() => { setOverrides({}); setTabOverrides({}) }}>
+            <Button size="sm" variant="outline" onClick={() => { setOverrides({}); setTabOverrides({}); pendingTabEditsRef.current = {} }}>
               Reset all edits
             </Button>
           </div>
@@ -592,12 +844,14 @@ export function Ws2WorkbookView({
             <tbody className="divide-y divide-slate-100">
               {/* Valuation Summary header section */}
               <SectionHeader label="Valuation Summary" />
-              <DataRow
+              <EditableSummaryRow
+                rowId="valuation:revenue"
                 label="Revenue"
                 values={periods.map((p) => totals[p.key].revenue)}
               />
               <tr><td colSpan={colCount} className="h-1" /></tr>
-              <DataRow
+              <EditableSummaryRow
+                rowId="valuation:pre-recast"
                 label="Net Income / EBITDA (Pre-Normalized)"
                 values={periods.map((p) => getPreRecast(p.key))}
               />
@@ -633,7 +887,8 @@ export function Ws2WorkbookView({
               />
 
               {/* 4-Wall EBITDA */}
-              <DataRow
+              <EditableSummaryRow
+                rowId="valuation:four-wall-ebitda"
                 label="4-Wall EBITDA"
                 values={periods.map((p) => totals[p.key].fourWallEbitda)}
                 bold
@@ -647,8 +902,32 @@ export function Ws2WorkbookView({
                   Multiple
                 </td>
                 {periods.map((p) => {
-                  const low = recast.assumptions?.multipleLow
-                  const high = recast.assumptions?.multipleHigh
+                  const low = getMultipleLow(p.key)
+                  const high = getMultipleHigh(p.key)
+                  if (editMode) {
+                    return (
+                      <td key={p.key} className="px-2 py-1.5 text-right">
+                        <div className="flex justify-end gap-1">
+                          <WorkbookNumberInput
+                            cellKey={`tab:valuation:multiple-low:${p.key}`}
+                            value={low}
+                            decimals={1}
+                            className="w-16"
+                            onDraft={(raw) => registerTabDraft('valuation:multiple-low', p.key, raw)}
+                            onCommit={(parsed) => commitTabOverride('valuation:multiple-low', p.key, parsed)}
+                          />
+                          <WorkbookNumberInput
+                            cellKey={`tab:valuation:multiple-high:${p.key}`}
+                            value={high}
+                            decimals={1}
+                            className="w-16"
+                            onDraft={(raw) => registerTabDraft('valuation:multiple-high', p.key, raw)}
+                            onCommit={(parsed) => commitTabOverride('valuation:multiple-high', p.key, parsed)}
+                          />
+                        </div>
+                      </td>
+                    )
+                  }
                   const rangeStr = low && high ? `${Number(low).toFixed(1)}x – ${Number(high).toFixed(1)}x` : acctMult(multiple)
                   return (
                     <td key={p.key} className="px-4 py-1.5 text-right text-sm font-bold tabular-nums text-slate-900">
@@ -664,31 +943,33 @@ export function Ws2WorkbookView({
                   Valuation
                 </td>
                 {periods.map((p) => {
-                  const low = recast.assumptions?.multipleLow
-                  const high = recast.assumptions?.multipleHigh
-                  const lk = p.key === 'ltm' ? 'LTM' : p.key.toUpperCase()
-                  const llmVal = llmResult?.valuation?.[lk]
-                  // Use LLM valuation if available
-                  if (llmVal) {
+                  const valLow = getValuationLow(p.key)
+                  const valHigh = getValuationHigh(p.key)
+                  if (editMode) {
                     return (
-                      <td key={p.key} className="px-4 py-3 text-right text-sm font-bold tabular-nums text-amber-300">
-                        {acct(llmVal.low)} – {acct(llmVal.high)}
-                      </td>
-                    )
-                  }
-                  const norm = totals[p.key].normalizedEbitda
-                  if (low && high) {
-                    const valLow = norm * Number(low)
-                    const valHigh = norm * Number(high)
-                    return (
-                      <td key={p.key} className="px-4 py-3 text-right text-sm font-bold tabular-nums text-amber-300">
-                        {acct(valLow)} – {acct(valHigh)}
+                      <td key={p.key} className="px-2 py-2 text-right">
+                        <div className="flex justify-end gap-1">
+                          <WorkbookNumberInput
+                            cellKey={`tab:valuation:value-low:${p.key}`}
+                            value={valLow}
+                            className="w-24"
+                            onDraft={(raw) => registerTabDraft('valuation:value-low', p.key, raw)}
+                            onCommit={(parsed) => commitTabOverride('valuation:value-low', p.key, parsed)}
+                          />
+                          <WorkbookNumberInput
+                            cellKey={`tab:valuation:value-high:${p.key}`}
+                            value={valHigh}
+                            className="w-24"
+                            onDraft={(raw) => registerTabDraft('valuation:value-high', p.key, raw)}
+                            onCommit={(parsed) => commitTabOverride('valuation:value-high', p.key, parsed)}
+                          />
+                        </div>
                       </td>
                     )
                   }
                   return (
-                    <td key={p.key} className="px-4 py-3 text-right text-lg font-bold tabular-nums text-amber-300">
-                      {acct(totals[p.key].valuation)}
+                    <td key={p.key} className="px-4 py-3 text-right text-sm font-bold tabular-nums text-amber-300">
+                      {acct(valLow)} – {acct(valHigh)}
                     </td>
                   )
                 })}
@@ -719,8 +1000,10 @@ export function Ws2WorkbookView({
             { label: 'Mid', mult: recast.assumptions?.multipleMid, tone: 'amber', llmField: 'mid' as const },
             { label: 'High', mult: recast.assumptions?.multipleHigh, tone: 'slate', llmField: 'high' as const },
           ].map(({ label, mult, tone, llmField }) => {
-            const llmLtmVal = llmResult?.valuation?.['LTM']
-            const val = llmLtmVal ? llmLtmVal[llmField] : (totals.ltm.normalizedEbitda) * (mult ?? 0)
+            const valueRow = llmField === 'low' ? 'valuation:value-low' : llmField === 'high' ? 'valuation:value-high' : 'valuation:value-mid'
+            const multipleRow = llmField === 'low' ? 'valuation:multiple-low' : llmField === 'high' ? 'valuation:multiple-high' : 'valuation:multiple-mid'
+            const effectiveMult = getEffectiveTabOverride(multipleRow, 'ltm') ?? mult ?? multiple
+            const val = ltmValuationAmount(llmField)
             return (
               <div
                 key={label}
@@ -730,11 +1013,21 @@ export function Ws2WorkbookView({
                 )}
               >
                 <p className={cn('text-[11px] font-bold uppercase tracking-widest', tone === 'amber' ? 'text-slate-300' : 'text-slate-400')}>
-                  {label} &middot; {acctMult(mult)}
+                  {label} &middot; {acctMult(effectiveMult)}
                 </p>
-                <p className={cn('mt-2 text-3xl font-semibold tabular-nums', tone === 'amber' ? 'text-amber-300' : 'text-slate-900')}>
-                  {acct(val)}
-                </p>
+                {editMode ? (
+                  <WorkbookNumberInput
+                    cellKey={`tab:${valueRow}:ltm`}
+                    value={val}
+                    className="mt-2 text-center text-2xl font-semibold"
+                    onDraft={(raw) => registerTabDraft(valueRow, 'ltm', raw)}
+                    onCommit={(parsed) => commitTabOverride(valueRow, 'ltm', parsed)}
+                  />
+                ) : (
+                  <p className={cn('mt-2 text-3xl font-semibold tabular-nums', tone === 'amber' ? 'text-amber-300' : 'text-slate-900')}>
+                    {acct(val)}
+                  </p>
+                )}
               </div>
             )
           })}
@@ -897,10 +1190,24 @@ export function Ws2WorkbookView({
                           const periodKey = p.key as PeriodKey
                           const cellId = `tab:${rowId}:${periodKey}`
                           const rawValue = getItemValue(item, periodKey)
-                          const override = getTabOverride(rowId, periodKey)
+                          const override = getEffectiveTabOverride(rowId, periodKey)
                           const displayValue = override !== undefined ? override : rawValue
                           const isEditing = editingCell === cellId
                           const hasOverride = override !== undefined
+
+                          if (editMode) {
+                            return (
+                              <td key={periodKey} className="px-2 py-1 text-right">
+                                <WorkbookNumberInput
+                                  cellKey={cellId}
+                                  value={displayValue ?? 0}
+                                  hasOverride={hasOverride}
+                                  onDraft={(raw) => registerTabDraft(rowId, periodKey, raw)}
+                  onCommit={(parsed) => commitTabOverride(rowId, periodKey, parsed)}
+                                />
+                              </td>
+                            )
+                          }
 
                           if (isEditing) {
                             return (
@@ -1034,7 +1341,7 @@ export function Ws2WorkbookView({
                 const rowId = `rev:${v.name}`
                 const rawValues = [v.ltm, v.fy3, v.fy2, v.fy1]
                 const displayValues = periods.map((p, i) => {
-                  const override = getTabOverride(rowId, p.key)
+                  const override = getEffectiveTabOverride(rowId, p.key)
                   return override !== undefined ? override : rawValues[i]
                 })
                 return (
@@ -1051,10 +1358,24 @@ export function Ws2WorkbookView({
                       const periodKey = periods[i]?.key as PeriodKey
                       if (!periodKey) return null
                       const cellId = `tab:${rowId}:${periodKey}`
-                      const override = getTabOverride(rowId, periodKey)
+                      const override = getEffectiveTabOverride(rowId, periodKey)
                       const isEditing = editingCell === cellId
                       const hasOverride = override !== undefined
                       const pctVal = [v.ltmPct, v.fy3Pct, v.fy2Pct, v.fy1Pct][i]
+
+                      if (editMode) {
+                        return (
+                          <td key={periodKey} className="px-2 py-1 text-right">
+                            <WorkbookNumberInput
+                              cellKey={cellId}
+                              value={val ?? 0}
+                              hasOverride={hasOverride}
+                              onDraft={(raw) => registerTabDraft(rowId, periodKey, raw)}
+                  onCommit={(parsed) => commitTabOverride(rowId, periodKey, parsed)}
+                            />
+                          </td>
+                        )
+                      }
 
                       if (isEditing) {
                         return (
@@ -1204,11 +1525,25 @@ export function Ws2WorkbookView({
                       const periodKey = periods[i]?.key as PeriodKey
                       if (!periodKey) return null
                       const cellId = `tab:${rowId}:${periodKey}`
-                      const override = getTabOverride(rowId, periodKey)
+                      const override = getEffectiveTabOverride(rowId, periodKey)
                       const displayValue = override !== undefined ? override : dollar
                       const isEditing = editingCell === cellId
                       const hasOverride = override !== undefined
                       const pctVal = rawPcts[i]
+
+                      if (editMode) {
+                        return (
+                          <td key={periodKey} className="px-2 py-1 text-right">
+                            <WorkbookNumberInput
+                              cellKey={cellId}
+                              value={displayValue ?? 0}
+                              hasOverride={hasOverride}
+                              onDraft={(raw) => registerTabDraft(rowId, periodKey, raw)}
+                  onCommit={(parsed) => commitTabOverride(rowId, periodKey, parsed)}
+                            />
+                          </td>
+                        )
+                      }
 
                       if (isEditing) {
                         return (
@@ -1294,6 +1629,49 @@ export function Ws2WorkbookView({
     const labor = useMemo(() => computeLaborAnalysis(analysis, replSalary), [analysis, replSalary])
     const flagColor = (f: string) => f === 'RED' ? 'bg-rose-50 text-rose-700 border-rose-200' : f === 'YELLOW' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
     const laborOverrideCount = Object.entries(tabOverrides).filter(([k]) => k.startsWith('labor:')).reduce((n, [, o]) => n + Object.keys(o).length, 0)
+    const periodKeys = periods.map((period) => period.key)
+    const rowByCategory = new Map(labor.rows.map((row) => [row.category, row]))
+    const rawLaborValue = (category: string, periodKey: PeriodKey): number => {
+      const row = rowByCategory.get(category)
+      if (!row) return 0
+      if (periodKey === 'ltm') return row.ltmDollar ?? 0
+      if (periodKey === 'fy3') return row.fy3Dollar ?? 0
+      if (periodKey === 'fy2') return row.fy2Dollar ?? 0
+      return row.fy1Dollar ?? 0
+    }
+    const laborValue = (category: string, periodKey: PeriodKey): number =>
+      getEffectiveTabOverride(`labor:${category}`, periodKey) ?? rawLaborValue(category, periodKey)
+    const laborRevenue = (periodKey: PeriodKey) => getRevenue(periodKey) || 0
+    const directLaborValues = periodKeys.map((key) => laborValue('Staff and Direct Labor', key) + laborValue('Management Labor', key))
+    const allInLaborValues = periodKeys.map((key) =>
+      laborValue('Staff and Direct Labor', key) +
+      laborValue('Management Labor', key) +
+      laborValue('Owner Compensation', key) +
+      laborValue('Payroll Taxes and Benefits', key) +
+      laborValue('Tips Paid Out', key),
+    )
+    const buyerAdjustedValues = periodKeys.map((key) =>
+      laborValue('Staff and Direct Labor', key) +
+      laborValue('Management Labor', key) +
+      laborValue('Payroll Taxes and Benefits', key),
+    )
+    const pctOfRevenue = (value: number, periodKey: PeriodKey) => {
+      const revenue = laborRevenue(periodKey)
+      return revenue ? value / revenue : 0
+    }
+    const directLaborPct = pctOfRevenue(directLaborValues[0] ?? 0, 'ltm')
+    const allInLaborPct = pctOfRevenue(allInLaborValues[0] ?? 0, 'ltm')
+    const buyerAdjustedPct = pctOfRevenue(buyerAdjustedValues[0] ?? 0, 'ltm')
+    const laborStatus = directLaborPct > 0.45 ? 'RED' : directLaborPct > 0.42 ? 'YELLOW' : 'GREEN'
+    const laborStatusNote = laborStatus === 'RED'
+      ? `Direct labor at ${(directLaborPct * 100).toFixed(1)}% exceeds the 45% Cantara deal-risk threshold.`
+      : laborStatus === 'YELLOW'
+        ? `Direct labor at ${(directLaborPct * 100).toFixed(1)}% is near the 45% Cantara deal-risk threshold.`
+        : `Direct labor at ${(directLaborPct * 100).toFixed(1)}% is within the Cantara benchmark range.`
+    const derivedTotalByCategory: Record<string, number[]> = {
+      'Total All-In Labor': allInLaborValues,
+      'Buyer-Adjusted Labor': buyerAdjustedValues,
+    }
 
     return (
       <div className="space-y-4">
@@ -1313,30 +1691,30 @@ export function Ws2WorkbookView({
         )}
 
         {/* Benchmark status */}
-        <div className={cn('rounded-lg border px-4 py-3', flagColor(labor.benchmarkStatus))}>
-          <span className="font-bold">{labor.benchmarkStatus}:</span> {labor.benchmarkNote}
+        <div className={cn('rounded-lg border px-4 py-3', flagColor(laborStatus))}>
+          <span className="font-bold">{laborStatus}:</span> {laborStatusNote}
         </div>
 
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center">
             <p className="text-[10px] uppercase tracking-wide text-slate-400">Direct Labor (Staff + Management)</p>
-            <p className={cn('mt-1 text-2xl font-bold tabular-nums', labor.directLaborPct > 0.45 ? 'text-rose-600' : 'text-slate-900')}>
-              {(labor.directLaborPct * 100).toFixed(1)}%
+            <p className={cn('mt-1 text-2xl font-bold tabular-nums', directLaborPct > 0.45 ? 'text-rose-600' : 'text-slate-900')}>
+              {(directLaborPct * 100).toFixed(1)}%
             </p>
             <p className="text-[10px] text-slate-400">Benchmark: 35%-45%</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center">
             <p className="text-[10px] uppercase tracking-wide text-slate-400">All-In Labor</p>
             <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-              {(labor.allInLaborPct * 100).toFixed(1)}%
+              {(allInLaborPct * 100).toFixed(1)}%
             </p>
             <p className="text-[10px] text-slate-400">Includes owner + tips</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center">
             <p className="text-[10px] uppercase tracking-wide text-slate-400">Buyer-Adjusted Labor</p>
             <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-              {(labor.buyerAdjustedPct * 100).toFixed(1)}%
+              {(buyerAdjustedPct * 100).toFixed(1)}%
             </p>
             <p className="text-[10px] text-slate-400">Post-acquisition view</p>
           </div>
@@ -1359,22 +1737,27 @@ export function Ws2WorkbookView({
               {labor.rows.map((row) => {
                 // Total rows remain read-only
                 if (row.isTotal) {
+                  const derivedValues = derivedTotalByCategory[row.category] ?? [
+                    row.ltmDollar,
+                    row.fy3Dollar,
+                    row.fy2Dollar,
+                    row.fy1Dollar,
+                  ]
                   return (
                     <tr key={row.category} className="bg-slate-50 border-t-2 border-slate-300">
                       <td className="sticky left-0 z-10 bg-slate-50 px-4 py-2 text-sm font-bold text-slate-900">
                         {row.category}
                       </td>
-                      {[
-                        { dollar: row.ltmDollar, pctVal: row.ltmPct },
-                        { dollar: row.fy3Dollar, pctVal: row.fy3Pct },
-                        { dollar: row.fy2Dollar, pctVal: row.fy2Pct },
-                        { dollar: row.fy1Dollar, pctVal: row.fy1Pct },
-                      ].map(({ dollar, pctVal }, i) => (
+                      {derivedValues.map((dollar, i) => {
+                        const periodKey = periodKeys[i] ?? 'ltm'
+                        const pctVal = pctOfRevenue(dollar, periodKey)
+                        return (
                         <td key={i} className="px-3 py-2 text-right text-sm tabular-nums font-bold text-slate-900">
                           {acct(dollar)}
                           <span className="ml-1 text-[10px] text-slate-400">({(pctVal * 100).toFixed(1)}%)</span>
                         </td>
-                      ))}
+                        )
+                      })}
                     </tr>
                   )
                 }
@@ -1392,11 +1775,25 @@ export function Ws2WorkbookView({
                       const periodKey = periods[i]?.key as PeriodKey
                       if (!periodKey) return null
                       const cellId = `tab:${rowId}:${periodKey}`
-                      const override = getTabOverride(rowId, periodKey)
+                      const override = getEffectiveTabOverride(rowId, periodKey)
                       const displayValue = override !== undefined ? override : dollar
                       const isEditing = editingCell === cellId
                       const hasOverride = override !== undefined
-                      const pctVal = rawPcts[i]
+                      const pctVal = pctOfRevenue(displayValue ?? 0, periodKey)
+
+                      if (editMode) {
+                        return (
+                          <td key={periodKey} className="px-2 py-1 text-right">
+                            <WorkbookNumberInput
+                              cellKey={cellId}
+                              value={displayValue ?? 0}
+                              hasOverride={hasOverride}
+                              onDraft={(raw) => registerTabDraft(rowId, periodKey, raw)}
+                  onCommit={(parsed) => commitTabOverride(rowId, periodKey, parsed)}
+                            />
+                          </td>
+                        )
+                      }
 
                       if (isEditing) {
                         return (
@@ -1464,6 +1861,11 @@ export function Ws2WorkbookView({
 
   return (
     <div className="space-y-4">
+      {saveError && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {saveError}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -1475,6 +1877,18 @@ export function Ws2WorkbookView({
         </div>
         <div className="flex items-center gap-2">
           <Badge color="green">WS2-2 Approved</Badge>
+          <Button
+            size="sm"
+            variant={editMode ? 'primary' : 'outline'}
+            onClick={() => void handleEditToggle()}
+            disabled={savingEdits}
+          >
+            {savingEdits ? 'Saving...' : editMode ? 'Done Editing' : 'Edit all fields'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={exportPdf}>
+            <Printer className="mr-1.5 h-3.5 w-3.5" />
+            Export PDF
+          </Button>
           {onExportXlsx && (
             <Button size="sm" variant="outline" onClick={onExportXlsx}>
               <Download className="mr-1.5 h-3.5 w-3.5" />

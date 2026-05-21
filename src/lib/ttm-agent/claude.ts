@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import {
   buildAccountantPdfPrompt,
   buildGlMappingPrompt,
@@ -76,8 +77,8 @@ async function withAnthropicRetry<T>(label: string, fn: () => Promise<T>) {
   throw new Error(`${label} failed after retries.`);
 }
 
-function getClient() {
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
+async function getClient() {
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) return null;
   return new Anthropic({ apiKey });
 }
@@ -222,7 +223,7 @@ export async function suggestCantaraMappings(
 ) {
   if (!accounts.length) return [] as MappingSuggestion[];
 
-  const client = getClient();
+  const client = await getClient();
   if (!client) return [] as MappingSuggestion[];
 
   try {
@@ -251,7 +252,7 @@ export async function suggestCantaraMappings(
 }
 
 export async function extractAccountantStatementsFromPdf(fileName: string, base64: string) {
-  const client = getClient();
+  const client = await getClient();
   if (!client) {
     throw new Error("ANTHROPIC_API_KEY is required to parse accountant statement PDFs.");
   }
@@ -309,7 +310,7 @@ async function generateStructuredReport(args: {
   maxTokens: number;
   content: ReportContentBlock[];
 }) {
-  const client = getClient();
+  const client = await getClient();
   if (!client) {
     throw new Error("ANTHROPIC_API_KEY is required to run WS2 financial agents.");
   }

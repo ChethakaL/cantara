@@ -33,15 +33,23 @@ export function buildOwnershipVerificationReportHtml(
     { label: 'Deal-Risk Flags', value: String(dealRisks.length) },
   ]
 
-  // Buyer Summary
   const bs = report.buyerSummary
-  const summaryText = [
-    bs.entityStructureOverview,
-    bs.ownershipClarity ? `Ownership: ${bs.ownershipClarity}` : '',
-    bs.encumbranceExposure ? `Encumbrances: ${bs.encumbranceExposure}` : '',
-    bs.stateComplianceStatus ? `Compliance: ${bs.stateComplianceStatus}` : '',
-    bs.transitionConsiderations ? `Transition: ${bs.transitionConsiderations}` : '',
-  ].filter(Boolean).join(' | ')
+  const escape = (text: string) =>
+    text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const summaryItems = [
+    { heading: 'Entity Structure Overview', text: bs.entityStructureOverview },
+    { heading: 'Ownership Clarity', text: bs.ownershipClarity },
+    { heading: 'Encumbrance Exposure', text: bs.encumbranceExposure },
+    { heading: 'State Compliance Status', text: bs.stateComplianceStatus },
+    { heading: 'Transition Considerations', text: bs.transitionConsiderations },
+  ].filter(item => item.text)
+  const executiveSummaryHtml = summaryItems
+    .map(
+      item =>
+        `<p style="margin:0 0 14px 0;font-size:13px;line-height:1.7;color:#475569;"><strong style="color:#1e293b;font-size:13px;">${item.heading}</strong><br/>${escape(item.text ?? '')}</p>`
+    )
+    .join('')
+  const shortSummary = bs.entityStructureOverview || ''
 
   // Documents table
   const docsContent = report.documents.length > 0
@@ -144,9 +152,10 @@ export function buildOwnershipVerificationReportHtml(
     subtitle: 'WS1-8 Analysis',
     clientName,
     generatedAt: report.generatedAt,
-    summary: summaryText,
+    summary: shortSummary,
     kpis,
     sections: [
+      { title: 'Executive Summary', content: executiveSummaryHtml || '<p>No summary available.</p>' },
       { title: 'Document Inventory', content: docsContent },
       { title: 'Entity Structure', content: entitiesContent },
       { title: 'Ownership Breakdown', content: ownershipContent },

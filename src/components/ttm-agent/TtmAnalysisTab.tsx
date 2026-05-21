@@ -705,7 +705,7 @@ export function TtmAnalysisTab({
                 { n: 1, label: 'Accept / Exclude / Escalate' },
                 { n: 2, label: 'Review GL Mapping' },
                 { n: 3, label: 'Set Valuation Range' },
-                { n: 4, label: 'Workbook & Report' },
+                { n: 4, label: 'Valuation report' },
               ].map(({ n, label }) => {
                 const isActive = wizardStep === n
                 const isDone = wizardStep > n || (n === 1 && ws21Approved) || (n === 3 && hasStyledBaselineReport)
@@ -786,8 +786,8 @@ export function TtmAnalysisTab({
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
               <div>
-                <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Generating valuation report...'}</p>
-                <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running...')}</p>
+                <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Building workbook & report...'}</p>
+                <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running downstream WS2 report agents...')}</p>
               </div>
             </div>
             {baselineBuildState.running && (

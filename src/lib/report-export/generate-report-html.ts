@@ -4,6 +4,8 @@
  * can be printed to PDF via window.print() or saved as .html.
  */
 
+import { CANTARA_COVER_BRAND_CSS, buildCantaraCoverBrandHtml } from './cantara-cover-branding'
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ReportSection {
@@ -62,7 +64,7 @@ export function generateReportHtml(config: ReportConfig): string {
     ${idx > 0 ? '<div class="section-divider"></div>' : ''}
     <div class="report-section">
       <h2>${escapeHtml(section.title)}</h2>
-      ${section.content}
+      ${renderInlineMarkdown(section.content)}
     </div>`).join('\n')
 
   return `<!DOCTYPE html>
@@ -75,53 +77,64 @@ export function generateReportHtml(config: ReportConfig): string {
   @page { size: A4; margin: 20mm 16mm 20mm 16mm; }
   @media print {
     .no-print { display: none !important; }
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .page-break { page-break-before: always; }
-    .cover { page-break-after: always; }
+    /* Fill first sheet within @page margins (A4 20mm top+bottom) */
+    .cover {
+      page-break-after: always;
+      min-height: calc(297mm - 40mm);
+      height: calc(297mm - 40mm);
+    }
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #1e293b;
     line-height: 1.6;
-    max-width: 900px;
-    margin: 0 auto;
+    margin: 0;
     padding: 0;
     font-size: 13px;
+    width: 100%;
+    max-width: none;
+  }
+  /* Center report content only; cover stays full page width for print/PDF */
+  .report-shell {
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
   }
 
   /* ── Cover ──────────────────────────────────────────────────── */
   .cover {
+    width: 100%;
     background: linear-gradient(135deg, #21263C 0%, #161a2e 100%);
     color: #F1E6BB;
-    padding: 72px 56px 56px;
+    padding: 48px 40px 40px;
     min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    text-align: center;
+  }
+  .cover-top,
+  .cover-mid,
+  .cover-bottom {
+    width: 100%;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .cover-mid {
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    text-align: center;
+    min-height: 0;
   }
-  .cover img.logo {
-    height: 32px;
-    margin-bottom: 32px;
-    filter: brightness(1.1);
-  }
-  .cover .brand-text {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 5px;
-    color: #CAA15F;
-    font-weight: 700;
-    margin-bottom: 6px;
-  }
-  .cover .brand-sub {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 3px;
-    color: #64748b;
-    font-weight: 600;
-  }
+  ${CANTARA_COVER_BRAND_CSS}
   .cover .divider {
     width: 60px;
     height: 3px;
@@ -148,15 +161,15 @@ export function generateReportHtml(config: ReportConfig): string {
   }
   .cover .cover-date {
     font-size: 11px;
-    color: #475569;
-    margin-top: 36px;
+    color: #94a3b8;
+    margin-top: 0;
   }
   .cover .confidential {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 3px;
-    color: #475569;
-    margin-top: 12px;
+    color: #94a3b8;
+    margin-top: 10px;
   }
 
   /* ── Flag badges ────────────────────────────────────────────── */
@@ -268,9 +281,9 @@ export function generateReportHtml(config: ReportConfig): string {
   table.report-table th {
     text-align: left;
     padding: 10px 12px;
-    font-size: 10px;
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
+    letter-spacing: 1.2px;
     color: #94a3b8;
     font-weight: 700;
     border-bottom: 2px solid #e2e8f0;
@@ -278,6 +291,7 @@ export function generateReportHtml(config: ReportConfig): string {
   }
   table.report-table td {
     padding: 10px 12px;
+    font-size: 12px;
     border-bottom: 1px solid #f1f5f9;
     color: #334155;
   }
@@ -316,6 +330,133 @@ export function generateReportHtml(config: ReportConfig): string {
     font-size: 12px;
     color: #475569;
     line-height: 1.5;
+  }
+
+  /* ── Material contracts print layout ────────────────────────── */
+  .contract-dashboard {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #21263C;
+    margin-bottom: 18px;
+  }
+  .contract-dashboard div {
+    background: #1e293b;
+    color: white;
+    padding: 14px 12px;
+    text-align: center;
+  }
+  .contract-dashboard span {
+    display: block;
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .contract-dashboard strong {
+    display: block;
+    margin-top: 4px;
+    color: #CAA15F;
+    font-size: 22px;
+    line-height: 1;
+  }
+  /* ── Contract snapshot — card layout ───────────────────────── */
+  .contract-snapshot {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 8px 0;
+  }
+  @media print {
+    .contract-snapshot { grid-template-columns: 1fr 1fr; }
+  }
+  .contract-snapshot-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+    break-inside: avoid;
+    background: #fff;
+  }
+  .contract-snapshot-card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid #f1f5f9;
+    background: #f8fafc;
+  }
+  .contract-snapshot-index {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: #21263C;
+    color: #CAA15F;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 800;
+    margin-top: 1px;
+  }
+  .contract-snapshot-field {
+    flex: 1;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  .contract-snapshot-badge {
+    flex-shrink: 0;
+    background: #fef9ec;
+    border: 1px solid #fde68a;
+    color: #92400e;
+    border-radius: 6px;
+    padding: 2px 7px;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .contract-finding-pills {
+    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .contract-finding-pill {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    background: #f8fafc;
+    border: 1px solid #f1f5f9;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .contract-finding-pill-plain {
+    color: #475569;
+  }
+  .contract-finding-label {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    min-width: 56px;
+  }
+  .contract-finding-value {
+    color: #1e293b;
+    font-weight: 500;
+  }
+  .contract-flag {
+    break-inside: avoid;
+    padding: 12px 14px;
   }
 
   /* ── Info grid (key-value pairs) ────────────────────────────── */
@@ -402,18 +543,23 @@ export function generateReportHtml(config: ReportConfig): string {
 
 <!-- COVER PAGE -->
 <div class="cover">
-  <img class="logo" src="/brand/logo-wordmark-dark.svg" alt="Cantara" onerror="this.style.display='none'" />
-  <div class="brand-text">Cantara</div>
-  <div class="brand-sub">Pet Business Advisors</div>
-  <div class="divider"></div>
-  <h1>${escapeHtml(config.clientName)}</h1>
-  <div class="report-title">${escapeHtml(config.title)}</div>
-  <div class="report-subtitle">${escapeHtml(config.subtitle)}</div>
-  ${flagBadges}
-  <div class="cover-date">${date}</div>
-  <div class="confidential">Confidential &mdash; For Internal Use Only</div>
+  <div class="cover-top">
+    ${buildCantaraCoverBrandHtml()}
+    <div class="divider"></div>
+  </div>
+  <div class="cover-mid">
+    <h1>${escapeHtml(config.clientName)}</h1>
+    <div class="report-title">${escapeHtml(config.title)}</div>
+    <div class="report-subtitle">${escapeHtml(config.subtitle)}</div>
+    ${flagBadges}
+  </div>
+  <div class="cover-bottom">
+    <div class="cover-date">${date}</div>
+    <div class="confidential">Confidential &mdash; For Internal Use Only</div>
+  </div>
 </div>
 
+<div class="report-shell">
 <!-- REPORT BODY -->
 <div class="report-body">
   ${kpiStrip}
@@ -425,6 +571,7 @@ export function generateReportHtml(config: ReportConfig): string {
 <div class="disclaimer">
   <p>DISCLAIMER: This report has been generated by Cantara&rsquo;s AI-powered analysis platform for internal advisory use. Information is derived from uploaded documents and public data sources. All findings should be independently verified during formal due diligence. This document does not constitute financial, legal, or investment advice. &copy; ${new Date().getFullYear()} Cantara Pet Advisors. All rights reserved.</p>
 </div>
+</div>
 
 </body>
 </html>`
@@ -435,9 +582,25 @@ export function generateReportHtml(config: ReportConfig): string {
 export function buildHtmlTable(
   headers: Array<string | number | null | undefined>,
   rows: Array<Array<string | number | null | undefined>>,
-  options?: { totalRow?: boolean },
+  options?: { totalRow?: boolean; prelineHeaders?: boolean },
 ): string {
-  const ths = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')
+  const ths = headers
+    .map((h) => {
+      const raw = h == null ? '' : String(h)
+      if (options?.prelineHeaders && raw.includes('\n')) {
+        const parts = raw.split('\n').map((line) => escapeHtml(line.trim())).filter(Boolean)
+        const inner = parts
+          .map((p, i) =>
+            i === 0
+              ? `<div style="font-weight:700;">${p}</div>`
+              : `<div style="font-size:10px;font-weight:600;color:#64748b;margin-top:2px;">${p}</div>`,
+          )
+          .join('')
+        return `<th style="vertical-align:bottom;text-align:right;">${inner}</th>`
+      }
+      return `<th>${escapeHtml(raw)}</th>`
+    })
+    .join('')
   const trs = rows.map((row, idx) => {
     const isTotal = options?.totalRow && idx === rows.length - 1
     const tds = row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')
@@ -482,4 +645,8 @@ function escapeHtml(str: string | number | null | undefined): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+function renderInlineMarkdown(html: string): string {
+  return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
 }

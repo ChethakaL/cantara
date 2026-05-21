@@ -219,7 +219,7 @@ function buildContextualPriceLabel(name: string, price: string, pageTitle?: stri
 }
 
 function looksLikeCatalogUrl(url: string): boolean {
-  return /search|shop|product|products|category|categories|collection|collections|catalog|cgid|\/c\/|\/p\/|all-products/i.test(url);
+  return /search|shop|product|products|category|categories|collection|collections|catalog|cgid|\/c\/|\/p\/|all-products|pricing|prices|rates|daycare|boarding|grooming|services/i.test(url);
 }
 
 function isStoreDetailsUrl(url: string): boolean {
@@ -372,6 +372,8 @@ function scoreSearchSnippet(snippet: WebsiteSnippet): number {
   const haystack = `${snippet.title} ${snippet.snippet}`;
   let score = 0;
   if (/[$€£]\s*\d|\bfrom\s*[$€£]?\s*\d/i.test(haystack)) score += 8;
+  if (/pricing|prices|rates|daycare|boarding|grooming|services|packages/i.test(haystack)) score += 8;
+  if (/pricing|prices|rates|daycare|boarding|grooming|services/i.test(snippet.url)) score += 8;
   if (/\/products?\/|shop-by-brand|\/p\/|item|sku|brand|\/cat\/|\/dog\//i.test(snippet.url)) score += 4;
   if (/\/\d+\.html$/i.test(snippet.url)) score += 6;
   if (/dog|cat|food|treat|recipe|wet|dry|canned|kibble/i.test(haystack)) score += 2;
@@ -389,6 +391,7 @@ function pickFetchUrls(homepageUrl: string, searchSnippets: WebsiteSnippet[]): s
     .map((item) => item.url);
 
   const candidates = [
+    ...buildFallbackExtractUrls(homepageUrl),
     ...rankedCatalogUrls,
     homepageUrl,
     ...searchSnippets.map((item) => item.url),
@@ -401,6 +404,15 @@ function buildFallbackExtractUrls(homepageUrl: string): string[] {
   try {
     const base = new URL(homepageUrl);
     return dedupeStrings([
+      homepageUrl,
+      new URL('/services/daycare', base).toString(),
+      new URL('/services/daycare#pricing', base).toString(),
+      new URL('/services/boarding', base).toString(),
+      new URL('/services/grooming', base).toString(),
+      new URL('/pricing', base).toString(),
+      new URL('/prices', base).toString(),
+      new URL('/rates', base).toString(),
+      new URL('/services', base).toString(),
       new URL('/shop-by-brand/', base).toString(),
       new URL('/search?cgid=root', base).toString(),
       new URL('/feed-like-a-muddy/', base).toString(),
@@ -413,6 +425,7 @@ function buildFallbackExtractUrls(homepageUrl: string): string[] {
 
 function rankExtractCandidateUrl(url: string): number {
   let score = 0;
+  if (/pricing|prices|rates|daycare|boarding|grooming|services/i.test(url)) score += 12;
   if (/search\?cgid=root/i.test(url)) score += 10;
   if (/\/\d+\.html$/i.test(url)) score += 8;
   if (/shop-by-brand|\/cat\/|\/dog\/|\/products?\//i.test(url)) score += 4;
@@ -445,8 +458,10 @@ export async function researchWebsite(args: {
   let searchSnippets: WebsiteSnippet[] = [];
   if (args.tavilyApiKey) {
     const queries = [
-      `site:${domain} "${args.businessName}" ${args.businessCategory} services hours`,
-      `site:${domain} (${args.businessCategory} OR "dog food" OR "cat food") (prices OR pricing OR "$") -Stores-StoreDetails -storeID -storefinder -locations -contact -about`,
+      `site:${domain} "${args.businessName}" (daycare OR boarding OR grooming OR services) (pricing OR prices OR rates OR "$")`,
+      `site:${domain} (daycare OR "half day" OR "full day" OR boarding OR grooming) (pricing OR prices OR rates OR "$") -Stores-StoreDetails -storeID -storefinder -locations -contact -about`,
+      `site:${domain} "${args.businessName}" ${args.businessCategory} services hours pricing`,
+      `site:${domain} (${args.businessCategory} OR daycare OR boarding OR grooming) (prices OR pricing OR rates OR "$") -Stores-StoreDetails -storeID -storefinder -locations -contact -about`,
       `site:${domain} ("shop-by-brand" OR products OR "all products" OR cgid) (dog OR cat) (price OR "$") -Stores-StoreDetails -storeID`,
       `site:${domain} "shop-by-brand" (dog OR cat OR food OR treats)`,
       `site:${domain} ("search?cgid=root" OR "feed-like-a-muddy" OR "all products")`,

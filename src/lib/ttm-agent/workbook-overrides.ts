@@ -323,6 +323,18 @@ export function applyWorkbookOverrideSnapshot(report: WS2Report, snapshot: Workb
         replacementSalary: snapshot.recast.valuation.replacementSalary ?? next.ws22.valuation.replacementSalary,
         fmrAdjustment: snapshot.recast.valuation.fmrAdjustment ?? next.ws22.valuation.fmrAdjustment,
       }
+
+      const rawRecast = (next as WS2Report & { rawRecast?: { parsedReport?: Record<string, unknown> } }).rawRecast
+      const llmValuation = rawRecast?.parsedReport?.llmValuationResult as
+        | { valuation?: Record<string, { low?: number; mid?: number; high?: number }> }
+        | undefined
+      if (llmValuation?.valuation) {
+        const ltm = { ...(llmValuation.valuation.LTM ?? {}) }
+        if (typeof snapshot.recast.valuation.valuationLow === 'number') ltm.low = snapshot.recast.valuation.valuationLow
+        if (typeof snapshot.recast.valuation.valuationMid === 'number') ltm.mid = snapshot.recast.valuation.valuationMid
+        if (typeof snapshot.recast.valuation.valuationHigh === 'number') ltm.high = snapshot.recast.valuation.valuationHigh
+        llmValuation.valuation = { ...llmValuation.valuation, LTM: ltm }
+      }
     }
   }
 
@@ -362,6 +374,170 @@ export function applyWorkbookOverrideSnapshot(report: WS2Report, snapshot: Workb
   }
 
   return next
+}
+
+type UiPeriodKey = 'ltm' | 'fy1' | 'fy2' | 'fy3'
+
+function uiPeriodToSeriesKey(periodKey: string): keyof SeriesValues {
+  return periodKey === 'ltm' ? 'ttm' : (periodKey as keyof SeriesValues)
+}
+
+function uiPeriodToVerticalDollarKey(periodKey: string): 'ttmDollar' | 'fy1Dollar' | 'fy2Dollar' | 'fy3Dollar' {
+  if (periodKey === 'ltm') return 'ttmDollar'
+  if (periodKey === 'fy1') return 'fy1Dollar'
+  if (periodKey === 'fy2') return 'fy2Dollar'
+  return 'fy3Dollar'
+}
+
+function uiPeriodToLaborField(
+  periodKey: string,
+  value: number,
+  revenueForPeriod: number,
+): Partial<{ ttmAmount: number; fy3Amount: number; fy2Pct: number; fy1Pct: number }> {
+  if (periodKey === 'ltm') return { ttmAmount: value }
+  if (periodKey === 'fy3') return { fy3Amount: value }
+  const pct = revenueForPeriod ? value / revenueForPeriod : value
+  if (periodKey === 'fy2') return { fy2Pct: pct }
+  return { fy1Pct: pct }
+}
+
+function ensureSeriesTarget(
+  snapshot: WorkbookOverrideSnapshot,
+  section: 'revenueLines' | 'cogsLines' | 'expenseLines',
+  label: string,
+): SeriesValues {
+  snapshot.annualPL = snapshot.annualPL ?? {}
+  const map = snapshot.annualPL[section] ?? {}
+  snapshot.annualPL[section] = map
+  map[label] = map[label] ?? {}
+  return map[label]
+}
+
+function ensurePlTotal(snapshot: WorkbookOverrideSnapshot, label: string): SeriesValues {
+  snapshot.annualPL = snapshot.annualPL ?? {}
+  snapshot.annualPL.totals = snapshot.annualPL.totals ?? {}
+  snapshot.annualPL.totals[label] = snapshot.annualPL.totals[label] ?? {}
+  return snapshot.annualPL.totals[label]
+}
+
+function ensureRecastItem(snapshot: WorkbookOverrideSnapshot, id: string): RecastItemOverride {
+  snapshot.recast = snapshot.recast ?? { items: {} }
+  snapshot.recast.items = snapshot.recast.items ?? {}
+  snapshot.recast.items[id] = snapshot.recast.items[id] ?? {}
+  return snapshot.recast.items[id]
+}
+
+function revenueForPeriod(report: WS2Report, periodKey: UiPeriodKey): number {
+  const totals = report.ws21.annualPL.totalRevenue
+  if (periodKey === 'ltm') return totals.ttm ?? 0
+  if (periodKey === 'fy3') return totals.fy3 ?? 0
+  if (periodKey === 'fy2') return totals.fy2 ?? 0
+  return totals.fy1 ?? 0
+}
+
+/** Merge in-browser workbook edits into a snapshot for DB + PDF export (same path as Import Edited XLSX). */
+export function buildWorkbookOverrideSnapshotFromUiEdits(
+  report: WS2Report,
+  tabOverrides: Record<string, Partial<Record<UiPeriodKey, number>>>,
+  itemOverrides: Record<string, Partial<Record<UiPeriodKey, number>>>,
+): WorkbookOverrideSnapshot {
+  const snapshot = buildWorkbookOverrideSnapshot(report)
+
+  for (const [rowId, periods] of Object.entries(tabOverrides)) {
+    for (const [periodKey, value] of Object.entries(periods)) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue
+      const seriesKey = uiPeriodToSeriesKey(periodKey)
+
+      if (rowId.startsWith('pl:rev:')) {
+        const label = rowId.slice('pl:rev:'.length)
+        ensureSeriesTarget(snapshot, 'revenueLines', label)[seriesKey] = value
+        continue
+      }
+      if (rowId.startsWith('pl:cogs:')) {
+        const label = rowId.slice('pl:cogs:'.length)
+        ensureSeriesTarget(snapshot, 'cogsLines', label)[seriesKey] = value
+        continue
+      }
+      if (rowId.startsWith('pl:exp:')) {
+        const label = rowId.slice('pl:exp:'.length)
+        ensureSeriesTarget(snapshot, 'expenseLines', label)[seriesKey] = value
+        continue
+      }
+      if (rowId.startsWith('norm:')) {
+        const id = rowId.slice('norm:'.length)
+        ensureRecastItem(snapshot, id)[seriesKey] = value
+        continue
+      }
+      if (rowId.startsWith('rev:')) {
+        const name = rowId.slice('rev:'.length)
+        snapshot.ws23 = snapshot.ws23 ?? { verticals: {} }
+        snapshot.ws23.verticals = snapshot.ws23.verticals ?? {}
+        const dollarKey = uiPeriodToVerticalDollarKey(periodKey)
+        snapshot.ws23.verticals[name] = {
+          ...snapshot.ws23.verticals[name],
+          [dollarKey]: value,
+        }
+        continue
+      }
+      if (rowId.startsWith('bm:')) {
+        const category = rowId.slice('bm:'.length)
+        snapshot.ws24 = snapshot.ws24 ?? { benchmarks: {} }
+        snapshot.ws24.benchmarks = snapshot.ws24.benchmarks ?? {}
+        const dollarKey = uiPeriodToVerticalDollarKey(periodKey)
+        snapshot.ws24.benchmarks[category] = {
+          ...snapshot.ws24.benchmarks[category],
+          [dollarKey]: value,
+        }
+        continue
+      }
+      if (rowId.startsWith('labor:')) {
+        const category = rowId.slice('labor:'.length)
+        snapshot.ws25 = snapshot.ws25 ?? { laborRows: {} }
+        snapshot.ws25.laborRows = snapshot.ws25.laborRows ?? {}
+        const rev = revenueForPeriod(report, periodKey as UiPeriodKey)
+        snapshot.ws25.laborRows[category] = {
+          ...snapshot.ws25.laborRows[category],
+          ...uiPeriodToLaborField(periodKey, value, rev),
+        }
+        continue
+      }
+
+      if (rowId === 'valuation:revenue') {
+        ensurePlTotal(snapshot, 'Total Revenue')[seriesKey] = value
+        continue
+      }
+      if (rowId === 'valuation:pre-recast') {
+        ensurePlTotal(snapshot, '4-Wall EBITDA (Pre-Recast)')[seriesKey] = value
+        continue
+      }
+
+      snapshot.recast = snapshot.recast ?? {}
+      snapshot.recast.valuation = snapshot.recast.valuation ?? {}
+
+      if (rowId === 'valuation:multiple-low' && periodKey === 'ltm') {
+        snapshot.recast.valuation.multipleLow = value
+      } else if (rowId === 'valuation:multiple-mid' && periodKey === 'ltm') {
+        snapshot.recast.valuation.multipleMid = value
+      } else if (rowId === 'valuation:multiple-high' && periodKey === 'ltm') {
+        snapshot.recast.valuation.multipleHigh = value
+      } else if (rowId === 'valuation:value-low' && periodKey === 'ltm') {
+        snapshot.recast.valuation.valuationLow = value
+      } else if (rowId === 'valuation:value-mid' && periodKey === 'ltm') {
+        snapshot.recast.valuation.valuationMid = value
+      } else if (rowId === 'valuation:value-high' && periodKey === 'ltm') {
+        snapshot.recast.valuation.valuationHigh = value
+      }
+    }
+  }
+
+  for (const [itemId, periods] of Object.entries(itemOverrides)) {
+    for (const [periodKey, value] of Object.entries(periods)) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue
+      ensureRecastItem(snapshot, itemId)[uiPeriodToSeriesKey(periodKey)] = value
+    }
+  }
+
+  return snapshot
 }
 
 export function diffWorkbookOverrideSnapshots(current: WorkbookOverrideSnapshot, next: WorkbookOverrideSnapshot) {

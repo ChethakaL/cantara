@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 
 export interface EmployeeCompRow {
   id: string
@@ -121,7 +122,7 @@ export async function analyzePayrollDocument(args: {
   mediaType?: string
   freeText?: string
 }): Promise<EmployeeCompReport> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
 
   const client = new Anthropic({ apiKey })

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { createRequire } from 'module'
 
 const require = createRequire(import.meta.url)
@@ -63,7 +64,7 @@ export async function generateMeetingReport(args: {
   meetingUrl?: string | null
   notesText: string
 }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = await getAnthropicApiKey()
   if (!apiKey) {
     throw new Error('ANTHROPIC_API_KEY is required to generate meeting reports.')
   }

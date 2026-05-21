@@ -3,6 +3,10 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { FindingSection, RentScheduleRow } from '../../../lib/lease-analysis/types'
+import {
+  isRentFindingSection,
+  stripRentScheduleFromFindingContent,
+} from '@/lib/lease-analysis/report-utils'
 import { Badge } from '@/components/ui'
 
 interface Props {
@@ -23,9 +27,6 @@ export function DetailedFindings({ findings, raw, rentSchedule }: Props) {
       </div>
     )
   }
-
-  const isRentFinding = (id: string, title: string) =>
-    id === '2.3' || /rent/i.test(title);
 
   return (
     <div className="space-y-6">
@@ -69,11 +70,15 @@ export function DetailedFindings({ findings, raw, rentSchedule }: Props) {
                 prose-blockquote:border-l-amber-300 prose-blockquote:bg-amber-50/20 prose-blockquote:py-1 prose-blockquote:px-4 prose-blockquote:rounded-r-lg
                 prose-code:text-amber-700 prose-code:bg-amber-50/50 prose-code:px-1 prose-code:rounded">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {current.content}
+                  {rentSchedule &&
+                  rentSchedule.length > 0 &&
+                  isRentFindingSection(current.id, current.title)
+                    ? stripRentScheduleFromFindingContent(current.content)
+                    : current.content}
                 </ReactMarkdown>
               </div>
-              {/* Rent schedule appears only within the Rents finding */}
-              {rentSchedule && rentSchedule.length > 0 && isRentFinding(current.id, current.title) && (
+              {/* Rent schedule appears only within §2.3 RENT */}
+              {rentSchedule && rentSchedule.length > 0 && isRentFindingSection(current.id, current.title) && (
                 <div className="mt-8 border-t border-slate-100 pt-6">
                   <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-3">Rent Schedule</h4>
                   <div className="overflow-x-auto rounded-xl border border-slate-200">

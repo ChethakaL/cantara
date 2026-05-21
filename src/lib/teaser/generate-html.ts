@@ -1,4 +1,38 @@
 import { TeaserInputData } from './types'
+import { CANTARA_COVER_BRAND_CSS, buildCantaraCoverBrandHtml } from '@/lib/report-export/cantara-cover-branding'
+
+function escapeHtml(str: any): string {
+  if (typeof str !== 'string') return String(str ?? '')
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+/** Under section 02 headline: one line → paragraph; multiple lines → bullet list. */
+function section02LeadHtml(text: string): string {
+  const raw = String(text ?? '').trim()
+  if (!raw) return ''
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  if (lines.length <= 1) {
+    return `<p class="section02-lead">${escapeHtml(lines[0] ?? raw)}</p>`
+  }
+  return `<ul class="section02-lead-bullets">${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+}
+
+/** Renders textarea content as a bullet list (one non-empty line = one bullet). */
+function multilineToBulletList(text: string): string {
+  const lines = String(text ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  if (!lines.length) {
+    return '<p class="overview-empty" style="font-size:12px;color:#94a3b8;margin:0;">&mdash;</p>'
+  }
+  return `<ul class="overview-bullets">${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+}
 
 export function generateTeaserHtml(data: TeaserInputData): string {
   const currentDate = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -20,12 +54,13 @@ export function generateTeaserHtml(data: TeaserInputData): string {
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 0; }
 
   /* Cover */
-  .cover { background: linear-gradient(135deg, #1a2332 0%, #0f172a 100%); color: white; padding: 80px 60px 60px; text-align: center; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
-  .cover .brand { font-size: 11px; text-transform: uppercase; letter-spacing: 5px; color: #f59e0b; font-weight: 700; margin-bottom: 24px; }
+  .cover { background: linear-gradient(135deg, #21263C 0%, #161a2e 100%); color: white; padding: 80px 60px 60px; text-align: center; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  ${CANTARA_COVER_BRAND_CSS}
+  .cover .deal-ref { font-size: 11px; letter-spacing: 2px; color: #94a3b8; margin: 8px 0 20px; font-weight: 600; }
   .cover h1 { font-size: 42px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
   .cover .subtitle { font-size: 20px; color: #94a3b8; margin-bottom: 8px; }
   .cover .region { font-size: 14px; color: #64748b; }
-  .cover .divider { width: 60px; height: 3px; background: #f59e0b; margin: 40px auto; border-radius: 2px; }
+  .cover .divider { width: 60px; height: 3px; background: #CAA15F; margin: 40px auto; border-radius: 2px; }
   .cover .confidential { font-size: 10px; text-transform: uppercase; letter-spacing: 3px; color: #475569; margin-top: 40px; }
 
   /* Section styling */
@@ -47,6 +82,13 @@ export function generateTeaserHtml(data: TeaserInputData): string {
   .overview-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; }
   .overview-card h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #1e293b; font-weight: 700; margin-bottom: 10px; }
   .overview-card p { font-size: 12px; color: #64748b; margin: 0; line-height: 1.6; }
+  .overview-card ul.overview-bullets { margin: 0; padding-left: 18px; }
+  .overview-card ul.overview-bullets li { font-size: 12px; color: #64748b; margin-bottom: 6px; line-height: 1.55; }
+  .overview-card ul.overview-bullets li:last-child { margin-bottom: 0; }
+  .section02-lead { font-size: 14px; color: #475569; margin: 0 0 24px; line-height: 1.7; max-width: 720px; }
+  .section02-lead-bullets { margin: 0 0 24px; padding-left: 20px; max-width: 720px; }
+  .section02-lead-bullets li { font-size: 14px; color: #475569; margin-bottom: 8px; line-height: 1.6; }
+  .section02-lead-bullets li:last-child { margin-bottom: 0; }
 
   /* Financial table */
   .fin-table { width: 100%; border-collapse: collapse; margin: 24px 0; }
@@ -98,13 +140,13 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 
 <!-- COVER PAGE -->
 <div class="cover">
-  <div class="brand">Cantara</div>
-  <div class="brand" style="color: #64748b; letter-spacing: 3px; font-size: 10px;">Pet Business Advisors</div>
+  ${buildCantaraCoverBrandHtml()}
+  ${data.dealReference?.trim() ? `<div class="deal-ref">Cantara Deal Reference # ${escapeHtml(data.dealReference.trim())}</div>` : ''}
   <div class="divider"></div>
   <h1>${escapeHtml(data.businessDisplayName)}</h1>
   <div class="subtitle">${escapeHtml(data.teaserSubtitle)}</div>
   <div class="region">${escapeHtml(data.regionLabel)}</div>
-  <div class="confidential" style="margin-top: 60px;">Confidential Information Memorandum</div>
+  <div class="confidential" style="margin-top: 60px;">Confidential Investment Teaser</div>
   <div style="font-size: 11px; color: #475569; margin-top: 8px;">${currentDate}</div>
 </div>
 
@@ -156,36 +198,37 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 <div class="section">
   <div class="section-number">02</div>
   <div class="section-header">Business Overview</div>
-  <h2>A Purpose-Built Premium Pet Resort</h2>
+  <h2>${escapeHtml(data.overviewHeadline || 'A Purpose-Built Premium Pet Resort')}</h2>
+  ${data.section02LeadSummary?.trim() ? section02LeadHtml(data.section02LeadSummary) : ''}
 
   <div class="overview-grid">
     <div class="overview-card">
       <h4>Facility Profile</h4>
-      <p>${escapeHtml(data.facilityProfile)}</p>
+      ${multilineToBulletList(data.facilityProfile)}
     </div>
     <div class="overview-card">
       <h4>Ownership & Management</h4>
-      <p>${escapeHtml(data.ownershipManagement)}</p>
+      ${multilineToBulletList(data.ownershipManagement)}
     </div>
     <div class="overview-card">
       <h4>Client Profile</h4>
-      <p>${escapeHtml(data.clientProfile)}</p>
+      ${multilineToBulletList(data.clientProfile)}
     </div>
     <div class="overview-card">
       <h4>Staff & Operations</h4>
-      <p>${escapeHtml(data.staffOperations)}</p>
+      ${multilineToBulletList(data.staffOperations)}
     </div>
     <div class="overview-card">
       <h4>Real Estate</h4>
-      <p>${escapeHtml(data.realEstate)}</p>
+      ${multilineToBulletList(data.realEstate)}
     </div>
     <div class="overview-card">
       <h4>Technology</h4>
-      <p>${escapeHtml(data.technology)}</p>
+      ${multilineToBulletList(data.technology)}
     </div>
     <div class="overview-card">
       <h4>Permits & Zoning</h4>
-      <p>${escapeHtml(data.permitsZoning)}</p>
+      ${multilineToBulletList(data.permitsZoning)}
     </div>
   </div>
 </div>
@@ -309,14 +352,4 @@ export function generateTeaserHtml(data: TeaserInputData): string {
 
 </body>
 </html>`
-}
-
-function escapeHtml(str: any): string {
-  if (typeof str !== 'string') return String(str ?? '');
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
 }

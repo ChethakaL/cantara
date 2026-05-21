@@ -1,64 +1,12 @@
 'use client'
 import { useState } from 'react'
-import { useDropzone } from 'react-dropzone'
-import { CheckCircle, Clock, AlertTriangle, FileText, Loader2, MessageSquareMore, Trash2, Upload } from 'lucide-react'
+import { CheckCircle, Clock, AlertTriangle, FileText, Loader2, MessageSquareMore, Trash2 } from 'lucide-react'
 import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
-import { VALUATION_DOCS, getDocsForWorkstream } from '@/lib/documentData'
-import { parseStoredInsuranceReview } from '@/lib/insurance-review'
+import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
+import { VALUATION_DOCS, getDocsForAgentSelections, getDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
+import { parseStoredInsuranceReview } from '@/lib/insurance-review-shared'
 import { getAdminEmail, saveRequirement } from '@/lib/store'
 import type { Client } from '@/lib/store'
-
-function AdminDocumentUpload({ clientId, documentId, currentFileName, onUploaded }: {
-  clientId: string
-  documentId: string
-  currentFileName?: string | null
-  onUploaded: () => Promise<void> | void
-}) {
-  const [uploading, setUploading] = useState(false)
-  const adminEmail = getAdminEmail()
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: async (files) => {
-      if (!files[0] || !adminEmail) return
-      setUploading(true)
-      try {
-        const form = new FormData()
-        form.append('file', files[0])
-        form.append('clientId', clientId)
-        form.append('documentId', documentId)
-        form.append('uploaderEmail', adminEmail)
-        const res = await fetch('/api/client-documents/upload', {
-          method: 'POST',
-          body: form,
-        })
-        if (res.ok) await onUploaded()
-      } finally {
-        setUploading(false)
-      }
-    },
-    multiple: false,
-  })
-
-  return (
-    <div
-      {...getRootProps()}
-      className={`border border-dashed rounded-lg px-3 py-2 cursor-pointer text-xs transition-all flex items-center gap-2 min-w-[140px] ${
-        uploading
-          ? 'border-amber-300 bg-amber-50 text-amber-700'
-          : currentFileName
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          : isDragActive
-          ? 'border-amber-400 bg-amber-50 text-amber-600'
-          : 'border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'
-      }`}
-    >
-      <input {...getInputProps()} />
-      {uploading ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" /> : currentFileName ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <Upload className="w-3.5 h-3.5 shrink-0" />}
-      <span className="truncate">
-        {uploading ? 'Uploading...' : currentFileName ? 'Replace file' : isDragActive ? 'Drop file here' : 'Admin upload'}
-      </span>
-    </div>
-  )
-}
 
 function AdminDocumentDelete({ clientId, documentId, fileName, onDeleted }: {
   clientId: string
@@ -115,7 +63,12 @@ const EMPTY_FOLLOW_UP = {
 
 export default function AdminDocumentsView({ client, onClientUpdated }: { client: Client; onClientUpdated?: (client: Client) => void }) {
   const { workstream, businessType, documentStatuses, uploadedDocuments } = client
-  const categories = getDocsForWorkstream(workstream, businessType)
+  const categories = mergeDocumentCategories([
+    ...(client.customWorkstream
+      ? getDocsForAgentSelections(client.customWorkstream.agents)
+      : getDocsForWorkstream(workstream, businessType)),
+    ...getDocsForAgentSelections(client.workstreamAgents ?? []),
+  ])
   const [followUpOpen, setFollowUpOpen] = useState(false)
   const [savingFollowUp, setSavingFollowUp] = useState(false)
   const [followUpForm, setFollowUpForm] = useState(EMPTY_FOLLOW_UP)
@@ -276,12 +229,18 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
       <div className="shrink-0 flex flex-col items-end gap-2">
         <div className="flex items-center gap-2">
           {renderStatus(doc.id)}
-          <AdminDocumentUpload
-            clientId={client.id}
-            documentId={doc.id}
-            currentFileName={uploadedDocuments[doc.id]?.fileName || getStatus(doc.id)?.fileName}
-            onUploaded={refreshClientView}
-          />
+          {getAdminEmail() && (
+            <ClientDocumentUpload
+              clientId={client.id}
+              documentId={doc.id}
+              uploaderEmail={getAdminEmail()}
+              currentFileName={uploadedDocuments[doc.id]?.fileName || getStatus(doc.id)?.fileName}
+              label="Admin upload"
+              onUploaded={async () => {
+                await refreshClientView()
+              }}
+            />
+          )}
           <AdminDocumentDelete
             clientId={client.id}
             documentId={doc.id}

@@ -4,6 +4,7 @@ import Anthropic, {
   InternalServerError,
   RateLimitError,
 } from "@anthropic-ai/sdk";
+import { getAnthropicApiKey } from "@/lib/secure-settings";
 import { NextRequest, NextResponse } from "next/server";
 import { buildLeaseAnalysisSystemPrompt } from "@/lib/lease-analysis/prompt";
 import { createRequire } from "module";
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
     }
 
     const client = new Anthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY ?? "",
+        apiKey: await getAnthropicApiKey(),
     });
 
     console.log(`[API Analyze] Starting streaming analysis for ${documents.length} documents.`);

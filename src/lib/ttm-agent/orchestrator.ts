@@ -2759,6 +2759,13 @@ export async function runWs2DerivedAgent(args: {
     throw new TtmOrchestratorError(`${args.agentId} has not been released by the required HITL gate yet.`, 400);
   }
 
+  const existingCompleteReport = analysis.derivedReports?.find(
+    (report) => report.agentId === args.agentId && report.status === "COMPLETE",
+  );
+  if (args.agentId !== "ws2_10_report_generator_v1" && existingCompleteReport) {
+    return analysis;
+  }
+
   const approvedRecast = await getLatestApprovedRecast(args.analysisId);
   const latestRecastRecord = analysis.recastAnalyses?.find((item) => item.status !== "FAILED") ?? null;
   const recast = args.agentId === "ws2_5_labor_v1" ? latestRecastRecord : approvedRecast;

@@ -121,6 +121,18 @@ export default function OrgChartReviewTab({
       }
       const data: OrgChartAnalysis = await res.json()
       setResult(data)
+      try {
+        const saveRes = await fetch(`/api/client-data/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section: 'orgChart', data }),
+        })
+        if (!saveRes.ok) throw new Error('Save failed')
+        setSavedBadge(true)
+        setTimeout(() => setSavedBadge(false), 2000)
+      } catch (saveErr: any) {
+        setError(saveErr.message || 'Analysis completed but failed to save')
+      }
     } catch (err: any) {
       setError(err.message || 'Analysis failed')
     } finally {

@@ -369,7 +369,7 @@ ${report.encumbrances.length
 **Amount:** ${md(enc.amount || 'Not Specified')}
 **Source Document:** ${md(enc.sourceRef)}
 `).join('\n')
-  : 'No encumbrances or liens identified in uploaded documents.'}
+  : 'No encumbrances or liens identified in uploaded corporate documents. UCC filings, tax liens, and title/lien searches are verified in the Litigation & Liens workstream.'}
 
 ## SECTION 5 — STATE FILING COMPLIANCE
 
