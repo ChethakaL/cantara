@@ -27,6 +27,7 @@ import {
 } from "@/lib/ttm-agent/types";
 import { generateWs22Report, generateWs23Report, generateWs24Report, generateWs25Report, summarizeTtmAnalysis } from "@/lib/ttm-agent/claude";
 import { buildWorkingCapitalSummary } from "@/lib/ttm-agent/wc-calculator";
+import { buildDeterministicSchedule } from "@/lib/ttm-agent/ws2-extraction";
 import { TTM_AGENT_MAX_TOKENS, TTM_AGENT_MODEL, TTM_AGENT_TEMPERATURE, WS2_RECAST_MAX_TOKENS } from "@/lib/ttm-agent/prompt";
 import {
   applyWs22SpecCorrections,
@@ -1553,7 +1554,6 @@ Annual Years: ${(args.analysis.annualModel?.years ?? []).map(y => `${y.fiscalYea
     : [];
 
   // ── DETERMINISTIC EXTRACTION (clean module) ──────────────────────────────
-  const { buildDeterministicSchedule } = require("@/lib/ttm-agent/ws2-extraction");
   const schedule = await buildDeterministicSchedule({
     analysis: args.analysis,
     assumptions: args.assumptions,
