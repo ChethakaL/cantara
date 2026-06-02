@@ -83,11 +83,27 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
   }, [clientId]);
 
   async function persistReport(nextReport: DigitalPresenceReport) {
-    await fetch(`/api/client-data/${clientId}`, {
+    const res = await fetch(`/api/client-data/${clientId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ section: 'digitalPresence', data: nextReport }),
     });
+    if (!res.ok) {
+      const message = await res.text().catch(() => '');
+      throw new Error(message || 'Digital Presence report save failed.');
+    }
+  }
+
+  async function persistFormData(formData: DigitalAssetFormData) {
+    const res = await fetch(`/api/client-data/${clientId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ section: 'digitalPresenceForm', data: formData }),
+    });
+    if (!res.ok) {
+      const message = await res.text().catch(() => '');
+      throw new Error(message || 'Digital Presence form save failed.');
+    }
   }
 
   function appendLog(entry: Omit<LogEntry, 'id'>) {
@@ -139,6 +155,8 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     setResearchProgress(null);
 
     try {
+      await persistFormData(formData);
+
       const res = await fetch('/api/digital-presence/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -185,8 +203,8 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
             setStatus('complete');
             try {
               await persistReport(finalReport);
-            } catch {
-              // Non-fatal: UI still shows the run result.
+            } catch (saveError: any) {
+              setError(saveError?.message ?? 'Digital Presence report save failed.');
             }
           } else if (event.type === 'error') {
             throw new Error(event.error ?? 'Analysis failed.');

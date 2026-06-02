@@ -542,12 +542,12 @@ export function getCurrentRole(): 'admin' | 'client' | null {
 }
 
 export function getAdminName(): string {
-  if (!isBrowser) return 'Admin Pollack'
+  if (!isBrowser) return 'Cantara Admin'
   try {
     const raw = localStorage.getItem('cantara_admin_name')
     if (raw) return JSON.parse(raw)
   } catch {}
-  return 'Admin Pollack'
+  return 'Cantara Admin'
 }
 
 export function getAdminEmail(): string {

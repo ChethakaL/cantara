@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { Card, Badge, Button, cn } from '@/components/ui'
 import {
   Search, Upload, FileText, AlertTriangle, Shield, ShieldAlert, ShieldCheck,
   ChevronDown, ChevronUp, ExternalLink, Calendar, Loader2, X, FileUp,
+  CheckCircle,
 } from 'lucide-react'
 import type { LitigationSearchResult } from '@/lib/litigation-search/search'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
@@ -281,6 +282,8 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
   const [searchResult, setSearchResult] = useState<LitigationSearchResult | null>(null)
   const [searchError, setSearchError] = useState('')
   const [editMode, setEditMode] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -293,6 +296,61 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
     const result = searchResult || docResult
     return result ? buildLitigationReportHtml(result, clientName) : ''
   }, [clientName, searchResult, docResult])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadSaved() {
+      try {
+        const res = await fetch(`/api/client-data/${clientId}?section=litigationSearch`, { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        const savedSearch = data?.searchResult as LitigationSearchResult | undefined
+        const savedDoc = data?.docResult as LitigationSearchResult | undefined
+        if (cancelled) return
+        if (savedSearch) setSearchResult(savedSearch)
+        if (savedDoc) setDocResult(savedDoc)
+      } catch {
+        // Saved litigation output is optional.
+      }
+    }
+    void loadSaved()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  useEffect(() => {
+    if (!searchResult && !docResult) return
+    const timeout = window.setTimeout(() => {
+      void saveResults()
+    }, 500)
+    return () => window.clearTimeout(timeout)
+  }, [searchResult, docResult])
+
+  const saveResults = useCallback(async () => {
+    if (!searchResult && !docResult) return
+    setSaving(true)
+    setSaved(false)
+    try {
+      const res = await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'litigationSearch',
+          data: {
+            searchResult,
+            docResult,
+            generatedAt: new Date().toISOString(),
+          },
+        }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
+    } catch (err: any) {
+      setSearchError(err.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }, [clientId, searchResult, docResult])
 
   // ── Search handler ─────────────────────────────────────────────────────────
 
@@ -553,6 +611,18 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-800">Results</h3>
             <div className="flex items-center gap-2">
+              {saving && (
+                <span className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Saving
+                </span>
+              )}
+              {saved && !saving && (
+                <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Saved
+                </span>
+              )}
               <Button
                 variant="outline"
                 onClick={() => setEditMode(!editMode)}

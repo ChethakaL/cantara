@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
       return new Response("Missing clientId or documentId", { status: 400 });
     }
 
-    const document = await (prisma as any).clientDocument.findFirst({
+    let document = await (prisma as any).clientDocument.findFirst({
       where: { clientId, documentId },
       orderBy: { createdAt: "desc" },
       select: {
@@ -37,6 +37,22 @@ export async function GET(req: NextRequest) {
         storageBucket: true,
       },
     });
+
+    if (!document?.localPath) {
+      const status = await (prisma as any).clientDocumentStatus.findUnique({
+        where: { clientId_documentId: { clientId, documentId } },
+        select: { fileName: true, fileUrl: true },
+      });
+      const key = storageKeyFromFileUrl(status?.fileUrl);
+      if (key) {
+        document = {
+          fileName: status?.fileName || documentId,
+          mimeType: mimeTypeFromFileName(status?.fileName || ""),
+          localPath: key,
+          storageBucket: bucketFromFileUrl(status?.fileUrl) || s3BucketName,
+        };
+      }
+    }
 
     if (!document?.localPath) {
       return new Response("Document not found", { status: 404 });
@@ -62,4 +78,48 @@ export async function GET(req: NextRequest) {
     console.error("Raw document fetch error:", error);
     return new Response("Internal Server Error", { status: 500 });
   }
+}
+
+function storageKeyFromFileUrl(fileUrl: string | null | undefined) {
+  if (!fileUrl) return null;
+  try {
+    const url = new URL(fileUrl);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (!parts.length) return null;
+    if (bucketFromVirtualHostedUrl(url)) return parts.join("/");
+    if (parts.length < 2) return null;
+    return parts.slice(1).join("/");
+  } catch {
+    return null;
+  }
+}
+
+function bucketFromFileUrl(fileUrl: string | null | undefined) {
+  if (!fileUrl) return null;
+  try {
+    const url = new URL(fileUrl);
+    const virtualHostedBucket = bucketFromVirtualHostedUrl(url);
+    if (virtualHostedBucket) return virtualHostedBucket;
+    return url.pathname.split("/").filter(Boolean)[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function bucketFromVirtualHostedUrl(url: URL) {
+  const marker = ".s3.";
+  const markerIndex = url.hostname.indexOf(marker);
+  if (markerIndex > 0) return url.hostname.slice(0, markerIndex);
+  if (url.hostname.endsWith(".s3.amazonaws.com")) return url.hostname.replace(".s3.amazonaws.com", "");
+  return null;
+}
+
+function mimeTypeFromFileName(fileName: string) {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (lower.endsWith(".csv")) return "text/csv";
+  if (lower.endsWith(".txt")) return "text/plain";
+  return "application/octet-stream";
 }
