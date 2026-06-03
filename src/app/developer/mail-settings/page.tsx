@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Loader2, Mail, PlugZap, RefreshCw, Unplug } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
+import type { DocumentDeadlineReminderRunSummary } from '@/lib/document-deadline-reminders'
 
 type Status = {
   configured: boolean
@@ -24,7 +25,7 @@ type ReminderScheduleStatus = {
     skipReason: string | null
   }
   mailReady?: boolean
-  lastRun?: { calendarDate: string; ranAt: string; summary?: { emailsSent?: number; errors?: string[] } } | null
+  lastRun?: { calendarDate: string; ranAt: string; summary?: DocumentDeadlineReminderRunSummary } | null
   dryRunSummary?: {
     clientsScanned: number
     remindersQueued: number
