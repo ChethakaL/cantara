@@ -155,13 +155,13 @@ export function DocumentUploadPanel({
             : isDragActive
               ? 'Drop files here'
               : files.length
-                ? 'Add more files'
-                : 'Upload files (select multiple)'}
+                ? 'Add another file or files'
+                : 'Upload a file or files'}
         </span>
       </div>
 
       <p className="text-[10px] text-slate-400 leading-relaxed">
-        Select multiple files at once. New uploads are added — they never replace existing files.
+        You can upload one or more files. New uploads are added — they never replace existing files.
       </p>
 
       {error && <p className="text-xs text-rose-600">{error}</p>}
