@@ -48,6 +48,26 @@ export async function getUnipileAccount(accountId: string) {
   return text ? JSON.parse(text) as Record<string, unknown> : {};
 }
 
+function formatUnipileError(status: number, text: string) {
+  try {
+    const parsed = JSON.parse(text) as { title?: string; detail?: string; type?: string };
+    if (parsed.detail) {
+      return `Unipile ${status}: ${parsed.detail}${parsed.type ? ` (${parsed.type})` : ""}`;
+    }
+  } catch {
+    /* not JSON — often nginx HTML */
+  }
+  if (status === 502) {
+    return "Unipile 502: Mail proxy error — disconnect and reconnect the sender in Developer Mail Settings, then try again.";
+  }
+  const trimmed = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return trimmed.slice(0, 280) || `Unipile email send failed (${status}).`;
+}
+
+function wait(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function sendEmailWithUnipile(args: {
   to: string;
   displayName?: string;
@@ -75,21 +95,33 @@ export async function sendEmailWithUnipile(args: {
     ]),
   );
 
-  const response = await fetch(`${getUnipileBaseUrl()}/api/v1/emails`, {
-    method: "POST",
-    headers: {
-      "X-API-KEY": accessToken,
-    },
-    body: form,
-    cache: "no-store",
-  });
+  const url = `${getUnipileBaseUrl()}/api/v1/emails`;
+  const retryableStatuses = new Set([502, 503, 504]);
+  let lastError = "Unipile email send failed.";
 
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(text || `Unipile email send failed (${response.status}).`);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": accessToken,
+      },
+      body: form,
+      cache: "no-store",
+    });
+
+    const text = await response.text();
+    if (response.ok) {
+      return text ? JSON.parse(text) : null;
+    }
+
+    lastError = formatUnipileError(response.status, text);
+    if (!retryableStatuses.has(response.status) || attempt === 3) {
+      throw new Error(lastError);
+    }
+    await wait(attempt * 2000);
   }
 
-  return text ? JSON.parse(text) : null;
+  throw new Error(lastError);
 }
 
 export async function createUnipileHostedAuthLink(args: {

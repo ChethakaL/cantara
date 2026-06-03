@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { mapClientForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
+import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
 
 // GET /api/clients - Get all clients for admin dashboard
 export async function GET(req: NextRequest) {
   try {
+    scheduleDailyDocumentDeadlineRemindersCheck();
+
     const clients = await (prisma as any).clientProfile.findMany({
       include: {
         Branches: true,

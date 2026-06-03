@@ -26,8 +26,9 @@ export function getZonedCalendarParts(date: Date, timeZone: string) {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    hour: 'numeric',
+    hour: '2-digit',
     hour12: false,
+    hourCycle: 'h23',
   })
   const parts = Object.fromEntries(
     formatter.formatToParts(date)
@@ -61,6 +62,16 @@ async function saveReminderLastRun(record: ReminderLastRunRecord) {
   })
 }
 
+function lastRunNeedsRetry(lastRun: ReminderLastRunRecord | null) {
+  const summary = lastRun?.summary
+  if (!summary) return false
+  if ((summary.emailsFailed ?? 0) > 0) return true
+  const queued = summary.remindersQueued ?? 0
+  const sent = summary.emailsSent ?? 0
+  const skipped = summary.emailsSkippedAlreadySent ?? 0
+  return queued > 0 && sent === 0 && skipped < queued
+}
+
 export function shouldRunScheduledReminders(now: Date, lastRun: ReminderLastRunRecord | null) {
   const { timeZone, hour } = getReminderScheduleConfig()
   const zoned = getZonedCalendarParts(now, timeZone)
@@ -68,6 +79,9 @@ export function shouldRunScheduledReminders(now: Date, lastRun: ReminderLastRunR
     return { run: false, reason: `Before ${hour}:00 ${timeZone}`, zoned, lastRun }
   }
   if (lastRun?.calendarDate === zoned.calendarDate) {
+    if (lastRunNeedsRetry(lastRun)) {
+      return { run: true, reason: 'Retrying — previous run did not deliver emails', zoned, lastRun }
+    }
     return { run: false, reason: 'Already ran today', zoned, lastRun }
   }
   return { run: true, reason: 'Due for daily run', zoned, lastRun }
@@ -103,11 +117,18 @@ export async function triggerDailyDocumentDeadlineReminders(args?: {
   inFlight = (async () => {
     const summary = await runDocumentDeadlineReminders(now, { dryRun: args?.dryRun })
     if (!args?.dryRun) {
-      await saveReminderLastRun({
-        calendarDate: schedule.zoned.calendarDate,
-        ranAt: now.toISOString(),
-        summary,
-      })
+      const shouldPersistDay =
+        (summary.remindersQueued ?? 0) === 0 ||
+        (summary.emailsSent ?? 0) > 0 ||
+        (summary.emailsSkippedAlreadySent ?? 0) >= (summary.remindersQueued ?? 0)
+
+      if (shouldPersistDay) {
+        await saveReminderLastRun({
+          calendarDate: schedule.zoned.calendarDate,
+          ranAt: now.toISOString(),
+          summary,
+        })
+      }
     }
     return summary
   })()
@@ -122,7 +143,24 @@ export async function triggerDailyDocumentDeadlineReminders(args?: {
 
 /** Fire-and-forget hook for API routes / pages — never blocks the caller. */
 export function scheduleDailyDocumentDeadlineRemindersCheck() {
-  void triggerDailyDocumentDeadlineReminders().catch(error => {
-    console.error('[document-deadline-reminder-scheduler]', error)
-  })
+  void triggerDailyDocumentDeadlineReminders()
+    .then(result => {
+      if (result.triggered) {
+        console.info('[document-deadline-reminders] run finished', {
+          reason: result.reason,
+          emailsSent: result.summary?.emailsSent ?? 0,
+          emailsPlanned: result.summary?.emailsPlanned ?? 0,
+          remindersQueued: result.summary?.remindersQueued ?? 0,
+          errors: result.summary?.errors ?? [],
+        })
+      } else {
+        console.info('[document-deadline-reminders] skipped', {
+          reason: result.reason,
+          zoned: result.zoned,
+        })
+      }
+    })
+    .catch(error => {
+      console.error('[document-deadline-reminder-scheduler]', error)
+    })
 }

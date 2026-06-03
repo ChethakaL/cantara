@@ -33,16 +33,27 @@ export async function GET(req: NextRequest) {
   let connectedEmail: string | null = null;
   let accountStatus: string | null = null;
   const hasAccessToken = Boolean(getProjectEnv("UNIPILE_ACCESS_TOKEN") || getProjectEnv("UNIPILE_API_KEY"));
+  let accountError: string | null = null;
   if (accountId && hasAccessToken && getProjectEnv("UNIPILE_DSN")) {
-    const account = await getUnipileAccount(accountId).catch(() => null);
-    connectedEmail = extractAccountEmail(account);
-    accountStatus = typeof account?.status === "string" ? account.status : null;
+    try {
+      const account = await getUnipileAccount(accountId);
+      connectedEmail = extractAccountEmail(account);
+      accountStatus =
+        typeof account?.status === "string"
+          ? account.status
+          : typeof account?.state === "string"
+            ? account.state
+            : null;
+    } catch (error) {
+      accountError = error instanceof Error ? error.message : "Account lookup failed";
+    }
   }
   return NextResponse.json({
     configured: Boolean(accountId),
     accountId: maskSecret(accountId),
     connectedEmail,
     accountStatus,
+    accountError,
     source: stored ? "database" : envAccountId ? "env" : null,
     apiConfigured: Boolean(getProjectEnv("UNIPILE_DSN") && hasAccessToken),
   });

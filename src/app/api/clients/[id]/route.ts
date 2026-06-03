@@ -5,6 +5,7 @@ import { mapClientForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
 import { sendEmailWithUnipile } from "@/lib/unipile";
 import { recordClientEmailNotification } from "@/lib/client-email-notifications";
+import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
 
 function buildTeamInviteEmail(args: {
   clientName: string;
@@ -44,6 +45,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     });
 
     if (!client) return new Response("Not Found", { status: 404 });
+
+    scheduleDailyDocumentDeadlineRemindersCheck();
 
     const requirements = await (prisma as any).agentDocumentRequirement.findMany();
     return NextResponse.json(mapClientForFrontend(applyAgentDocumentRequirements(client, requirements)));

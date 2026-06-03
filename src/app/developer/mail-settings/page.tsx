@@ -9,16 +9,29 @@ type Status = {
   accountId: string | null
   connectedEmail?: string | null
   accountStatus?: string | null
+  accountError?: string | null
   source: 'database' | 'env' | null
   apiConfigured: boolean
 }
 
 type ReminderScheduleStatus = {
+  important?: string[]
   schedule: { timeZone: string; hour: number }
-  zoned: { calendarDate: string; hour: number; timeZone: string }
-  wouldRunNow: boolean
-  skipReason: string | null
-  lastRun: { calendarDate: string; ranAt: string } | null
+  serverTime?: { iso: string; timezone: string; zoned: { calendarDate: string; hour: number } }
+  reminderWindow?: {
+    zoned: { calendarDate: string; hour: number; timeZone: string }
+    wouldRunScheduledCheck: boolean
+    skipReason: string | null
+  }
+  mailReady?: boolean
+  lastRun?: { calendarDate: string; ranAt: string; summary?: { emailsSent?: number; errors?: string[] } } | null
+  dryRunSummary?: {
+    clientsScanned: number
+    remindersQueued: number
+    emailsPlanned?: number
+    errors: string[]
+  }
+  lastRunErrors?: string[]
 }
 
 type ReminderRunResult = {
@@ -79,6 +92,7 @@ export default function DeveloperMailSettingsPage() {
       setUnlocked(true)
       sessionStorage.setItem('cantara_developer_secret', secretValue)
       await loadReminderStatus(secretValue)
+      void fetch('/api/internal/daily-document-reminders', { method: 'POST' }).catch(() => undefined)
     } catch (err) {
       setUnlocked(false)
       setError(err instanceof Error ? err.message : 'Could not load mail status')
@@ -140,6 +154,28 @@ export default function DeveloperMailSettingsPage() {
     } catch (err) {
       setReminderStatus(null)
       setError(err instanceof Error ? err.message : 'Could not load reminder schedule')
+    }
+  }
+
+  const sendTestEmail = async () => {
+    const to = window.prompt('Send test email to which address?')
+    if (!to?.trim()) return
+    setRunningReminders(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/developer/unipile-mail/test-send', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ to: to.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || await res.text())
+      window.alert(data.message || 'Test email sent.')
+      await loadStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test send failed')
+    } finally {
+      setRunningReminders(false)
     }
   }
 
@@ -227,6 +263,9 @@ export default function DeveloperMailSettingsPage() {
                       : 'Connect aliya@cantarapet.com to send invitations.'}
                   </p>
                   {status?.accountStatus && <p className="mt-1 text-xs text-slate-400">Unipile status: {status.accountStatus}</p>}
+                  {status?.accountError && (
+                    <p className="mt-1 text-xs text-rose-600">Account error: {status.accountError}</p>
+                  )}
                   {status?.source === 'env' && <p className="mt-1 text-xs text-slate-400">Configured from env.</p>}
                 </div>
               </div>
@@ -248,6 +287,11 @@ export default function DeveloperMailSettingsPage() {
                 {status?.configured ? 'Change Sender' : 'Connect Sender'}
               </Button>
               {status?.configured && (
+                <Button variant="outline" onClick={() => void sendTestEmail()} disabled={loading || runningReminders}>
+                  Test send
+                </Button>
+              )}
+              {status?.configured && (
                 <Button variant="danger" onClick={() => void disconnectMailbox()} disabled={loading || status.source === 'env'}>
                   <Unplug className="h-4 w-4" />
                   Disconnect
@@ -266,22 +310,41 @@ export default function DeveloperMailSettingsPage() {
           <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-base font-semibold">Document deadline reminders</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Runs automatically once per day after 9:00 AM US Eastern when someone opens the admin dashboard or client portal (no server crontab).
+              Uses <strong>US Eastern</strong> time (not your server UTC clock). Runs once per day after 9:00 AM Eastern when the app receives traffic (admin/client pages).
             </p>
             {reminderStatus && (
               <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
-                <p>Timezone: {reminderStatus.schedule.timeZone} · window starts {reminderStatus.schedule.hour}:00</p>
-                <p>Now: {reminderStatus.zoned.calendarDate} {reminderStatus.zoned.hour}:00 local</p>
-                <p>Would auto-run now: {reminderStatus.wouldRunNow ? 'Yes' : `No (${reminderStatus.skipReason})`}</p>
+                {reminderStatus.important?.map(line => (
+                  <p key={line} className="text-amber-800">{line}</p>
+                ))}
+                <p>Reminder TZ: {reminderStatus.schedule.timeZone} · from {reminderStatus.schedule.hour}:00</p>
+                <p>NY now: {reminderStatus.reminderWindow?.zoned.calendarDate} {reminderStatus.reminderWindow?.zoned.hour}:00</p>
+                <p>Server ({reminderStatus.serverTime?.timezone}): {reminderStatus.serverTime?.zoned.calendarDate} {reminderStatus.serverTime?.zoned.hour}:00</p>
+                <p>Would auto-run: {reminderStatus.reminderWindow?.wouldRunScheduledCheck ? 'Yes' : `No — ${reminderStatus.reminderWindow?.skipReason}`}</p>
+                <p>Mail ready: {reminderStatus.mailReady ? 'Yes' : 'No — connect sender above'}</p>
+                <p>Dry-run queue: {reminderStatus.dryRunSummary?.remindersQueued ?? 0} email(s) for {reminderStatus.dryRunSummary?.clientsScanned ?? 0} clients</p>
                 {reminderStatus.lastRun && (
-                  <p>Last run: {reminderStatus.lastRun.calendarDate} at {new Date(reminderStatus.lastRun.ranAt).toLocaleString()}</p>
+                  <p>
+                    Last run: {reminderStatus.lastRun.calendarDate} · sent {reminderStatus.lastRun.summary?.emailsSent ?? 0}
+                    {(reminderStatus.lastRun.summary?.emailsFailed ?? 0) > 0 && (
+                      <span className="text-rose-700"> · failed {reminderStatus.lastRun.summary?.emailsFailed}</span>
+                    )}
+                  </p>
+                )}
+                {(reminderStatus.lastRunErrors?.length ?? 0) > 0 && (
+                  <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
+                    <p className="font-semibold">Last send error (Unipile / mail API):</p>
+                    <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed">
+                      {reminderStatus.lastRunErrors.join('\n\n')}
+                    </pre>
+                  </div>
                 )}
               </div>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => void loadReminderStatus()} disabled={runningReminders}>
                 <RefreshCw className={`h-4 w-4 ${runningReminders ? 'animate-spin' : ''}`} />
-                Refresh status
+                Diagnose
               </Button>
               <Button variant="outline" onClick={() => void runDeadlineReminders({ dryRun: true, force: true })} disabled={runningReminders}>
                 Preview (dry run)

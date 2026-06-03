@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireDeveloperSecret } from '@/lib/developer-auth'
 import {
-  getReminderLastRun,
-  getReminderScheduleConfig,
-  getZonedCalendarParts,
-  shouldRunScheduledReminders,
   triggerDailyDocumentDeadlineReminders,
 } from '@/lib/document-deadline-reminder-scheduler'
+import {
+  clearReminderLastRun,
+  diagnoseDocumentDeadlineReminders,
+} from '@/lib/document-deadline-reminder-diagnose'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -15,20 +15,15 @@ export async function GET(req: NextRequest) {
   const auth = requireDeveloperSecret(req.headers.get('x-developer-secret'))
   if (!auth.ok) return new Response(auth.message, { status: auth.status })
 
-  const now = new Date()
-  const schedule = getReminderScheduleConfig()
-  const zoned = getZonedCalendarParts(now, schedule.timeZone)
-  const lastRun = await getReminderLastRun()
-  const due = shouldRunScheduledReminders(now, lastRun)
+  return NextResponse.json(await diagnoseDocumentDeadlineReminders())
+}
 
-  return NextResponse.json({
-    schedule,
-    now: now.toISOString(),
-    zoned,
-    lastRun,
-    wouldRunNow: due.run,
-    skipReason: due.run ? null : due.reason,
-  })
+export async function DELETE(req: NextRequest) {
+  const auth = requireDeveloperSecret(req.headers.get('x-developer-secret'))
+  if (!auth.ok) return new Response(auth.message, { status: auth.status })
+
+  await clearReminderLastRun()
+  return NextResponse.json({ ok: true, message: 'Cleared last run — scheduled check can run again today.' })
 }
 
 export async function POST(req: NextRequest) {
