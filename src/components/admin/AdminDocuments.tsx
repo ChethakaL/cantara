@@ -1,18 +1,29 @@
 'use client'
-import { useState } from 'react'
-import { CheckCircle, Clock, AlertTriangle, FileText, Loader2, MessageSquareMore, Trash2 } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { AlertTriangle, Loader2, MessageSquareMore, Trash2 } from 'lucide-react'
+import { DocumentUploadAccordion } from '@/components/documents/DocumentUploadAccordion'
 import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
 import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
+import { AdminDocumentFileList } from '@/components/admin/AdminDocumentFileList'
+import { fetchClientDocumentsBatch, mergeUploadedFiles, type FilesByDocumentId } from '@/lib/client-document-files'
+import type { ClientUploadedFile } from '@/lib/client-document-upload'
 import { VALUATION_DOCS, getDocsForAgentSelections, getDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
+import {
+  MULTI_YEAR_UPLOAD_SLOTS,
+  getMultiYearCombinedId,
+  getMultiYearUploadProgress,
+  isMultiYearParentDocId,
+} from '@/lib/client-portal-documents'
 import { VALUATION_SECTION_ID } from '@/lib/document-deadlines'
 import { DocumentDeadlineField, SectionDeadlineField } from '@/components/admin/DocumentDeadlineControls'
 import { parseStoredInsuranceReview } from '@/lib/insurance-review-shared'
 import { getAdminEmail, saveRequirement } from '@/lib/store'
-import type { Client } from '@/lib/store'
+import type { Client, DocumentStatus } from '@/lib/store'
 
-function AdminDocumentDelete({ clientId, documentId, fileName, onDeleted }: {
+function AdminDocumentDelete({ clientId, documentId, recordId, fileName, onDeleted }: {
   clientId: string
   documentId: string
+  recordId?: string
   fileName?: string | null
   onDeleted: () => Promise<void> | void
 }) {
@@ -20,7 +31,11 @@ function AdminDocumentDelete({ clientId, documentId, fileName, onDeleted }: {
 
   const removeDocument = async () => {
     if (!fileName || deleting) return
-    const confirmed = window.confirm(`Delete "${fileName}" from this admin checklist item?`)
+    const confirmed = window.confirm(
+      recordId
+        ? `Remove "${fileName}"?`
+        : `Delete all files for this checklist item${fileName ? ` (including "${fileName}")` : ''}?`,
+    )
     if (!confirmed) return
 
     setDeleting(true)
@@ -28,7 +43,7 @@ function AdminDocumentDelete({ clientId, documentId, fileName, onDeleted }: {
       const res = await fetch('/api/client-documents', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, documentId }),
+        body: JSON.stringify(recordId ? { clientId, recordId } : { clientId, documentId }),
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
@@ -44,10 +59,10 @@ function AdminDocumentDelete({ clientId, documentId, fileName, onDeleted }: {
 
   if (!fileName) return null
 
-  return (
-    <Button size="sm" variant="outline" onClick={() => void removeDocument()} disabled={deleting}>
+    return (
+    <Button size="sm" variant="outline" onClick={() => void removeDocument()} disabled={deleting} className="text-rose-600 border-rose-200 hover:bg-rose-50">
       {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-      {deleting ? 'Deleting...' : 'Delete'}
+      {deleting ? 'Deleting…' : 'Delete'}
     </Button>
   )
 }
@@ -75,17 +90,93 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
   const [savingFollowUp, setSavingFollowUp] = useState(false)
   const [followUpForm, setFollowUpForm] = useState(EMPTY_FOLLOW_UP)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [filesByDocId, setFilesByDocId] = useState<FilesByDocumentId>({})
+  const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
+
+  const loadFileCatalog = useCallback(async () => {
+    try {
+      setFilesByDocId(await fetchClientDocumentsBatch(client.id))
+    } catch {
+      setFilesByDocId({})
+    }
+  }, [client.id])
+
+  useEffect(() => {
+    void loadFileCatalog()
+  }, [loadFileCatalog, refreshKey])
 
   const getStatus = (docId: string) => documentStatuses[docId]
+
+  const getFilesForSlot = (documentId: string, aliasIds: string[] = []): ClientUploadedFile[] => {
+    const ids = aliasIds.length ? aliasIds : [documentId]
+    const fromBatch = mergeUploadedFiles(ids, filesByDocId)
+    if (fromBatch.length) return fromBatch
+    const uploaded = uploadedDocuments[documentId]
+    return (uploaded?.files ?? []).map(file => ({
+      id: file.id,
+      fileName: file.fileName,
+      uploadedAt: file.uploadedAt,
+    }))
+  }
+
+  const deleteOneFile = async (file: ClientUploadedFile) => {
+    const confirmed = window.confirm(`Remove "${file.fileName}"?`)
+    if (!confirmed) return
+    setDeletingFileId(file.id)
+    try {
+      const res = await fetch('/api/client-documents', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id, recordId: file.id }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      await refreshClientView()
+      await loadFileCatalog()
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to remove file')
+    } finally {
+      setDeletingFileId(null)
+    }
+  }
+
+  const fileNameFromCatalog = (documentId: string, aliasIds: string[] = []) => {
+    const files = getFilesForSlot(documentId, aliasIds)
+    if (!files.length) return null
+    return files.length === 1 ? files[0].fileName : `${files.length} files uploaded`
+  }
+
+  const getResolvedStatus = (docId: string): DocumentStatus => {
+    const status = getStatus(docId)
+    const uploaded = uploadedDocuments[docId]
+    let catalogFileName = fileNameFromCatalog(docId)
+    if (docId.endsWith('__combined')) {
+      const parentId = docId.slice(0, -'__combined'.length)
+      if (isMultiYearParentDocId(parentId)) {
+        catalogFileName = fileNameFromCatalog(docId, [docId, parentId]) ?? catalogFileName
+      }
+    }
+    return {
+      id: docId,
+      hasDoc: status?.hasDoc ?? (uploaded?.fileName || catalogFileName ? true : null),
+      assignedTo: status?.assignedTo ?? null,
+      uploadedAt: status?.uploadedAt ?? uploaded?.uploadedAt ?? null,
+      fileName: status?.fileName ?? uploaded?.fileName ?? catalogFileName ?? null,
+      fileUrl: status?.fileUrl ?? uploaded?.fileUrl ?? null,
+      notApplicable: status?.notApplicable ?? false,
+    }
+  }
+
   const refreshClientView = async () => {
     const res = await fetch(`/api/clients/${client.id}`, { cache: 'no-store' })
     if (!res.ok) {
       setRefreshKey(prev => prev + 1)
+      await loadFileCatalog()
       return
     }
     const refreshed = (await res.json()) as Client
     onClientUpdated?.(refreshed)
     setRefreshKey(prev => prev + 1)
+    await loadFileCatalog()
   }
 
   const openFollowUp = (docId: string, docName: string) => {
@@ -132,71 +223,63 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     }
   }
 
-  const renderStatus = (docId: string) => {
-    const s = getStatus(docId)
-    const uploaded = uploadedDocuments[docId]
-    if (!s && uploaded?.fileName) {
-      return (
-        <a
-          href={`/api/client-documents/view?clientId=${client.id}&documentId=${docId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 underline underline-offset-2"
-        >
-          <CheckCircle className="w-3 h-3" />
-          {uploaded.fileName}
-        </a>
-      )
-    }
-    if (!s) return <span className="inline-flex items-center gap-1 text-xs text-slate-300"><Clock className="w-3 h-3" /> Awaiting</span>
+  const countFiles = (docId: string, aliasIds?: string[]) => getFilesForSlot(docId, aliasIds).length
+
+  const renderAdminStatusBadge = (docId: string) => {
+    const s = getResolvedStatus(docId)
+    const hasFiles = countFiles(docId) > 0
     if (s.notApplicable) return <Badge color="slate">N/A</Badge>
-    if (uploaded?.fileName) {
-      return (
-        <a
-          href={`/api/client-documents/view?clientId=${client.id}&documentId=${docId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 underline underline-offset-2"
-        >
-          <CheckCircle className="w-3 h-3" />
-          {uploaded.fileName}
-        </a>
-      )
-    }
-    if (s.hasDoc === false) return <Badge color="red">Client said: No</Badge>
-    if (s.hasDoc === true && s.fileName) {
-      return (
-        <a
-          href={`/api/client-documents/view?clientId=${client.id}&documentId=${docId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 underline underline-offset-2"
-        >
-          <CheckCircle className="w-3 h-3" />
-          {s.fileName}
-        </a>
-      )
-    }
-    if (s.hasDoc === true && !s.fileName) {
-      return (
-        <span className="inline-flex items-center gap-1 text-xs text-amber-600">
-          <Clock className="w-3 h-3" /> Confirmed, awaiting upload
-        </span>
-      )
-    }
-    if (s.assignedTo) return <Badge color="gold">Assigned to {s.assignedTo}</Badge>
-    return uploaded?.fileName ? (
-      <a
-        href={`/api/client-documents/view?clientId=${client.id}&documentId=${docId}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 underline underline-offset-2"
+    if (s.hasDoc === false) return <Badge color="red">Client: No</Badge>
+    if (hasFiles) return null
+    if (s.hasDoc === true && !s.fileName) return <Badge color="gold">Awaiting upload</Badge>
+    if (s.assignedTo) return <Badge color="gold">{s.assignedTo}</Badge>
+    return <Badge color="gray">Not started</Badge>
+  }
+
+  const renderAdminToolbar = (
+    doc: { id: string; name: string },
+    opts?: { uploadDocumentId?: string; layout?: 'header' | 'panel' },
+  ) => {
+    const slotId = opts?.uploadDocumentId ?? doc.id
+    const adminEmail = getAdminEmail()
+    const files = getFilesForSlot(slotId)
+    const resolved = getResolvedStatus(slotId)
+    const hasFiles = files.length > 0 || Boolean(resolved.fileName)
+    const isHeader = opts?.layout === 'header'
+
+    return (
+      <div
+        className={`flex flex-wrap items-center gap-2 ${isHeader ? '' : 'border-t border-slate-200/80 pt-3'}`}
       >
-        <CheckCircle className="w-3 h-3" />
-        {uploaded.fileName}
-      </a>
-    ) : (
-      <Badge color="slate">Unanswered</Badge>
+        {!isHeader && (
+          <p className="w-full text-[10px] font-semibold uppercase tracking-wide text-slate-400">Advisor actions</p>
+        )}
+        {adminEmail ? (
+          <ClientDocumentUpload
+            clientId={client.id}
+            documentId={slotId}
+            uploaderEmail={adminEmail}
+            currentFileName={resolved.fileName}
+            label="Admin upload"
+            variant="button"
+            onUploaded={async () => { await refreshClientView() }}
+          />
+        ) : (
+          <span className="text-[11px] text-amber-700">Sign in as admin to upload</span>
+        )}
+        <Button size="sm" variant="outline" onClick={() => openFollowUp(doc.id, doc.name)}>
+          <MessageSquareMore className="w-3.5 h-3.5" />
+          Follow-up Question
+        </Button>
+        {hasFiles && (
+          <AdminDocumentDelete
+            clientId={client.id}
+            documentId={slotId}
+            fileName={resolved.fileName ?? `${files.length} file(s)`}
+            onDeleted={refreshClientView}
+          />
+        )}
+      </div>
     )
   }
 
@@ -221,50 +304,173 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
 
   const refreshFromSave = (saved: Client) => onClientUpdated?.(saved)
 
-  const renderRow = (doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string }, sectionId: string) => (
-    <div key={`${doc.id}-${refreshKey}`} className={`flex items-start gap-3 px-4 py-3 ${doc.flagged ? 'bg-amber-50' : ''}`}>
-      {doc.flagged ? <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" /> : <FileText className="w-3.5 h-3.5 text-slate-300 shrink-0" />}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-slate-800">{doc.name}</p>
-        {'description' in doc && doc.description && <p className="text-xs text-slate-400 mt-0.5">{doc.description}</p>}
-        {doc.flagged && doc.flagNote && <p className="text-xs text-amber-600 mt-0.5">{doc.flagNote}</p>}
-        {doc.id === 'insurance_claims_12m' && renderInsuranceSummary(doc.id)}
-      </div>
-      <div className="shrink-0 flex flex-col items-end gap-2">
-        <DocumentDeadlineField
-          client={client}
-          documentId={doc.id}
-          sectionId={sectionId}
-          onSaved={refreshFromSave}
-        />
-        <div className="flex items-center gap-2">
-          {renderStatus(doc.id)}
-          {getAdminEmail() && (
-            <ClientDocumentUpload
-              clientId={client.id}
-              documentId={doc.id}
-              uploaderEmail={getAdminEmail()}
-              currentFileName={uploadedDocuments[doc.id]?.fileName || getStatus(doc.id)?.fileName}
-              label="Admin upload"
-              onUploaded={async () => {
-                await refreshClientView()
-              }}
-            />
-          )}
-          <AdminDocumentDelete
-            clientId={client.id}
-            documentId={doc.id}
-            fileName={uploadedDocuments[doc.id]?.fileName || getStatus(doc.id)?.fileName}
-            onDeleted={refreshClientView}
-          />
-          <Button size="sm" variant="outline" onClick={() => openFollowUp(doc.id, doc.name)}>
-            <MessageSquareMore className="w-3.5 h-3.5" />
-            Follow-up Question
-          </Button>
+  const renderMultiYearRow = (
+    doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string },
+    sectionId: string,
+  ) => {
+    const progress = getMultiYearUploadProgress(doc.id, id => getResolvedStatus(id))
+    const combinedId = getMultiYearCombinedId(doc.id)
+    const labels = MULTI_YEAR_UPLOAD_SLOTS[doc.id] ?? []
+    const adminEmail = getAdminEmail()
+    const totalFiles =
+      countFiles(combinedId, [combinedId, doc.id]) +
+      labels.reduce((sum, _, index) => sum + countFiles(`${doc.id}__year_${index + 1}`), 0)
+
+    return (
+      <DocumentUploadAccordion
+        key={`${doc.id}-multi-${refreshKey}`}
+        tone="admin"
+        title={doc.name}
+        description={doc.description}
+        fileCount={totalFiles}
+        isComplete={progress.completed === progress.total && progress.total > 0}
+        statusBadge={
+          <Badge color={progress.completed === progress.total ? 'green' : progress.completed > 0 ? 'gold' : 'slate'}>
+            {progress.completed === progress.total ? 'All years' : `${progress.completed}/${progress.total} years`}
+          </Badge>
+        }
+        headerActions={renderAdminToolbar(doc, { layout: 'header' })}
+      >
+        {doc.flagged && doc.flagNote && (
+          <p className="mb-3 flex items-start gap-2 text-xs text-amber-700">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {doc.flagNote}
+          </p>
+        )}
+        {doc.description && (
+          <p className="mb-3 text-xs leading-relaxed text-slate-600">{doc.description}</p>
+        )}
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Target deadline</span>
+          <DocumentDeadlineField client={client} documentId={doc.id} sectionId={sectionId} onSaved={refreshFromSave} />
         </div>
-      </div>
-    </div>
-  )
+
+        <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
+          Clients may upload one combined file or one file per year. You can add files on their behalf if needed.
+        </p>
+
+        <div className="space-y-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs font-semibold text-slate-800">All years in one file</p>
+            <p className="mt-0.5 mb-2 text-[11px] text-slate-500">PDF or ZIP covering every required year.</p>
+            <AdminDocumentFileList
+              clientId={client.id}
+              files={getFilesForSlot(combinedId, [combinedId, doc.id])}
+              onDeleteFile={deleteOneFile}
+              deletingId={deletingFileId}
+            />
+            {adminEmail && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <ClientDocumentUpload
+                  clientId={client.id}
+                  documentId={combinedId}
+                  uploaderEmail={adminEmail}
+                  currentFileName={getResolvedStatus(combinedId).fileName}
+                  label="Upload combined file"
+                  variant="button"
+                  onUploaded={async () => { await refreshClientView() }}
+                />
+                {countFiles(combinedId, [combinedId, doc.id]) > 0 && (
+                  <AdminDocumentDelete
+                    clientId={client.id}
+                    documentId={combinedId}
+                    fileName={getResolvedStatus(combinedId).fileName}
+                    onDeleted={refreshClientView}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs font-semibold text-slate-800 mb-2">One file per year</p>
+            <div className="space-y-3">
+              {labels.map((label, index) => {
+                const slotId = `${doc.id}__year_${index + 1}`
+                return (
+                  <div key={slotId} className="rounded-md border border-slate-100 bg-slate-50/80 p-2.5">
+                    <p className="text-xs font-medium text-slate-700 mb-1.5">{label}</p>
+                    <AdminDocumentFileList
+                      clientId={client.id}
+                      files={getFilesForSlot(slotId)}
+                      onDeleteFile={deleteOneFile}
+                      deletingId={deletingFileId}
+                    />
+                    {adminEmail && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <ClientDocumentUpload
+                          clientId={client.id}
+                          documentId={slotId}
+                          uploaderEmail={adminEmail}
+                          currentFileName={getResolvedStatus(slotId).fileName}
+                          label="Upload for this year"
+                          variant="button"
+                          onUploaded={async () => { await refreshClientView() }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {renderAdminToolbar(doc, { layout: 'panel' })}
+      </DocumentUploadAccordion>
+    )
+  }
+
+  const renderRow = (doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string }, sectionId: string) => {
+    if (MULTI_YEAR_UPLOAD_SLOTS[doc.id]) {
+      return renderMultiYearRow(doc, sectionId)
+    }
+
+    const files = getFilesForSlot(doc.id)
+    const isComplete = files.length > 0 || Boolean(getResolvedStatus(doc.id).fileName)
+
+    return (
+      <DocumentUploadAccordion
+        key={`${doc.id}-${refreshKey}`}
+        tone="admin"
+        title={doc.name}
+        description={doc.description}
+        fileCount={files.length}
+        isComplete={isComplete}
+        statusBadge={renderAdminStatusBadge(doc.id)}
+        headerActions={renderAdminToolbar(doc, { layout: 'header' })}
+      >
+        {doc.flagged && doc.flagNote && (
+          <p className="mb-3 flex items-start gap-2 text-xs text-amber-700">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {doc.flagNote}
+          </p>
+        )}
+        {doc.description && (
+          <p className="mb-3 text-xs leading-relaxed text-slate-600">{doc.description}</p>
+        )}
+        {doc.id === 'insurance_claims_12m' && renderInsuranceSummary(doc.id)}
+
+        <div className="mb-3">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Uploaded files</p>
+          <AdminDocumentFileList
+            clientId={client.id}
+            files={files}
+            onDeleteFile={deleteOneFile}
+            deletingId={deletingFileId}
+          />
+        </div>
+
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Target deadline</span>
+          <DocumentDeadlineField client={client} documentId={doc.id} sectionId={sectionId} onSaved={refreshFromSave} />
+        </div>
+
+        {renderAdminToolbar(doc, { layout: 'panel' })}
+      </DocumentUploadAccordion>
+    )
+  }
 
   if (!workstream) {
     return (
@@ -293,8 +499,11 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         ))}
       </div>
 
-      <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-        Set target upload deadlines per section or per document. Clients see these in their portal; only admins can edit them here.
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
+        Each row has <span className="font-medium text-slate-700">Admin upload</span> and{' '}
+        <span className="font-medium text-slate-700">Follow-up Question</span> on the right without expanding.
+        Expand for full description, file list, per-document deadline, and delete.
+        Section deadlines apply to the whole group unless overridden on a document.
       </div>
 
       <section>
@@ -309,7 +518,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
           documentIds={VALUATION_DOCS.map(doc => doc.id)}
           onSaved={refreshFromSave}
         />
-        <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-50">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {VALUATION_DOCS.map(doc => renderRow(doc, VALUATION_SECTION_ID))}
         </div>
       </section>
@@ -324,7 +533,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
             documentIds={cat.documents.map(doc => doc.id)}
             onSaved={refreshFromSave}
           />
-          <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-50">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             {cat.documents.map(doc => renderRow(doc, cat.id))}
           </div>
         </section>

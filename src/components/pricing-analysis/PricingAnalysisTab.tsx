@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef, Fragment } from 'react'
 import {
   AlertTriangle,
   RefreshCw,
@@ -9,6 +9,8 @@ import {
   TrendingUp,
   DollarSign,
   BarChart3,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import { Card, Badge, cn } from '@/components/ui'
 import type { CompetitorPricingInput, PricingAnalysisReport, PriceMatrixRow, PricingSummaryRow, PricingFlag } from '@/lib/pricing-analysis/types'
@@ -34,32 +36,82 @@ const SEVERITY_COLORS: Record<string, 'red' | 'gold' | 'green' | 'blue'> = {
   informational: 'blue',
 }
 
+const EMPTY_PRICE_DISPLAY = '--'
+
+function isEmptyPriceDisplay(value: string): boolean {
+  const t = value.trim()
+  return !t || t === EMPTY_PRICE_DISPLAY || t === '—' || t.toLowerCase() === 'n/a'
+}
+
+function formatPriceDisplay(value: string): string {
+  return isEmptyPriceDisplay(value) ? EMPTY_PRICE_DISPLAY : value
+}
+
+function editPriceValue(value: string): string {
+  return isEmptyPriceDisplay(value) ? '' : value
+}
+
 // ── Editable Cell helper ────────────────────────────────────────────────────
 function EditableCell({
   value,
   onChange,
   editMode,
   className,
+  align = 'left',
 }: {
   value: string
   onChange: (val: string) => void
   editMode: boolean
   className?: string
+  align?: 'left' | 'right'
 }) {
   if (!editMode) {
-    return <span className={cn('text-slate-700', className)}>{value}</span>
+    return <span className={cn('text-slate-700', className)}>{formatPriceDisplay(value)}</span>
   }
   return (
     <input
       type="text"
-      value={value}
+      value={editPriceValue(value)}
+      placeholder={EMPTY_PRICE_DISPLAY}
       onChange={e => onChange(e.target.value)}
       className={cn(
-        'w-full bg-white border border-amber-300 text-xs text-slate-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400',
+        'w-full min-w-[4.5rem] bg-white border border-amber-300 text-xs text-slate-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400',
+        align === 'right' && 'text-right',
         className,
       )}
     />
   )
+}
+
+function makeEmptyMatrixRow(competitorNames: string[]): PriceMatrixRow {
+  return {
+    service: '',
+    basis: '',
+    sellerPrice: '',
+    sellerNormalized: '',
+    sellerNormalizedNumeric: null,
+    competitors: competitorNames.map(name => ({
+      name,
+      listedPrice: '',
+      normalized: '',
+      normalizedNumeric: null,
+      normalizationNote: '',
+    })),
+  }
+}
+
+function makeEmptySummaryRow(): PricingSummaryRow {
+  return {
+    service: '',
+    sellerPrice: '',
+    sellerPriceNumeric: null,
+    competitorAvg: '',
+    competitorAvgNumeric: null,
+    variance: '',
+    variancePercent: null,
+    status: 'unknown',
+    estAnnualUplift: '',
+  }
 }
 
 export default function PricingAnalysisTab({
@@ -83,6 +135,43 @@ export default function PricingAnalysisTab({
   )
   const [savingInputs, setSavingInputs] = useState(false)
   const [inputsSaved, setInputsSaved] = useState(false)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const lastSavedSnapshotRef = useRef<string>('')
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const markSavedSnapshot = useCallback((report: PricingAnalysisReport) => {
+    lastSavedSnapshotRef.current = JSON.stringify(report)
+  }, [])
+
+  const persistPricingAnalysisToServer = useCallback(
+    async (report: PricingAnalysisReport, options: { silent: boolean }) => {
+      if (!options.silent) setSaving(true)
+      else setAutoSaveStatus('saving')
+      try {
+        const res = await fetch(`/api/client-data/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section: 'pricingAnalysis', data: report }),
+        })
+        if (!res.ok) throw new Error('Save failed')
+        markSavedSnapshot(report)
+        if (!options.silent) {
+          setSavedBadge(true)
+          setTimeout(() => setSavedBadge(false), 2000)
+        } else {
+          setAutoSaveStatus('saved')
+          setTimeout(() => setAutoSaveStatus('idle'), 2500)
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Save failed'
+        setError(message)
+        if (options.silent) setAutoSaveStatus('error')
+      } finally {
+        if (!options.silent) setSaving(false)
+      }
+    },
+    [clientId, markSavedSnapshot],
+  )
 
   // Load saved data on mount
   useEffect(() => {
@@ -94,6 +183,7 @@ export default function PricingAnalysisTab({
           const normalized = normalizePricingReport(data?.report)
           if (normalized) {
             setResult(normalized)
+            markSavedSnapshot(normalized)
           }
           if (data?.prefill) {
             setSellerWebsiteUrl(data.prefill.sellerWebsiteUrl ?? '')
@@ -105,7 +195,38 @@ export default function PricingAnalysisTab({
       } catch { /* ignore */ }
     }
     loadSaved()
-  }, [clientId])
+  }, [clientId, markSavedSnapshot])
+
+  // Auto-save while editing (debounced) so refresh does not lose manual edits
+  useEffect(() => {
+    if (!editMode || !result) return
+    const snapshot = JSON.stringify(result)
+    if (snapshot === lastSavedSnapshotRef.current) return
+
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      void persistPricingAnalysisToServer(result, { silent: true })
+    }, 700)
+
+    return () => {
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    }
+  }, [result, editMode, persistPricingAnalysisToServer])
+
+  // Flush pending edits when the tab is hidden (e.g. user refreshes soon after typing)
+  useEffect(() => {
+    const flushIfDirty = () => {
+      if (!editMode || !result) return
+      if (JSON.stringify(result) === lastSavedSnapshotRef.current) return
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+      void persistPricingAnalysisToServer(result, { silent: true })
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushIfDirty()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [editMode, result, persistPricingAnalysisToServer])
 
   const handleAnalyze = async () => {
     const completeCompetitors = competitors.filter(c => c.name.trim() && c.websiteUrl.trim())
@@ -137,6 +258,7 @@ export default function PricingAnalysisTab({
       const data = normalizePricingReport(await res.json())
       if (!data) throw new Error('Analysis returned an invalid report. Please run again.')
       setResult(data)
+      markSavedSnapshot(data)
       setEditMode(false)
       setRerunComplete(true)
       setTimeout(() => setRerunComplete(false), 3500)
@@ -158,21 +280,8 @@ export default function PricingAnalysisTab({
 
   const handleSave = async () => {
     if (!result) return
-    setSaving(true)
-    try {
-      const res = await fetch(`/api/client-data/${clientId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ section: 'pricingAnalysis', data: result }),
-      })
-      if (!res.ok) throw new Error('Save failed')
-      setSavedBadge(true)
-      setTimeout(() => setSavedBadge(false), 2000)
-    } catch (err: any) {
-      setError(err.message || 'Save failed')
-    } finally {
-      setSaving(false)
-    }
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    await persistPricingAnalysisToServer(result, { silent: false })
   }
 
   // ── Mutation helpers ────────────────────────────────────────────────────────
@@ -183,13 +292,76 @@ export default function PricingAnalysisTab({
     setResult({ ...result, priceMatrix: matrix })
   }
 
-  const updateMatrixCompetitor = (rowIndex: number, compIndex: number, field: string, value: string) => {
+  const updateMatrixCompetitor = (
+    rowIndex: number,
+    compName: string,
+    field: 'listedPrice' | 'normalized' | 'normalizationNote',
+    value: string,
+  ) => {
     if (!result) return
     const matrix = [...(result.priceMatrix ?? [])]
-    const comps = [...matrix[rowIndex].competitors]
-    comps[compIndex] = { ...comps[compIndex], [field]: value }
-    matrix[rowIndex] = { ...matrix[rowIndex], competitors: comps }
+    const row = { ...matrix[rowIndex], competitors: [...matrix[rowIndex].competitors] }
+    let compIndex = row.competitors.findIndex(c => c.name === compName)
+    if (compIndex < 0) {
+      row.competitors.push({
+        name: compName,
+        listedPrice: '',
+        normalized: '',
+        normalizedNumeric: null,
+        normalizationNote: '',
+      })
+      compIndex = row.competitors.length - 1
+    }
+    row.competitors[compIndex] = { ...row.competitors[compIndex], [field]: value }
+    matrix[rowIndex] = row
     setResult({ ...result, priceMatrix: matrix })
+  }
+
+  const addMatrixRow = () => {
+    if (!result) return
+    const names = getCompetitorNamesFromReport(result)
+    setResult({
+      ...result,
+      priceMatrix: [...(result.priceMatrix ?? []), makeEmptyMatrixRow(names)],
+    })
+  }
+
+  const removeMatrixRow = (rowIndex: number) => {
+    if (!result) return
+    const matrix = [...(result.priceMatrix ?? [])]
+    matrix.splice(rowIndex, 1)
+    setResult({ ...result, priceMatrix: matrix })
+  }
+
+  const addSummaryRow = () => {
+    if (!result) return
+    setResult({
+      ...result,
+      pricingSummary: [...(result.pricingSummary ?? []), makeEmptySummaryRow()],
+    })
+  }
+
+  const removeSummaryRow = (rowIndex: number) => {
+    if (!result) return
+    const summary = [...(result.pricingSummary ?? [])]
+    summary.splice(rowIndex, 1)
+    setResult({ ...result, pricingSummary: summary })
+  }
+
+  const addFlag = () => {
+    if (!result) return
+    setResult({
+      ...result,
+      flags: [
+        ...(result.flags ?? []),
+        {
+          id: `flag-${Date.now()}`,
+          severity: 'informational',
+          title: '',
+          description: '',
+        },
+      ],
+    })
   }
 
   const updateSummaryRow = (index: number, field: keyof PricingSummaryRow, value: any) => {
@@ -303,6 +475,41 @@ export default function PricingAnalysisTab({
 
   const competitorNames = result ? getCompetitorNamesFromReport(result) : []
 
+  const normalizeMatrixForEdit = useCallback((report: PricingAnalysisReport): PricingAnalysisReport => {
+    const names = getCompetitorNamesFromReport(report)
+    if (!names.length) return report
+    const priceMatrix = report.priceMatrix.map(row => {
+      const byName = new Map(row.competitors.map(c => [c.name, c]))
+      return {
+        ...row,
+        competitors: names.map(
+          name =>
+            byName.get(name) ?? {
+              name,
+              listedPrice: '',
+              normalized: '',
+              normalizedNumeric: null,
+              normalizationNote: '',
+            },
+        ),
+      }
+    })
+    return { ...report, priceMatrix }
+  }, [])
+
+  const toggleEditMode = async () => {
+    if (editMode && result) {
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+      await persistPricingAnalysisToServer(result, { silent: false })
+      setEditMode(false)
+      return
+    }
+    if (result) {
+      setResult(normalizeMatrixForEdit(result))
+    }
+    setEditMode(true)
+  }
+
   // ── Results view ────────────────────────────────────────────────────────────
   if (result) {
     return (
@@ -315,15 +522,29 @@ export default function PricingAnalysisTab({
               {clientName} &mdash; {result.competitorsAnalyzed} competitors analyzed &mdash; Generated{' '}
               {new Date(result.generatedAt).toLocaleString()}
             </p>
+            {editMode && (
+              <p className="text-[11px] text-amber-700/90 mt-1">
+                Changes auto-save while you edit. Click <span className="font-semibold">Editing</span> when done to save immediately.
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-3">
+            {editMode && autoSaveStatus === 'saving' && (
+              <span className="text-xs text-slate-500">Saving…</span>
+            )}
+            {editMode && autoSaveStatus === 'saved' && (
+              <span className="text-xs text-emerald-600 font-medium">All changes saved</span>
+            )}
+            {editMode && autoSaveStatus === 'error' && (
+              <span className="text-xs text-red-600 font-medium">Save failed — use Save</span>
+            )}
             {rerunComplete && (
               <span className="px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
                 Analysis updated
               </span>
             )}
             <button
-              onClick={() => setEditMode(e => !e)}
+              onClick={toggleEditMode}
               className={cn(
                 'flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors',
                 editMode
@@ -425,13 +646,25 @@ export default function PricingAnalysisTab({
         </Card>
 
         {/* Table 1: Detailed Competitor Price Matrix */}
-        {(result.priceMatrix ?? []).length > 0 && (
+        {(editMode || (result.priceMatrix ?? []).length > 0) && (
           <Card className="overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-slate-400" />
-              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                Detailed Competitor Price Matrix
-              </h3>
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-slate-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Detailed Competitor Price Matrix
+                </h3>
+              </div>
+              {editMode && (
+                <button
+                  type="button"
+                  onClick={addMatrixRow}
+                  className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add row
+                </button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -453,18 +686,19 @@ export default function PricingAnalysisTab({
                     <th className="px-3 py-1 bg-yellow-50" />
                     <th className="px-3 py-1 bg-yellow-50" />
                     {competitorNames.map(name => (
-                      <>
-                        <th key={`${name}-sub-listed`} className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">Listed</th>
-                        <th key={`${name}-sub-norm`} className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50">Norm.</th>
-                      </>
+                      <Fragment key={`${name}-sub`}>
+                        <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">Listed</th>
+                        <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50">Norm.</th>
+                      </Fragment>
                     ))}
+                    {editMode && <th className="w-10 px-2 py-1" />}
                   </tr>
                 </thead>
                 <tbody>
                   {(result.priceMatrix ?? []).map((row, ri) => {
                     const compMap = new Map(row.competitors.map(c => [c.name, c]))
                     return (
-                      <tr key={ri} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                      <tr key={ri} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
                         <td className="px-3 py-2.5 font-medium text-slate-800">
                           <EditableCell value={row.service} onChange={v => updateMatrixRow(ri, 'service', v)} editMode={editMode} />
                         </td>
@@ -472,41 +706,65 @@ export default function PricingAnalysisTab({
                           <EditableCell value={row.basis} onChange={v => updateMatrixRow(ri, 'basis', v)} editMode={editMode} />
                         </td>
                         <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
-                          <EditableCell value={row.sellerPrice} onChange={v => updateMatrixRow(ri, 'sellerPrice', v)} editMode={editMode} />
+                          <EditableCell value={row.sellerPrice} onChange={v => updateMatrixRow(ri, 'sellerPrice', v)} editMode={editMode} align="right" />
                         </td>
                         <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
-                          <EditableCell value={row.sellerNormalized} onChange={v => updateMatrixRow(ri, 'sellerNormalized', v)} editMode={editMode} />
+                          <EditableCell value={row.sellerNormalized} onChange={v => updateMatrixRow(ri, 'sellerNormalized', v)} editMode={editMode} align="right" />
                         </td>
-                        {competitorNames.map((name, ci) => {
+                        {competitorNames.map(name => {
                           const comp = compMap.get(name)
-                          const compIdx = row.competitors.findIndex(c => c.name === name)
                           return (
-                            <>
-                              <td key={`${name}-listed-${ri}`} className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700 border-l border-slate-100">
-                                {editMode && compIdx >= 0 ? (
-                                  <EditableCell value={comp?.listedPrice ?? '--'} onChange={v => updateMatrixCompetitor(ri, compIdx, 'listedPrice', v)} editMode={editMode} />
-                                ) : (
-                                  comp?.listedPrice ?? '--'
-                                )}
+                            <Fragment key={`${name}-${ri}`}>
+                              <td className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700 border-l border-slate-100">
+                                <EditableCell
+                                  value={comp?.listedPrice ?? ''}
+                                  onChange={v => updateMatrixCompetitor(ri, name, 'listedPrice', v)}
+                                  editMode={editMode}
+                                  align="right"
+                                />
                               </td>
-                              <td key={`${name}-norm-${ri}`} className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700" title={comp?.normalizationNote ?? ''}>
-                                {editMode && compIdx >= 0 ? (
-                                  <EditableCell value={comp?.normalized ?? '--'} onChange={v => updateMatrixCompetitor(ri, compIdx, 'normalized', v)} editMode={editMode} />
+                              <td className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700" title={comp?.normalizationNote ?? ''}>
+                                {editMode ? (
+                                  <EditableCell
+                                    value={comp?.normalized ?? ''}
+                                    onChange={v => updateMatrixCompetitor(ri, name, 'normalized', v)}
+                                    editMode={editMode}
+                                    align="right"
+                                  />
                                 ) : (
                                   <span>
-                                    {comp?.normalized ?? '--'}
+                                    {formatPriceDisplay(comp?.normalized ?? '')}
                                     {comp?.normalizationNote && (
                                       <span className="block text-[9px] text-slate-400 mt-0.5">{comp.normalizationNote}</span>
                                     )}
                                   </span>
                                 )}
                               </td>
-                            </>
+                            </Fragment>
                           )
                         })}
+                        {editMode && (
+                          <td className="px-2 py-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => removeMatrixRow(ri)}
+                              className="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Remove row"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     )
                   })}
+                  {editMode && (result.priceMatrix ?? []).length === 0 && (
+                    <tr>
+                      <td colSpan={4 + competitorNames.length * 2 + 1} className="px-4 py-8 text-center text-sm text-slate-400">
+                        No rows yet. Click &ldquo;Add row&rdquo; to build the matrix manually.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -514,13 +772,25 @@ export default function PricingAnalysisTab({
         )}
 
         {/* Table 2: Pricing Summary & Variance */}
-        {(result.pricingSummary ?? []).length > 0 && (
+        {(editMode || (result.pricingSummary ?? []).length > 0) && (
           <Card className="overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-slate-400" />
-              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                Pricing Summary & Variance
-              </h3>
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-slate-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Pricing Summary & Variance
+                </h3>
+              </div>
+              {editMode && (
+                <button
+                  type="button"
+                  onClick={addSummaryRow}
+                  className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add row
+                </button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -532,33 +802,37 @@ export default function PricingAnalysisTab({
                     <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Variance</th>
                     <th className="text-center px-4 py-2.5 font-semibold text-slate-600">Status</th>
                     <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Est. Annual Uplift</th>
+                    {editMode && <th className="w-10 px-2 py-2.5" />}
                   </tr>
                 </thead>
                 <tbody>
                   {(result.pricingSummary ?? []).map((row, i) => {
                     const statusConfig = STATUS_COLORS[row.status] || STATUS_COLORS.unknown
                     return (
-                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
                         <td className="px-4 py-2.5 font-medium text-slate-800">
                           <EditableCell value={row.service} onChange={v => updateSummaryRow(i, 'service', v)} editMode={editMode} />
                         </td>
                         <td className="px-4 py-2.5 text-right">
-                          <EditableCell value={row.sellerPrice} onChange={v => updateSummaryRow(i, 'sellerPrice', v)} editMode={editMode} />
+                          <EditableCell value={row.sellerPrice} onChange={v => updateSummaryRow(i, 'sellerPrice', v)} editMode={editMode} align="right" />
                         </td>
                         <td className="px-4 py-2.5 text-right">
-                          <EditableCell value={row.competitorAvg} onChange={v => updateSummaryRow(i, 'competitorAvg', v)} editMode={editMode} />
+                          <EditableCell value={row.competitorAvg} onChange={v => updateSummaryRow(i, 'competitorAvg', v)} editMode={editMode} align="right" />
                         </td>
                         <td className="px-4 py-2.5 text-right font-semibold">
                           <EditableCell
                             value={row.variance}
                             onChange={v => updateSummaryRow(i, 'variance', v)}
                             editMode={editMode}
+                            align="right"
                             className={
-                              row.variancePercent !== null && row.variancePercent < -10
+                              !editMode && row.variancePercent !== null && row.variancePercent < -10
                                 ? 'text-red-600'
-                                : row.variancePercent !== null && row.variancePercent > 15
+                                : !editMode && row.variancePercent !== null && row.variancePercent > 15
                                   ? 'text-blue-600'
-                                  : 'text-emerald-600'
+                                  : !editMode
+                                    ? 'text-emerald-600'
+                                    : undefined
                             }
                           />
                         </td>
@@ -579,11 +853,30 @@ export default function PricingAnalysisTab({
                           )}
                         </td>
                         <td className="px-4 py-2.5 text-right">
-                          <EditableCell value={row.estAnnualUplift} onChange={v => updateSummaryRow(i, 'estAnnualUplift', v)} editMode={editMode} />
+                          <EditableCell value={row.estAnnualUplift} onChange={v => updateSummaryRow(i, 'estAnnualUplift', v)} editMode={editMode} align="right" />
                         </td>
+                        {editMode && (
+                          <td className="px-2 py-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => removeSummaryRow(i)}
+                              className="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Remove row"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     )
                   })}
+                  {editMode && (result.pricingSummary ?? []).length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">
+                        No summary rows yet. Click &ldquo;Add row&rdquo; to add one.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -612,7 +905,14 @@ export default function PricingAnalysisTab({
 
         {/* Flags */}
         <Card className="p-5">
-          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Pricing Flags</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">Pricing Flags</h3>
+            {editMode && (
+              <button type="button" onClick={addFlag} className="text-xs text-amber-600 hover:text-amber-800 font-medium">
+                + Add flag
+              </button>
+            )}
+          </div>
           <div className="space-y-2">
             {(result.flags ?? []).map((flag, i) => (
               <div

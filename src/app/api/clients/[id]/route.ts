@@ -1,7 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { mapClientForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
+import { sendEmailWithUnipile } from "@/lib/unipile";
+import { recordClientEmailNotification } from "@/lib/client-email-notifications";
+
+function buildTeamInviteEmail(args: {
+  clientName: string;
+  memberName: string;
+  email: string;
+  password: string;
+  loginUrl: string;
+}) {
+  return `
+    <p>Hi ${args.memberName},</p>
+    <p>You have been invited to the Cantara client portal for ${args.clientName}.</p>
+    <p>Please use these credentials to log in and upload assigned documents:</p>
+    <p><strong>Login:</strong> <a href="${args.loginUrl}">${args.loginUrl}</a><br/>
+    <strong>Email:</strong> ${args.email}<br/>
+    <strong>Password:</strong> ${args.password}</p>
+    <p>After signing in, you will see the document checklist and any items assigned to you.</p>
+    <p>Thank you,<br/>Cantara Pet Advisors</p>
+  `;
+}
 
 // GET /api/clients/[id] - Get single client detail
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -96,6 +118,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     if (teamMembers) {
+      const existingMembers = await (prisma as any).teamMember.findMany({ where: { clientId: id } });
+      const existingMemberEmails = new Set(
+        existingMembers.map((member: { email: string }) => member.email.trim().toLowerCase()),
+      );
+      const clientForInvite = await (prisma as any).clientProfile.findUnique({
+        where: { id },
+        select: { businessName: true },
+      });
       await (prisma as any).teamMember.deleteMany({ where: { clientId: id } });
       const nextMembers = teamMembers
         .filter((member: { name?: string; email?: string }) => member?.name?.trim() && member?.email?.trim())
@@ -107,6 +137,66 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         }));
       if (nextMembers.length) {
         await (prisma as any).teamMember.createMany({ data: nextMembers });
+      }
+
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || new URL(req.url).origin;
+      for (const member of nextMembers) {
+        const normalizedEmail = member.email.toLowerCase();
+        if (existingMemberEmails.has(normalizedEmail)) continue;
+
+        const password = crypto.randomBytes(6).toString("base64url");
+        await prisma.user.upsert({
+          where: { email: member.email },
+          update: {},
+          create: {
+            name: member.name,
+            email: member.email,
+            passwordHash: password,
+            role: "CLIENT",
+          },
+        });
+
+        const inviteSubject = `Cantara portal invitation for ${clientForInvite?.businessName || "your company"}`;
+        try {
+          await sendEmailWithUnipile({
+            to: member.email,
+            displayName: member.name,
+            subject: inviteSubject,
+            body: buildTeamInviteEmail({
+              clientName: clientForInvite?.businessName || "your company",
+              memberName: member.name,
+              email: member.email,
+              password,
+              loginUrl: `${baseUrl}/login/client`,
+            }),
+          });
+          await recordClientEmailNotification({
+            clientId: id,
+            type: "TEAM_MEMBER_INVITE",
+            recipientEmail: member.email,
+            documentId: member.email,
+            subject: inviteSubject,
+            payload: { memberName: member.name, role: member.role },
+            status: "SENT",
+          });
+        } catch (emailError) {
+          const message = emailError instanceof Error ? emailError.message : "Failed to send invite email";
+          console.error("TEAM_MEMBER_INVITE_EMAIL_ERROR", {
+            clientId: id,
+            email: member.email,
+            error: emailError,
+          });
+          await recordClientEmailNotification({
+            clientId: id,
+            type: "TEAM_MEMBER_INVITE",
+            recipientEmail: member.email,
+            documentId: member.email,
+            subject: inviteSubject,
+            payload: { memberName: member.name, role: member.role },
+            status: "FAILED",
+            errorMessage: message,
+          }).catch(() => undefined);
+        }
       }
     }
 

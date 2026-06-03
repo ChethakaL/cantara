@@ -56,11 +56,19 @@ export interface DocumentStatus {
   targetDeadline?: string | null
 }
 
+export interface UploadedDocumentFile {
+  id: string
+  fileName: string
+  uploadedAt: string
+}
+
 export interface UploadedDocument {
   documentId: string
   fileName: string
   fileUrl?: string | null
   uploadedAt: string
+  fileCount?: number
+  files?: UploadedDocumentFile[]
   aiReviewSummary?: string | null
   aiReviewStatus?: string | null
   aiDetectedType?: string | null
@@ -85,6 +93,7 @@ export interface AdditionalRequirement {
   description: string
   question?: string | null
   requestUpload?: boolean
+  assignedTo?: string | null
   sourceDocumentId?: string | null
   sourceDocumentName?: string | null
   sourceUploadedFileName?: string | null

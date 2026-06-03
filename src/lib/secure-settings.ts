@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
 
 const ANTHROPIC_SECRET_KEY = "anthropic_api_key";
+const UNIPILE_MAIL_ACCOUNT_ID_KEY = "unipile_mail_account_id";
 const VERSION = "v1";
 
 function encryptionSecret() {
@@ -64,6 +65,31 @@ export async function saveStoredAnthropicApiKey(apiKey: string) {
     create: { key: ANTHROPIC_SECRET_KEY, value: encryptSecret(trimmed) },
   });
   return maskSecret(trimmed);
+}
+
+export async function getStoredUnipileMailAccountId() {
+  const secret = await (prisma as any).appSecret.findUnique({
+    where: { key: UNIPILE_MAIL_ACCOUNT_ID_KEY },
+  });
+  if (!secret?.value) return null;
+  return decryptSecret(secret.value);
+}
+
+export async function saveStoredUnipileMailAccountId(accountId: string) {
+  const trimmed = accountId.trim();
+  if (!trimmed) throw new Error("Unipile account id is required");
+  await (prisma as any).appSecret.upsert({
+    where: { key: UNIPILE_MAIL_ACCOUNT_ID_KEY },
+    update: { value: encryptSecret(trimmed) },
+    create: { key: UNIPILE_MAIL_ACCOUNT_ID_KEY, value: encryptSecret(trimmed) },
+  });
+  return maskSecret(trimmed);
+}
+
+export async function clearStoredUnipileMailAccountId() {
+  await (prisma as any).appSecret.deleteMany({
+    where: { key: UNIPILE_MAIL_ACCOUNT_ID_KEY },
+  });
 }
 
 export async function getAnthropicApiKey() {

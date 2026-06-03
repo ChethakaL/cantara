@@ -13,19 +13,28 @@ export async function GET(req: NextRequest) {
 
     const clientId = req.nextUrl.searchParams.get("clientId");
     const documentId = req.nextUrl.searchParams.get("documentId");
+    const recordId = req.nextUrl.searchParams.get("recordId");
 
-    if (!clientId || !documentId) {
-      return new Response("Missing clientId or documentId", { status: 400 });
+    if (!clientId || (!documentId && !recordId)) {
+      return new Response("Missing clientId and documentId or recordId", { status: 400 });
     }
 
-    const document = await (prisma as any).clientDocument.findFirst({
-      where: { clientId, documentId },
-      orderBy: { createdAt: "desc" },
-      select: {
-        localPath: true,
-        storageBucket: true,
-      },
-    });
+    const document = recordId
+      ? await (prisma as any).clientDocument.findFirst({
+          where: { id: recordId, clientId },
+          select: {
+            localPath: true,
+            storageBucket: true,
+          },
+        })
+      : await (prisma as any).clientDocument.findFirst({
+          where: { clientId, documentId },
+          orderBy: { createdAt: "desc" },
+          select: {
+            localPath: true,
+            storageBucket: true,
+          },
+        });
 
     if (!document?.localPath) {
       return new Response("Document not found", { status: 404 });

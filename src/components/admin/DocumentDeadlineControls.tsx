@@ -73,10 +73,9 @@ export function SectionDeadlineField({
         type="button"
         onClick={() => void applySectionDeadline()}
         disabled={saving}
-        className="h-[42px] rounded-lg px-4 text-xs font-medium text-white shadow-sm transition-all hover:opacity-90 disabled:opacity-50"
-        style={{ background: '#21263C' }}
+        className="h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:opacity-50"
       >
-        {saving ? 'Saving...' : 'Save section deadline'}
+        {saving ? 'Saving…' : 'Save section deadline'}
       </button>
     </div>
   )

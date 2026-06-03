@@ -246,6 +246,26 @@ model TeamMember {
   @@index([clientId, createdAt])
 }
 
+model ClientEmailNotification {
+  id                 String                      @id @default(cuid())
+  clientId           String
+  type               ClientEmailNotificationType
+  recipientEmail     String
+  reminderDaysBefore Int?
+  documentId         String?
+  targetDeadline     DateTime?
+  subject            String
+  payload            Json?
+  status             ClientEmailNotificationStatus @default(SENT)
+  errorMessage       String?
+  sentAt             DateTime                    @default(now())
+  client             ClientProfile               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, type, recipientEmail, reminderDaysBefore, documentId, targetDeadline])
+  @@index([clientId, sentAt])
+  @@index([type, sentAt])
+}
+
 model AdvisorProfile {
   id        String        @id @default(cuid())
   clientId  String
@@ -267,10 +287,10 @@ model ClientDocumentStatus {
   uploadedAt     DateTime?
   fileName       String?
   notApplicable  Boolean       @default(false)
-  targetDeadline DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   fileUrl        String?
+  targetDeadline DateTime?
   client         ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, documentId])
@@ -278,54 +298,55 @@ model ClientDocumentStatus {
 }
 
 model ClientProfile {
-  id                         String                      @id @default(cuid())
-  userId                     String                      @unique
-  businessName               String
-  businessDescription        String?
-  email                      String?
-  phone                      String?
-  workstream                 Workstream?
-  customWorkstreamId         String?
-  businessType               BusinessType                @default(SINGLE)
-  stage                      ClientStage                 @default(ONBOARDING)
-  driveFolderId              String?
-  notes                      String?
-  valuationDocUploaded       Boolean                     @default(false)
-  provisionedAt              DateTime?
-  lastLogin                  DateTime?
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
-  sectionSubmissions         Json?
-  sectionDeadlines           Json?
-  approvedNormalizedEbitda   Float?
-  approvedNormalizedEbitdaAt DateTime?
-  businessAddress            String?
-  businessCategory           String?
-  websiteUrl                 String?
-  AdditionalRequirements     AdditionalRequirement[]
-  AdvisorProfiles            AdvisorProfile[]
-  AgentDispatchTasks         AgentDispatchTask[]
-  Branches                   Branch[]
-  ChatMessages               ChatMessage[]
-  ClientDocument             ClientDocument[]
-  ClientDocumentStatuses     ClientDocumentStatus[]
-  User                       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  CompetitorAnalyses         CompetitorAnalysis[]
-  ContractAnalysis           ContractAnalysis[]
-  DocumentRequest            DocumentRequest[]
-  EmployeeObligationsReports EmployeeObligationsReport[]
-  LeaseAnalysis              LeaseAnalysis[]
-  Questions                  Question[]
-  TeamMembers                TeamMember[]
-  TtmAnalyses                TtmAnalysis[]
-  Ws2DerivedReports          Ws2DerivedReport[]
-  Ws2RecastAnalyses          Ws2RecastAnalysis[]
-  CimReport                       CimReport?
-  TeaserReport                    TeaserReport?
-  OwnershipVerificationReports    OwnershipVerificationReport[]
-  PermitsZoningReports            PermitsZoningReport[]
-  customWorkstream                WorkstreamTemplate? @relation(fields: [customWorkstreamId], references: [id], onDelete: SetNull)
-  ClientWorkstreamAgents          ClientWorkstreamAgent[]
+  id                           String                        @id @default(cuid())
+  userId                       String                        @unique
+  businessName                 String
+  businessDescription          String?
+  email                        String?
+  phone                        String?
+  workstream                   Workstream?
+  businessType                 BusinessType                  @default(SINGLE)
+  stage                        ClientStage                   @default(ONBOARDING)
+  driveFolderId                String?
+  notes                        String?
+  valuationDocUploaded         Boolean                       @default(false)
+  provisionedAt                DateTime?
+  lastLogin                    DateTime?
+  createdAt                    DateTime                      @default(now())
+  updatedAt                    DateTime                      @updatedAt
+  sectionSubmissions           Json?
+  approvedNormalizedEbitda     Float?
+  approvedNormalizedEbitdaAt   DateTime?
+  businessAddress              String?
+  businessCategory             String?
+  websiteUrl                   String?
+  customWorkstreamId           String?
+  sectionDeadlines             Json?
+  AdditionalRequirements       AdditionalRequirement[]
+  AdvisorProfiles              AdvisorProfile[]
+  AgentDispatchTasks           AgentDispatchTask[]
+  Branches                     Branch[]
+  ChatMessages                 ChatMessage[]
+  CimReport                    CimReport?
+  ClientDocument               ClientDocument[]
+  ClientDocumentStatuses       ClientDocumentStatus[]
+  ClientEmailNotifications     ClientEmailNotification[]
+  customWorkstream             WorkstreamTemplate?           @relation(fields: [customWorkstreamId], references: [id])
+  User                         User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ClientWorkstreamAgents       ClientWorkstreamAgent[]
+  CompetitorAnalyses           CompetitorAnalysis[]
+  ContractAnalysis             ContractAnalysis[]
+  DocumentRequest              DocumentRequest[]
+  EmployeeObligationsReports   EmployeeObligationsReport[]
+  LeaseAnalysis                LeaseAnalysis[]
+  OwnershipVerificationReports OwnershipVerificationReport[]
+  PermitsZoningReports         PermitsZoningReport[]
+  Questions                    Question[]
+  TeamMembers                  TeamMember[]
+  TeaserReport                 TeaserReport?
+  TtmAnalyses                  TtmAnalysis[]
+  Ws2DerivedReports            Ws2DerivedReport[]
+  Ws2RecastAnalyses            Ws2RecastAnalysis[]
 
   @@index([customWorkstreamId])
 }
@@ -337,8 +358,8 @@ model WorkstreamTemplate {
   isSystem    Boolean                   @default(false)
   createdAt   DateTime                  @default(now())
   updatedAt   DateTime                  @updatedAt
-  agents      WorkstreamTemplateAgent[]
   clients     ClientProfile[]
+  agents      WorkstreamTemplateAgent[]
 }
 
 model WorkstreamTemplateAgent {
@@ -424,6 +445,7 @@ model AdditionalRequirement {
   sourceDocumentId       String?
   sourceDocumentName     String?
   sourceUploadedFileName String?
+  assignedTo             String?
   client                 ClientProfile     @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
@@ -488,6 +510,73 @@ model User {
   DocumentRequest           DocumentRequest[]
   Questions                 Question[]
   Sessions                  Session[]
+}
+
+model CimReport {
+  id        String        @id @default(cuid())
+  clientId  String        @unique
+  data      Json
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model TeaserReport {
+  id        String        @id @default(cuid())
+  clientId  String        @unique
+  data      Json
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model OwnershipVerificationReport {
+  id            String        @id @default(cuid())
+  clientId      String
+  markdown      String
+  documentNames String[]      @default([])
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model PermitsZoningReport {
+  id            String        @id @default(cuid())
+  clientId      String
+  markdown      String
+  documentNames String[]      @default([])
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model AgentFormQuestion {
+  id          String   @id
+  agentId     String
+  agentName   String
+  fieldKey    String
+  label       String
+  description String?
+  inputType   String   @default("text")
+  placeholder String?
+  required    Boolean  @default(false)
+  options     Json?
+  groupKey    String?
+  groupLabel  String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@unique([agentId, fieldKey])
+  @@index([agentId])
+  @@index([fieldKey])
 }
 
 enum Role {
@@ -585,46 +674,12 @@ enum Ws2DerivedReportStatus {
   FAILED
 }
 
-model CimReport {
-  id        String        @id @default(cuid())
-  clientId  String        @unique
-  data      Json
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+enum ClientEmailNotificationType {
+  TEAM_MEMBER_INVITE
+  DOCUMENT_DEADLINE_REMINDER
 }
 
-model TeaserReport {
-  id        String        @id @default(cuid())
-  clientId  String        @unique
-  data      Json
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
-}
-
-model OwnershipVerificationReport {
-  id            String        @id @default(cuid())
-  clientId      String
-  markdown      String
-  documentNames String[]      @default([])
-  metadata      Json?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@index([clientId, createdAt])
-}
-
-model PermitsZoningReport {
-  id            String        @id @default(cuid())
-  clientId      String
-  markdown      String
-  documentNames String[]      @default([])
-  metadata      Json?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@index([clientId, createdAt])
+enum ClientEmailNotificationStatus {
+  SENT
+  FAILED
 }

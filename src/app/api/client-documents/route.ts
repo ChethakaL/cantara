@@ -2,6 +2,7 @@ import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertS3Configured, s3BucketName, s3Client } from "@/lib/s3";
+import { multiYearStatusMirrorIds, syncDocumentStatusForUpload } from "@/lib/client-document-status-sync";
 
 /** Metadata + optional parsed AI JSON for agent tabs (e.g. Sales Process Review). */
 export async function GET(req: NextRequest) {
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
       const docs = await (prisma as any).clientDocument.findMany({
         where: { clientId, documentId },
         orderBy: { createdAt: "desc" },
-        take: 5,
+        take: Math.min(Number(req.nextUrl.searchParams.get("limit") || 50), 100),
         select: {
           id: true,
           fileName: true,
@@ -85,13 +86,56 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const { clientId, documentId } = (await req.json()) as {
+    const { clientId, documentId, recordId } = (await req.json()) as {
       clientId?: string;
       documentId?: string;
+      recordId?: string;
     };
 
-    if (!clientId || !documentId) {
-      return new Response("clientId and documentId are required", { status: 400 });
+    if (!clientId) {
+      return new Response("clientId is required", { status: 400 });
+    }
+
+    if (recordId) {
+      const record = await (prisma as any).clientDocument.findFirst({
+        where: { id: recordId, clientId },
+        select: {
+          id: true,
+          documentId: true,
+          localPath: true,
+          storageBucket: true,
+          storageProvider: true,
+        },
+      });
+
+      if (!record) {
+        return new Response("Document not found", { status: 404 });
+      }
+
+      if (record.storageProvider === "s3" && record.localPath) {
+        try {
+          assertS3Configured();
+          await s3Client.send(
+            new DeleteObjectCommand({
+              Bucket: record.storageBucket || s3BucketName,
+              Key: record.localPath,
+            }),
+          );
+        } catch (storageError) {
+          console.error("[client-documents/delete] Storage cleanup warning:", storageError);
+        }
+      }
+
+      await (prisma as any).$transaction(async (tx: any) => {
+        await tx.clientDocument.delete({ where: { id: record.id } });
+        await syncDocumentStatusForUpload(tx, clientId, record.documentId);
+      });
+
+      return NextResponse.json({ ok: true });
+    }
+
+    if (!documentId) {
+      return new Response("documentId or recordId is required", { status: 400 });
     }
 
     const documents = await (prisma as any).clientDocument.findMany({
@@ -127,6 +171,12 @@ export async function DELETE(req: NextRequest) {
         where: { clientId, documentId },
       }),
     ]);
+
+    for (const mirrorId of multiYearStatusMirrorIds(documentId)) {
+      await (prisma as any).clientDocumentStatus.deleteMany({
+        where: { clientId, documentId: mirrorId },
+      });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

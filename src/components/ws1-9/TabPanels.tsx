@@ -1,5 +1,7 @@
 'use client'
 
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type {
   WS19Report,
   WS19Flag,
@@ -104,25 +106,21 @@ export function SummaryTab({ report, flags, onConfirm, onNA }: TabProps) {
         <div>
           <SectionLabel>Buyer-facing permits & zoning summary</SectionLabel>
           <div className="bg-white border border-stone-200 rounded-lg p-6 space-y-5 shadow-sm">
-            <SummaryParagraph heading="Permits overview">
-              {report.buyerSummary.permitsOverview}
-            </SummaryParagraph>
+            <SummaryParagraph heading="Permits overview" text={report.buyerSummary.permitsOverview} />
 
-            <SummaryParagraph heading="Zoning compliance">
-              {report.buyerSummary.zoningCompliance}
-            </SummaryParagraph>
+            <SummaryParagraph heading="Zoning compliance" text={report.buyerSummary.zoningCompliance} />
 
-            <SummaryParagraph heading="Conditional use permit status">
-              {report.buyerSummary.conditionalUseStatus || 'No specific CUP status summarized by agent.'}
-            </SummaryParagraph>
+            <SummaryParagraph
+              heading="Conditional use permit status"
+              text={report.buyerSummary.conditionalUseStatus || 'No specific CUP status summarized by agent.'}
+            />
 
-            <SummaryParagraph heading="Grandfathering risk">
-              {report.buyerSummary.grandfatheringRisk || 'No grandfathering risks summarized by agent.'}
-            </SummaryParagraph>
+            <SummaryParagraph
+              heading="Grandfathering risk"
+              text={report.buyerSummary.grandfatheringRisk || 'No grandfathering risks summarized by agent.'}
+            />
 
-            <SummaryParagraph heading="Transfer considerations">
-              {report.buyerSummary.transferConsiderations}
-            </SummaryParagraph>
+            <SummaryParagraph heading="Transfer considerations" text={report.buyerSummary.transferConsiderations} />
 
             <div>
               <p className="text-[13px] font-semibold text-stone-800 mb-3 border-b border-stone-100 pb-2">
@@ -163,11 +161,14 @@ export function SummaryTab({ report, flags, onConfirm, onNA }: TabProps) {
   )
 }
 
-function SummaryParagraph({ heading, children }: { heading: string; children: React.ReactNode }) {
+function SummaryParagraph({ heading, text }: { heading: string; text: string }) {
+  const body = text?.trim() || '—'
   return (
-    <div className="border-b border-stone-100 pb-3 last:border-0 last:pb-0">
-      <span className="text-[12px] font-medium text-stone-800">{heading}. </span>
-      <span className="text-[12px] text-stone-500 leading-relaxed">{children}</span>
+    <div className="border-b border-stone-100 pb-4 last:border-0 last:pb-0">
+      <p className="text-[13px] font-semibold text-stone-800 mb-2">{heading}</p>
+      <div className="text-[13px] text-stone-600 leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-strong:text-stone-800 prose-ul:my-2 prose-li:my-0.5">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+      </div>
     </div>
   )
 }

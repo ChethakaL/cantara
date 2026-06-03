@@ -1,12 +1,12 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useDropzone } from 'react-dropzone'
 import {
   LogOut, Bell, Settings, ChevronRight, CheckCircle, Upload, X,
   MessageSquare, AlertCircle, Send, Users, Plus, Trash2,
-  FileText, FileSpreadsheet, HelpCircle, ChevronDown, ChevronUp, Map, Briefcase, Lock, Loader2, ExternalLink, Calendar
+  FileText, FileSpreadsheet, HelpCircle, ChevronDown, ChevronUp, Map, Lock, Loader2, ExternalLink, Calendar, Search
 } from 'lucide-react'
 import {
   formatDeadlineLabel,
@@ -25,9 +25,23 @@ import {
   type StructuredFormFieldKey,
 } from '@/lib/structured-form-excel'
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
+import { DocumentUploadPanel, type DocumentUploadStatusSummary } from '@/components/documents/DocumentUploadPanel'
+import { DocumentUploadAccordion } from '@/components/documents/DocumentUploadAccordion'
+import { fetchClientDocumentsBatch, fileCountForDocumentIds, mergeUploadedFiles, type FilesByDocumentId } from '@/lib/client-document-files'
 import { getDocsForAgentSelections, getDocsForWorkstream, getValuationDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
-import { getClients, getMessages, saveMessage, getRequirements, getCurrentRole, logout, getClient, saveClient, updateRequirement } from '@/lib/store'
-import type { Client, DocumentStatus, ChatMessage, AdditionalRequirement } from '@/lib/store'
+import {
+  DOCUMENT_ASSIGN_HELP,
+  DOCUMENT_REFERENCE_TEMPLATES,
+  MULTI_YEAR_UPLOAD_SLOTS,
+  filterClientPortalDocuments,
+  getMultiYearCombinedId,
+  getMultiYearUploadProgress,
+  summarizeClientPortalProgress,
+} from '@/lib/client-portal-documents'
+import { getClients, getRequirements, getCurrentRole, logout, getClient, saveClient, updateRequirement } from '@/lib/store'
+import type { Client, DocumentStatus, AdditionalRequirement } from '@/lib/store'
+import { useChatRoom } from '@/hooks/useChatRoom'
+import { ChatThread } from '@/components/chat/ChatThread'
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
 function ClientNav({ workstreamTitle, unreadCount, onSettings, showSettings }: {
@@ -51,7 +65,9 @@ function ClientNav({ workstreamTitle, unreadCount, onSettings, showSettings }: {
           <button className="relative p-2 rounded hover:bg-white/5 transition-colors text-white/30 hover:text-white/70">
             <Bell className="w-4 h-4" />
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full" style={{ background: '#b8922a' }} />
+              <span className="absolute top-1 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center" style={{ background: '#ef4444' }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
             )}
           </button>
           <button
@@ -77,9 +93,9 @@ function ClientNav({ workstreamTitle, unreadCount, onSettings, showSettings }: {
 const PHASES = [
   { id: 'overview', label: 'Overview' },
   { id: 'assign', label: 'Assign' },
+  { id: 'collection', label: 'Document Upload' },
   { id: 'information', label: 'Required Info' },
-  { id: 'collection', label: 'Collection' },
-  { id: 'requirements', label: 'Additional Requirements' },
+  { id: 'requirements', label: 'Action Items' },
   { id: 'roadmap', label: 'Roadmap', disabled: true },
 ]
 
@@ -104,59 +120,27 @@ function TargetDeadlineBadge({ deadline, uploaded }: { deadline: string | null; 
   )
 }
 
-// ── Document upload dropzone ─────────────────────────────────────────────────
-function DocumentUpload({ docId, docName, clientId, uploaderEmail, onUploaded, currentFileName }: {
-  docId: string; docName: string; clientId: string; uploaderEmail: string; onUploaded: (fileName: string, fileUrl?: string | null) => void; currentFileName?: string | null
-}) {
-  const [uploadedName, setUploadedName] = useState(currentFileName ?? '')
-  const [uploading, setUploading] = useState(false)
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: async (files) => {
-      if (!files[0]) return
-      setUploading(true)
-      const form = new FormData()
-      form.append('file', files[0])
-      form.append('clientId', clientId)
-      form.append('documentId', docId)
-      form.append('uploaderEmail', uploaderEmail)
-      const res = await fetch('/api/client-documents/upload', {
-        method: 'POST',
-        body: form,
-      })
-      setUploading(false)
-      if (!res.ok) return
-      const data = await res.json()
-      onUploaded(files[0].name, data.fileUrl || null)
-      setUploadedName(files[0].name)
-    },
-    multiple: false,
+function applyDocumentUploadSummary(
+  setStatus: (id: string, u: Partial<DocumentStatus>) => void,
+  docId: string,
+  summary: DocumentUploadStatusSummary,
+  mirrorDocIds: string[] = [],
+) {
+  const patch = summary.fileCount
+    ? {
+        fileName: summary.fileName,
+        fileUrl: summary.fileUrl,
+        uploadedAt: summary.uploadedAt,
+      }
+    : {
+        fileName: null,
+        fileUrl: null,
+        uploadedAt: null,
+      }
+  setStatus(docId, patch)
+  mirrorDocIds.forEach(mirrorId => {
+    if (mirrorId !== docId) setStatus(mirrorId, patch)
   })
-  return (
-    <div
-      {...getRootProps()}
-      className={`border border-dashed rounded-lg px-3 py-2 cursor-pointer text-xs transition-all flex items-center gap-2 min-w-[132px] ${
-        uploading
-          ? 'border-amber-300 bg-amber-50 text-amber-700'
-          : uploadedName
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          : isDragActive
-          ? 'border-amber-400 bg-amber-50 text-amber-600'
-          : 'border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'
-      }`}
-    >
-      <input {...getInputProps()} />
-      {uploading ? (
-        <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
-      ) : uploadedName ? (
-        <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-      ) : (
-        <Upload className="w-3.5 h-3.5 shrink-0" />
-      )}
-      <span className="truncate">
-        {uploading ? 'Uploading...' : uploadedName ? uploadedName : isDragActive ? 'Drop file here' : 'Upload file'}
-      </span>
-    </div>
-  )
 }
 
 // ── Main dashboard ────────────────────────────────────────────────────────────
@@ -171,29 +155,42 @@ export default function ClientDashboard() {
   const [notifEmail, setNotifEmail] = useState(true)
   const [notifSms, setNotifSms] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
-  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [requirements, setRequirements] = useState<AdditionalRequirement[]>([])
   const [savingStatuses, setSavingStatuses] = useState(false)
+  const [dirtyStatusIds, setDirtyStatusIds] = useState<Set<string>>(new Set())
   const [submittingSectionId, setSubmittingSectionId] = useState<string | null>(null)
   const [newTeamMember, setNewTeamMember] = useState({ name: '', email: '', role: '' })
   const [savingTeamMember, setSavingTeamMember] = useState(false)
+  const [deletingTeamMemberId, setDeletingTeamMemberId] = useState<string | null>(null)
   const [editingTeamMemberId, setEditingTeamMemberId] = useState<string | null>(null)
-  const chatBottomRef = useRef<HTMLDivElement>(null)
+  const [sessionEmail, setSessionEmail] = useState('')
+  const chat = useChatRoom({
+    clientId: client?.id ?? '',
+    viewer: 'client',
+    senderName: client?.name ?? 'Client',
+    isActive: showChat,
+  })
 
   useEffect(() => {
     // In production: load the actual logged-in client. For demo use first provisioned client.
     const load = async () => {
       const email = typeof window !== 'undefined' ? (JSON.parse(localStorage.getItem('cantara_client_email') || 'null')) : null
+      const clientId = typeof window !== 'undefined' ? (JSON.parse(localStorage.getItem('cantara_client_id') || 'null')) : null
+      setSessionEmail(email || '')
       const all = await getClients()
-      const found = (email ? all.find(c => c.email === email) : null) ?? all.find(c => c.workstream) ?? all[0]
+      const found =
+        (clientId ? all.find(c => c.id === clientId) : null) ??
+        (email ? all.find(c => c.email === email || c.teamMembers.some(member => member.email === email)) : null) ??
+        all.find(c => c.workstream) ??
+        all[0]
       if (found) {
         setClient(found)
         setDocStatuses(found.documentStatuses ?? {})
-        setMessages(await getMessages(found.id))
         setRequirements(await getRequirements(found.id))
       }
     }
     load()
+    void fetch('/api/internal/daily-document-reminders', { method: 'POST' }).catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -202,35 +199,53 @@ export default function ClientDashboard() {
       const refreshedClient = await getClient(client.id)
       if (refreshedClient) {
         setClient(refreshedClient)
-        setDocStatuses(refreshedClient.documentStatuses ?? {})
+        setDocStatuses(prev => {
+          const refreshed = refreshedClient.documentStatuses ?? {}
+          if (dirtyStatusIds.size === 0) return refreshed
+          const merged = { ...refreshed }
+          dirtyStatusIds.forEach(id => {
+            if (prev[id]) merged[id] = prev[id]
+          })
+          return merged
+        })
       }
-      setMessages(await getMessages(client.id))
       setRequirements(await getRequirements(client.id))
-    }, 3000)
+    }, 30000)
     return () => clearInterval(interval)
-  }, [client])
+  }, [client, dirtyStatusIds])
 
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, showChat])
-
-  useEffect(() => {
-    if (!client) return
+    if (!client || dirtyStatusIds.size === 0) return
+    const idsToSave = Array.from(dirtyStatusIds)
+    const statusesToSave = Object.fromEntries(idsToSave.map(id => [id, docStatuses[id]]).filter(([, status]) => Boolean(status)))
     const timeout = setTimeout(async () => {
       setSavingStatuses(true)
       try {
-        await fetch('/api/client-portal/statuses', {
+        const res = await fetch('/api/client-portal/statuses', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientId: client.id, statuses: docStatuses }),
+          body: JSON.stringify({ clientId: client.id, statuses: statusesToSave }),
         })
+        if (!res.ok) throw new Error(await res.text())
+        setDirtyStatusIds(prev => {
+          const next = new Set(prev)
+          idsToSave.forEach(id => next.delete(id))
+          return next
+        })
+        const refreshedClient = await getClient(client.id)
+        if (refreshedClient) {
+          setClient(refreshedClient)
+          setDocStatuses(prev => ({ ...(refreshedClient.documentStatuses ?? {}), ...Object.fromEntries(Array.from(dirtyStatusIds).map(id => [id, prev[id]]).filter(([, status]) => Boolean(status))) }))
+        }
+      } catch (error) {
+        console.error('Save statuses error:', error)
       } finally {
         setSavingStatuses(false)
       }
     }, 400)
 
     return () => clearTimeout(timeout)
-  }, [docStatuses, client])
+  }, [docStatuses, client, dirtyStatusIds])
 
   if (!client) {
     return (
@@ -241,6 +256,7 @@ export default function ClientDashboard() {
   }
 
   const setDocStatus = (docId: string, update: Partial<DocumentStatus>) => {
+    setDirtyStatusIds(prev => new Set(prev).add(docId))
     setDocStatuses(prev => ({
       ...prev,
       [docId]: { id: docId, hasDoc: null, assignedTo: null, uploadedAt: null, fileName: null, notApplicable: false, ...prev[docId], ...update },
@@ -319,7 +335,7 @@ export default function ClientDashboard() {
 
   const deleteTeamMember = async (memberId: string) => {
     if (!client) return
-    setSavingTeamMember(true)
+    setDeletingTeamMemberId(memberId)
     const nextClient = {
       ...client,
       teamMembers: client.teamMembers.filter(member => member.id !== memberId),
@@ -335,7 +351,7 @@ export default function ClientDashboard() {
         setNewTeamMember({ name: '', email: '', role: '' })
       }
     } finally {
-      setSavingTeamMember(false)
+      setDeletingTeamMemberId(null)
     }
   }
 
@@ -348,6 +364,11 @@ export default function ClientDashboard() {
       : getDocsForWorkstream(client.workstream, client.businessType)),
     ...getDocsForAgentSelections(client.workstreamAgents ?? []),
   ])
+    .map(category => ({
+      ...category,
+      documents: filterClientPortalDocuments(category.documents),
+    }))
+    .filter(category => category.documents.length > 0)
   const valuationDocs = getValuationDocsForWorkstream(client.workstream)
   const diligenceDocs = categories.flatMap(c => c.documents)
   const allDocs = [...valuationDocs, ...diligenceDocs]
@@ -362,24 +383,42 @@ export default function ClientDashboard() {
   const allConfirmedAssigned =
     docsNeedingAssignment.length > 0 &&
     docsNeedingAssignment.every(d => getDocStatus(d.id).assignedTo || getDocStatus(d.id).fileName)
-  const submittedDocs = allDocs.filter(d => getDocStatus(d.id).fileName)
-  const openReqs = requirements.filter(r => r.status === 'open')
-  const unreadMsgs = messages.filter(m => m.senderRole === 'admin' && !m.readByClient).length
+  const unreadMsgs = chat.unreadCount
+  const sessionTeamMember = client.teamMembers.find(member => member.email.toLowerCase() === sessionEmail.toLowerCase()) ?? null
+  const isTeamMemberSession = Boolean(sessionTeamMember && sessionEmail.toLowerCase() !== client.email.toLowerCase())
+  const memberAssignedTo = sessionTeamMember ? [sessionTeamMember.name, sessionTeamMember.email] : []
+  const isAssignedToCurrentTeamMember = (docId: string) => {
+    if (!isTeamMemberSession) return true
+    const assignedTo = getDocStatus(docId).assignedTo
+    return Boolean(assignedTo && memberAssignedTo.some(value => value.toLowerCase() === assignedTo.toLowerCase()))
+  }
+  const visibleValuationDocs = isTeamMemberSession ? valuationDocs.filter(doc => isAssignedToCurrentTeamMember(doc.id)) : valuationDocs
+  const visibleCategories = isTeamMemberSession
+    ? categories
+        .map(category => ({
+          ...category,
+          documents: category.documents.filter(doc => isAssignedToCurrentTeamMember(doc.id)),
+        }))
+        .filter(category => category.documents.length > 0)
+    : categories
+  const visibleAllDocs = [...visibleValuationDocs, ...visibleCategories.flatMap(category => category.documents)]
+  const portalProgressDocs = filterClientPortalDocuments(allDocs)
+  const portalProgress = summarizeClientPortalProgress(portalProgressDocs, getDocStatus)
+  const visiblePortalProgressDocs = filterClientPortalDocuments(visibleAllDocs)
+  const visiblePortalProgress = summarizeClientPortalProgress(visiblePortalProgressDocs, getDocStatus)
+  const visibleRequirements = isTeamMemberSession
+    ? requirements.filter(requirement => (
+        requirement.status === 'open' &&
+        Boolean(requirement.assignedTo) &&
+        memberAssignedTo.some(value => value.toLowerCase() === requirement.assignedTo?.toLowerCase())
+      ))
+    : requirements
+  const openReqs = visibleRequirements.filter(r => r.status === 'open')
 
-  const sendMessage = async () => {
-    if (!chatDraft.trim() || !client) return
-    const draft = chatDraft.trim()
-    setChatDraft('')
-    await saveMessage({
-      clientId: client.id,
-      senderRole: 'client',
-      senderName: client.name,
-      message: draft,
-      timestamp: new Date().toISOString(),
-      readByAdmin: false,
-      readByClient: true,
-    })
-    setMessages(await getMessages(client.id))
+  const submitChat = async () => {
+    if (!chatDraft.trim()) return
+    const ok = await chat.sendMessage(chatDraft)
+    if (ok) setChatDraft('')
   }
 
   const wsLabel: Record<string, string> = {
@@ -447,9 +486,21 @@ export default function ClientDashboard() {
             <div className="mt-5">
               <div className="flex justify-between text-xs text-slate-400 mb-1.5">
                 <span>Overall progress</span>
-                <span>{submittedDocs.length} of {allDocs.length} documents submitted{savingStatuses ? ' · Saving…' : ''}</span>
+                <span>
+                  {isTeamMemberSession
+                    ? `${visiblePortalProgress.completed} of ${visiblePortalProgress.total} applicable documents uploaded`
+                    : `${portalProgress.completed} of ${portalProgress.total} applicable documents uploaded`}
+                  {savingStatuses ? ' · Saving…' : ''}
+                </span>
               </div>
-              <ProgressBar value={allDocs.length ? Math.round((submittedDocs.length / allDocs.length) * 100) : 0} />
+              <ProgressBar value={
+                isTeamMemberSession
+                  ? (visiblePortalProgress.total ? Math.round((visiblePortalProgress.completed / visiblePortalProgress.total) * 100) : 0)
+                  : (portalProgress.total ? Math.round((portalProgress.completed / portalProgress.total) * 100) : 0)
+              } />
+              <p className="text-[10px] text-slate-500 mt-1.5">
+                Counts only documents you confirmed you have (or that are required). Multi-year items count as one slot per year.
+              </p>
             </div>
           </div>
         </motion.div>
@@ -460,7 +511,12 @@ export default function ClientDashboard() {
               <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Portal Sections</p>
             </div>
             <div className="space-y-1">
-              {PHASES.map(p => {
+              {PHASES.filter(p => {
+                if (!isTeamMemberSession) return true
+                if (p.id === 'assign' || p.id === 'information') return false
+                if (p.id === 'requirements' && visibleRequirements.length === 0) return false
+                return true
+              }).map(p => {
                 const isActive = phase === p.id
                 const hasBadge = (p.id === 'requirements' && openReqs.length > 0) || p.id === 'information'
                 const disabled = Boolean((p as any).disabled)
@@ -507,7 +563,25 @@ export default function ClientDashboard() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2 }}
             >
-              {phase === 'overview' && <OverviewTab client={client} wsLabel={wsLabel} />}
+              {phase === 'overview' && (
+                <OverviewTab
+                  client={client}
+                  wsLabel={wsLabel}
+                  newTeamMember={newTeamMember}
+                  setNewTeamMember={setNewTeamMember}
+                  savingTeamMember={savingTeamMember}
+                  editingTeamMemberId={editingTeamMemberId}
+                  addTeamMember={addTeamMember}
+                  startEditingTeamMember={startEditingTeamMember}
+                  deleteTeamMember={deleteTeamMember}
+                  cancelEditingTeamMember={() => {
+                    setEditingTeamMemberId(null)
+                    setNewTeamMember({ name: '', email: '', role: '' })
+                  }}
+                  deletingTeamMemberId={deletingTeamMemberId}
+                  isTeamMemberSession={isTeamMemberSession}
+                />
+              )}
               {phase === 'assign' && (
                 <AssignTab
                   valuationDocs={valuationDocs}
@@ -517,17 +591,32 @@ export default function ClientDashboard() {
                   teamMembers={client.teamMembers}
                   allAssigned={allConfirmedAssigned}
                   getDeadline={getDeadline}
+                  savingStatuses={savingStatuses}
+                  client={client}
+                  newTeamMember={newTeamMember}
+                  setNewTeamMember={setNewTeamMember}
+                  savingTeamMember={savingTeamMember}
+                  editingTeamMemberId={editingTeamMemberId}
+                  addTeamMember={addTeamMember}
+                  startEditingTeamMember={startEditingTeamMember}
+                  deleteTeamMember={deleteTeamMember}
+                  cancelEditingTeamMember={() => {
+                    setEditingTeamMemberId(null)
+                    setNewTeamMember({ name: '', email: '', role: '' })
+                  }}
+                  deletingTeamMemberId={deletingTeamMemberId}
+                  isTeamMemberSession={isTeamMemberSession}
                 />
               )}
-              {phase === 'information' && <AgentInformationTab clientId={client.id} uploaderEmail={client.email} />}
+              {phase === 'information' && <AgentInformationTab clientId={client.id} uploaderEmail={sessionEmail || client.email} />}
               {phase === 'collection' && (
                 <CollectionTab
-                  valuationDocs={valuationDocs}
-                  categories={categories}
+                  valuationDocs={visibleValuationDocs}
+                  categories={visibleCategories}
                   getStatus={getDocStatus}
                   setStatus={setDocStatus}
                   clientId={client.id}
-                  uploaderEmail={client.email}
+                  uploaderEmail={sessionEmail || client.email}
                   sectionSubmissions={client.sectionSubmissions ?? {}}
                   onSubmitSection={submitSection}
                   submittingSectionId={submittingSectionId}
@@ -535,7 +624,16 @@ export default function ClientDashboard() {
                   sectionDeadlines={sectionDeadlines}
                 />
               )}
-              {phase === 'requirements' && <RequirementsClientTab requirements={requirements} />}
+              {phase === 'requirements' && (
+                <RequirementsClientTab
+                  requirements={visibleRequirements}
+                  teamMembers={client.teamMembers}
+                  isTeamMemberSession={isTeamMemberSession}
+                  onRequirementUpdated={(updated) => {
+                    setRequirements(prev => prev.map(item => item.id === updated.id ? updated : item))
+                  }}
+                />
+              )}
               {phase === 'roadmap' && <RoadmapTab />}
             </motion.div>
           </AnimatePresence>
@@ -570,69 +668,6 @@ export default function ClientDashboard() {
                 </div>
               ))}
             </div>
-            <div className="pt-2 border-t border-slate-100">
-              <p className="text-xs font-medium text-slate-600 mb-2">Your Team</p>
-              {client.teamMembers.length === 0 ? (
-                <p className="text-xs text-slate-400">No team members added yet. Add the people who will help upload documents.</p>
-              ) : client.teamMembers.map(m => (
-                <div key={m.id} className="flex items-center gap-2 py-1.5">
-                  <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center text-xs font-semibold text-amber-700">{m.name[0]}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-700">{m.name}</p>
-                    <p className="text-xs text-slate-400">{m.email}{m.role ? ` · ${m.role}` : ''}</p>
-                  </div>
-                  <button
-                    onClick={() => startEditingTeamMember(m)}
-                    className="text-xs text-slate-500 hover:text-slate-700"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => void deleteTeamMember(m.id)}
-                    className="text-xs text-rose-500 hover:text-rose-700"
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))}
-              <div className="mt-3 space-y-2">
-                <Input
-                  placeholder="Team member name"
-                  value={newTeamMember.name}
-                  onChange={e => setNewTeamMember(prev => ({ ...prev, name: e.target.value }))}
-                />
-                <Input
-                  placeholder="Team member email"
-                  type="email"
-                  value={newTeamMember.email}
-                  onChange={e => setNewTeamMember(prev => ({ ...prev, email: e.target.value }))}
-                />
-                <Input
-                  placeholder="Role (optional)"
-                  value={newTeamMember.role}
-                  onChange={e => setNewTeamMember(prev => ({ ...prev, role: e.target.value }))}
-                />
-                <Button
-                  size="sm"
-                  onClick={() => void addTeamMember()}
-                  disabled={savingTeamMember || !newTeamMember.name.trim() || !newTeamMember.email.trim()}
-                >
-                  {savingTeamMember ? (editingTeamMemberId ? 'Saving...' : 'Adding...') : (editingTeamMemberId ? 'Save Changes' : 'Add Team Member')}
-                </Button>
-                {editingTeamMemberId && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setEditingTeamMemberId(null)
-                      setNewTeamMember({ name: '', email: '', role: '' })
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            </div>
           </motion.div>
         </div>
       )}
@@ -645,53 +680,35 @@ export default function ClientDashboard() {
       >
         <MessageSquare className="w-5 h-5 text-white/80" />
         {unreadMsgs > 0 && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ background: '#b8922a' }}>
-            {unreadMsgs}
+          <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ background: '#ef4444' }}>
+            {unreadMsgs > 9 ? '9+' : unreadMsgs}
           </span>
         )}
       </button>
 
       {/* Chat panel */}
       {showChat && (
-        <div className="fixed bottom-24 right-6 z-40 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ height: '420px' }}>
-          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between" style={{ background: '#0d1829' }}>
+        <div className="fixed bottom-24 right-6 z-40 w-[min(92vw,380px)] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ height: '460px' }}>
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between shrink-0" style={{ background: '#0d1829' }}>
             <div className="flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-white/60" />
               <span className="text-sm font-medium text-white">Your Cantara Team</span>
             </div>
             <button onClick={() => setShowChat(false)} className="text-white/40 hover:text-white/70"><X className="w-4 h-4" /></button>
           </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {messages.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-400">Send a message to your advisor team.</div>
-            ) : messages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.senderRole === 'client' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs ${
-                  msg.senderRole === 'client' ? 'text-white rounded-br-sm' : 'bg-slate-100 text-slate-700 rounded-bl-sm'
-                }`} style={msg.senderRole === 'client' ? { background: '#0d1829' } : {}}>
-                  {msg.senderRole === 'admin' && <p className="font-semibold text-slate-500 mb-0.5">{msg.senderName}</p>}
-                  <p>{msg.message}</p>
-                </div>
-              </div>
-            ))}
-            <div ref={chatBottomRef} />
-          </div>
-          <div className="p-3 border-t border-slate-100 flex gap-2">
-            <input
-              className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 outline-none focus:border-amber-400"
+          <div className="flex flex-col flex-1 min-h-0 p-3">
+            <ChatThread
+              messages={chat.messages}
+              viewer="client"
+              draft={chatDraft}
+              onDraftChange={setChatDraft}
+              onSend={() => void submitChat()}
+              sending={chat.sending}
+              emptyHint="Send a message to your Cantara advisor team. Replies appear here and update your notification badge."
               placeholder="Message your team…"
-              value={chatDraft}
-              onChange={e => setChatDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') sendMessage() }}
+              composeRows={2}
+              maxHeightClass="flex-1 min-h-0"
             />
-            <button
-              onClick={sendMessage}
-              disabled={!chatDraft.trim()}
-              className="w-8 h-8 rounded-xl flex items-center justify-center disabled:opacity-40"
-              style={{ background: '#b8922a' }}
-            >
-              <Send className="w-3.5 h-3.5 text-white" />
-            </button>
           </div>
         </div>
       )}
@@ -700,11 +717,220 @@ export default function ClientDashboard() {
 }
 
 // ── Overview Tab ─────────────────────────────────────────────────────────────
-function OverviewTab({ client, wsLabel }: { client: Client; wsLabel: Record<string, string> }) {
+function TeamMembersPanel({
+  client,
+  newTeamMember,
+  setNewTeamMember,
+  savingTeamMember,
+  deletingTeamMemberId,
+  editingTeamMemberId,
+  addTeamMember,
+  startEditingTeamMember,
+  deleteTeamMember,
+  cancelEditingTeamMember,
+  isTeamMemberSession,
+}: {
+  client: Client
+  newTeamMember: { name: string; email: string; role: string }
+  setNewTeamMember: Dispatch<SetStateAction<{ name: string; email: string; role: string }>>
+  savingTeamMember: boolean
+  deletingTeamMemberId: string | null
+  editingTeamMemberId: string | null
+  addTeamMember: () => Promise<void>
+  startEditingTeamMember: (member: Client['teamMembers'][number]) => void
+  deleteTeamMember: (memberId: string) => Promise<void>
+  cancelEditingTeamMember: () => void
+  isTeamMemberSession: boolean
+}) {
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [showModal, setShowModal] = useState(false)
+  const pageSize = 5
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredMembers = normalizedQuery
+    ? client.teamMembers.filter(member =>
+        [member.name, member.email, member.role].some(value => value.toLowerCase().includes(normalizedQuery)),
+      )
+    : client.teamMembers
+  const pageCount = Math.max(1, Math.ceil(filteredMembers.length / pageSize))
+  const safePage = Math.min(page, pageCount)
+  const visibleMembers = filteredMembers.slice((safePage - 1) * pageSize, safePage * pageSize)
+
+  useEffect(() => {
+    setPage(1)
+  }, [query, client.teamMembers.length])
+
+  useEffect(() => {
+    if (editingTeamMemberId) setShowModal(true)
+  }, [editingTeamMemberId])
+
+  const openAddModal = () => {
+    cancelEditingTeamMember()
+    setShowModal(true)
+  }
+
+  const closeModal = () => {
+    if (savingTeamMember) return
+    setShowModal(false)
+    cancelEditingTeamMember()
+  }
+
+  if (isTeamMemberSession) {
+    return null
+  }
+
+  return (
+    <div className="bg-white rounded-2xl p-6 border border-slate-200">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-amber-600" />
+            <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Your Team</h3>
+          </div>
+          <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+            Add people who will help collect and upload documents. New team members receive portal login details by email.
+          </p>
+        </div>
+        <Button size="sm" onClick={openAddModal} className="w-full justify-center md:w-auto">
+          <Plus className="w-4 h-4" />
+          Add Team Member
+        </Button>
+      </div>
+
+      {client.teamMembers.length > 0 && (
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder="Search by name, email, or role"
+            className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none transition-all focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+          />
+        </div>
+      )}
+
+      <div className="max-h-[360px] overflow-y-auto rounded-xl border border-slate-100">
+        {client.teamMembers.length === 0 ? (
+          <div className="border border-dashed border-slate-200 p-5 text-sm text-slate-400">
+            No team members added yet.
+          </div>
+        ) : visibleMembers.length === 0 ? (
+          <div className="p-5 text-sm text-slate-400">
+            No team members match your search.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {visibleMembers.map(m => (
+              <div key={m.id} className="flex flex-col gap-3 bg-white px-4 py-3 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-sm font-semibold text-amber-700 shrink-0">{m.name[0]}</div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-700">{m.name}</p>
+                    <p className="truncate text-xs text-slate-400">{m.email}{m.role ? ` · ${m.role}` : ''}</p>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => startEditingTeamMember(m)}>Edit</Button>
+                  <Button size="sm" variant="danger" onClick={() => void deleteTeamMember(m.id)} disabled={deletingTeamMemberId === m.id}>
+                    {deletingTeamMemberId === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {filteredMembers.length > pageSize && (
+        <div className="mt-3 flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Showing {(safePage - 1) * pageSize + 1}-{Math.min(safePage * pageSize, filteredMembers.length)} of {filteredMembers.length}
+          </span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setPage(prev => Math.max(1, prev - 1))} disabled={safePage === 1}>Previous</Button>
+            <Button size="sm" variant="outline" onClick={() => setPage(prev => Math.min(pageCount, prev + 1))} disabled={safePage === pageCount}>Next</Button>
+          </div>
+        </div>
+      )}
+
+      <Modal open={showModal} onClose={closeModal} title={editingTeamMemberId ? 'Edit Team Member' : 'Add Team Member'}>
+        <div className="space-y-4">
+          <Input
+            label="Name"
+            placeholder="Team member name"
+            value={newTeamMember.name}
+            onChange={e => setNewTeamMember(prev => ({ ...prev, name: e.target.value }))}
+          />
+          <Input
+            label="Email"
+            placeholder="Team member email"
+            type="email"
+            value={newTeamMember.email}
+            onChange={e => setNewTeamMember(prev => ({ ...prev, email: e.target.value }))}
+          />
+          <Input
+            label="Role"
+            placeholder="Optional"
+            value={newTeamMember.role}
+            onChange={e => setNewTeamMember(prev => ({ ...prev, role: e.target.value }))}
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button size="sm" variant="ghost" onClick={closeModal} disabled={savingTeamMember}>Cancel</Button>
+            <Button
+              size="sm"
+              onClick={async () => {
+                await addTeamMember()
+                setShowModal(false)
+              }}
+              disabled={savingTeamMember || !newTeamMember.name.trim() || !newTeamMember.email.trim()}
+            >
+              {savingTeamMember && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {savingTeamMember ? (editingTeamMemberId ? 'Saving...' : 'Sending Invite...') : (editingTeamMemberId ? 'Save Changes' : 'Send Invite')}
+            </Button>
+          </div>
+          {!editingTeamMemberId && (
+            <p className="text-xs text-slate-400">
+              This creates a login under this client profile and emails generated credentials automatically.
+            </p>
+          )}
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+function OverviewTab({
+  client,
+  wsLabel,
+  newTeamMember,
+  setNewTeamMember,
+  savingTeamMember,
+  deletingTeamMemberId,
+  editingTeamMemberId,
+  addTeamMember,
+  startEditingTeamMember,
+  deleteTeamMember,
+  cancelEditingTeamMember,
+  isTeamMemberSession,
+}: {
+  client: Client
+  wsLabel: Record<string, string>
+  newTeamMember: { name: string; email: string; role: string }
+  setNewTeamMember: Dispatch<SetStateAction<{ name: string; email: string; role: string }>>
+  savingTeamMember: boolean
+  deletingTeamMemberId: string | null
+  editingTeamMemberId: string | null
+  addTeamMember: () => Promise<void>
+  startEditingTeamMember: (member: Client['teamMembers'][number]) => void
+  deleteTeamMember: (memberId: string) => Promise<void>
+  cancelEditingTeamMember: () => void
+  isTeamMemberSession: boolean
+}) {
   const steps = [
-    { title: 'Assign Documents', desc: 'Review the requested checklist and assign each document to yourself or a team member who will upload it.' },
+    { title: 'Assign Documents', desc: 'Tell us which documents you have, and then assign each document to yourself or a team member who will upload it.' },
+    { title: 'Document Upload', desc: 'Upload the required documents.' },
     { title: 'Required Information', desc: 'Complete any short forms needed by your advisor tools, such as websites, profiles, and competitor names.' },
-    { title: 'Collection', desc: 'Upload the required documents, including the valuation materials highlighted by your Cantara team.' },
     { title: 'Review', desc: 'Your advisor team will review materials and follow up through the chat button in the bottom right corner.' },
   ]
   return (
@@ -719,39 +945,19 @@ function OverviewTab({ client, wsLabel }: { client: Client; wsLabel: Record<stri
         </p>
       </div>
 
-      <div className="bg-white rounded-2xl p-6 border border-slate-200">
-        <div className="flex items-center gap-2 mb-4">
-          <Briefcase className="w-4 h-4 text-amber-600" />
-          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Your Advisor Team</h3>
-        </div>
-        {client.advisors.length === 0 ? (
-          <p className="text-sm text-slate-400">Your advisor team will appear here once added by Cantara.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {client.advisors.map(advisor => (
-              <div key={advisor.id} className="p-5 rounded-xl border border-slate-100 bg-slate-50">
-                <img
-                  src={advisor.imageUrl}
-                  alt={advisor.name}
-                  className="w-20 h-20 rounded-full object-cover bg-slate-200 mb-4"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none'
-                    const next = e.currentTarget.nextElementSibling as HTMLElement | null
-                    if (next) next.style.display = 'flex'
-                  }}
-                />
-                <div
-                  className="w-20 h-20 rounded-full bg-amber-100 text-amber-700 mb-4 hidden items-center justify-center text-2xl font-semibold"
-                >
-                  {advisor.name[0]}
-                </div>
-                <p className="text-sm font-semibold text-slate-800">{advisor.name}</p>
-                <p className="text-xs text-slate-400 mt-1">Advisor</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <TeamMembersPanel
+        client={client}
+        newTeamMember={newTeamMember}
+        setNewTeamMember={setNewTeamMember}
+        savingTeamMember={savingTeamMember}
+        deletingTeamMemberId={deletingTeamMemberId}
+        editingTeamMemberId={editingTeamMemberId}
+        addTeamMember={addTeamMember}
+        startEditingTeamMember={startEditingTeamMember}
+        deleteTeamMember={deleteTeamMember}
+        cancelEditingTeamMember={cancelEditingTeamMember}
+        isTeamMemberSession={isTeamMemberSession}
+      />
 
       <div className="bg-white rounded-2xl p-6 border border-slate-200">
         <h3 className="text-lg font-semibold text-slate-800 cantara-serif mb-4">The Process</h3>
@@ -776,7 +982,164 @@ function OverviewTab({ client, wsLabel }: { client: Client; wsLabel: Record<stri
 // ── Valuation Tab ────────────────────────────────────────────────────────────
 // ── Assign Tab (was Preparation) ─────────────────────────────────────────────
 // UX from meeting: client first says Yes/No per doc, then assigns YES docs only
-function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMembers, allAssigned, getDeadline }: {
+function DocumentReferenceLink({ docId }: { docId: string }) {
+  const ref = DOCUMENT_REFERENCE_TEMPLATES[docId]
+  if (!ref) return null
+  return (
+    <a
+      href={ref.path}
+      className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-800 mt-1"
+      download
+    >
+      <FileSpreadsheet className="w-3 h-3" />
+      {ref.label}
+    </a>
+  )
+}
+
+function MultiYearDocumentUpload({
+  docId,
+  clientId,
+  uploaderEmail,
+  getStatus,
+  setStatus,
+  filesByDocId,
+  refreshFileCatalog,
+}: {
+  docId: string
+  clientId: string
+  uploaderEmail: string
+  getStatus: (id: string) => DocumentStatus
+  setStatus: (id: string, u: Partial<DocumentStatus>) => void
+  filesByDocId: FilesByDocumentId
+  refreshFileCatalog: () => Promise<void>
+}) {
+  const labels = MULTI_YEAR_UPLOAD_SLOTS[docId] ?? []
+  const combinedId = getMultiYearCombinedId(docId)
+  const progress = getMultiYearUploadProgress(docId, getStatus)
+  const hasCombinedCoverage = progress.completed === progress.total && progress.total > 0
+  const showPerYearIncludedOnly = hasCombinedCoverage && progress.perYearCompleted === 0
+  const allComplete = hasCombinedCoverage
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-slate-800">
+            {labels.length} years required — choose how you upload
+          </p>
+          <Badge color={allComplete ? 'green' : progress.completed > 0 ? 'gold' : 'slate'}>
+            {allComplete ? 'All years covered' : `${progress.completed} of ${progress.total} years`}
+          </Badge>
+        </div>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+          Use <span className="font-medium text-slate-600">one file</span> if all years are in a single PDF or ZIP, or upload{' '}
+          <span className="font-medium text-slate-600">each year separately</span> as you receive them.
+        </p>
+      </div>
+
+      <div className="border-b border-slate-100 px-4 py-4">
+        <div className="mb-3 flex items-start gap-2.5">
+          <span
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+            style={{ background: hasCombinedCoverage ? '#059669' : '#b8922a' }}
+          >
+            A
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-slate-800">All years in one file</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">One PDF with all returns, or a ZIP with a file per year inside.</p>
+          </div>
+        </div>
+        <DocumentUploadPanel
+          clientId={clientId}
+          uploadDocumentId={combinedId}
+          uploaderEmail={uploaderEmail}
+          files={mergeUploadedFiles([combinedId, docId], filesByDocId)}
+          onFilesChange={() => {}}
+          onStatusChange={summary => applyDocumentUploadSummary(setStatus, combinedId, summary, [docId])}
+          onAfterMutation={refreshFileCatalog}
+        />
+      </div>
+
+      <div className="px-4 py-4">
+        <div className="mb-3 flex items-start gap-2.5">
+          <span
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+            style={{ background: !showPerYearIncludedOnly && progress.perYearCompleted === progress.total ? '#059669' : '#94a3b8' }}
+          >
+            B
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-slate-800">One file per year</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              {showPerYearIncludedOnly
+                ? 'Not needed while option A covers all years. Remove files above to upload by year instead.'
+                : 'Upload each year when you have it. You can add multiple files per year.'}
+            </p>
+          </div>
+        </div>
+
+        {showPerYearIncludedOnly ? (
+          <div className="space-y-2">
+            {labels.map(label => (
+              <div
+                key={label}
+                className="flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2"
+              >
+                <CheckCircle className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                <span className="text-xs font-medium text-emerald-800">{label}</span>
+                <span className="ml-auto text-[10px] text-emerald-600">Included in combined file</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {labels.map((label, index) => {
+              const slotId = `${docId}__year_${index + 1}`
+              return (
+                <div key={slotId} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                  <p className="text-xs font-medium text-slate-600 mb-2">{label}</p>
+                  <DocumentUploadPanel
+                    clientId={clientId}
+                    uploadDocumentId={slotId}
+                    uploaderEmail={uploaderEmail}
+                    files={filesByDocId[slotId] ?? []}
+                    onFilesChange={() => {}}
+                    onStatusChange={summary => applyDocumentUploadSummary(setStatus, slotId, summary)}
+                    onAfterMutation={refreshFileCatalog}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AssignTab({
+  valuationDocs,
+  categories,
+  getStatus,
+  setStatus,
+  teamMembers,
+  allAssigned,
+  getDeadline,
+  savingStatuses,
+  client,
+  newTeamMember,
+  setNewTeamMember,
+  savingTeamMember,
+  editingTeamMemberId,
+  addTeamMember,
+  startEditingTeamMember,
+  deleteTeamMember,
+  cancelEditingTeamMember,
+  deletingTeamMemberId,
+  isTeamMemberSession,
+}: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
@@ -784,6 +1147,18 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
   teamMembers: Client['teamMembers']
   allAssigned: boolean
   getDeadline: (docId: string, sectionId: string) => string | null
+  savingStatuses: boolean
+  client: Client
+  newTeamMember: { name: string; email: string; role: string }
+  setNewTeamMember: Dispatch<SetStateAction<{ name: string; email: string; role: string }>>
+  savingTeamMember: boolean
+  editingTeamMemberId: string | null
+  addTeamMember: () => Promise<void>
+  startEditingTeamMember: (member: Client['teamMembers'][number]) => void
+  deleteTeamMember: (memberId: string) => Promise<void>
+  cancelEditingTeamMember: () => void
+  deletingTeamMemberId: string | null
+  isTeamMemberSession: boolean
 }) {
   const [subView, setSubView] = useState<'yesno' | 'assign'>('yesno')
   const diligenceDocs = categories.flatMap(c => c.documents)
@@ -804,7 +1179,7 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
             className={`flex-1 py-2.5 rounded-xl text-xs font-medium transition-all ${subView === v ? 'text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
             style={subView === v ? { background: '#0d1829' } : {}}
           >
-            {v === 'yesno' ? '1 — Do you have these documents?' : '2 — Assign documents'}
+            {v === 'yesno' ? '1 — Tell us which documents you have' : '2 — Assign documents to yourself or another team member'}
             {v === 'assign' && allAssigned && <CheckCircle className="w-3 h-3 text-emerald-400 inline ml-1.5" />}
           </button>
         ))}
@@ -812,8 +1187,8 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
 
       {subView === 'yesno' && (
         <div className="space-y-4">
-          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-700">
-            Only optional documents are shown here. Required documents and valuation documents are already available in the Assign documents step.
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-700 leading-relaxed">
+            For each optional item, choose <span className="font-semibold">Yes</span> if you have it, <span className="font-semibold">No</span> if you do not, or <span className="font-semibold">N/A</span> if it does not apply to your business. Required and valuation documents are handled in step 2.
           </div>
           {categories.map(cat => (
             <div key={cat.id} className="bg-white rounded-2xl border border-slate-200">
@@ -831,7 +1206,8 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
                           {doc.type === 'required' && <Badge color="gold">Required</Badge>}
                           {doc.flagged && <Badge color="red">Flagged</Badge>}
                         </div>
-                        {doc.description && <p className="text-xs text-slate-400 mt-0.5">{doc.description}</p>}
+                        {doc.description && <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{doc.description}</p>}
+                        <DocumentReferenceLink docId={doc.id} />
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {/* Toggle: Yes */}
@@ -882,6 +1258,30 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
 
       {subView === 'assign' && (
         <div className="space-y-4">
+          {!isTeamMemberSession && (
+            <TeamMembersPanel
+              client={client}
+              newTeamMember={newTeamMember}
+              setNewTeamMember={setNewTeamMember}
+              savingTeamMember={savingTeamMember}
+              deletingTeamMemberId={deletingTeamMemberId}
+              editingTeamMemberId={editingTeamMemberId}
+              addTeamMember={addTeamMember}
+              startEditingTeamMember={startEditingTeamMember}
+              deleteTeamMember={deleteTeamMember}
+              cancelEditingTeamMember={cancelEditingTeamMember}
+              isTeamMemberSession={isTeamMemberSession}
+            />
+          )}
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 leading-relaxed">
+            Choose who will upload each document. Files are stored securely and synced to your Cantara Google Drive folder when connected. Team members you invite can sign in with their email to upload only what is assigned to them.
+          </div>
+          {savingStatuses && (
+            <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Saving assignment...
+            </div>
+          )}
           {assignableDocs.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400">
               No documents available to assign yet.
@@ -908,6 +1308,11 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
                             <Badge color="gold">Required</Badge>
                             <TargetDeadlineBadge deadline={getDeadline(doc.id, VALUATION_SECTION_ID)} uploaded={Boolean(s.fileName)} />
                           </div>
+                          {doc.description && <p className="text-xs text-slate-500 mt-1">{doc.description}</p>}
+                          {DOCUMENT_ASSIGN_HELP[doc.id] && (
+                            <p className="text-xs text-slate-400 mt-0.5">{DOCUMENT_ASSIGN_HELP[doc.id]}</p>
+                          )}
+                          <DocumentReferenceLink docId={doc.id} />
                         </div>
                         <select
                           className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all"
@@ -944,6 +1349,11 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
                         {doc.type === 'required' && <Badge color="gold">Required</Badge>}
                         <TargetDeadlineBadge deadline={getDeadline(doc.id, cat.id)} uploaded={Boolean(s.fileName)} />
                       </div>
+                      {doc.description && <p className="text-xs text-slate-500 mt-1">{doc.description}</p>}
+                      {DOCUMENT_ASSIGN_HELP[doc.id] && (
+                        <p className="text-xs text-slate-400 mt-0.5">{DOCUMENT_ASSIGN_HELP[doc.id]}</p>
+                      )}
+                      <DocumentReferenceLink docId={doc.id} />
                     </div>
                     <select
                       className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all"
@@ -962,7 +1372,7 @@ function AssignTab({ valuationDocs, categories, getStatus, setStatus, teamMember
                   <CheckCircle className="w-5 h-5 text-emerald-500" />
                   <div>
                     <p className="text-sm font-semibold text-emerald-800">All documents assigned</p>
-                    <p className="text-xs text-emerald-600 mt-0.5">Head to Collection to upload. Add team members in Settings if others will help upload.</p>
+                    <p className="text-xs text-emerald-600 mt-0.5">Go to Document Upload to add files. Team members you invited can sign in with their email to upload assigned items.</p>
                   </div>
                 </div>
               )}
@@ -1198,8 +1608,8 @@ function FacilityImageUploadPanel({
         className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50"
       >
         <div>
-          <h4 className="text-sm font-semibold text-slate-700">Optional Facility Images</h4>
-          <p className="text-xs text-slate-500 mt-1">Upload up to 5 images to support the facility review. This is optional.</p>
+          <h4 className="text-sm font-bold text-slate-800">Facility Review</h4>
+          <p className="text-xs text-slate-500 mt-1">Optional photo walkthrough by area. Cantara uses these with your written answers above to assess facility quality for buyers.</p>
         </div>
         <div className="flex items-center gap-2">
           <Badge color={totalImages ? 'green' : 'slate'}>{totalImages} uploaded</Badge>
@@ -1348,9 +1758,13 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
   const [savingFormResponses, setSavingFormResponses] = useState(false)
   const [formSaved, setFormSaved] = useState(false)
   const [formError, setFormError] = useState('')
+  const [formHydrated, setFormHydrated] = useState(false)
+  const autoSaveSkipRef = useRef(true)
 
   useEffect(() => {
     let cancelled = false
+    autoSaveSkipRef.current = true
+    setFormHydrated(false)
     async function loadFormQuestions() {
       try {
         const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(clientId)}`)
@@ -1359,6 +1773,8 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
         if (cancelled) return
         setFormQuestions(data.questions ?? [])
         setFormResponses(data.responses ?? {})
+        setFormHydrated(true)
+        setTimeout(() => { autoSaveSkipRef.current = false }, 0)
       } catch {
         if (!cancelled) setFormQuestions([])
       }
@@ -1372,11 +1788,12 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
     setFormError('')
   }
 
-  async function saveFormResponses() {
+  async function saveFormResponses(options?: { silent?: boolean }) {
+    if (!formQuestions.length) return true
     const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
-    if (missing.length) {
+    if (missing.length && !options?.silent) {
       setFormError(`Please complete required fields: ${missing.slice(0, 3).map(q => q.label).join(', ')}${missing.length > 3 ? '...' : ''}`)
-      return
+      return false
     }
     setSavingFormResponses(true)
     setFormSaved(false)
@@ -1390,12 +1807,24 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
       if (!res.ok) throw new Error(await res.text())
       setFormSaved(true)
       setTimeout(() => setFormSaved(false), 2000)
+      return true
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Could not save information.')
+      if (!options?.silent) {
+        setFormError(err instanceof Error ? err.message : 'Could not save information.')
+      }
+      return false
     } finally {
       setSavingFormResponses(false)
     }
   }
+
+  useEffect(() => {
+    if (!formHydrated || autoSaveSkipRef.current || !formQuestions.length) return
+    const timeout = setTimeout(() => {
+      void saveFormResponses({ silent: true })
+    }, 1200)
+    return () => clearTimeout(timeout)
+  }, [formResponses, formHydrated, formQuestions.length, clientId])
 
   const groupedQuestions = formQuestions.reduce<Record<string, ClientPortalFormQuestion[]>>((acc, question) => {
     const key = question.groupLabel || 'Business Information'
@@ -1418,13 +1847,13 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
         <div className="px-5 py-4 border-b border-slate-100">
           <h4 className="text-sm font-semibold text-slate-700">Required Information</h4>
           <p className="text-xs text-slate-500 mt-1">
-            Complete these fields once. Cantara uses the saved answers to prefill related advisor tools.
+            Complete these fields once. Answers save automatically as you type and when you switch sections — you can also use Save Information below.
           </p>
         </div>
         <div className="p-5 space-y-5">
           {Object.entries(groupedQuestions).map(([groupLabel, questions]) => (
-            <div key={groupLabel} className="space-y-3">
-              <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{groupLabel}</h5>
+            <div key={groupLabel} className="space-y-3 pt-2 border-t border-slate-100 first:border-t-0 first:pt-0">
+              <h5 className="text-sm font-bold text-slate-800">{groupLabel}</h5>
               <div className="grid gap-3 md:grid-cols-2">
                 {questions.map(question => {
                   const commonClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
@@ -1494,6 +1923,15 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
   )
 }
 
+function documentUploadFileCount(docId: string, filesByDocId: FilesByDocumentId): number {
+  if (MULTI_YEAR_UPLOAD_SLOTS[docId]) {
+    const combinedId = getMultiYearCombinedId(docId)
+    const yearIds = (MULTI_YEAR_UPLOAD_SLOTS[docId] ?? []).map((_, index) => `${docId}__year_${index + 1}`)
+    return fileCountForDocumentIds([combinedId, docId, ...yearIds], filesByDocId)
+  }
+  return (filesByDocId[docId] ?? []).length
+}
+
 function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId, getDeadline, sectionDeadlines }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
@@ -1512,6 +1950,29 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   const [savingFormResponses, setSavingFormResponses] = useState(false)
   const [formSaved, setFormSaved] = useState(false)
   const [formError, setFormError] = useState('')
+  const [filesByDocId, setFilesByDocId] = useState<FilesByDocumentId>({})
+  const [filesCatalogLoading, setFilesCatalogLoading] = useState(true)
+
+  const refreshFileCatalog = useCallback(async () => {
+    const batch = await fetchClientDocumentsBatch(clientId)
+    setFilesByDocId(batch)
+  }, [clientId])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setFilesCatalogLoading(true)
+      try {
+        const batch = await fetchClientDocumentsBatch(clientId)
+        if (!cancelled) setFilesByDocId(batch)
+      } catch {
+        if (!cancelled) setFilesByDocId({})
+      } finally {
+        if (!cancelled) setFilesCatalogLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [clientId])
 
   useEffect(() => {
     let cancelled = false
@@ -1567,33 +2028,42 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
     return acc
   }, {})
 
+  const uploadUnitsForDoc = (docId: string) => {
+    if (!MULTI_YEAR_UPLOAD_SLOTS[docId]) {
+      return { uploaded: getStatus(docId).fileName ? 1 : 0, total: 1 }
+    }
+    const progress = getMultiYearUploadProgress(docId, getStatus)
+    return { uploaded: progress.completed, total: progress.total }
+  }
+
   const renderSectionFooter = (sectionId: string, totalCount: number, uploadedCount: number) => {
     const isSubmitted = Boolean(sectionSubmissions[sectionId])
-    const canSubmit = totalCount > 0 && uploadedCount === totalCount
+    const canSubmit = uploadedCount > 0
 
     if (isSubmitted) {
       return (
         <div className="px-5 py-4 border-t border-slate-100 bg-slate-50">
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
-            Thank you for uploading documents, documents are under review
+            Thank you — this section is with your Cantara team for review. You can still add more files anytime.
           </div>
         </div>
       )
     }
 
     return (
-      <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
-        <p className="text-xs text-slate-400">
-          {uploadedCount === totalCount && totalCount > 0
-            ? 'All documents uploaded. Submit this section for review.'
-            : 'Upload all documents in this section before submitting.'}
+      <div className="px-5 py-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-slate-400 max-w-xl leading-relaxed">
+          Upload documents as you have them — each file saves automatically.
+          {totalCount > 0 ? ` ${uploadedCount} of ${totalCount} file slot${totalCount === 1 ? '' : 's'} filled.` : ''}
+          {' '}Submit when you would like Cantara to review this section (you do not need every slot filled first).
         </p>
         <Button
           size="sm"
+          variant={uploadedCount === totalCount && totalCount > 0 ? 'primary' : 'outline'}
           onClick={() => void onSubmitSection(sectionId)}
           disabled={!canSubmit || submittingSectionId === sectionId}
         >
-          {submittingSectionId === sectionId ? 'Submitting...' : 'Submit Section'}
+          {submittingSectionId === sectionId ? 'Submitting...' : 'Mark Section Ready'}
         </Button>
       </div>
     )
@@ -1602,8 +2072,14 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
-        Upload documents for each item your team confirmed in the Assign step. Target deadlines are set by your Cantara team. Progress is saved automatically.
+        Upload documents for each item your team confirmed in the Assign step. You can add files over time — each upload saves immediately. Target deadlines are set by your Cantara team.
       </div>
+      {filesCatalogLoading && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-600" />
+          Loading your uploaded files…
+        </div>
+      )}
       {/* QuickBooks integration is temporarily hidden from the client Collection UI until it is tested.
           Do not delete; re-enable this card when QuickBooks is ready for client use. */}
       {/* <QuickBooksConnectCard clientId={clientId} /> */}
@@ -1679,48 +2155,64 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                 <TargetDeadlineBadge deadline={sectionDeadlines[VALUATION_SECTION_ID]} uploaded={false} />
               )}
               <span className="text-xs text-amber-700">
-                {valuationDocs.filter(d => getStatus(d.id).fileName).length}/{valuationDocs.length} uploaded
+                {valuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0)}/
+                {valuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0)} uploaded
               </span>
             </div>
           </div>
-          <div className="divide-y divide-amber-100/80">
+          <div className="overflow-hidden rounded-b-2xl border-t border-amber-100/80">
             {valuationDocs.map(doc => {
               const s = getStatus(doc.id)
               if (s.hasDoc === false || s.notApplicable) return null
+              const valuationUnits = uploadUnitsForDoc(doc.id)
+              const valuationComplete =
+                MULTI_YEAR_UPLOAD_SLOTS[doc.id]
+                  ? valuationUnits.uploaded === valuationUnits.total && valuationUnits.total > 0
+                  : Boolean(s.fileName)
+              const fileCount = documentUploadFileCount(doc.id, filesByDocId)
               return (
-                <div key={doc.id} className="px-5 py-4 bg-white/60">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm text-slate-800">{doc.name}</p>
-                        {s.assignedTo && <Badge color="slate">{s.assignedTo}</Badge>}
-                        <TargetDeadlineBadge deadline={getDeadline(doc.id, VALUATION_SECTION_ID)} uploaded={Boolean(s.fileName)} />
-                      </div>
-                      <p className="text-xs text-amber-700 mt-0.5">{doc.description}</p>
-                    </div>
-                    <DocumentUpload
+                <DocumentUploadAccordion
+                  key={doc.id}
+                  title={doc.name}
+                  description={doc.description}
+                  assignedTo={s.assignedTo}
+                  deadlineBadge={
+                    <TargetDeadlineBadge deadline={getDeadline(doc.id, VALUATION_SECTION_ID)} uploaded={valuationComplete} />
+                  }
+                  fileCount={fileCount}
+                  isComplete={valuationComplete}
+                  tone="valuation"
+                >
+                  <DocumentReferenceLink docId={doc.id} />
+                  {MULTI_YEAR_UPLOAD_SLOTS[doc.id] ? (
+                    <MultiYearDocumentUpload
                       docId={doc.id}
-                      docName={doc.name}
                       clientId={clientId}
                       uploaderEmail={uploaderEmail}
-                      currentFileName={s.fileName}
-                      onUploaded={(fileName, fileUrl) => setStatus(doc.id, { fileName, fileUrl: fileUrl || null, uploadedAt: new Date().toISOString() })}
+                      getStatus={getStatus}
+                      setStatus={setStatus}
+                      filesByDocId={filesByDocId}
+                      refreshFileCatalog={refreshFileCatalog}
                     />
-                  </div>
-                  {s.fileName && (
-                    <div className="flex items-center gap-2 text-xs text-emerald-600 mt-1">
-                      <CheckCircle className="w-3 h-3" /> {s.fileName}
-                      <span className="text-slate-300">· {s.uploadedAt ? new Date(s.uploadedAt).toLocaleDateString() : ''}</span>
-                    </div>
+                  ) : (
+                    <DocumentUploadPanel
+                      clientId={clientId}
+                      uploadDocumentId={doc.id}
+                      uploaderEmail={uploaderEmail}
+                      files={filesByDocId[doc.id] ?? []}
+                      onFilesChange={next => setFilesByDocId(prev => ({ ...prev, [doc.id]: next }))}
+                      onStatusChange={summary => applyDocumentUploadSummary(setStatus, doc.id, summary)}
+                      onAfterMutation={refreshFileCatalog}
+                    />
                   )}
-                </div>
+                </DocumentUploadAccordion>
               )
             })}
           </div>
           {renderSectionFooter(
             'valuation',
-            valuationDocs.length,
-            valuationDocs.filter(d => getStatus(d.id).fileName).length,
+            valuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0),
+            valuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0),
           )}
         </div>
       )}
@@ -1732,54 +2224,75 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
         })
         if (docsToShow.length === 0) return null
         const isSubmitted = Boolean(sectionSubmissions[cat.id])
-        const uploadedCount = docsToShow.filter(d => getStatus(d.id).fileName).length
+        const sectionTotals = docsToShow.reduce(
+          (acc, doc) => {
+            const units = uploadUnitsForDoc(doc.id)
+            return { uploaded: acc.uploaded + units.uploaded, total: acc.total + units.total }
+          },
+          { uploaded: 0, total: 0 },
+        )
         return (
           <div key={cat.id} className={`rounded-2xl border overflow-hidden ${isSubmitted ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-white border-slate-200'}`}>
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
               <h4 className="text-sm font-semibold text-slate-700">{cat.title}</h4>
               <div className="flex items-center gap-2 flex-wrap">
                 {sectionDeadlines[cat.id] && (
-                  <TargetDeadlineBadge deadline={sectionDeadlines[cat.id]} uploaded={uploadedCount === docsToShow.length} />
+                  <TargetDeadlineBadge deadline={sectionDeadlines[cat.id]} uploaded={sectionTotals.uploaded === sectionTotals.total && sectionTotals.total > 0} />
                 )}
                 <span className="text-xs text-slate-400">
-                  {uploadedCount}/{docsToShow.length} uploaded
+                  {sectionTotals.uploaded}/{sectionTotals.total} uploaded
                 </span>
               </div>
             </div>
-            <div className="divide-y divide-slate-50">
+            <div className="overflow-hidden">
               {docsToShow.map(doc => {
                 const s = getStatus(doc.id)
+                const multiYear = Boolean(MULTI_YEAR_UPLOAD_SLOTS[doc.id])
+                const uploadUnits = uploadUnitsForDoc(doc.id)
+                const slotUploaded = multiYear
+                  ? uploadUnits.uploaded === uploadUnits.total && uploadUnits.total > 0
+                  : Boolean(s.fileName)
+                const fileCount = documentUploadFileCount(doc.id, filesByDocId)
                 return (
-                  <div key={doc.id} className="px-5 py-4">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm text-slate-800">{doc.name}</p>
-                          {s.assignedTo && <Badge color="slate">{s.assignedTo}</Badge>}
-                          <TargetDeadlineBadge deadline={getDeadline(doc.id, cat.id)} uploaded={Boolean(s.fileName)} />
-                        </div>
-                        {doc.flagged && <p className="text-xs text-amber-600 mt-0.5">{doc.flagNote}</p>}
-                      </div>
-                      <DocumentUpload
+                  <DocumentUploadAccordion
+                    key={doc.id}
+                    title={doc.name}
+                    description={doc.description}
+                    assignedTo={s.assignedTo}
+                    deadlineBadge={<TargetDeadlineBadge deadline={getDeadline(doc.id, cat.id)} uploaded={slotUploaded} />}
+                    fileCount={fileCount}
+                    isComplete={slotUploaded}
+                  >
+                    <DocumentReferenceLink docId={doc.id} />
+                    {doc.flagged && doc.flagNote && (
+                      <p className="mb-2 text-xs text-amber-600">{doc.flagNote}</p>
+                    )}
+                    {multiYear ? (
+                      <MultiYearDocumentUpload
                         docId={doc.id}
-                        docName={doc.name}
                         clientId={clientId}
                         uploaderEmail={uploaderEmail}
-                        currentFileName={s.fileName}
-                        onUploaded={(fileName, fileUrl) => setStatus(doc.id, { fileName, fileUrl: fileUrl || null, uploadedAt: new Date().toISOString() })}
+                        getStatus={getStatus}
+                        setStatus={setStatus}
+                        filesByDocId={filesByDocId}
+                        refreshFileCatalog={refreshFileCatalog}
                       />
-                    </div>
-                    {s.fileName && (
-                      <div className="flex items-center gap-2 text-xs text-emerald-600 mt-1">
-                        <CheckCircle className="w-3 h-3" /> {s.fileName}
-                        <span className="text-slate-300">· {s.uploadedAt ? new Date(s.uploadedAt).toLocaleDateString() : ''}</span>
-                      </div>
+                    ) : (
+                      <DocumentUploadPanel
+                        clientId={clientId}
+                        uploadDocumentId={doc.id}
+                        uploaderEmail={uploaderEmail}
+                        files={filesByDocId[doc.id] ?? []}
+                        onFilesChange={next => setFilesByDocId(prev => ({ ...prev, [doc.id]: next }))}
+                        onStatusChange={summary => applyDocumentUploadSummary(setStatus, doc.id, summary)}
+                        onAfterMutation={refreshFileCatalog}
+                      />
                     )}
-                  </div>
+                  </DocumentUploadAccordion>
                 )
               })}
             </div>
-            {renderSectionFooter(cat.id, docsToShow.length, uploadedCount)}
+            {renderSectionFooter(cat.id, sectionTotals.total, sectionTotals.uploaded)}
           </div>
         )
       })}
@@ -1878,8 +2391,19 @@ function QuickBooksConnectCard({ clientId }: { clientId: string }) {
 }
 
 // ── Additional Requirements (client view) ─────────────────────────────────────
-function RequirementsClientTab({ requirements }: { requirements: AdditionalRequirement[] }) {
+function RequirementsClientTab({
+  requirements,
+  teamMembers,
+  isTeamMemberSession,
+  onRequirementUpdated,
+}: {
+  requirements: AdditionalRequirement[]
+  teamMembers: Client['teamMembers']
+  isTeamMemberSession: boolean
+  onRequirementUpdated: (requirement: AdditionalRequirement) => void
+}) {
   const [drafts, setDrafts] = useState<Record<string, { response: string; fileName: string | null; fileUrl: string | null; uploading: boolean; saving: boolean }>>({})
+  const [assigningRequirementId, setAssigningRequirementId] = useState<string | null>(null)
 
   const getDraft = (id: string) => drafts[id] ?? { response: '', fileName: null, fileUrl: null, uploading: false, saving: false }
 
@@ -1927,10 +2451,23 @@ function RequirementsClientTab({ requirements }: { requirements: AdditionalRequi
     }
   }
 
+  const assignRequirement = async (req: AdditionalRequirement, assignedTo: string) => {
+    setAssigningRequirementId(req.id)
+    try {
+      const updated = await updateRequirement(req.id, { assignedTo: assignedTo || null })
+      if (updated) onRequirementUpdated(updated)
+    } finally {
+      setAssigningRequirementId(null)
+    }
+  }
+
   const open = requirements.filter(r => r.status === 'open')
   const resolved = requirements.filter(r => r.status === 'resolved')
   return (
     <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs text-slate-500 leading-relaxed">
+        Items your Cantara advisor flagged for follow-up — questions, clarifications, or extra uploads. Complete each item and submit your response; resolved items stay visible for reference.
+      </div>
       {open.length === 0 && resolved.length === 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-sm text-slate-400">
           <CheckCircle className="w-8 h-8 text-slate-200 mx-auto mb-3" />
@@ -1945,11 +2482,47 @@ function RequirementsClientTab({ requirements }: { requirements: AdditionalRequi
               borderLeftColor: req.priority === 'high' ? '#f43f5e' : req.priority === 'medium' ? '#f59e0b' : '#22c55e'
             }}>
               <div className="flex items-start justify-between gap-2 mb-2">
-                <p className="text-sm font-semibold text-slate-800">{req.title}</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800">{req.title}</p>
+                </div>
                 <Badge color={req.priority === 'high' ? 'red' : req.priority === 'medium' ? 'gold' : 'green'}>
                   {req.priority}
                 </Badge>
               </div>
+              {!isTeamMemberSession && (
+                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Who should handle this?</p>
+                      <p className="mt-1 text-xs text-amber-700">
+                        Default is <span className="font-semibold">Me</span>. Assign to a team member only if they should answer or upload.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {assigningRequirementId === req.id && <Loader2 className="h-4 w-4 animate-spin text-amber-700" />}
+                      <select
+                        aria-label="Assign additional requirement"
+                        value={req.assignedTo ?? ''}
+                        onChange={e => void assignRequirement(req, e.target.value)}
+                        disabled={assigningRequirementId === req.id}
+                        className="w-full min-w-[220px] rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100 sm:w-auto"
+                      >
+                        <option value="">Me</option>
+                        {teamMembers.map(member => (
+                          <option key={member.id} value={member.name}>
+                            {member.name}{member.role ? ` · ${member.role}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {isTeamMemberSession && req.assignedTo && (
+                <p className="mb-3 inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-500">
+                  Assigned to {req.assignedTo}
+                </p>
+              )}
               {req.description && <p className="text-sm text-slate-600 leading-relaxed">{req.description}</p>}
               {req.sourceDocumentName && (
                 <p className="text-xs text-slate-400 mt-2">Related document: {req.sourceDocumentName}</p>

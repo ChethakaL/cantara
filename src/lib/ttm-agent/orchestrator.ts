@@ -271,12 +271,25 @@ export function mapTtmAnalysisForFrontend(record: any): TtmAnalysisView {
   };
 }
 
+function multiYearDocumentLookupIds(documentId: string): string[] {
+  return [
+    documentId,
+    `${documentId}__combined`,
+    `${documentId}__year_1`,
+    `${documentId}__year_2`,
+    `${documentId}__year_3`,
+  ];
+}
+
 async function loadOptionalDocument(clientId: string, documentId: string) {
-  const row = await (prisma as any).clientDocument.findFirst({
-    where: { clientId, documentId },
-    orderBy: { createdAt: "desc" },
-  });
-  return row ?? null;
+  for (const lookupId of multiYearDocumentLookupIds(documentId)) {
+    const row = await (prisma as any).clientDocument.findFirst({
+      where: { clientId, documentId: lookupId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (row) return row;
+  }
+  return null;
 }
 
 async function loadLatestInputDocuments(clientId: string) {
@@ -292,6 +305,17 @@ async function loadLatestInputDocuments(clientId: string) {
   for (const row of rows) {
     if (row.documentId && !latestByDocumentId.has(row.documentId)) {
       latestByDocumentId.set(row.documentId, row);
+    }
+  }
+
+  for (const documentId of TTM_REQUIRED_DOCUMENT_IDS) {
+    if (latestByDocumentId.has(documentId)) continue;
+    for (const lookupId of multiYearDocumentLookupIds(documentId)) {
+      const aliasRow = rows.find((row: any) => row.documentId === lookupId);
+      if (aliasRow) {
+        latestByDocumentId.set(documentId, aliasRow);
+        break;
+      }
     }
   }
 

@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
       include: { ClientProfile: true },
     });
 
-    if (!user || user.role !== "CLIENT" || !user.ClientProfile) {
+    if (!user || user.role !== "CLIENT") {
       return new Response("Invalid credentials", { status: 401 });
     }
 
@@ -25,21 +25,31 @@ export async function POST(req: NextRequest) {
       return new Response("Invalid credentials", { status: 401 });
     }
 
+    const clientProfile =
+      user.ClientProfile ??
+      (await (prisma as any).clientProfile.findFirst({
+        where: { TeamMembers: { some: { email: user.email } } },
+      }));
+
+    if (!clientProfile) {
+      return new Response("Invalid credentials", { status: 401 });
+    }
+
     await prisma.clientProfile.update({
-      where: { id: user.ClientProfile.id },
+      where: { id: clientProfile.id },
       data: { lastLogin: new Date() },
     });
 
     const response = NextResponse.json({
       success: true,
-      clientId: user.ClientProfile.id,
+      clientId: clientProfile.id,
       email: user.email,
       name: user.name,
     });
 
     response.cookies.set("cantara_role", "client", { httpOnly: false, sameSite: "lax", path: "/" });
     response.cookies.set("cantara_client_email", user.email, { httpOnly: false, sameSite: "lax", path: "/" });
-    response.cookies.set("cantara_client_id", user.ClientProfile.id, { httpOnly: false, sameSite: "lax", path: "/" });
+    response.cookies.set("cantara_client_id", clientProfile.id, { httpOnly: false, sameSite: "lax", path: "/" });
 
     return response;
   } catch (error) {

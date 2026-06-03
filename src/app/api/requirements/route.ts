@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/requirements - Get requirements for a client
+function mapRequirement(r: any) {
+  return {
+    ...r,
+    priority: r.priority.toLowerCase(),
+    status: r.status.toLowerCase(),
+    createdAt: r.createdAt.toISOString(),
+    respondedAt: r.respondedAt?.toISOString() ?? null,
+  };
+}
+
 export async function GET(req: NextRequest) {
   const clientId = req.nextUrl.searchParams.get("clientId");
   if (!clientId) return NextResponse.json([]);
@@ -13,13 +23,7 @@ export async function GET(req: NextRequest) {
     });
 
     // Map to store-compatible type
-    const mapped = requirements.map(r => ({
-      ...r,
-      priority: r.priority.toLowerCase(),
-      status: r.status.toLowerCase(),
-      createdAt: r.createdAt.toISOString(),
-      respondedAt: r.respondedAt?.toISOString() ?? null,
-    }));
+    const mapped = requirements.map(mapRequirement);
 
     return NextResponse.json(mapped);
   } catch (error) {
@@ -31,7 +35,7 @@ export async function GET(req: NextRequest) {
 // POST /api/requirements - Create a new requirement
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, title, description, question, requestUpload, sourceDocumentId, sourceDocumentName, sourceUploadedFileName, priority } = await req.json();
+    const { clientId, title, description, question, requestUpload, assignedTo, sourceDocumentId, sourceDocumentName, sourceUploadedFileName, priority } = await req.json();
 
     if (!clientId || !title) {
       return new Response("Missing required fields", { status: 400 });
@@ -44,6 +48,7 @@ export async function POST(req: NextRequest) {
         description,
         question,
         requestUpload: Boolean(requestUpload),
+        assignedTo: typeof assignedTo === "string" && assignedTo.trim() ? assignedTo.trim() : null,
         sourceDocumentId,
         sourceDocumentName,
         sourceUploadedFileName,
@@ -52,7 +57,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(requirement);
+    return NextResponse.json(mapRequirement(requirement));
   } catch (error) {
     console.error("POST Requirement Error:", error);
     return new Response("Internal Server Error", { status: 500 });

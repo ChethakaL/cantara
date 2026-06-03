@@ -5,6 +5,11 @@ import {
   buildBulletList,
   type ReportConfig,
 } from './generate-report-html'
+import {
+  formatInlineMarkdown,
+  formatStructuredExecutiveSummaryHtml,
+  type SummaryBlockItem,
+} from './format-report-markdown'
 
 function flagStatusLabel(status: string): string {
   switch (status) {
@@ -35,22 +40,14 @@ export function buildPermitsZoningReportHtml(
   ]
 
   const bs = report.buyerSummary
-  const escape = (text: string) =>
-    text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const summaryItems = [
+  const summaryItems: SummaryBlockItem[] = [
     { heading: 'Permits Overview', text: bs.permitsOverview },
     { heading: 'Zoning Compliance', text: bs.zoningCompliance },
     { heading: 'Conditional Use Permit Status', text: bs.conditionalUseStatus },
     { heading: 'Grandfathering Risk', text: bs.grandfatheringRisk },
     { heading: 'Transfer Considerations', text: bs.transferConsiderations },
-  ].filter(item => item.text)
-  const executiveSummaryHtml = summaryItems
-    .map(
-      item =>
-        `<p style="margin:0 0 14px 0;font-size:13px;line-height:1.7;color:#475569;"><strong style="color:#1e293b;font-size:13px;">${item.heading}</strong><br/>${escape(item.text ?? '')}</p>`
-    )
-    .join('')
-  const shortSummary = bs.permitsOverview || ''
+  ].filter(item => item.text?.trim())
+  const executiveSummaryHtml = formatStructuredExecutiveSummaryHtml(summaryItems)
 
   // Documents table
   const docsContent = report.documents.length > 0
@@ -87,12 +84,12 @@ export function buildPermitsZoningReportHtml(
   const zoningContent = report.zoning.length > 0
     ? report.zoning.map(z =>
         `<div style="margin-bottom:12px;padding:8px;border:1px solid #e5e7eb;border-radius:4px;">
-          <p><strong>Address:</strong> ${z.propertyAddress}</p>
-          <p><strong>Zoning:</strong> ${z.zoningDesignation}</p>
-          <p><strong>Current Use:</strong> ${z.currentUse}</p>
-          <p><strong>Compliance:</strong> ${z.complianceStatus}</p>
-          <p><strong>Permitted Uses:</strong> ${z.permittedUses.join(', ')}</p>
-          ${z.restrictions.length > 0 ? `<p><strong>Restrictions:</strong></p><ul>${z.restrictions.map(r => `<li>${r}</li>`).join('')}</ul>` : ''}
+          <p><strong>Address:</strong> ${formatInlineMarkdown(z.propertyAddress)}</p>
+          <p><strong>Zoning:</strong> ${formatInlineMarkdown(z.zoningDesignation)}</p>
+          <p><strong>Current Use:</strong> ${formatInlineMarkdown(z.currentUse)}</p>
+          <p><strong>Compliance:</strong> ${formatInlineMarkdown(z.complianceStatus)}</p>
+          <p><strong>Permitted Uses:</strong> ${z.permittedUses.map(u => formatInlineMarkdown(u)).join(', ')}</p>
+          ${z.restrictions.length > 0 ? `<p><strong>Restrictions:</strong></p><ul>${z.restrictions.map(r => `<li>${formatInlineMarkdown(r)}</li>`).join('')}</ul>` : ''}
         </div>`
       ).join('')
     : '<p>No zoning records found.</p>'
@@ -148,7 +145,6 @@ export function buildPermitsZoningReportHtml(
     subtitle: 'WS1-9 Analysis',
     clientName,
     generatedAt: report.generatedAt,
-    summary: shortSummary,
     kpis,
     sections: [
       { title: 'Executive Summary', content: executiveSummaryHtml || '<p>No summary available.</p>' },

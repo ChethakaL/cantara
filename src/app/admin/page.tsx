@@ -8,6 +8,7 @@ import AdminNav from '@/components/admin/AdminNav'
 import MondayImportModal from '@/components/monday/MondayImportModal'
 import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card } from '@/components/ui'
 import { getClients, createClient, getCurrentRole, getAdminName } from '@/lib/store'
+import { useAdminInboxUnread } from '@/hooks/useChatRoom'
 import type { Client } from '@/lib/store'
 
 const WORKSTREAM_SECTIONS = [
@@ -125,6 +126,7 @@ export default function AdminDashboard() {
   const [mondayStatus, setMondayStatus] = useState<{ connected: boolean } | null>(null)
   const [connectingMonday, setConnectingMonday] = useState(false)
   const [showMondayImport, setShowMondayImport] = useState(false)
+  const { counts: inboxUnreadCounts, total: inboxUnreadTotal } = useAdminInboxUnread()
 
   useEffect(() => {
     if (getCurrentRole() !== 'admin') {
@@ -143,6 +145,8 @@ export default function AdminDashboard() {
           if (active) setLoadingClients(false)
         }
       })()
+
+    void fetch('/api/internal/daily-document-reminders', { method: 'POST' }).catch(() => undefined)
 
     return () => {
       active = false
@@ -337,11 +341,7 @@ export default function AdminDashboard() {
   }
 
   const totalClients = clients.length
-  const [totalMessages, setTotalMessages] = useState(0)
-  useEffect(() => {
-    const count = clients.reduce((acc, c) => acc + (c.unreadCount || 0), 0)
-    setTotalMessages(count)
-  }, [clients])
+  const totalMessages = inboxUnreadTotal
 
   return (
     <div className="min-h-screen" style={{ background: 'hsl(220,18%,96%)' }}>
@@ -569,7 +569,12 @@ export default function AdminDashboard() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {group.map((client, i) => (
-                    <ClientCard key={client.id} client={client} delay={i * 0.05} />
+                    <ClientCard
+                      key={client.id}
+                      client={client}
+                      delay={i * 0.05}
+                      messageUnread={inboxUnreadCounts[client.id] ?? 0}
+                    />
                   ))}
                 </div>
               </div>
@@ -612,11 +617,11 @@ export default function AdminDashboard() {
   )
 }
 
-function ClientCard({ client, delay }: { client: Client; delay: number }) {
+function ClientCard({ client, delay, messageUnread = 0 }: { client: Client; delay: number; messageUnread?: number }) {
   const submitted = Object.values(client.documentStatuses).filter(s => s.fileName).length
   const total = 22 // approximate
   const progress = Math.round((submitted / total) * 100)
-  const unread = client.unreadCount || 0
+  const unread = messageUnread
 
   const stageLabel: Record<string, string> = {
     onboarding: 'Onboarding', collection: 'Collection', review: 'Review', final: 'Final', closed: 'Closed',
@@ -637,7 +642,7 @@ function ClientCard({ client, delay }: { client: Client; delay: number }) {
             </div>
             <div className="flex items-center gap-2 shrink-0 ml-2">
               {unread > 0 && (
-                <span className="w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ background: '#D37141' }}>
+                <span className="w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ background: '#ef4444' }}>
                   {unread}
                 </span>
               )}

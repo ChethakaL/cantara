@@ -5,6 +5,7 @@
  */
 
 import { CANTARA_COVER_BRAND_CSS, buildCantaraCoverBrandHtml } from './cantara-cover-branding'
+import { applyInlineBoldToHtml, formatSummaryBodyText } from './format-report-markdown'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,8 @@ export interface ReportConfig {
   clientName: string
   generatedAt: string
   sections: ReportSection[]
-  summary?: string        // Executive summary paragraph
+  summary?: string        // Executive summary plain text (legacy)
+  summaryHtml?: string    // Pre-formatted executive summary HTML for cover page
   flags?: { red: number; orange: number; green: number }
   kpis?: Array<{ label: string; value: string }> // Top KPI cards
 }
@@ -53,12 +55,17 @@ export function generateReportHtml(config: ReportConfig): string {
       </div>`
     : ''
 
-  const summaryBlock = config.summary
+  const summaryBlock = config.summaryHtml
     ? `<div class="executive-summary">
         <p class="summary-label">Executive Summary</p>
-        <p>${escapeHtml(config.summary)}</p>
+        <div class="summary-body">${config.summaryHtml}</div>
        </div>`
-    : ''
+    : config.summary
+      ? `<div class="executive-summary">
+        <p class="summary-label">Executive Summary</p>
+        <div class="summary-body">${formatSummaryBodyText(config.summary)}</div>
+       </div>`
+      : ''
 
   const sectionBlocks = config.sections.map((section, idx) => `
     ${idx > 0 ? '<div class="section-divider"></div>' : ''}
@@ -238,10 +245,25 @@ export function generateReportHtml(config: ReportConfig): string {
     font-weight: 700;
     margin-bottom: 8px;
   }
-  .executive-summary p {
+  .executive-summary p,
+  .executive-summary .summary-body p {
     font-size: 13px;
     color: #475569;
     line-height: 1.7;
+  }
+  .executive-summary .summary-body ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+  }
+  .executive-summary .summary-body li {
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.6;
+    margin-bottom: 4px;
+  }
+  .executive-summary .summary-body strong {
+    color: #1e293b;
+    font-weight: 700;
   }
 
   /* ── Sections ───────────────────────────────────────────────── */
@@ -648,5 +670,5 @@ function escapeHtml(str: string | number | null | undefined): string {
 }
 
 function renderInlineMarkdown(html: string): string {
-  return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  return applyInlineBoldToHtml(html)
 }

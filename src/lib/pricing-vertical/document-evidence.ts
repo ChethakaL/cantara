@@ -244,14 +244,8 @@ export async function collectPricingDocumentEvidence(clientId: string) {
     createdAt: Date
   }>
 
-  const latestByDocumentId = new Map<string, typeof docs[number]>()
   const selected: typeof docs = []
   for (const doc of docs.filter(isPricingLikeDocument)) {
-    const key = doc.documentId || doc.id
-    if (doc.documentId) {
-      if (latestByDocumentId.has(key)) continue
-      latestByDocumentId.set(key, doc)
-    }
     selected.push(doc)
     if (selected.length >= MAX_DOCS) break
   }

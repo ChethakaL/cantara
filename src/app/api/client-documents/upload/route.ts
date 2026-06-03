@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureClientDriveSubfolder, uploadClientDocumentToDrive } from "@/lib/composio";
 import { assertS3Configured, buildPresignedFileUrl, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
+import { syncDocumentStatusForUpload } from "@/lib/client-document-status-sync";
 
 /** Run insurance AI after the HTTP response is sent so the browser is not blocked on a long POST. */
 function scheduleInsuranceAutoReview(args: {
@@ -165,31 +166,9 @@ export async function POST(req: NextRequest) {
       elapsedMs: Date.now() - startedAt,
     });
 
-    const uploadedAt = new Date();
-    const statusUpdate = {
-      hasDoc: true,
-      fileName: file.name,
-      fileUrl: publicUrl,
-      uploadedAt,
-      notApplicable: false,
-    };
-
     await (prisma as any).$transaction(async (tx: any) => {
       await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '5s'`);
-      await tx.clientDocumentStatus.upsert({
-        where: {
-          clientId_documentId: {
-            clientId,
-            documentId,
-          },
-        },
-        update: statusUpdate,
-        create: {
-          clientId,
-          documentId,
-          ...statusUpdate,
-        },
-      });
+      await syncDocumentStatusForUpload(tx, clientId, documentId);
     });
 
     const driveFolderId = extractDriveFolderId(client?.driveFolderId);

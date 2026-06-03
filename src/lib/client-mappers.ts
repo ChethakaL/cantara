@@ -29,24 +29,39 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
     ]),
   );
 
+  const uploadedDocumentsBySlot = new Map<string, any[]>();
+  for (const doc of (client.ClientDocument ?? []).filter((row: any) => row.documentId)) {
+    const bucket = uploadedDocumentsBySlot.get(doc.documentId) ?? [];
+    bucket.push(doc);
+    uploadedDocumentsBySlot.set(doc.documentId, bucket);
+  }
+
   const uploadedDocuments = Object.fromEntries(
-    (client.ClientDocument ?? [])
-      .filter((doc: any) => doc.documentId)
-      .sort((a: any, b: any) => +new Date(b.createdAt) - +new Date(a.createdAt))
-      .filter((doc: any, index: number, arr: any[]) => arr.findIndex((item) => item.documentId === doc.documentId) === index)
-      .map((doc: any) => [
-        doc.documentId,
+    Array.from(uploadedDocumentsBySlot.entries()).map(([documentId, rows]) => {
+      const sorted = [...rows].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+      const latest = sorted[0];
+      const files = sorted.map((row) => ({
+        id: row.id,
+        fileName: row.fileName,
+        uploadedAt: row.createdAt.toISOString(),
+      }));
+      return [
+        documentId,
         {
-          documentId: doc.documentId,
-          fileName: doc.fileName,
-          fileUrl: doc.googleDriveFileId ?? null,
-          uploadedAt: doc.createdAt.toISOString(),
-          aiReviewSummary: doc.aiReviewSummary ?? null,
-          aiReviewStatus: doc.aiReviewStatus ?? null,
-          aiDetectedType: doc.aiDetectedType ?? null,
-          aiReviewFlags: doc.aiReviewFlags ?? [],
+          documentId,
+          fileName:
+            files.length === 1 ? latest.fileName : `${files.length} files uploaded`,
+          fileUrl: latest.googleDriveFileId ?? null,
+          uploadedAt: latest.createdAt.toISOString(),
+          fileCount: files.length,
+          files,
+          aiReviewSummary: latest.aiReviewSummary ?? null,
+          aiReviewStatus: latest.aiReviewStatus ?? null,
+          aiDetectedType: latest.aiDetectedType ?? null,
+          aiReviewFlags: latest.aiReviewFlags ?? [],
         },
-      ]),
+      ];
+    }),
   );
 
   return {

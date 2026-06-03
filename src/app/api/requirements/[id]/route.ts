@@ -13,6 +13,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         description: body.description,
         question: body.question,
         requestUpload: typeof body.requestUpload === 'boolean' ? body.requestUpload : undefined,
+        assignedTo:
+          body.assignedTo === null || body.assignedTo === ''
+            ? null
+            : typeof body.assignedTo === 'string'
+              ? body.assignedTo.trim()
+              : undefined,
         sourceDocumentId: body.sourceDocumentId,
         sourceDocumentName: body.sourceDocumentName,
         sourceUploadedFileName: body.sourceUploadedFileName,
@@ -29,6 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...updated,
       priority: updated.priority.toLowerCase(),
       status: updated.status.toLowerCase(),
+      assignedTo: (updated as any).assignedTo ?? null,
       createdAt: updated.createdAt.toISOString(),
       respondedAt: updated.respondedAt?.toISOString() ?? null,
     });

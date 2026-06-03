@@ -20,5 +20,5 @@ function loadProjectEnv() {
 }
 
 export function getProjectEnv(key: string) {
-  return loadProjectEnv()[key]
+  return process.env[key] || loadProjectEnv()[key]
 }

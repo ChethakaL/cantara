@@ -48,3 +48,16 @@ export function fromDateInputValue(value: string): string | null {
   if (Number.isNaN(date.getTime())) return null
   return date.toISOString()
 }
+
+/** Whole days until deadline (ceil). Negative means overdue. */
+export function getDaysUntilDeadline(iso: string | null | undefined, now = new Date()): number | null {
+  if (!iso) return null
+  const due = new Date(iso)
+  if (Number.isNaN(due.getTime())) return null
+  const msPerDay = 24 * 60 * 60 * 1000
+  return Math.ceil((due.getTime() - now.getTime()) / msPerDay)
+}
+
+/** Days before due date when we send a one-time reminder email. */
+export const DOCUMENT_DEADLINE_REMINDER_DAYS = [7, 3, 1] as const
+export type DocumentDeadlineReminderDay = (typeof DOCUMENT_DEADLINE_REMINDER_DAYS)[number]

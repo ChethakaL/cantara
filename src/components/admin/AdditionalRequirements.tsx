@@ -2,14 +2,15 @@
 import { useState, useEffect } from 'react'
 import { Plus, CheckCircle, AlertCircle, Clock, MessageSquareMore, UploadCloud, FileText } from 'lucide-react'
 import { Button, Badge, Textarea, Select, Input, Modal } from '@/components/ui'
-import { getRequirements, saveRequirement, updateRequirement } from '@/lib/store'
-import type { AdditionalRequirement } from '@/lib/store'
+import { getClient, getRequirements, saveRequirement, updateRequirement } from '@/lib/store'
+import type { AdditionalRequirement, Client } from '@/lib/store'
 
 const EMPTY_FORM = {
   title: '',
   description: '',
   question: '',
   requestUpload: false,
+  assignedTo: '',
   sourceDocumentId: '',
   sourceDocumentName: '',
   priority: 'medium' as 'high' | 'medium' | 'low',
@@ -17,12 +18,14 @@ const EMPTY_FORM = {
 
 export default function AdditionalRequirementsAdmin({ clientId }: { clientId: string }) {
   const [reqs, setReqs] = useState<AdditionalRequirement[]>([])
+  const [client, setClient] = useState<Client | null>(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
 
   const load = async () => {
-    const data = await getRequirements(clientId)
+    const [data, loadedClient] = await Promise.all([getRequirements(clientId), getClient(clientId)])
     setReqs(data)
+    setClient(loadedClient)
   }
   useEffect(() => { void load() }, [clientId])
 
@@ -34,6 +37,7 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
       description: form.description.trim(),
       question: form.question.trim() || null,
       requestUpload: form.requestUpload,
+      assignedTo: form.assignedTo || null,
       sourceDocumentId: form.sourceDocumentId || null,
       sourceDocumentName: form.sourceDocumentName || null,
       sourceUploadedFileName: null,
@@ -95,6 +99,7 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
                       </Badge>
                       {req.question && <Badge color="blue">Question</Badge>}
                       {req.requestUpload && <Badge color="gold">Upload Requested</Badge>}
+                      {req.assignedTo && <Badge color="slate">Assigned to {req.assignedTo}</Badge>}
                       {req.sourceDocumentName && <Badge color="slate">{req.sourceDocumentName}</Badge>}
                     </div>
                   </div>
@@ -190,6 +195,18 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
               Ask the client to upload a supporting file
             </label>
           </div>
+          <Select
+            label="Assign to"
+            value={form.assignedTo}
+            onChange={e => setForm(p => ({ ...p, assignedTo: e.target.value }))}
+            options={[
+              { value: '', label: 'Owner / main client only' },
+              ...(client?.teamMembers ?? []).map(member => ({
+                value: member.name,
+                label: `${member.name}${member.role ? ` · ${member.role}` : ''}`,
+              })),
+            ]}
+          />
           <Input
             label="Related document name (optional)"
             placeholder="e.g. P&L — Current Year to Date"

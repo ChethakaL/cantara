@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
       return new Response("Missing clientId", { status: 400 });
     }
 
-    const document = await (prisma as any).clientDocument.findFirst({
+    const documents = await (prisma as any).clientDocument.findMany({
       where: {
         clientId,
         documentId: "insurance_claims_12m",
@@ -34,25 +34,32 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    if (!document) {
-      return NextResponse.json({ document: null, summary: null });
+    if (!documents.length) {
+      return NextResponse.json({ document: null, documents: [], summary: null });
     }
 
-    const parsedReview = parseStoredInsuranceReview(document.aiReviewSummary);
+    const latest = documents[0];
+    const parsedReview = parseStoredInsuranceReview(latest.aiReviewSummary);
 
     return NextResponse.json({
       document: {
+        id: latest.id,
+        fileName: latest.fileName,
+        createdAt: latest.createdAt.toISOString(),
+        reviewStatus: latest.aiReviewStatus ?? null,
+      },
+      documents: documents.map((document: any) => ({
         id: document.id,
         fileName: document.fileName,
         createdAt: document.createdAt.toISOString(),
         reviewStatus: document.aiReviewStatus ?? null,
-      },
+      })),
       summary: parsedReview
         ? {
             ...parsedReview,
-            claimType: document.aiDetectedType || parsedReview.claimType,
-            flags: document.aiReviewFlags ?? [],
-            status: document.aiReviewStatus || parsedReview.status,
+            claimType: latest.aiDetectedType || parsedReview.claimType,
+            flags: latest.aiReviewFlags ?? [],
+            status: latest.aiReviewStatus || parsedReview.status,
             cached: true,
           }
         : null,
