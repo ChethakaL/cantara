@@ -6,7 +6,7 @@ import { useDropzone } from 'react-dropzone'
 import {
   LogOut, Bell, Settings, ChevronRight, CheckCircle, Upload, X,
   MessageSquare, AlertCircle, Send, Users, Plus, Trash2,
-  FileText, FileSpreadsheet, HelpCircle, ChevronDown, ChevronUp, Map, Lock, Loader2, ExternalLink, Calendar, Search
+  FileText, FileSpreadsheet, HelpCircle, ChevronDown, ChevronUp, Map as MapIcon, Lock, Loader2, ExternalLink, Calendar, Search
 } from 'lucide-react'
 import {
   formatDeadlineLabel,
@@ -1398,6 +1398,110 @@ type ClientPortalFormQuestion = {
   groupLabel?: string | null
 }
 
+function isFacilityReviewFormQuestion(question: ClientPortalFormQuestion): boolean {
+  return (
+    question.fieldKey.startsWith('facilityReview') ||
+    (question.groupKey ?? '').startsWith('facility_review')
+  )
+}
+
+function facilityReviewSubgroupLabel(groupLabel: string): string {
+  return groupLabel.replace(/^Facility Review\s*[-–]\s*/i, '').trim() || groupLabel
+}
+
+function buildOrderedFormQuestionGroups(
+  questions: ClientPortalFormQuestion[],
+): Array<{ groupLabel: string; questions: ClientPortalFormQuestion[] }> {
+  const order: string[] = []
+  const byLabel = new Map<string, ClientPortalFormQuestion[]>()
+  for (const question of questions) {
+    const label = question.groupLabel || 'Business Information'
+    if (!byLabel.has(label)) {
+      order.push(label)
+      byLabel.set(label, [])
+    }
+    byLabel.get(label)!.push(question)
+  }
+  return order.map(groupLabel => ({ groupLabel, questions: byLabel.get(groupLabel)! }))
+}
+
+function FormQuestionFields({
+  questions,
+  formResponses,
+  onUpdate,
+  onError,
+}: {
+  questions: ClientPortalFormQuestion[]
+  formResponses: Record<string, string>
+  onUpdate: (fieldKey: string, value: string) => void
+  onError: (message: string) => void
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {questions.map(question => {
+        const commonClass =
+          'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
+        const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
+        const Shell = structured ? 'div' : 'label'
+        const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2' : ''
+        return (
+          <Shell key={question.id} className={shellClass}>
+            <span className="text-xs font-semibold text-slate-500">
+              {question.label}
+              {question.required && <span className="text-amber-600"> *</span>}
+            </span>
+            {question.description && (
+              <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>
+            )}
+            {structured ? (
+              <StructuredRowsInput
+                question={question}
+                value={formResponses[question.fieldKey] ?? ''}
+                onChange={value => onUpdate(question.fieldKey, value)}
+                onError={onError}
+              />
+            ) : question.inputType === 'textarea' ? (
+              <textarea
+                value={formResponses[question.fieldKey] ?? ''}
+                onChange={e => onUpdate(question.fieldKey, e.target.value)}
+                placeholder={question.placeholder ?? ''}
+                className={`${commonClass} mt-1 min-h-[84px] resize-y`}
+              />
+            ) : question.inputType === 'select' ? (
+              <select
+                value={formResponses[question.fieldKey] ?? ''}
+                onChange={e => onUpdate(question.fieldKey, e.target.value)}
+                className={`${commonClass} mt-1 bg-white`}
+              >
+                <option value="">Select...</option>
+                {(question.options ?? []).map(option => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type={
+                  question.inputType === 'number'
+                    ? 'number'
+                    : question.inputType === 'url'
+                      ? 'url'
+                      : 'text'
+                }
+                value={formResponses[question.fieldKey] ?? ''}
+                onChange={e => onUpdate(question.fieldKey, e.target.value)}
+                placeholder={question.placeholder ?? ''}
+                className={`${commonClass} mt-1`}
+              />
+            )}
+          </Shell>
+        )
+      })}
+    </div>
+  )
+}
+
 const FACILITY_IMAGE_DOCUMENT_ID = 'facility_review_images'
 const FACILITY_IMAGE_LIMIT = 5
 const FACILITY_IMAGE_TYPES = {
@@ -1826,12 +1930,14 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
     return () => clearTimeout(timeout)
   }, [formResponses, formHydrated, formQuestions.length, clientId])
 
-  const groupedQuestions = formQuestions.reduce<Record<string, ClientPortalFormQuestion[]>>((acc, question) => {
-    const key = question.groupLabel || 'Business Information'
-    acc[key] = [...(acc[key] ?? []), question]
-    return acc
-  }, {})
-  const hasFacilityQuestions = formQuestions.some(question => question.fieldKey.startsWith('facility'))
+  const orderedGroups = buildOrderedFormQuestionGroups(formQuestions)
+  const otherFormGroups = orderedGroups.filter(group =>
+    !group.questions.some(isFacilityReviewFormQuestion),
+  )
+  const facilityFormGroups = orderedGroups.filter(group =>
+    group.questions.some(isFacilityReviewFormQuestion),
+  )
+  const hasFacilityQuestions = facilityFormGroups.length > 0
 
   if (!formQuestions.length) {
     return (
@@ -1851,64 +1957,47 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
           </p>
         </div>
         <div className="p-5 space-y-5">
-          {Object.entries(groupedQuestions).map(([groupLabel, questions]) => (
-            <div key={groupLabel} className="space-y-3 pt-2 border-t border-slate-100 first:border-t-0 first:pt-0">
-              <h5 className="text-sm font-bold text-slate-800">{groupLabel}</h5>
-              <div className="grid gap-3 md:grid-cols-2">
-                {questions.map(question => {
-                  const commonClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
-                  const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
-                  // Do not wrap structured tables in <label>: first labelable descendant would be the hidden file input,
-                  // so clicks (e.g. "Add Row") can incorrectly open the file picker (HTML label activation behavior).
-                  const Shell = structured ? 'div' : 'label'
-                  const shellClass = (question.inputType === 'textarea' || structured) ? 'md:col-span-2' : ''
-                  return (
-                    <Shell key={question.id} className={shellClass}>
-                      <span className="text-xs font-semibold text-slate-500">
-                        {question.label}
-                        {question.required && <span className="text-amber-600"> *</span>}
-                      </span>
-                      {question.description && <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>}
-                      {structured ? (
-                        <StructuredRowsInput
-                          question={question}
-                          value={formResponses[question.fieldKey] ?? ''}
-                          onChange={value => updateFormResponse(question.fieldKey, value)}
-                          onError={setFormError}
-                        />
-                      ) : question.inputType === 'textarea' ? (
-                        <>
-                          <textarea
-                            value={formResponses[question.fieldKey] ?? ''}
-                            onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
-                            placeholder={question.placeholder ?? ''}
-                            className={`${commonClass} mt-1 min-h-[84px] resize-y`}
-                          />
-                        </>
-                      ) : question.inputType === 'select' ? (
-                        <select
-                          value={formResponses[question.fieldKey] ?? ''}
-                          onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
-                          className={`${commonClass} mt-1 bg-white`}
-                        >
-                          <option value="">Select...</option>
-                          {(question.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
-                        </select>
-                      ) : (
-                        <input
-                          type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
-                          value={formResponses[question.fieldKey] ?? ''}
-                          onChange={e => updateFormResponse(question.fieldKey, e.target.value)}
-                          placeholder={question.placeholder ?? ''}
-                          className={`${commonClass} mt-1`}
-                        />
-                      )}
-                    </Shell>
-                  )
-                })}
-              </div>
+          {otherFormGroups.map((group, index) => (
+            <div
+              key={group.groupLabel}
+              className={`space-y-3 pt-2 border-t border-slate-100${
+                index === 0 && !facilityFormGroups.length ? ' first:border-t-0 first:pt-0' : ''
+              }`}
+            >
+              <h5 className="text-sm font-bold text-slate-800">{group.groupLabel}</h5>
+              <FormQuestionFields
+                questions={group.questions}
+                formResponses={formResponses}
+                onUpdate={updateFormResponse}
+                onError={setFormError}
+              />
             </div>
           ))}
+          {hasFacilityQuestions && (
+            <div className="pt-6 border-t border-slate-100">
+              <div className="mb-4">
+                <h4 className="text-sm font-bold text-slate-800">Facility Review</h4>
+                <p className="text-xs text-slate-500 mt-1">
+                  Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+                {facilityFormGroups.map(group => (
+                  <div key={group.groupLabel} className="space-y-3 px-4 py-4 bg-slate-50/30">
+                    <h5 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      {facilityReviewSubgroupLabel(group.groupLabel)}
+                    </h5>
+                    <FormQuestionFields
+                      questions={group.questions}
+                      formResponses={formResponses}
+                      onUpdate={updateFormResponse}
+                      onError={setFormError}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {formError && <p className="text-xs text-red-600">{formError}</p>}
           <div className="flex items-center gap-3">
             <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
@@ -2615,7 +2704,7 @@ function RequirementsClientTab({
 function RoadmapTab() {
   return (
     <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400 opacity-70">
-      <Map className="w-10 h-10 text-slate-300 mx-auto mb-4" />
+      <MapIcon className="w-10 h-10 text-slate-300 mx-auto mb-4" />
       <p className="font-medium text-slate-600 mb-2">Your Roadmap</p>
       <p className="text-xs leading-relaxed max-w-sm mx-auto">
         Your sale readiness roadmap and action plan will appear here once your advisor team has completed their initial review of your documents.
