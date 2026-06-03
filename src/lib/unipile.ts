@@ -1,5 +1,8 @@
 import { getProjectEnv } from "@/lib/project-env";
-import { getStoredUnipileMailAccountId } from "@/lib/secure-settings";
+import {
+  getStoredUnipileMailAccountId,
+  hasStoredUnipileMailAccountId,
+} from "@/lib/secure-settings";
 
 function getUnipileBaseUrl() {
   const dsn = getProjectEnv("UNIPILE_DSN");
@@ -52,16 +55,34 @@ function formatUnipileError(status: number, text: string) {
   try {
     const parsed = JSON.parse(text) as { title?: string; detail?: string; type?: string };
     if (parsed.detail) {
-      return `Unipile ${status}: ${parsed.detail}${parsed.type ? ` (${parsed.type})` : ""}`;
+      const hint =
+        status === 502 || parsed.type === "errors/proxy_error"
+          ? " Reconnect the mailbox in Developer → Mail Settings (Change Sender)."
+          : "";
+      return `Unipile ${status}: ${parsed.detail}${parsed.type ? ` (${parsed.type})` : ""}${hint}`;
     }
   } catch {
     /* not JSON — often nginx HTML */
   }
   if (status === 502) {
-    return "Unipile 502: Mail proxy error — disconnect and reconnect the sender in Developer Mail Settings, then try again.";
+    return "Unipile 502: Mail proxy error (DSN/token are OK; Unipile could not reach Gmail/Outlook for this account). Reconnect the sender in Developer Mail Settings, then Test send.";
   }
   const trimmed = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   return trimmed.slice(0, 280) || `Unipile email send failed (${status}).`;
+}
+
+export async function resolveUnipileMailAccountId() {
+  const hasStored = await hasStoredUnipileMailAccountId();
+  const stored = await getStoredUnipileMailAccountId().catch(() => null);
+  if (stored) return { accountId: stored, source: "database" as const };
+  if (hasStored) {
+    throw new Error(
+      "Mailbox was connected but the stored account id cannot be decrypted. Use the same AUTH_SECRET/APP_SECRET as when you connected, or click Change Sender to reconnect.",
+    );
+  }
+  const envAccountId = getProjectEnv("UNIPILE_ACCOUNT_ID");
+  if (envAccountId) return { accountId: envAccountId, source: "env" as const };
+  throw new Error("Unipile mail is not configured.");
 }
 
 function wait(ms: number) {
@@ -75,11 +96,11 @@ export async function sendEmailWithUnipile(args: {
   body: string;
 }) {
   const accessToken = getUnipileAccessToken();
-  const accountId = (await getStoredUnipileMailAccountId().catch(() => null)) || getProjectEnv("UNIPILE_ACCOUNT_ID");
-
-  if (!accessToken || !accountId) {
+  if (!accessToken) {
     throw new Error("Unipile mail is not configured.");
   }
+
+  const { accountId, source } = await resolveUnipileMailAccountId();
 
   const form = new FormData();
   form.set("account_id", accountId);
@@ -116,6 +137,14 @@ export async function sendEmailWithUnipile(args: {
 
     lastError = formatUnipileError(response.status, text);
     if (!retryableStatuses.has(response.status) || attempt === 3) {
+      console.error("[unipile-mail] send failed", {
+        status: response.status,
+        attempt,
+        accountSource: source,
+        accountIdSuffix: accountId.slice(-6),
+        to: args.to,
+        detail: text.slice(0, 400),
+      });
       throw new Error(lastError);
     }
     await wait(attempt * 2000);

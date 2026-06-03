@@ -67,12 +67,28 @@ export async function saveStoredAnthropicApiKey(apiKey: string) {
   return maskSecret(trimmed);
 }
 
+export async function hasStoredUnipileMailAccountId() {
+  const secret = await (prisma as any).appSecret.findUnique({
+    where: { key: UNIPILE_MAIL_ACCOUNT_ID_KEY },
+    select: { value: true },
+  });
+  return Boolean(secret?.value);
+}
+
 export async function getStoredUnipileMailAccountId() {
   const secret = await (prisma as any).appSecret.findUnique({
     where: { key: UNIPILE_MAIL_ACCOUNT_ID_KEY },
   });
   if (!secret?.value) return null;
-  return decryptSecret(secret.value);
+  try {
+    return decryptSecret(secret.value);
+  } catch (error) {
+    console.error(
+      "[secure-settings] Cannot decrypt unipile_mail_account_id. AUTH_SECRET/APP_SECRET may have changed since connect.",
+      error,
+    );
+    return null;
+  }
 }
 
 export async function saveStoredUnipileMailAccountId(accountId: string) {

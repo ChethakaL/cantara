@@ -1,5 +1,5 @@
 import { DOCUMENT_DEADLINE_REMINDER_DAYS } from '@/lib/document-deadlines'
-import { isUnipileMailConfiguredAsync } from '@/lib/unipile'
+import { getUnipileAccount, isUnipileMailConfiguredAsync, resolveUnipileMailAccountId } from '@/lib/unipile'
 import {
   getReminderLastRun,
   getReminderScheduleConfig,
@@ -14,6 +14,16 @@ export async function diagnoseDocumentDeadlineReminders(now = new Date()) {
   const lastRun = await getReminderLastRun()
   const due = shouldRunScheduledReminders(now, lastRun)
   const mailReady = await isUnipileMailConfiguredAsync()
+  let mailAccount: Record<string, unknown> | null = null
+  let mailAccountSource: string | null = null
+  let mailAccountError: string | null = null
+  try {
+    const resolved = await resolveUnipileMailAccountId()
+    mailAccountSource = resolved.source
+    mailAccount = await getUnipileAccount(resolved.accountId)
+  } catch (error) {
+    mailAccountError = error instanceof Error ? error.message : 'Mail account check failed'
+  }
   const dryRun = await runDocumentDeadlineReminders(now, { dryRun: true })
 
   const serverNow = new Date()
@@ -46,6 +56,19 @@ export async function diagnoseDocumentDeadlineReminders(now = new Date()) {
     },
     lastRun,
     mailReady,
+    mailAccount: mailAccount
+      ? {
+          source: mailAccountSource,
+          status:
+            typeof mailAccount.status === 'string'
+              ? mailAccount.status
+              : typeof mailAccount.state === 'string'
+                ? mailAccount.state
+                : null,
+          type: typeof mailAccount.type === 'string' ? mailAccount.type : null,
+        }
+      : null,
+    mailAccountError,
     reminderDays: DOCUMENT_DEADLINE_REMINDER_DAYS,
     dryRunSummary: dryRun,
   }

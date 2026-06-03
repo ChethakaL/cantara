@@ -4,6 +4,7 @@ import { getProjectEnv } from "@/lib/project-env";
 import {
   clearStoredUnipileMailAccountId,
   getStoredUnipileMailAccountId,
+  hasStoredUnipileMailAccountId,
   maskSecret,
   saveStoredUnipileMailAccountId,
 } from "@/lib/secure-settings";
@@ -27,9 +28,11 @@ export async function GET(req: NextRequest) {
   const auth = requireDeveloperSecret(req.headers.get("x-developer-secret"));
   if (!auth.ok) return new Response(auth.message, { status: auth.status });
 
+  const storedRowExists = await hasStoredUnipileMailAccountId().catch(() => false);
   const stored = await getStoredUnipileMailAccountId().catch(() => null);
   const envAccountId = getProjectEnv("UNIPILE_ACCOUNT_ID") || null;
   const accountId = stored || envAccountId;
+  const usingEnvFallback = Boolean(storedRowExists && !stored && envAccountId);
   let connectedEmail: string | null = null;
   let accountStatus: string | null = null;
   const hasAccessToken = Boolean(getProjectEnv("UNIPILE_ACCESS_TOKEN") || getProjectEnv("UNIPILE_API_KEY"));
@@ -53,8 +56,15 @@ export async function GET(req: NextRequest) {
     accountId: maskSecret(accountId),
     connectedEmail,
     accountStatus,
-    accountError,
+    accountError:
+      accountError ||
+      (usingEnvFallback
+        ? "Stored mailbox id could not be decrypted; using UNIPILE_ACCOUNT_ID from env instead. Fix AUTH_SECRET or reconnect sender."
+        : storedRowExists && !accountId
+          ? "Mailbox was connected but account id is missing. Click Change Sender to reconnect."
+          : null),
     source: stored ? "database" : envAccountId ? "env" : null,
+    usingEnvFallback,
     apiConfigured: Boolean(getProjectEnv("UNIPILE_DSN") && hasAccessToken),
   });
 }

@@ -11,6 +11,7 @@ type Status = {
   connectedEmail?: string | null
   accountStatus?: string | null
   accountError?: string | null
+  usingEnvFallback?: boolean
   source: 'database' | 'env' | null
   apiConfigured: boolean
 }
@@ -25,6 +26,8 @@ type ReminderScheduleStatus = {
     skipReason: string | null
   }
   mailReady?: boolean
+  mailAccount?: { source: string | null; status: string | null; type: string | null } | null
+  mailAccountError?: string | null
   lastRun?: { calendarDate: string; ranAt: string; summary?: DocumentDeadlineReminderRunSummary } | null
   dryRunSummary?: {
     clientsScanned: number
@@ -265,7 +268,12 @@ export default function DeveloperMailSettingsPage() {
                   </p>
                   {status?.accountStatus && <p className="mt-1 text-xs text-slate-400">Unipile status: {status.accountStatus}</p>}
                   {status?.accountError && (
-                    <p className="mt-1 text-xs text-rose-600">Account error: {status.accountError}</p>
+                    <p className="mt-1 text-xs text-rose-600">{status.accountError}</p>
+                  )}
+                  {status?.usingEnvFallback && (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Warning: using UNIPILE_ACCOUNT_ID from env because the DB-stored sender could not be read.
+                    </p>
                   )}
                   {status?.source === 'env' && <p className="mt-1 text-xs text-slate-400">Configured from env.</p>}
                 </div>
@@ -323,6 +331,16 @@ export default function DeveloperMailSettingsPage() {
                 <p>Server ({reminderStatus.serverTime?.timezone}): {reminderStatus.serverTime?.zoned.calendarDate} {reminderStatus.serverTime?.zoned.hour}:00</p>
                 <p>Would auto-run: {reminderStatus.reminderWindow?.wouldRunScheduledCheck ? 'Yes' : `No — ${reminderStatus.reminderWindow?.skipReason}`}</p>
                 <p>Mail ready: {reminderStatus.mailReady ? 'Yes' : 'No — connect sender above'}</p>
+                {reminderStatus.mailAccount && (
+                  <p>
+                    Unipile account ({reminderStatus.mailAccount.source}): status{' '}
+                    {reminderStatus.mailAccount.status || 'unknown'}
+                    {reminderStatus.mailAccount.type ? ` · ${reminderStatus.mailAccount.type}` : ''}
+                  </p>
+                )}
+                {reminderStatus.mailAccountError && (
+                  <p className="text-rose-700">{reminderStatus.mailAccountError}</p>
+                )}
                 <p>Dry-run queue: {reminderStatus.dryRunSummary?.remindersQueued ?? 0} email(s) for {reminderStatus.dryRunSummary?.clientsScanned ?? 0} clients</p>
                 {reminderStatus.lastRun && (
                   <p>
