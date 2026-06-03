@@ -7,9 +7,13 @@ import {
 
 const LAST_RUN_KEY = 'document_deadline_reminder_last_run'
 
+/** Automatic runs (page loads / API hooks) stop retrying after this many attempts per Eastern calendar day. */
+export const MAX_DAILY_REMINDER_ATTEMPTS = 3
+
 export type ReminderLastRunRecord = {
   calendarDate: string
   ranAt: string
+  attemptCount?: number
   summary?: DocumentDeadlineReminderRunSummary
 }
 
@@ -62,14 +66,25 @@ async function saveReminderLastRun(record: ReminderLastRunRecord) {
   })
 }
 
-function lastRunNeedsRetry(lastRun: ReminderLastRunRecord | null) {
-  const summary = lastRun?.summary
-  if (!summary) return false
+function lastRunHadDeliveryFailures(summary: DocumentDeadlineReminderRunSummary) {
   if ((summary.emailsFailed ?? 0) > 0) return true
   const queued = summary.remindersQueued ?? 0
   const sent = summary.emailsSent ?? 0
   const skipped = summary.emailsSkippedAlreadySent ?? 0
   return queued > 0 && sent === 0 && skipped < queued
+}
+
+function getAttemptCountForDay(lastRun: ReminderLastRunRecord | null, calendarDate: string) {
+  if (!lastRun || lastRun.calendarDate !== calendarDate) return 0
+  return lastRun.attemptCount ?? (lastRun.summary ? 1 : 0)
+}
+
+function lastRunNeedsRetry(lastRun: ReminderLastRunRecord | null) {
+  const summary = lastRun?.summary
+  if (!summary) return false
+  const attempts = getAttemptCountForDay(lastRun, lastRun.calendarDate)
+  if (attempts >= MAX_DAILY_REMINDER_ATTEMPTS) return false
+  return lastRunHadDeliveryFailures(summary)
 }
 
 export function shouldRunScheduledReminders(now: Date, lastRun: ReminderLastRunRecord | null) {
@@ -79,8 +94,22 @@ export function shouldRunScheduledReminders(now: Date, lastRun: ReminderLastRunR
     return { run: false, reason: `Before ${hour}:00 ${timeZone}`, zoned, lastRun }
   }
   if (lastRun?.calendarDate === zoned.calendarDate) {
+    const attempts = getAttemptCountForDay(lastRun, zoned.calendarDate)
     if (lastRunNeedsRetry(lastRun)) {
-      return { run: true, reason: 'Retrying — previous run did not deliver emails', zoned, lastRun }
+      return {
+        run: true,
+        reason: `Retrying (${attempts + 1}/${MAX_DAILY_REMINDER_ATTEMPTS}) — previous run did not deliver emails`,
+        zoned,
+        lastRun,
+      }
+    }
+    if (lastRun.summary && lastRunHadDeliveryFailures(lastRun.summary) && attempts >= MAX_DAILY_REMINDER_ATTEMPTS) {
+      return {
+        run: false,
+        reason: `Stopped after ${MAX_DAILY_REMINDER_ATTEMPTS} failed attempts today`,
+        zoned,
+        lastRun,
+      }
     }
     return { run: false, reason: 'Already ran today', zoned, lastRun }
   }
@@ -116,19 +145,17 @@ export async function triggerDailyDocumentDeadlineReminders(args?: {
 
   inFlight = (async () => {
     const summary = await runDocumentDeadlineReminders(now, { dryRun: args?.dryRun })
-    if (!args?.dryRun) {
-      const shouldPersistDay =
-        (summary.remindersQueued ?? 0) === 0 ||
-        (summary.emailsSent ?? 0) > 0 ||
-        (summary.emailsSkippedAlreadySent ?? 0) >= (summary.remindersQueued ?? 0)
-
-      if (shouldPersistDay) {
-        await saveReminderLastRun({
-          calendarDate: schedule.zoned.calendarDate,
-          ranAt: now.toISOString(),
-          summary,
-        })
-      }
+    if (!args?.dryRun && !args?.force) {
+      const sameDay = schedule.lastRun?.calendarDate === schedule.zoned.calendarDate
+      const attemptCount = sameDay
+        ? getAttemptCountForDay(schedule.lastRun, schedule.zoned.calendarDate) + 1
+        : 1
+      await saveReminderLastRun({
+        calendarDate: schedule.zoned.calendarDate,
+        ranAt: now.toISOString(),
+        attemptCount,
+        summary,
+      })
     }
     return summary
   })()
@@ -153,12 +180,8 @@ export function scheduleDailyDocumentDeadlineRemindersCheck() {
           remindersQueued: result.summary?.remindersQueued ?? 0,
           errors: result.summary?.errors ?? [],
         })
-      } else {
-        console.info('[document-deadline-reminders] skipped', {
-          reason: result.reason,
-          zoned: result.zoned,
-        })
       }
+      // Skipped checks are intentional and frequent (every page load) — do not log.
     })
     .catch(error => {
       console.error('[document-deadline-reminder-scheduler]', error)

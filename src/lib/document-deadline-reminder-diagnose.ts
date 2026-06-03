@@ -4,6 +4,7 @@ import {
   getReminderLastRun,
   getReminderScheduleConfig,
   getZonedCalendarParts,
+  MAX_DAILY_REMINDER_ATTEMPTS,
   shouldRunScheduledReminders,
 } from '@/lib/document-deadline-reminder-scheduler'
 import { runDocumentDeadlineReminders } from '@/lib/document-deadline-reminders'
@@ -36,9 +37,10 @@ export async function diagnoseDocumentDeadlineReminders(now = new Date()) {
     important: [
       'Reminders use America/New_York time, NOT your server clock timezone.',
       'They run once per day after 9:00 AM Eastern when the app handles a request (not automatically at 9:00 with zero traffic).',
+      `Failed sends auto-retry at most ${MAX_DAILY_REMINDER_ATTEMPTS} times per day, then stop until tomorrow.`,
       'Email only sends when a document is missing AND the due date is exactly 7, 3, or 1 day(s) away today.',
       ...(lastRunFailed
-        ? ['Last run FAILED to send — use “Send reminders now” or wait for auto-retry on next page load.']
+        ? [`Last run FAILED to send — use “Send reminders now” (manual) or wait for auto-retry (up to ${MAX_DAILY_REMINDER_ATTEMPTS}/day).`]
         : []),
     ],
     lastRunErrors,
@@ -69,6 +71,7 @@ export async function diagnoseDocumentDeadlineReminders(now = new Date()) {
         }
       : null,
     mailAccountError,
+    maxDailyAttempts: MAX_DAILY_REMINDER_ATTEMPTS,
     reminderDays: DOCUMENT_DEADLINE_REMINDER_DAYS,
     dryRunSummary: dryRun,
   }

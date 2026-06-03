@@ -14,6 +14,60 @@ function getUnipileAccessToken() {
   return getProjectEnv("UNIPILE_ACCESS_TOKEN") || getProjectEnv("UNIPILE_API_KEY");
 }
 
+function stripHtmlResponse(text: string) {
+  if (!text.includes("<html") && !text.includes("<!DOCTYPE")) return text.trim();
+  return "";
+}
+
+export async function pingUnipileApi() {
+  const accessToken = getUnipileAccessToken();
+  if (!getProjectEnv("UNIPILE_DSN") || !accessToken) {
+    return { ok: false, status: 0, message: "UNIPILE_DSN or UNIPILE_ACCESS_TOKEN is not set." };
+  }
+
+  const apiUrl = getUnipileBaseUrl();
+  try {
+    const response = await fetch(`${apiUrl}/api/v1/accounts?limit=1`, {
+      headers: { "X-API-KEY": accessToken, accept: "application/json" },
+      cache: "no-store",
+    });
+    const text = await response.text();
+    if (response.ok) {
+      return { ok: true, status: response.status, message: "Unipile API is reachable.", apiUrl };
+    }
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      return {
+        ok: false,
+        status: response.status,
+        apiUrl,
+        message:
+          `Unipile API returned ${response.status} (Bad Gateway). Your DSN instance may be down — check https://status.unipile.com and your Unipile dashboard DSN, or contact Unipile support.`,
+      };
+    }
+    const jsonDetail = stripHtmlResponse(text);
+    let detail = jsonDetail;
+    try {
+      const parsed = JSON.parse(text) as { detail?: string; title?: string };
+      detail = parsed.detail || parsed.title || detail;
+    } catch {
+      /* ignore */
+    }
+    return {
+      ok: false,
+      status: response.status,
+      apiUrl,
+      message: detail || `Unipile API error (${response.status}).`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      apiUrl,
+      message: error instanceof Error ? error.message : "Could not reach Unipile API.",
+    };
+  }
+}
+
 export function isUnipileMailConfigured() {
   return Boolean(
     getProjectEnv("UNIPILE_DSN") &&
@@ -184,7 +238,9 @@ export async function createUnipileHostedAuthLink(args: {
 
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(text || `Unipile hosted auth link failed (${response.status}).`);
+    const err = new Error(text || `Unipile hosted auth link failed (${response.status}).`) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
   }
 
   return text ? JSON.parse(text) as { url?: string } : {};

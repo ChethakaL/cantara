@@ -8,7 +8,7 @@ import {
   maskSecret,
   saveStoredUnipileMailAccountId,
 } from "@/lib/secure-settings";
-import { getUnipileAccount } from "@/lib/unipile";
+import { getUnipileAccount, pingUnipileApi } from "@/lib/unipile";
 
 function extractAccountEmail(account: Record<string, unknown> | null) {
   if (!account) return null;
@@ -51,11 +51,14 @@ export async function GET(req: NextRequest) {
       accountError = error instanceof Error ? error.message : "Account lookup failed";
     }
   }
+  const apiPing = await pingUnipileApi();
+
   return NextResponse.json({
     configured: Boolean(accountId),
     accountId: maskSecret(accountId),
     connectedEmail,
     accountStatus,
+    apiPing,
     accountError:
       accountError ||
       (usingEnvFallback

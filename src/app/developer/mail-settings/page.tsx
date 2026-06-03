@@ -14,6 +14,7 @@ type Status = {
   usingEnvFallback?: boolean
   source: 'database' | 'env' | null
   apiConfigured: boolean
+  apiPing?: { ok: boolean; status: number; message: string; apiUrl?: string }
 }
 
 type ReminderScheduleStatus = {
@@ -114,9 +115,11 @@ export default function DeveloperMailSettingsPage() {
         headers: apiHeaders(),
         body: '{}',
       })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
-      if (!data.url) throw new Error('Unipile did not return a connect URL.')
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(data?.error || 'Could not start Unipile connection')
+      }
+      if (!data?.url) throw new Error('Unipile did not return a connect URL.')
       window.location.href = data.url
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start Unipile connection')
@@ -287,6 +290,12 @@ export default function DeveloperMailSettingsPage() {
             {!status?.apiConfigured && (
               <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 Set UNIPILE_DSN and UNIPILE_ACCESS_TOKEN in .env before connecting.
+              </p>
+            )}
+
+            {status?.apiConfigured && status.apiPing && !status.apiPing.ok && (
+              <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                <strong>Unipile API unreachable</strong> ({status.apiPing.apiUrl || 'DSN'}): {status.apiPing.message}
               </p>
             )}
 
