@@ -34,6 +34,12 @@ export async function GET(req: NextRequest) {
   try { checks.pricingVertical = !!(await (prisma as any).pricingVerticalReport?.findFirst?.({ where: { clientId }, select: { id: true } })) } catch { checks.pricingVertical = false }
   try { checks.salesProcessReview = !!(await (prisma as any).salesReviewReport?.findFirst?.({ where: { clientId }, select: { id: true } })) } catch { checks.salesProcessReview = false }
 
+  // Legal Entity Search — has its own table
+  try { checks.legalEntitySearch = !!(await (prisma as any).legalEntitySearchReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.legalEntitySearch = false }
+
+  // Tax Liability Review — has its own table
+  try { checks.taxLiabilityReview = !!(await (prisma as any).taxLiabilityReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.taxLiabilityReview = false }
+
   // Insurance Review — saved on the uploaded insurance claim document review fields.
   try {
     const insuranceDoc = await (prisma as any).clientDocument.findFirst({

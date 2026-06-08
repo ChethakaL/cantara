@@ -140,6 +140,8 @@ async function latestAgentRecord(clientId: string, key: string): Promise<{ creat
   if (key === 'employeeObligations') return latest((prisma as any).employeeObligationsReport, { createdAt: true, markdown: true, metadata: true }, 'Employee Obligations', 'markdown')
   if (key === 'ownershipVerification') return latest((prisma as any).ownershipVerificationReport, { createdAt: true, markdown: true, metadata: true }, 'Ownership Verification', 'markdown')
   if (key === 'permitsZoning') return latest((prisma as any).permitsZoningReport, { createdAt: true, markdown: true, metadata: true }, 'Permits & Zoning', 'markdown')
+  if (key === 'legalEntitySearch') return latest((prisma as any).legalEntitySearchReport, { createdAt: true, markdown: true, metadata: true }, 'Legal Entity Search', 'markdown')
+  if (key === 'taxLiabilityReview') return latest((prisma as any).taxLiabilityReport, { createdAt: true, markdown: true, metadata: true }, 'Tax Liability Review', 'markdown')
   if (key === 'insuranceReview') {
     const doc = await (prisma as any).clientDocument.findFirst({
       where: { clientId, documentId: 'insurance_claims_12m' },

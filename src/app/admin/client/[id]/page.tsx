@@ -39,6 +39,10 @@ import PricingByVerticalTab from '@/components/pricing-vertical/PricingByVertica
 import PermitsZoningTab from '@/components/ws1-9/PermitsZoningTab'
 import OwnerGmAssessmentTab from '@/components/owner-gm-assessment/OwnerGmAssessmentTab'
 import AgentOverviewTab from '@/components/admin/AgentOverviewTab'
+import LegalEntitySearchTab from '@/components/legal-entity-search/LegalEntitySearchTab'
+import TaxLiabilityReviewTab from '@/components/tax-liability-review/TaxLiabilityReviewTab'
+import AssessmentReportTab from '@/components/assessment-report/AssessmentReportTab'
+import ImprovementRoadmapTab from '@/components/improvement-roadmap/ImprovementRoadmapTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -63,6 +67,8 @@ const AGENT_TABS = [
   { key: 'permits-zoning', label: 'Permits & Zoning', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
   { key: 'advisors', label: 'Professional Advisors', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
+  { key: 'legal-entity-search', label: 'Legal Reports & Entity Search', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
+  { key: 'tax-liability-review', label: 'Tax Liability Review', badge: null, icon: FileSpreadsheet, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
@@ -70,6 +76,11 @@ const AGENT_TABS = [
   { key: 'pricing-analysis', label: 'Competitive Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'pricing-vertical', label: 'Pricing by Vertical', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
+  // Assessment Reports & Roadmaps
+  { key: 'ws1-assessment', label: 'WS1 Assessment Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws2-assessment', label: 'WS2 Assessment Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws1-roadmap', label: 'WS1 Improvement Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws2-roadmap', label: 'WS2 Improvement Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   // Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again.
   // { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
   // M&A
@@ -566,6 +577,34 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'sales-process-review' && (
               <SalesProcessReviewTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'legal-entity-search' && (
+              <LegalEntitySearchTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                state={client.state}
+                dba={client.dba || undefined}
+                businessAddress={client.businessAddress}
+              />
+            )}
+            {activeTab === 'tax-liability-review' && (
+              <TaxLiabilityReviewTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                state={client.state}
+              />
+            )}
+            {activeTab === 'ws1-assessment' && (
+              <AssessmentReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws1" />
+            )}
+            {activeTab === 'ws2-assessment' && (
+              <AssessmentReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws2" />
+            )}
+            {activeTab === 'ws1-roadmap' && (
+              <ImprovementRoadmapTab clientId={client.id} clientName={client.company || client.name} workstream="ws1" />
+            )}
+            {activeTab === 'ws2-roadmap' && (
+              <ImprovementRoadmapTab clientId={client.id} clientName={client.company || client.name} workstream="ws2" />
             )}
             {/* Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again. */}
             {/* {activeTab === 'meeting-notes' && (

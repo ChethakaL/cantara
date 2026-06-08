@@ -21,6 +21,8 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
     { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
     { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: ['vendor_contracts', 'material_contracts', 'software_subscriptions'] },
+    { agentId: 'legal_entity_search', agentName: 'Legal Reports & Entity Search Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure', 'business_licenses'] },
+    { agentId: 'tax_liability_review', agentName: 'Tax Liability Review Agent', documentIds: ['tax_returns', 'irs_notices', 'payroll_filings'] },
   ],
   ws2: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
@@ -77,6 +79,8 @@ export function normalizeAgentStatusKey(agentId: string) {
     pricing_analysis: 'pricingAnalysis',
     pricing_vertical: 'pricingVertical',
     sales_process_review: 'salesProcessReview',
+    legal_entity_search: 'legalEntitySearch',
+    tax_liability_review: 'taxLiabilityReview',
   }
   return aliases[agentId] ?? agentId
 }
