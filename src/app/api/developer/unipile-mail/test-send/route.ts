@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireDeveloperSecret } from '@/lib/developer-auth'
-import { getUnipileAccount, sendEmailWithUnipile } from '@/lib/unipile'
-import { getStoredUnipileMailAccountId } from '@/lib/secure-settings'
+import { getComposioMailConnection, sendEmailWithComposio } from '@/lib/composio'
+import { getStoredComposioMailConnectedAccountId } from '@/lib/secure-settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,20 +15,20 @@ export async function POST(req: NextRequest) {
       return new Response('Provide a valid "to" email in the JSON body.', { status: 400 })
     }
 
-    const accountId = await getStoredUnipileMailAccountId()
+    const accountId = await getStoredComposioMailConnectedAccountId()
     if (!accountId) {
       return new Response('No connected mailbox. Connect sender first.', { status: 400 })
     }
 
-    const account = await getUnipileAccount(accountId).catch(error => ({
+    const account = await getComposioMailConnection(accountId).catch(error => ({
       error: error instanceof Error ? error.message : 'Account lookup failed',
     }))
 
-    await sendEmailWithUnipile({
+    await sendEmailWithComposio({
       to,
       displayName: to,
       subject: 'Cantara mail test',
-      body: '<p>This is a test email from Cantara. If you received this, Unipile mail is working.</p>',
+      body: '<p>This is a test email from Cantara. If you received this, Composio mail is working.</p>',
     })
 
     return NextResponse.json({

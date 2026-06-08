@@ -155,6 +155,16 @@ function getBaseAgentsForClient(client: Client, customDraftMode: boolean): Agent
   return client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
 }
 
+function ProvisioningBadge({ client, customDraftMode }: { client: Client; customDraftMode: boolean }) {
+  if (customDraftMode) {
+    return <Badge color="gold">Custom workstream (draft)</Badge>
+  }
+  if (client.customWorkstream?.name?.trim()) {
+    return <Badge color="gold">{client.customWorkstream.name.trim()}</Badge>
+  }
+  return <WorkstreamBadge ws={client.workstream} />
+}
+
 export default function ClientManager({ client: initial, onSaved }: {
   client: Client
   onSaved: (c: Client) => void
@@ -526,7 +536,7 @@ export default function ClientManager({ client: initial, onSaved }: {
         </div>
         {client.workstream && (
           <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-100 text-xs text-amber-700">
-            ✓ Client is provisioned on <WorkstreamBadge ws={client.workstream} /> — their portal will show the corresponding document checklist.
+            ✓ Client is provisioned on <ProvisioningBadge client={client} customDraftMode={customDraftMode} /> — their portal will show documents based on the selected agents.
           </div>
         )}
         {!client.workstream && (

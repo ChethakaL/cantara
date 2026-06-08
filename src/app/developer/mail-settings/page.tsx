@@ -12,7 +12,7 @@ type Status = {
   accountStatus?: string | null
   accountError?: string | null
   usingEnvFallback?: boolean
-  source: 'database' | 'env' | null
+  source: 'database' | 'composio' | null
   apiConfigured: boolean
   apiPing?: { ok: boolean; status: number; message: string; apiUrl?: string }
 }
@@ -71,7 +71,7 @@ export default function DeveloperMailSettingsPage() {
       setSecret(saved)
       const params = new URLSearchParams(window.location.search)
       const accountId = params.get('account_id')
-      if (params.get('unipile') === 'connected' && accountId) {
+      if ((params.get('composio') === 'connected' || params.get('unipile') === 'connected') && accountId) {
         void saveReturnedAccountId(saved, accountId)
       } else {
         void loadStatus(saved)
@@ -117,12 +117,12 @@ export default function DeveloperMailSettingsPage() {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        throw new Error(data?.error || 'Could not start Unipile connection')
+        throw new Error(data?.error || 'Could not start Composio connection')
       }
-      if (!data?.url) throw new Error('Unipile did not return a connect URL.')
+      if (!data?.url) throw new Error('Composio did not return a connect URL.')
       window.location.href = data.url
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not start Unipile connection')
+      setError(err instanceof Error ? err.message : 'Could not start Composio connection')
       setLoading(false)
     }
   }
@@ -266,19 +266,13 @@ export default function DeveloperMailSettingsPage() {
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
                     {status?.configured
-                      ? `Sending from ${status.connectedEmail || status.accountId || 'selected Unipile account'}`
+                      ? `Sending from ${status.connectedEmail || status.accountId || 'selected Composio account'}`
                       : 'Connect aliya@cantarapet.com to send invitations.'}
                   </p>
-                  {status?.accountStatus && <p className="mt-1 text-xs text-slate-400">Unipile status: {status.accountStatus}</p>}
+                  {status?.accountStatus && <p className="mt-1 text-xs text-slate-400">Composio status: {status.accountStatus}</p>}
                   {status?.accountError && (
                     <p className="mt-1 text-xs text-rose-600">{status.accountError}</p>
                   )}
-                  {status?.usingEnvFallback && (
-                    <p className="mt-1 text-xs text-amber-700">
-                      Warning: using UNIPILE_ACCOUNT_ID from env because the DB-stored sender could not be read.
-                    </p>
-                  )}
-                  {status?.source === 'env' && <p className="mt-1 text-xs text-slate-400">Configured from env.</p>}
                 </div>
               </div>
               <Button size="sm" variant="ghost" onClick={() => void loadStatus()} disabled={loading}>
@@ -289,13 +283,13 @@ export default function DeveloperMailSettingsPage() {
 
             {!status?.apiConfigured && (
               <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                Set UNIPILE_DSN and UNIPILE_ACCESS_TOKEN in .env before connecting.
+                Set COMPOSIO_API_KEY in .env before connecting. Use COMPOSIO_MAIL_TOOLKIT=GMAIL or OUTLOOK if needed.
               </p>
             )}
 
             {status?.apiConfigured && status.apiPing && !status.apiPing.ok && (
               <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                <strong>Unipile API unreachable</strong> ({status.apiPing.apiUrl || 'DSN'}): {status.apiPing.message}
+                <strong>Composio API unreachable</strong> ({status.apiPing.apiUrl || 'API'}): {status.apiPing.message}
               </p>
             )}
 
@@ -310,16 +304,13 @@ export default function DeveloperMailSettingsPage() {
                 </Button>
               )}
               {status?.configured && (
-                <Button variant="danger" onClick={() => void disconnectMailbox()} disabled={loading || status.source === 'env'}>
+                <Button variant="danger" onClick={() => void disconnectMailbox()} disabled={loading}>
                   <Unplug className="h-4 w-4" />
                   Disconnect
                 </Button>
               )}
             </div>
 
-            {status?.source === 'env' && (
-              <p className="mt-3 text-xs text-slate-400">Env sender cannot be disconnected here. Remove UNIPILE_ACCOUNT_ID from .env or connect a new sender to override it.</p>
-            )}
             {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
           </section>
         )}
@@ -342,7 +333,7 @@ export default function DeveloperMailSettingsPage() {
                 <p>Mail ready: {reminderStatus.mailReady ? 'Yes' : 'No — connect sender above'}</p>
                 {reminderStatus.mailAccount && (
                   <p>
-                    Unipile account ({reminderStatus.mailAccount.source}): status{' '}
+                    Composio account ({reminderStatus.mailAccount.source}): status{' '}
                     {reminderStatus.mailAccount.status || 'unknown'}
                     {reminderStatus.mailAccount.type ? ` · ${reminderStatus.mailAccount.type}` : ''}
                   </p>
@@ -361,7 +352,7 @@ export default function DeveloperMailSettingsPage() {
                 )}
                 {(reminderStatus.lastRunErrors?.length ?? 0) > 0 && (
                   <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
-                    <p className="font-semibold">Last send error (Unipile / mail API):</p>
+                    <p className="font-semibold">Last send error (Composio / mail API):</p>
                     <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed">
                       {reminderStatus.lastRunErrors.join('\n\n')}
                     </pre>

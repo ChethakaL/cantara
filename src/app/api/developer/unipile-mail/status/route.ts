@@ -1,74 +1,63 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireDeveloperSecret } from "@/lib/developer-auth";
-import { getProjectEnv } from "@/lib/project-env";
 import {
-  clearStoredUnipileMailAccountId,
-  getStoredUnipileMailAccountId,
-  hasStoredUnipileMailAccountId,
+  clearStoredComposioMailConnectedAccountId,
+  getStoredComposioMailConnectedAccountId,
+  hasStoredComposioMailConnectedAccountId,
   maskSecret,
-  saveStoredUnipileMailAccountId,
+  saveStoredComposioMailConnectedAccountId,
 } from "@/lib/secure-settings";
-import { getUnipileAccount, pingUnipileApi } from "@/lib/unipile";
-
-function extractAccountEmail(account: Record<string, unknown> | null) {
-  if (!account) return null;
-  for (const key of ["email", "username", "identifier", "name"]) {
-    const value = account[key];
-    if (typeof value === "string" && value.includes("@")) return value;
-  }
-  const connection = account.connection_params;
-  if (connection && typeof connection === "object") {
-    const value = (connection as Record<string, unknown>).email || (connection as Record<string, unknown>).username;
-    if (typeof value === "string" && value.includes("@")) return value;
-  }
-  return null;
-}
+import {
+  disconnectComposioMail,
+  extractComposioMailEmail,
+  getComposioMailConnection,
+  getComposioMailProfile,
+  isComposioMailConfigured,
+  pingComposioApi,
+} from "@/lib/composio";
 
 export async function GET(req: NextRequest) {
   const auth = requireDeveloperSecret(req.headers.get("x-developer-secret"));
   if (!auth.ok) return new Response(auth.message, { status: auth.status });
 
-  const storedRowExists = await hasStoredUnipileMailAccountId().catch(() => false);
-  const stored = await getStoredUnipileMailAccountId().catch(() => null);
-  const envAccountId = getProjectEnv("UNIPILE_ACCOUNT_ID") || null;
-  const accountId = stored || envAccountId;
-  const usingEnvFallback = Boolean(storedRowExists && !stored && envAccountId);
+  const storedRowExists = await hasStoredComposioMailConnectedAccountId().catch(() => false);
+  const stored = await getStoredComposioMailConnectedAccountId().catch(() => null);
+  const accountId = stored;
   let connectedEmail: string | null = null;
   let accountStatus: string | null = null;
-  const hasAccessToken = Boolean(getProjectEnv("UNIPILE_ACCESS_TOKEN") || getProjectEnv("UNIPILE_API_KEY"));
   let accountError: string | null = null;
-  if (accountId && hasAccessToken && getProjectEnv("UNIPILE_DSN")) {
+  let connection: Awaited<ReturnType<typeof getComposioMailConnection>> | null = null;
+  if (isComposioMailConfigured()) {
     try {
-      const account = await getUnipileAccount(accountId);
-      connectedEmail = extractAccountEmail(account);
-      accountStatus =
-        typeof account?.status === "string"
-          ? account.status
-          : typeof account?.state === "string"
-            ? account.state
-            : null;
+      connection = await getComposioMailConnection(accountId);
+      accountStatus = connection?.status ?? null;
+      connectedEmail = extractComposioMailEmail(connection);
+      if (connection?.status === "ACTIVE" && !connectedEmail) {
+        connectedEmail = extractComposioMailEmail(await getComposioMailProfile().catch(() => null));
+      }
     } catch (error) {
       accountError = error instanceof Error ? error.message : "Account lookup failed";
     }
   }
-  const apiPing = await pingUnipileApi();
+  const apiPing = await pingComposioApi();
+  const active = Boolean(connection?.status === "ACTIVE" && !connection.is_disabled);
 
   return NextResponse.json({
-    configured: Boolean(accountId),
-    accountId: maskSecret(accountId),
+    configured: active,
+    accountId: maskSecret(connection?.id ?? accountId),
     connectedEmail,
     accountStatus,
     apiPing,
     accountError:
       accountError ||
-      (usingEnvFallback
-        ? "Stored mailbox id could not be decrypted; using UNIPILE_ACCOUNT_ID from env instead. Fix AUTH_SECRET or reconnect sender."
-        : storedRowExists && !accountId
-          ? "Mailbox was connected but account id is missing. Click Change Sender to reconnect."
+      (storedRowExists && !accountId
+        ? "Mailbox was connected but the Composio connected account id is missing. Click Change Sender to reconnect."
+        : connection && !active
+          ? `Composio connection is ${connection.status || "not active"}${connection.status_reason ? `: ${connection.status_reason}` : ""}.`
           : null),
-    source: stored ? "database" : envAccountId ? "env" : null,
-    usingEnvFallback,
-    apiConfigured: Boolean(getProjectEnv("UNIPILE_DSN") && hasAccessToken),
+    source: stored ? "database" : connection?.id ? "composio" : null,
+    usingEnvFallback: false,
+    apiConfigured: isComposioMailConfigured(),
   });
 }
 
@@ -78,10 +67,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const { accountId } = await req.json();
-    const masked = await saveStoredUnipileMailAccountId(String(accountId || ""));
+    const masked = await saveStoredComposioMailConnectedAccountId(String(accountId || ""));
     return NextResponse.json({ configured: true, accountId: masked, source: "database" });
   } catch (error) {
-    return new Response(error instanceof Error ? error.message : "Failed to save Unipile account id", { status: 400 });
+    return new Response(error instanceof Error ? error.message : "Failed to save Composio connected account id", { status: 400 });
   }
 }
 
@@ -89,11 +78,12 @@ export async function DELETE(req: NextRequest) {
   const auth = requireDeveloperSecret(req.headers.get("x-developer-secret"));
   if (!auth.ok) return new Response(auth.message, { status: auth.status });
 
-  await clearStoredUnipileMailAccountId();
+  await disconnectComposioMail().catch((error) => console.warn("[composio-mail] disconnect failed", error));
+  await clearStoredComposioMailConnectedAccountId();
   return NextResponse.json({
-    configured: Boolean(getProjectEnv("UNIPILE_ACCOUNT_ID")),
-    accountId: maskSecret(getProjectEnv("UNIPILE_ACCOUNT_ID") || null),
-    source: getProjectEnv("UNIPILE_ACCOUNT_ID") ? "env" : null,
-    apiConfigured: Boolean(getProjectEnv("UNIPILE_DSN") && (getProjectEnv("UNIPILE_ACCESS_TOKEN") || getProjectEnv("UNIPILE_API_KEY"))),
+    configured: false,
+    accountId: null,
+    source: null,
+    apiConfigured: isComposioMailConfigured(),
   });
 }

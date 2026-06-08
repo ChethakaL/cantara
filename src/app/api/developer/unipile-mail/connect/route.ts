@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireDeveloperSecret } from "@/lib/developer-auth";
-import { createUnipileHostedAuthLink, pingUnipileApi } from "@/lib/unipile";
+import { createComposioMailConnectLink, pingComposioApi } from "@/lib/composio";
+import { saveStoredComposioMailConnectedAccountId } from "@/lib/secure-settings";
 
 function formatConnectionError(error: unknown) {
-  if (!(error instanceof Error)) return "Failed to create Unipile connection link";
+  if (!(error instanceof Error)) return "Failed to create Composio connection link";
   const raw = error.message;
-  if (raw.includes("502 Bad Gateway") || raw.includes("<html")) {
-    return "Unipile API is returning 502 Bad Gateway for your DSN. The mail server cannot connect or send until Unipile fixes your instance — check status.unipile.com and your dashboard DSN (api host + port).";
-  }
   try {
     const parsed = JSON.parse(raw) as { title?: string; detail?: string };
     if (parsed.detail) return parsed.detail.split("\n")[0] || parsed.detail;
@@ -30,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return new Response(auth.message, { status: auth.status });
 
   try {
-    const ping = await pingUnipileApi();
+    const ping = await pingComposioApi();
     if (!ping.ok) {
       return NextResponse.json(
         { ok: false, error: ping.message, apiUrl: ping.apiUrl, status: ping.status },
@@ -39,12 +37,11 @@ export async function POST(req: NextRequest) {
     }
 
     const origin = new URL(req.url).origin;
-    const url = await createUnipileHostedAuthLink({
-      successRedirectUrl: `${origin}/developer/mail-settings?unipile=connected`,
-      failureRedirectUrl: `${origin}/developer/mail-settings?unipile=failed`,
-      notifyUrl: `${origin}/api/developer/unipile-mail/callback`,
-    });
-    return NextResponse.json(url);
+    const link = await createComposioMailConnectLink(`${origin}/developer/mail-settings?composio=connected`);
+    if (link.connected_account_id) {
+      await saveStoredComposioMailConnectedAccountId(link.connected_account_id);
+    }
+    return NextResponse.json(link);
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: formatConnectionError(error) },

@@ -2,11 +2,18 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { renderHtmlToPdfBuffer } from "@/lib/report-pdf";
 import { assertS3Configured, buildPresignedFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { cookies } from "next/headers";
+import { getProjectEnv } from "@/lib/project-env";
+import {
+  getStoredComposioMailConnectedAccountId,
+  hasStoredComposioMailConnectedAccountId,
+} from "@/lib/secure-settings";
 
 const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
 const QUICKBOOKS_TOOLKIT_SLUG = "QUICKBOOKS";
 export const GOOGLEDRIVE_TOOLKIT_SLUG = "GOOGLEDRIVE";
 export const ADMIN_DRIVE_USER_ID = "cantara-admin-drive";
+const COMPOSIO_MAIL_USER_ID = "cantara-system-mailbox";
+const DEFAULT_MAIL_TOOLKIT_SLUG = "GMAIL";
 
 type ComposioAuthConfig = {
   id: string;
@@ -21,6 +28,17 @@ type ComposioAuthConfigListItem = {
   toolkit?: { slug?: string };
   status?: string;
   is_disabled?: boolean;
+};
+
+type ComposioConnectedAccount = {
+  id: string;
+  status: string;
+  status_reason?: string;
+  is_disabled?: boolean;
+  updated_at?: string;
+  toolkit?: { slug?: string };
+  connection?: Record<string, unknown>;
+  state?: unknown;
 };
 
 function composioApiKey() {
@@ -74,6 +92,265 @@ export function getComposioAdminId() {
 
 export function composioUserIdForClient(clientId: string) {
   return `cantara-client:${clientId}`;
+}
+
+function getComposioMailToolkitSlug() {
+  const toolkit = (getProjectEnv("COMPOSIO_MAIL_TOOLKIT") || DEFAULT_MAIL_TOOLKIT_SLUG).toUpperCase();
+  if (toolkit === "OUTLOOK" || toolkit === "GMAIL") return toolkit;
+  throw new Error("COMPOSIO_MAIL_TOOLKIT must be GMAIL or OUTLOOK.");
+}
+
+function getComposioMailToolSlug(toolkit = getComposioMailToolkitSlug()) {
+  return toolkit === "OUTLOOK" ? "OUTLOOK_SEND_EMAIL" : "GMAIL_SEND_EMAIL";
+}
+
+function getComposioMailProfileToolSlug(toolkit = getComposioMailToolkitSlug()) {
+  return toolkit === "OUTLOOK" ? "OUTLOOK_GET_PROFILE" : "GMAIL_GET_PROFILE";
+}
+
+function getComposioMailAuthConfigEnvKey(toolkit = getComposioMailToolkitSlug()) {
+  return toolkit === "OUTLOOK" ? "COMPOSIO_OUTLOOK_AUTH_CONFIG_ID" : "COMPOSIO_GMAIL_AUTH_CONFIG_ID";
+}
+
+function buildComposioMailArguments(args: { to: string; displayName?: string; subject: string; body: string }) {
+  const toolkit = getComposioMailToolkitSlug();
+  if (toolkit === "OUTLOOK") {
+    return {
+      to_email: args.to,
+      to_name: args.displayName || args.to,
+      subject: args.subject,
+      body: args.body,
+      is_html: true,
+      save_to_sent_items: true,
+    };
+  }
+  return {
+    recipient_email: args.to,
+    subject: args.subject,
+    body: args.body,
+    is_html: true,
+  };
+}
+
+function extractComposioEmail(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["email", "emailAddress", "mail", "userPrincipalName", "username", "identifier", "name"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string" && candidate.includes("@")) return candidate;
+  }
+  for (const nested of ["connection", "state", "data", "response_data", "profile"]) {
+    const found = extractComposioEmail(record[nested]);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function getComposioMailAuthConfigId() {
+  const toolkit = getComposioMailToolkitSlug();
+  const envKey = getComposioMailAuthConfigEnvKey(toolkit);
+  if (process.env[envKey]) return process.env[envKey];
+
+  const params = new URLSearchParams({
+    toolkit_slug: toolkit,
+    is_composio_managed: "true",
+    limit: "20",
+  });
+  const list = await composioFetch<{ items?: ComposioAuthConfigListItem[] }>(`/auth_configs?${params}`);
+  const existing = (list.items ?? []).find((item) => {
+    const authConfig = item.auth_config ?? item;
+    return item.toolkit?.slug?.toUpperCase() === toolkit && !authConfig.is_disabled && item.status !== "DISABLED";
+  });
+
+  const existingId = existing?.auth_config?.id ?? existing?.id;
+  if (existingId) return existingId;
+
+  const created = await composioFetch<{ auth_config: ComposioAuthConfig }>("/auth_configs", {
+    method: "POST",
+    body: JSON.stringify({
+      toolkit: { slug: toolkit },
+      auth_config: {
+        type: "use_composio_managed_auth",
+        credentials: {},
+        restrict_to_following_tools: [
+          getComposioMailToolSlug(toolkit),
+          getComposioMailProfileToolSlug(toolkit),
+        ],
+      },
+    }),
+  });
+
+  return created.auth_config.id;
+}
+
+export function isComposioMailConfigured() {
+  return Boolean(process.env.COMPOSIO_API_KEY);
+}
+
+export async function pingComposioApi() {
+  if (!process.env.COMPOSIO_API_KEY) {
+    return { ok: false, status: 0, message: "COMPOSIO_API_KEY is not configured.", apiUrl: COMPOSIO_BASE_URL };
+  }
+  try {
+    await getComposioMailAuthConfigId();
+    return { ok: true, status: 200, message: "Composio API is reachable.", apiUrl: COMPOSIO_BASE_URL };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      message: error instanceof Error ? error.message : "Could not reach Composio API.",
+      apiUrl: COMPOSIO_BASE_URL,
+    };
+  }
+}
+
+export async function createComposioMailConnectLink(callbackUrl: string) {
+  const authConfigId = await getComposioMailAuthConfigId();
+  const alias = `cantara-mail-${getComposioMailToolkitSlug().toLowerCase()}-${Date.now()}`;
+  const direct = await tryComposioFetch<{
+    id: string;
+    redirect_url: string;
+  }>("/connected_accounts", {
+    method: "POST",
+    body: JSON.stringify({
+      auth_config: { id: authConfigId },
+      connection: { user_id: COMPOSIO_MAIL_USER_ID },
+    }),
+  });
+
+  if (direct?.redirect_url) {
+    return {
+      url: direct.redirect_url,
+      connected_account_id: direct.id,
+    };
+  }
+
+  const linked = await composioFetch<{
+    redirect_url: string;
+    connected_account_id: string;
+  }>("/connected_accounts/link", {
+    method: "POST",
+    body: JSON.stringify({
+      auth_config_id: authConfigId,
+      user_id: COMPOSIO_MAIL_USER_ID,
+      alias,
+      callback_url: callbackUrl,
+    }),
+  });
+
+  return {
+    url: linked.redirect_url,
+    connected_account_id: linked.connected_account_id,
+  };
+}
+
+export async function getComposioMailConnection(accountId?: string | null) {
+  if (accountId) {
+    return composioFetch<ComposioConnectedAccount>(`/connected_accounts/${accountId}`);
+  }
+
+  const params = new URLSearchParams({
+    limit: "10",
+    account_type: "ALL",
+    order_by: "updated_at",
+    order_direction: "desc",
+  });
+  params.append("user_ids", COMPOSIO_MAIL_USER_ID);
+  params.append("toolkit_slugs", getComposioMailToolkitSlug());
+
+  const connections = await composioFetch<{ items?: ComposioConnectedAccount[] }>(`/connected_accounts?${params}`);
+  return (connections.items ?? []).find((item) => item.status === "ACTIVE" && !item.is_disabled) ?? connections.items?.[0] ?? null;
+}
+
+export async function getComposioMailProfile() {
+  const result = await composioFetch<{ data?: unknown; successful?: boolean; error?: unknown }>(
+    `/tools/execute/${getComposioMailProfileToolSlug()}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: COMPOSIO_MAIL_USER_ID,
+        arguments: {},
+      }),
+    },
+  );
+  return result.data ?? result;
+}
+
+export async function resolveComposioMailConnectedAccountId() {
+  const hasStored = await hasStoredComposioMailConnectedAccountId();
+  const stored = await getStoredComposioMailConnectedAccountId().catch(() => null);
+  if (stored) return { accountId: stored, source: "database" as const };
+  if (hasStored) {
+    throw new Error(
+      "Mailbox was connected but the stored Composio connected account id cannot be decrypted. Use the same AUTH_SECRET/APP_SECRET as when you connected, or reconnect sender.",
+    );
+  }
+
+  const active = await getComposioMailConnection().catch(() => null);
+  if (active?.id) return { accountId: active.id, source: "composio" as const };
+  throw new Error("Composio mail is not connected.");
+}
+
+export async function isComposioMailConfiguredAsync() {
+  if (!isComposioMailConfigured()) return false;
+  const connection = await getComposioMailConnection().catch(() => null);
+  return Boolean(connection?.status === "ACTIVE" && !connection.is_disabled);
+}
+
+export async function sendEmailWithComposio(args: {
+  to: string;
+  displayName?: string;
+  subject: string;
+  body: string;
+}) {
+  if (!isComposioMailConfigured()) {
+    throw new Error("Composio mail is not configured.");
+  }
+
+  const connection = await getComposioMailConnection().catch(() => null);
+  if (!connection || connection.status !== "ACTIVE" || connection.is_disabled) {
+    throw new Error("Composio mail is not connected.");
+  }
+
+  const result = await composioFetch<{ data?: unknown; successful?: boolean; error?: unknown }>(
+    `/tools/execute/${getComposioMailToolSlug()}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: COMPOSIO_MAIL_USER_ID,
+        arguments: buildComposioMailArguments(args),
+      }),
+    },
+  );
+
+  if (result.successful === false) {
+    const detail = typeof result.error === "string" ? result.error : JSON.stringify(result.error ?? result.data);
+    throw new Error(detail || "Composio email send failed.");
+  }
+  return result.data ?? result;
+}
+
+export async function disconnectComposioMail() {
+  const params = new URLSearchParams({
+    limit: "50",
+    account_type: "ALL",
+  });
+  params.append("user_ids", COMPOSIO_MAIL_USER_ID);
+  params.append("toolkit_slugs", getComposioMailToolkitSlug());
+
+  const connections = await composioFetch<{ items?: Array<{ id: string; status: string }> }>(`/connected_accounts?${params}`);
+
+  await Promise.all(
+    (connections.items ?? []).map((conn) =>
+      composioFetch(`/connected_accounts/${conn.id}`, {
+        method: "DELETE",
+      }).catch((err) => console.warn(`Failed to delete Composio mail connection ${conn.id}:`, err))
+    )
+  );
+}
+
+export function extractComposioMailEmail(value: unknown) {
+  return extractComposioEmail(value);
 }
 
 export async function getQuickBooksAuthConfigId() {

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 const ANTHROPIC_SECRET_KEY = "anthropic_api_key";
 const UNIPILE_MAIL_ACCOUNT_ID_KEY = "unipile_mail_account_id";
+const COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY = "composio_mail_connected_account_id";
 const VERSION = "v1";
 
 function encryptionSecret() {
@@ -105,6 +106,47 @@ export async function saveStoredUnipileMailAccountId(accountId: string) {
 export async function clearStoredUnipileMailAccountId() {
   await (prisma as any).appSecret.deleteMany({
     where: { key: UNIPILE_MAIL_ACCOUNT_ID_KEY },
+  });
+}
+
+export async function hasStoredComposioMailConnectedAccountId() {
+  const secret = await (prisma as any).appSecret.findUnique({
+    where: { key: COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY },
+    select: { value: true },
+  });
+  return Boolean(secret?.value);
+}
+
+export async function getStoredComposioMailConnectedAccountId() {
+  const secret = await (prisma as any).appSecret.findUnique({
+    where: { key: COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY },
+  });
+  if (!secret?.value) return null;
+  try {
+    return decryptSecret(secret.value);
+  } catch (error) {
+    console.error(
+      "[secure-settings] Cannot decrypt composio_mail_connected_account_id. AUTH_SECRET/APP_SECRET may have changed since connect.",
+      error,
+    );
+    return null;
+  }
+}
+
+export async function saveStoredComposioMailConnectedAccountId(accountId: string) {
+  const trimmed = accountId.trim();
+  if (!trimmed) throw new Error("Composio connected account id is required");
+  await (prisma as any).appSecret.upsert({
+    where: { key: COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY },
+    update: { value: encryptSecret(trimmed) },
+    create: { key: COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY, value: encryptSecret(trimmed) },
+  });
+  return maskSecret(trimmed);
+}
+
+export async function clearStoredComposioMailConnectedAccountId() {
+  await (prisma as any).appSecret.deleteMany({
+    where: { key: COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY },
   });
 }
 

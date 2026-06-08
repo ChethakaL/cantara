@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { mapClientForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
-import { sendEmailWithUnipile } from "@/lib/unipile";
+import { sendEmailWithComposio } from "@/lib/composio";
 import { recordClientEmailNotification } from "@/lib/client-email-notifications";
 import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
 
@@ -161,7 +161,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
         const inviteSubject = `Cantara portal invitation for ${clientForInvite?.businessName || "your company"}`;
         try {
-          await sendEmailWithUnipile({
+          await sendEmailWithComposio({
             to: member.email,
             displayName: member.name,
             subject: inviteSubject,

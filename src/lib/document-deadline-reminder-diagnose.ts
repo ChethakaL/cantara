@@ -1,5 +1,5 @@
 import { DOCUMENT_DEADLINE_REMINDER_DAYS } from '@/lib/document-deadlines'
-import { getUnipileAccount, isUnipileMailConfiguredAsync, resolveUnipileMailAccountId } from '@/lib/unipile'
+import { getComposioMailConnection, isComposioMailConfiguredAsync, resolveComposioMailConnectedAccountId } from '@/lib/composio'
 import {
   getReminderLastRun,
   getReminderScheduleConfig,
@@ -14,14 +14,14 @@ export async function diagnoseDocumentDeadlineReminders(now = new Date()) {
   const zoned = getZonedCalendarParts(now, schedule.timeZone)
   const lastRun = await getReminderLastRun()
   const due = shouldRunScheduledReminders(now, lastRun)
-  const mailReady = await isUnipileMailConfiguredAsync()
+  const mailReady = await isComposioMailConfiguredAsync()
   let mailAccount: Record<string, unknown> | null = null
   let mailAccountSource: string | null = null
   let mailAccountError: string | null = null
   try {
-    const resolved = await resolveUnipileMailAccountId()
+    const resolved = await resolveComposioMailConnectedAccountId()
     mailAccountSource = resolved.source
-    mailAccount = await getUnipileAccount(resolved.accountId)
+    mailAccount = await getComposioMailConnection(resolved.accountId)
   } catch (error) {
     mailAccountError = error instanceof Error ? error.message : 'Mail account check failed'
   }

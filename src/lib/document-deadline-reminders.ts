@@ -27,7 +27,7 @@ import {
   type DocumentDef,
 } from '@/lib/documentData'
 import { applyAgentDocumentRequirements } from '@/lib/workstream-agent-mapping'
-import { sendEmailWithUnipile, isUnipileMailConfiguredAsync } from '@/lib/unipile'
+import { sendEmailWithComposio, isComposioMailConfiguredAsync } from '@/lib/composio'
 import { getProjectEnv } from '@/lib/project-env'
 import { prisma } from '@/lib/prisma'
 import type { DocumentStatus, Workstream, BusinessType } from '@/lib/store'
@@ -249,9 +249,9 @@ export async function runDocumentDeadlineReminders(
     errors: [],
   }
 
-  const mailReady = await isUnipileMailConfiguredAsync()
+  const mailReady = await isComposioMailConfiguredAsync()
   if (!mailReady) {
-    summary.errors.push('Unipile mail is not configured; skipping deadline reminders.')
+    summary.errors.push('Composio mail is not configured; skipping deadline reminders.')
     return summary
   }
 
@@ -359,7 +359,7 @@ export async function runDocumentDeadlineReminders(
           continue
         }
 
-        await sendEmailWithUnipile({
+        await sendEmailWithComposio({
           to: recipientEmail,
           displayName: recipientName,
           subject,
