@@ -4,7 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { mapClientForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
 import { sendEmailWithComposio } from "@/lib/composio";
-import { recordClientEmailNotification } from "@/lib/client-email-notifications";
+import {
+  TEAM_MEMBER_INVITE_REMINDER_DAYS,
+  TEAM_MEMBER_INVITE_TARGET_DEADLINE,
+  recordClientEmailNotification,
+} from "@/lib/client-email-notifications";
 import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
 
 function buildTeamInviteEmail(args: {
@@ -149,11 +153,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
         const password = crypto.randomBytes(6).toString("base64url");
         await prisma.user.upsert({
-          where: { email: member.email },
-          update: {},
+          where: { email: normalizedEmail },
+          update: {
+            name: member.name,
+            passwordHash: password,
+            role: "CLIENT",
+          },
           create: {
             name: member.name,
-            email: member.email,
+            email: normalizedEmail,
             passwordHash: password,
             role: "CLIENT",
           },
@@ -176,8 +184,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           await recordClientEmailNotification({
             clientId: id,
             type: "TEAM_MEMBER_INVITE",
-            recipientEmail: member.email,
-            documentId: member.email,
+            recipientEmail: normalizedEmail,
+            reminderDaysBefore: TEAM_MEMBER_INVITE_REMINDER_DAYS,
+            documentId: normalizedEmail,
+            targetDeadline: TEAM_MEMBER_INVITE_TARGET_DEADLINE,
             subject: inviteSubject,
             payload: { memberName: member.name, role: member.role },
             status: "SENT",
@@ -192,8 +202,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           await recordClientEmailNotification({
             clientId: id,
             type: "TEAM_MEMBER_INVITE",
-            recipientEmail: member.email,
-            documentId: member.email,
+            recipientEmail: normalizedEmail,
+            reminderDaysBefore: TEAM_MEMBER_INVITE_REMINDER_DAYS,
+            documentId: normalizedEmail,
+            targetDeadline: TEAM_MEMBER_INVITE_TARGET_DEADLINE,
             subject: inviteSubject,
             payload: { memberName: member.name, role: member.role },
             status: "FAILED",
