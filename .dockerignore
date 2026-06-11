@@ -27,6 +27,7 @@ dist
 .DS_Store
 *.md
 !README.md
+!WS2_Agent_Architecture-3.md
 
 # Test & debug
 coverage
