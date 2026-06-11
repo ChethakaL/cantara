@@ -1,5 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 import {
   ChannelType,
   ChannelResearchData,
@@ -18,9 +17,8 @@ async function claudeWebSearch(
   queries: string[],
   businessName: string,
   channelLabel: string,
-  apiKey: string,
 ): Promise<TavilySearchResult[]> {
-  const client = new Anthropic({ apiKey })
+  const client = await requireAIClient()
 
   const prompt = `Search for the following information about "${businessName}" for a ${channelLabel} digital presence audit. For each search result, extract the key metrics (ratings, review counts, follower counts, engagement data, etc.) accurately.
 
@@ -40,13 +38,20 @@ After searching, return a JSON array of findings:
 IMPORTANT: Report exact numbers as found on the source websites. Do not estimate or round. If a Google Business Profile shows 4.3 stars with 287 reviews, report exactly "4.3 stars" and "287 reviews". Return ONLY the JSON array.`
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      temperature: 0,
-      tools: [{ type: 'web_search_20250305' as any, name: 'web_search' }],
-      messages: [{ role: 'user', content: prompt }],
-    })
+    const response = usesBedrock()
+      ? await client.messages.create({
+          model: resolveModel('claude-sonnet-4-20250514'),
+          max_tokens: 2000,
+          temperature: 0,
+          messages: [{ role: 'user', content: prompt }],
+        })
+      : await client.messages.create({
+          model: resolveModel('claude-sonnet-4-20250514'),
+          max_tokens: 2000,
+          temperature: 0,
+          tools: [{ type: 'web_search_20250305' as any, name: 'web_search' }],
+          messages: [{ role: 'user', content: prompt }],
+        })
 
     // Extract text from response (after web search tool calls)
     const textBlocks = response.content.filter((b) => b.type === 'text')
@@ -100,10 +105,7 @@ export async function researchAllChannels(
   _tavilyKey: string, // kept for interface compat but unused
   onProgress?: ProgressCallback
 ): Promise<ChannelResearchData[]> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY required for Claude web search')
-
-  const { businessName } = formData
+    const { businessName } = formData
 
   type ChannelTask = {
     channelType: ChannelType
@@ -242,7 +244,7 @@ export async function researchAllChannels(
   const results: ChannelResearchData[] = []
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i]
-    const searchResults = await claudeWebSearch(task.queries, businessName, task.label, apiKey)
+    const searchResults = await claudeWebSearch(task.queries, businessName, task.label)
     results.push({
       channelType: task.channelType,
       inputUrl: task.inputUrl,

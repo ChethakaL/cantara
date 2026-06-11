@@ -6,6 +6,7 @@ import type { WebsiteResearchData } from '@/lib/competitor-analysis/types'
 import { safeParseModelJson } from '@/lib/pricing-vertical/parse-model-json'
 import { mergeVerticalSummariesForRerun, normalizeVerticalSummary } from '@/lib/pricing-vertical/normalize-vertical-summaries'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 function extractText(result: Anthropic.Messages.Message): string {
   return result.content
@@ -31,12 +32,7 @@ export async function analyzePricingByVertical(args: {
   /** When set, model must copy these structures verbatim and only refresh summaries/flags/narrative. */
   existingReport?: PricingVerticalReport | null
 }): Promise<PricingVerticalReport> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is required for pricing-by-vertical analysis.')
-  }
-
-  const client = new Anthropic({ apiKey })
+    const client = await requireAIClient()
   const isRerun = Boolean(args.existingReport)
 
   const fullSystemPrompt = `You are the Pricing by Vertical Analysis Agent for Cantara, an M&A advisory platform for pet businesses.
@@ -217,7 +213,7 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
   })
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: isRerun ? 8192 : 12000,
     temperature: 0,
     system: isRerun ? rerunSystemPrompt : fullSystemPrompt,

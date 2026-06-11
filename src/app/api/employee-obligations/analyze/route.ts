@@ -11,6 +11,7 @@ import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const mammoth: { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } = require('mammoth')
 import sharp from 'sharp'
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 // Agent spec: claude-sonnet-4-20250514, temperature 0
 // Architecture: WS1-6_Employee_Obligations_Architecture.md — Section: Agent Input Specification
@@ -159,9 +160,7 @@ export async function POST(req: NextRequest) {
       },
     ]
 
-    const client = new Anthropic({
-      apiKey: await getAnthropicApiKey(),
-    })
+    const client = await requireAIClient()
 
     let activeStream: MessageStream | null = null
 
@@ -172,7 +171,7 @@ export async function POST(req: NextRequest) {
           let sawText = false
           try {
             activeStream = await client.messages.stream({
-              model: 'claude-sonnet-4-20250514', // Architecture spec: Model field
+              model: resolveModel('claude-sonnet-4-20250514'), // Architecture spec: Model field
               max_tokens: 8000,
               temperature: 0,                    // Architecture spec: Temperature field
               system: WS16_SYSTEM_PROMPT,

@@ -8,6 +8,7 @@ import { getAnthropicApiKey } from "@/lib/secure-settings";
 import { NextRequest, NextResponse } from "next/server";
 import { buildLeaseAnalysisSystemPrompt } from "@/lib/lease-analysis/prompt";
 import { createRequire } from "module";
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require("pdf-parse") as {
@@ -68,9 +69,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const client = new Anthropic({
-        apiKey: await getAnthropicApiKey(),
-    });
+    const client = await requireAIClient();
 
     console.log(`[API Analyze] Starting streaming analysis for ${documents.length} documents.`);
     const systemPrompt = buildLeaseAnalysisSystemPrompt(new Date());
@@ -121,7 +120,7 @@ export async function POST(req: NextRequest) {
 
           try {
             activeStream = await client.messages.stream({
-              model: "claude-sonnet-4-20250514", // Exactly as specified in architecture.md
+              model: resolveModel("claude-sonnet-4-20250514"), // Exactly as specified in architecture.md
               max_tokens: 16000,
               temperature: 0,
               system: systemPrompt,

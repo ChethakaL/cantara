@@ -11,9 +11,8 @@
  * uses the classification to compute exact dollar amounts.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicApiKey } from "@/lib/secure-settings"
-import type { PersonalExpenseCategory } from "@/lib/ttm-agent/parsers/personal-expenses";
+import { hasAIConfigured, requireAIClient, resolveModel } from "@/lib/ai-client"
+import type { PersonalExpenseCategory } from "@/lib/ttm-agent/parsers/personal-expenses"
 
 export type CategoryClass = "SOURCE_B" | "SOURCE_A" | "SKIP";
 
@@ -63,16 +62,15 @@ export async function classifyCategories(
     `- "${c.category}" (${c.transactionCount} transactions, ${c.subCategories.length > 0 ? 'sub-categories: ' + c.subCategories.join(', ') : 'no sub-categories'})`
   ).join("\n");
 
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
-    console.warn("[Classifier] No ANTHROPIC_API_KEY — using fallback hardcoded classification");
+  if (!(await hasAIConfigured())) {
+    console.warn("[Classifier] No AI credentials — using fallback hardcoded classification");
     return fallbackClassification(categories);
   }
 
   try {
-    const client = new Anthropic({ apiKey });
+    const client = await requireAIClient();
     const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: resolveModel("claude-sonnet-4-20250514"),
       max_tokens: 2000,
       temperature: 0,
       system: SYSTEM_PROMPT,

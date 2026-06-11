@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { TeaserInputData } from './types'
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 export interface ClientContext {
   clientProfile: any
@@ -14,10 +15,7 @@ export interface ClientContext {
 }
 
 export async function generateTeaserWithAI(context: ClientContext): Promise<TeaserInputData> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
-
-  const client = new Anthropic({ apiKey })
+    const client = await requireAIClient()
 
   // Build comprehensive context string from all available data
   const dataContext = buildDataContext(context)
@@ -80,7 +78,7 @@ Generate a JSON object with these fields. Each field should be thoughtfully writ
 Return ONLY valid JSON. No markdown, no explanation.`
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 3000,
     temperature: 0.3,
     messages: [{ role: 'user', content: prompt }],

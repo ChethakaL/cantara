@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getAnthropicApiKey } from '@/lib/secure-settings'
+import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 
 export const dynamic = 'force-dynamic'
@@ -44,13 +44,12 @@ export async function POST(req: NextRequest) {
 
   const wsLabel = workstream === 'ws1' ? 'Workstream 1 — Risk Mitigation' : 'Workstream 2 — Profitability & Growth'
 
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) return new Response('API key not configured', { status: 500 })
+  if (!(await hasAIConfigured())) return new Response('AI not configured', { status: 500 })
 
-  const anthropic = new Anthropic({ apiKey })
+  const anthropic = await requireAIClient()
 
   const result = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 16000,
     temperature: 0.15,
     system: `You are a senior M&A advisory analyst at Cantara Pet Advisors. You produce beautiful, comprehensive, investment-grade assessment reports that synthesize findings from multiple due diligence agents into a single cohesive document.

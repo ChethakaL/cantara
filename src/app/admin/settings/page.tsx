@@ -64,9 +64,10 @@ export default function AdminSettingsPage() {
       <main className="mx-auto max-w-3xl px-6 py-10">
         <div className="mb-8">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cantara-gold">Admin Settings</p>
-          <h1 className="mt-2 text-2xl font-semibold text-slate-900">Claude API Key</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-slate-900">AI credentials</h1>
           <p className="mt-2 text-sm text-slate-500">
-            Stored encrypted in the database. Agents use this key first and fall back to the environment key if none is saved.
+            Production uses AWS Bedrock when <code className="text-xs">AI_PROVIDER=bedrock</code> and AWS credentials are set on the server.
+            The key below is only for direct Anthropic API fallback (local dev).
           </p>
         </div>
 

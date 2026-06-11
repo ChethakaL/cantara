@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 import {
   ChannelResearchData,
   DigitalAssetFormData,
@@ -171,13 +172,12 @@ Important rules:
 export async function analyzeWithClaude(
   formData: DigitalAssetFormData,
   researchData: ChannelResearchData[],
-  apiKey: string
 ): Promise<DigitalPresenceReport> {
-  const client = new Anthropic({ apiKey });
+  const client = await requireAIClient();
   const prompt = buildPrompt(formData, researchData);
 
   const response = await client.messages.create({
-    model: 'claude-opus-4-5',
+    model: resolveModel('claude-opus-4-5'),
     max_tokens: 4096,
     temperature: 0,
     messages: [{ role: 'user', content: prompt }],

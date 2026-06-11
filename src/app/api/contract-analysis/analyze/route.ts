@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { NextRequest } from "next/server";
 import { CONTRACT_ANALYSIS_SYSTEM_PROMPT } from "@/lib/contract-analysis/prompt";
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 export const maxDuration = 300;
 
@@ -13,9 +14,7 @@ export async function POST(req: NextRequest) {
       return new Response("No documents provided", { status: 400 });
     }
 
-    const client = new Anthropic({
-      apiKey: await getAnthropicApiKey(),
-    });
+    const client = await requireAIClient();
 
     const userContent: Anthropic.Messages.ContentBlockParam[] = [
       ...documents.map((doc: { base64: string }) => ({
@@ -33,7 +32,7 @@ export async function POST(req: NextRequest) {
     ];
 
     const result = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: resolveModel("claude-sonnet-4-20250514"),
       max_tokens: 8000,
       temperature: 0,
       system: CONTRACT_ANALYSIS_SYSTEM_PROMPT,

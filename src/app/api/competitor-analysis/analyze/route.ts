@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { hasAIConfigured } from "@/lib/ai-client"
 import { buildCompetitorAnalysisReport } from '@/lib/competitor-analysis/claude-analyzer';
 import { findNearbyCompetitors, lookupSpecifiedCompetitors, inferPetBusinessCategory, lookupSubjectBusiness } from '@/lib/competitor-analysis/google-places';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
@@ -40,10 +40,9 @@ export async function POST(req: NextRequest) {
   };
 
   const googleApiKey = process.env.GOOGLE_SERVICES_API;
-  const anthropicApiKey = await getAnthropicApiKey()
   const tavilyApiKey = process.env.TAVILY_API_KEY;
 
-  if (!googleApiKey || !anthropicApiKey) {
+  if (!googleApiKey || !(await hasAIConfigured())) {
     return new Response(
       JSON.stringify({ error: 'Competitor analysis is not configured correctly.' }),
       { status: 500 }
@@ -181,7 +180,6 @@ export async function POST(req: NextRequest) {
           competitors: nearby.competitors,
           competitorWebsiteResearch,
           discoveredCompetitors: nearby.discoveredCompetitors,
-          anthropicApiKey,
         });
 
         report.discoveredCompetitors = nearby.discoveredItems.map((item) => {

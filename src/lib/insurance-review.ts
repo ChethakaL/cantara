@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { requireAIClient, resolveModel } from "@/lib/ai-client";
 import { InsuranceReviewResult, parseStoredInsuranceReview, serializeInsuranceReview } from "@/lib/insurance-review-shared";
 
 export { parseStoredInsuranceReview, serializeInsuranceReview };
@@ -16,12 +16,7 @@ export async function summarizeInsuranceClaimPdf(args: {
   fileName: string;
   base64: string;
 }) {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is required to summarize insurance claim documents.");
-  }
-
-  const client = new Anthropic({ apiKey });
+  const client = await requireAIClient();
   const prompt = `You are the Insurance Review Agent for a business sale-readiness and M&A diligence portal.
 
 Review the uploaded insurance claim PDF and return ONLY valid JSON with this exact structure:
@@ -52,7 +47,7 @@ Rules:
 - Use "Unknown" when a field is not clearly stated.`;
 
   const response = await client.messages.create({
-    model: "claude-opus-4-5",
+    model: resolveModel("claude-opus-4-5"),
     max_tokens: 1200,
     temperature: 0,
     messages: [

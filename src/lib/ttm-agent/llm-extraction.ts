@@ -9,6 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicApiKey } from "@/lib/secure-settings"
 import * as XLSX from "xlsx";
 import { CANTARA_TAXONOMY, type TaxonomyEntry } from "@/lib/ttm-agent/taxonomy";
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,12 +107,8 @@ const LLM_MODEL = "claude-sonnet-4-20250514";
 const LLM_TEMPERATURE = 0;
 const LLM_MAX_TOKENS = 8192;
 
-async function getClient(): Promise<Anthropic> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is not set. Cannot run LLM extraction.");
-  }
-  return new Anthropic({ apiKey });
+async function getClient() {
+  return requireAIClient();
 }
 
 /**
@@ -309,7 +306,7 @@ export async function extractFinancialsWithLLM(
 
   try {
     const response = await client.messages.create({
-      model: LLM_MODEL,
+      model: resolveModel(LLM_MODEL),
       temperature: LLM_TEMPERATURE,
       max_tokens: LLM_MAX_TOKENS,
       system: FINANCIALS_SYSTEM_PROMPT,
@@ -414,7 +411,7 @@ export async function extractAddbacksWithLLM(
 
   try {
     const response = await client.messages.create({
-      model: LLM_MODEL,
+      model: resolveModel(LLM_MODEL),
       temperature: LLM_TEMPERATURE,
       max_tokens: LLM_MAX_TOKENS,
       system: ADDBACKS_SYSTEM_PROMPT,

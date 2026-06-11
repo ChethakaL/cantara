@@ -161,7 +161,6 @@ export async function getAnthropicApiKey() {
 }
 
 export async function getAnthropicClient() {
-  const apiKey = await getAnthropicApiKey();
-  if (!apiKey) return null;
-  return new Anthropic({ apiKey });
+  const { getAIClient } = await import("@/lib/ai-client");
+  return getAIClient();
 }

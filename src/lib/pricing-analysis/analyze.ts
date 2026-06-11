@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { CompetitorPricingInput, PricingAnalysisReport } from './types'
 import { normalizePricingReport } from './normalize-report'
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 function extractText(result: Anthropic.Messages.Message): string {
   return result.content
@@ -18,12 +19,7 @@ export async function analyzePricing(args: {
   competitors: CompetitorPricingInput[]
   competitorData: any
 }): Promise<PricingAnalysisReport> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is required for pricing analysis.')
-  }
-
-  const client = new Anthropic({ apiKey })
+    const client = await requireAIClient()
 
   const systemPrompt = `You are the Competitive Pricing Analysis Agent for Cantara, an M&A advisory platform for pet businesses.
 
@@ -112,7 +108,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
   }
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 9000,
     temperature: 0,
     system: systemPrompt,

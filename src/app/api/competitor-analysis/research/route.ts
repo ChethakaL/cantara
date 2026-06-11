@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { hasAIConfigured } from "@/lib/ai-client"
 import { buildSingleCompetitorReport } from '@/lib/competitor-analysis/claude-analyzer';
 import { getPlaceDetails } from '@/lib/competitor-analysis/google-places';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
@@ -19,10 +19,9 @@ export async function POST(req: NextRequest) {
     }
 
     const googleApiKey = process.env.GOOGLE_SERVICES_API;
-    const anthropicApiKey = await getAnthropicApiKey()
     const tavilyApiKey = process.env.TAVILY_API_KEY;
 
-    if (!googleApiKey || !anthropicApiKey) {
+    if (!googleApiKey || !(await hasAIConfigured())) {
       return new Response('Competitor analysis is not configured correctly.', { status: 500 });
     }
 
@@ -55,7 +54,6 @@ export async function POST(req: NextRequest) {
       subjectWebsiteResearch,
       competitor,
       competitorWebsiteResearch,
-      anthropicApiKey,
     });
 
     return NextResponse.json({ competitor: researchedCompetitor });

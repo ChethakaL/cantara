@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getAnthropicApiKey } from '@/lib/secure-settings'
+import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 import type { AgentOverviewReport } from '@/lib/report-export/build-agent-overview-report'
 
@@ -197,13 +197,12 @@ async function latestAgentRecord(clientId: string, key: string): Promise<{ creat
 
 async function generateSummaryMarkdown(args: { clientName: string; workstreamLabel: string; agents: AgentStatus[] }) {
   const fallback = deterministicSummary(args)
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) return fallback
+  if (!(await hasAIConfigured())) return fallback
 
   try {
-    const anthropic = new Anthropic({ apiKey })
+    const anthropic = await requireAIClient()
     const result = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: resolveModel('claude-sonnet-4-20250514'),
       max_tokens: 6000,
       temperature: 0.2,
       system: 'You write thorough internal Cantara workstream summary reports for admins. Use only supplied agent outputs. Do not invent facts. Return markdown only.',

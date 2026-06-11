@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { hasAIConfigured } from "@/lib/ai-client"
 import { researchAllChannels } from '@/lib/digital-presence/claude-research';
 import { analyzeWithClaude } from '@/lib/digital-presence/claude-analyzer';
 import { AnalyzeRequestBody, ChannelType } from '@/lib/digital-presence/types';
@@ -32,14 +32,12 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: 'Business name is required.' }), { status: 400 });
   }
 
-  const anthropicKey = await getAnthropicApiKey()
-
-  if (!anthropicKey) {
-    return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured.' }), { status: 500 });
+  if (!(await hasAIConfigured())) {
+    return new Response(JSON.stringify({ error: "AI not configured. Set AWS_BEARER_TOKEN_BEDROCK or ANTHROPIC_API_KEY." }), { status: 500 });
   }
 
   // Kept for interface compatibility with researchAllChannels signature
-  const tavilyKey = anthropicKey;
+  const tavilyKey = process.env.TAVILY_API_KEY || "";
 
   const hasAtLeastOneChannel =
     formData.websiteUrl ||
@@ -166,7 +164,7 @@ export async function POST(req: NextRequest) {
           total: researchData.length,
         });
 
-        const report = await analyzeWithClaude(formData, researchData, anthropicKey);
+        const report = await analyzeWithClaude(formData, researchData);
         console.log(`[Digital Presence] Analysis done. Overall: ${report.overallScore}`);
 
         send({ type: 'complete', report });

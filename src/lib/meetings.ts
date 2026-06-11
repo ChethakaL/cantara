@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { createRequire } from 'module'
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 const require = createRequire(import.meta.url)
 
@@ -64,12 +65,7 @@ export async function generateMeetingReport(args: {
   meetingUrl?: string | null
   notesText: string
 }) {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is required to generate meeting reports.')
-  }
-
-  const client = new Anthropic({ apiKey })
+    const client = await requireAIClient()
   const prompt = `You are Cantara's internal meetings analysis agent.
 
 Generate a full, detailed internal meeting report for the Cantara admin team based only on the supplied meeting context and notes.
@@ -113,7 +109,7 @@ Meeting notes:
 ${args.notesText}`
 
   const result = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 4000,
     temperature: 0,
     messages: [
@@ -127,7 +123,7 @@ ${args.notesText}`
   return {
     report: extractAnthropicText(result),
     metadata: {
-      model: 'claude-sonnet-4-20250514',
+      model: resolveModel('claude-sonnet-4-20250514'),
       generatedAt: new Date().toISOString(),
       agendaTags: args.agendaTags,
     },

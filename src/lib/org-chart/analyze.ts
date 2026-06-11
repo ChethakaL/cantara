@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 export interface OrgChartAnalysis {
   summary: string
@@ -30,10 +31,7 @@ export async function analyzeOrgChart(args: {
   base64: string
   mediaType: string
 }): Promise<OrgChartAnalysis> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
-
-  const client = new Anthropic({ apiKey })
+    const client = await requireAIClient()
 
   const content: any[] = []
 
@@ -96,7 +94,7 @@ Return ONLY valid JSON:
   })
 
   const response = await client.messages.create({
-    model: 'claude-opus-4-5',
+    model: resolveModel('claude-opus-4-5'),
     max_tokens: 4000,
     temperature: 0,
     messages: [{ role: 'user', content }],

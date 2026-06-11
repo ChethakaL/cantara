@@ -17,6 +17,7 @@ import {
   WS2_REVENUE_VERTICAL_SYSTEM_PROMPT,
 } from "@/lib/ttm-agent/prompt";
 import { ParsedAccountantStatements, TtmAgentSummary } from "@/lib/ttm-agent/types";
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 type MappingSuggestion = {
   accountName: string;
@@ -78,9 +79,7 @@ async function withAnthropicRetry<T>(label: string, fn: () => Promise<T>) {
 }
 
 async function getClient() {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) return null;
-  return new Anthropic({ apiKey });
+  return getAIClient();
 }
 
 function extractText(result: Anthropic.Messages.Message) {
@@ -229,7 +228,7 @@ export async function suggestCantaraMappings(
   try {
     const result = await withAnthropicRetry("TTM GL mapping suggestion", () =>
       client.messages.create({
-        model: TTM_AGENT_MODEL,
+        model: resolveModel(TTM_AGENT_MODEL),
         max_tokens: TTM_AGENT_MAX_TOKENS,
         temperature: TTM_AGENT_TEMPERATURE,
         system: HELPER_SYSTEM_PROMPT,
@@ -259,7 +258,7 @@ export async function extractAccountantStatementsFromPdf(fileName: string, base6
 
   const result = await withAnthropicRetry("TTM accountant PDF extraction", () =>
     client.messages.create({
-      model: TTM_AGENT_MODEL,
+      model: resolveModel(TTM_AGENT_MODEL),
       max_tokens: TTM_AGENT_MAX_TOKENS,
       temperature: TTM_AGENT_TEMPERATURE,
       system: HELPER_SYSTEM_PROMPT,
@@ -317,7 +316,7 @@ async function generateStructuredReport(args: {
 
   const result = await withAnthropicRetry(args.label, () =>
     client.messages.create({
-      model: TTM_AGENT_MODEL,
+      model: resolveModel(TTM_AGENT_MODEL),
       max_tokens: args.maxTokens,
       temperature: TTM_AGENT_TEMPERATURE,
       system: args.systemPrompt,

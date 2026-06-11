@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getAnthropicApiKey } from '@/lib/secure-settings'
+import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -46,13 +46,12 @@ export async function POST(req: NextRequest) {
   const wsLabel = workstream === 'ws1' ? 'Workstream 1 — Risk Mitigation' : 'Workstream 2 — Profitability & Growth'
   const clientName = client.businessName
 
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) return new Response('API key not configured', { status: 500 })
+  if (!(await hasAIConfigured())) return new Response('AI not configured', { status: 500 })
 
-  const anthropic = new Anthropic({ apiKey })
+  const anthropic = await requireAIClient()
 
   const result = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 16000,
     temperature: 0.15,
     system: `You are a senior M&A advisor at Cantara Pet Advisors who specializes in helping sellers prepare their businesses for acquisition. You create detailed, actionable improvement roadmaps that tell sellers exactly what to fix, in what order, and by when to maximize their sale price and deal certainty.

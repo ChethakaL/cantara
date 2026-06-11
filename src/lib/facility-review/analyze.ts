@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { FacilityRating, FacilityReviewReport } from './types'
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
 
@@ -97,11 +98,8 @@ export async function analyzeFacilityImages(args: {
   notes?: string
   images: Array<{ fileName: string; base64: string; mediaType: string }>
 }): Promise<FacilityReviewReport> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
-
-  const model = process.env.FACILITY_REVIEW_MODEL || DEFAULT_MODEL
-  const client = new Anthropic({ apiKey })
+    const model = process.env.FACILITY_REVIEW_MODEL || DEFAULT_MODEL
+  const client = await requireAIClient()
 
   const content: Anthropic.Messages.ContentBlockParam[] = args.images.flatMap((image, index) => [
     {

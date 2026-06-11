@@ -3,6 +3,7 @@ import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { prisma } from '@/lib/prisma'
 import { TeaserInputData } from '@/lib/teaser/types'
 import { generateTeaserWithAI, ClientContext } from '@/lib/teaser/ai-autofill'
+import { hasAIConfigured } from "@/lib/ai-client"
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── AI-powered auto-fill (falls back to static logic below) ────────
-    if (await getAnthropicApiKey()) {
+    if (await hasAIConfigured()) {
       try {
         const aiContext: ClientContext = {
           clientProfile: client,

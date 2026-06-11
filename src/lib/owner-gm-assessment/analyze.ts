@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { requireAIClient, resolveModel } from "@/lib/ai-client"
 import type { OwnerGmAssessment } from "./types";
 
 function extractText(result: Anthropic.Messages.Message) {
@@ -194,12 +194,7 @@ export async function analyzeOwnerGmTranscript(args: {
   base64: string;
   mediaType: string;
 }): Promise<OwnerGmAssessment> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is required for Owner & GM Assessment.");
-  }
-
-  const client = new Anthropic({ apiKey });
+  const client = await requireAIClient();
 
   // Build the content block based on media type
   const contentBlocks: Anthropic.Messages.ContentBlockParam[] = [];
@@ -237,7 +232,7 @@ export async function analyzeOwnerGmTranscript(args: {
   });
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: resolveModel("claude-sonnet-4-20250514"),
     max_tokens: 6000,
     temperature: 0,
     system: SYSTEM_PROMPT,

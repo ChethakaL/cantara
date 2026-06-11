@@ -4,6 +4,7 @@ import mammoth from 'mammoth'
 import { createRequire } from 'module'
 import { buildSalesProcessReviewSystemPrompt, normalizeSalesProcessResult } from './prompt'
 import type { SalesProcessReviewResult } from './types'
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 const require = createRequire(import.meta.url)
 const { PDFParse } = require('pdf-parse') as {
@@ -72,12 +73,7 @@ export async function analyzeSalesProcessTranscript(args: {
   transcriptText: string
   businessName: string
 }): Promise<SalesProcessReviewResult> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not configured.')
-  }
-
-  const trimmed = args.transcriptText.trim()
+    const trimmed = args.transcriptText.trim()
   if (!trimmed) {
     return normalizeSalesProcessResult({
       summary: 'No readable text was extracted from the uploaded file.',
@@ -94,12 +90,12 @@ export async function analyzeSalesProcessTranscript(args: {
     todayIso,
   })
 
-  const client = new Anthropic({ apiKey })
+  const client = await requireAIClient()
 
   const userText = `--- TRANSCRIPT / NOTES START ---\n${trimmed.slice(0, MAX_TRANSCRIPT_CHARS)}\n--- TRANSCRIPT / NOTES END ---`
 
   const result = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 8192,
     temperature: 0,
     system,

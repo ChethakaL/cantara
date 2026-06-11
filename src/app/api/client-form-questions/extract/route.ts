@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import { getAnthropicApiKey } from '@/lib/secure-settings'
+import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 
 const FIELD_CONFIG: Record<string, { label: string; format: string }> = {
   professionalAdvisorsList: {
@@ -23,14 +23,13 @@ export async function POST(req: NextRequest) {
     return new Response('fieldKey and transcript required', { status: 400 })
   }
 
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) {
+  if (!(await hasAIConfigured())) {
     return NextResponse.json({ text: transcript.trim(), fallback: true })
   }
 
-  const client = new Anthropic({ apiKey })
+  const client = await requireAIClient()
   const result = await client.messages.create({
-    model: 'claude-3-5-haiku-latest',
+    model: resolveModel('claude-3-5-haiku-latest'),
     max_tokens: 1200,
     temperature: 0,
     system: `Extract ${config.label} from a transcript or pasted notes.

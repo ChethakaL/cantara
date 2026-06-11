@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CimInputData } from '@/lib/cim/types'
 import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { hasAIConfigured, requireAIClient, resolveModel } from "@/lib/ai-client"
 
 export const maxDuration = 120
 export const runtime = 'nodejs'
@@ -196,9 +196,9 @@ export async function POST(req: NextRequest) {
 
     // ── Use AI for the narrative text sections ──────────────────────────
     let aiSections: any = {}
-    if (await getAnthropicApiKey()) {
+    if (await hasAIConfigured()) {
       try {
-        const anthropic = new Anthropic({ apiKey: await getAnthropicApiKey() })
+        const anthropic = await requireAIClient()
         const context = [
           `Business: ${client.businessName}`,
           `Address: ${client.businessAddress || ''}`,
@@ -212,7 +212,7 @@ export async function POST(req: NextRequest) {
         ].filter(Boolean).join('\n')
 
         const response = await anthropic.messages.create({
-          model: 'claude-sonnet-4-20250514',
+          model: resolveModel('claude-sonnet-4-20250514'),
           max_tokens: 4000,
           temperature: 0.3,
           messages: [{

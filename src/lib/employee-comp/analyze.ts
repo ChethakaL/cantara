@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from "@/lib/secure-settings"
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 export interface EmployeeCompRow {
   id: string
@@ -122,10 +123,7 @@ export async function analyzePayrollDocument(args: {
   mediaType?: string
   freeText?: string
 }): Promise<EmployeeCompReport> {
-  const apiKey = await getAnthropicApiKey()
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY required')
-
-  const client = new Anthropic({ apiKey })
+    const client = await requireAIClient()
   const content: any[] = []
 
   if (args.base64 && args.mediaType) {
@@ -180,7 +178,7 @@ export async function analyzePayrollDocument(args: {
   content.push({ type: 'text', text: textInstruction })
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 8000,
     temperature: 0,
     system: SYSTEM_PROMPT,

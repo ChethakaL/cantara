@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { NextRequest, NextResponse } from "next/server";
+import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
 type FlagTone = "red" | "orange" | "green";
 
@@ -12,9 +13,7 @@ export async function POST(req: NextRequest) {
       return new Response("Missing required fields", { status: 400 });
     }
 
-    const client = new Anthropic({
-      apiKey: await getAnthropicApiKey(),
-    });
+    const client = await requireAIClient();
 
     const prompt = [
       "You are reevaluating one lease-analysis flag only.",
@@ -35,7 +34,7 @@ export async function POST(req: NextRequest) {
     ].join("\n");
 
     const result = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: resolveModel("claude-sonnet-4-20250514"),
       max_tokens: 1200,
       temperature: 0,
       system: "You are a precise lease diligence QA reviewer. Output valid JSON only.",

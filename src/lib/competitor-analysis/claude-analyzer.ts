@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { requireAIClient, resolveModel, type AIClient } from "@/lib/ai-client";
 import {
   BusinessPlaceProfile,
   CompetitorAnalysisFormData,
@@ -200,7 +200,7 @@ function parseClaudeJson(rawText: string): ClaudeOverlayResponse {
 }
 
 async function requestOverlay(args: {
-  client: Anthropic;
+  client: AIClient;
   prompt: string;
   maxTokens: number;
 }) {
@@ -244,9 +244,8 @@ export async function buildCompetitorAnalysisReport(args: {
   competitors: Array<BusinessPlaceProfile & { distanceMiles: number }>;
   competitorWebsiteResearch: Record<string, WebsiteResearchData | null>;
   discoveredCompetitors: number;
-  anthropicApiKey: string;
 }): Promise<CompetitorAnalysisReport> {
-  const client = new Anthropic({ apiKey: args.anthropicApiKey });
+  const client = await requireAIClient();
   const prompt = buildPrompt({ ...args, compact: false });
 
   let parsed: ClaudeOverlayResponse;
@@ -375,9 +374,8 @@ export async function buildSingleCompetitorReport(args: {
   subjectWebsiteResearch: WebsiteResearchData | null;
   competitor: BusinessPlaceProfile & { distanceMiles: number };
   competitorWebsiteResearch: WebsiteResearchData | null;
-  anthropicApiKey: string;
 }): Promise<CompetitorReportItem> {
-  const client = new Anthropic({ apiKey: args.anthropicApiKey });
+  const client = await requireAIClient();
   const prompt = buildPrompt({
     formData: args.formData,
     subject: args.subject,
