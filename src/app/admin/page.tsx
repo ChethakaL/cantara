@@ -181,8 +181,23 @@ export default function AdminDashboard() {
   }, [router])
 
   useEffect(() => {
-    setDriveParentFolder(window.localStorage.getItem('cantara-drive-parent-folder') || '')
-    setNewClientDriveParentFolder(window.localStorage.getItem('cantara-drive-parent-folder') || '')
+    let active = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/drive/settings', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        const parentFolder = typeof data.parentFolder === 'string' ? data.parentFolder : ''
+        if (!active) return
+        setDriveParentFolder(parentFolder)
+        setNewClientDriveParentFolder(parentFolder)
+      } catch {
+        // Settings are optional; keep empty if unavailable.
+      }
+    })()
+    return () => {
+      active = false
+    }
   }, [])
 
   useEffect(() => {
@@ -372,15 +387,28 @@ export default function AdminDashboard() {
     }
   }
 
-  const persistDriveParentFolder = () => {
+  const persistDriveParentFolder = async () => {
     const trimmed = driveParentFolder.trim()
     if (!trimmed) {
       setDriveManagerMessage('Set a parent folder first.')
       return false
     }
-    window.localStorage.setItem('cantara-drive-parent-folder', trimmed)
-    setDriveManagerMessage('Parent folder saved for this browser.')
-    return true
+    try {
+      const res = await fetch('/api/drive/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentFolder: trimmed }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to save parent folder.')
+      setDriveParentFolder(data.parentFolder || trimmed)
+      setNewClientDriveParentFolder(data.parentFolder || trimmed)
+      setDriveManagerMessage('Parent folder saved.')
+      return true
+    } catch (error) {
+      setDriveManagerMessage(error instanceof Error ? error.message : 'Failed to save parent folder.')
+      return false
+    }
   }
 
   const updateClientDriveFolder = async (client: Client, folderUrl: string) => {
@@ -405,7 +433,7 @@ export default function AdminDashboard() {
   }
 
   const createClientDriveFolder = async (client: Client) => {
-    if (!persistDriveParentFolder()) return
+    if (!(await persistDriveParentFolder())) return
     const folderName = (driveRowFolderNames[client.id] || client.company || client.name || 'Client').trim()
     if (!folderName) {
       setDriveManagerMessage('Enter a folder name first.')
@@ -479,11 +507,21 @@ export default function AdminDashboard() {
     if (!currentDrivePickerFolder || !drivePickerTarget) return
     if (drivePickerTarget === 'parent') {
       setDriveParentFolder(currentDrivePickerFolder.url)
-      window.localStorage.setItem('cantara-drive-parent-folder', currentDrivePickerFolder.url)
+      setNewClientDriveParentFolder(currentDrivePickerFolder.url)
+      void fetch('/api/drive/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentFolder: currentDrivePickerFolder.url }),
+      }).catch(() => undefined)
       setDriveManagerMessage(`Parent folder set to ${currentDrivePickerFolder.name}.`)
     } else if (drivePickerTarget === 'new-parent') {
       setNewClientDriveParentFolder(currentDrivePickerFolder.url)
-      window.localStorage.setItem('cantara-drive-parent-folder', currentDrivePickerFolder.url)
+      setDriveParentFolder(currentDrivePickerFolder.url)
+      void fetch('/api/drive/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentFolder: currentDrivePickerFolder.url }),
+      }).catch(() => undefined)
     } else if (drivePickerTarget === 'new-existing') {
       setNewClientDriveExistingFolder(currentDrivePickerFolder.url)
     } else {
