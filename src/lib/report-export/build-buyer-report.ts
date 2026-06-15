@@ -1,6 +1,6 @@
 import { generateReportHtml } from './generate-report-html'
 
-type AssessmentReport = {
+type BuyerReport = {
   workstream: string
   workstreamLabel: string
   clientName: string
@@ -8,19 +8,20 @@ type AssessmentReport = {
   markdown: string
 }
 
-export function buildAssessmentReportHtml(report: AssessmentReport): string {
+export function buildBuyerReportHtml(report: BuyerReport): string {
   const sections = parseMarkdownSections(report.markdown)
 
   return generateReportHtml({
-    title: `${report.workstreamLabel} Internal Assessment`,
-    subtitle: 'Internal Due Diligence Assessment — Advisor Use Only',
+    title: `${report.workstreamLabel} Buyer Report`,
+    subtitle: 'Acquisition Opportunity — Due Diligence Summary',
     clientName: report.clientName,
     generatedAt: report.generatedAt,
     summaryHtml: sections.length > 0 ? markdownToHtml(sections[0].content) : undefined,
     kpis: [
       { label: 'Workstream', value: report.workstreamLabel.split('—')[0]?.trim() || report.workstream.toUpperCase() },
-      { label: 'Report Type', value: 'Internal Assessment' },
-      { label: 'Prepared By', value: 'Cantara AI' },
+      { label: 'Report Type', value: 'Buyer Report' },
+      { label: 'For', value: 'Buyer / Deal Team' },
+      { label: 'Prepared By', value: 'Cantara Pet Advisors' },
     ],
     sections: sections.slice(1).map(s => ({
       title: s.title,
@@ -45,7 +46,6 @@ function parseMarkdownSections(markdown: string): Array<{ title: string; content
       currentContent = []
       continue
     }
-    // Skip h1 (used as page title)
     if (/^# /.test(line)) continue
     currentContent.push(line)
   }
@@ -54,6 +54,25 @@ function parseMarkdownSections(markdown: string): Array<{ title: string; content
   }
 
   return result
+}
+
+function renderStatusBadge(text: string): string {
+  const s = text.toUpperCase()
+  if (s.includes('🟢') || s.includes('GREEN')) {
+    return '<span style="display:inline-block;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🟢 Green</span>'
+  }
+  if (s.includes('🟡') || s.includes('YELLOW')) {
+    return '<span style="display:inline-block;background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🟡 Yellow</span>'
+  }
+  if (s.includes('🔴') || s.includes('RED')) {
+    return '<span style="display:inline-block;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🔴 Red</span>'
+  }
+  return formatInline(text)
+}
+
+function isStatusCell(text: string): boolean {
+  const s = text.toUpperCase()
+  return s.includes('🟢') || s.includes('🟡') || s.includes('🔴') || s.includes('GREEN') || s.includes('YELLOW') || (s === 'RED' || s.includes('🔴'))
 }
 
 function markdownToHtml(markdown: string): string {
@@ -72,21 +91,21 @@ function markdownToHtml(markdown: string): string {
   const flushTable = () => {
     if (!inTable || tableRows.length < 2) { inTable = false; tableRows = []; return }
     const headers = tableRows[0]
-    const rows = tableRows.slice(2) // skip separator
-    html.push(`<table class="report-table"><thead><tr>${headers.map(h => `<th>${formatInline(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${formatInline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`)
+    const rows = tableRows.slice(2)
+    html.push(`<table class="report-table"><thead><tr>${headers.map(h => `<th>${formatInline(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => {
+      if (isStatusCell(c)) return `<td>${renderStatusBadge(c)}</td>`
+      return `<td>${formatInline(c)}</td>`
+    }).join('')}</tr>`).join('')}</tbody></table>`)
     inTable = false
     tableRows = []
   }
 
   for (const line of lines) {
     const trimmed = line.trim()
-
-    // Table row
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
       flushList()
       inTable = true
-      const cells = trimmed.split('|').slice(1, -1).map(c => c.trim())
-      tableRows.push(cells)
+      tableRows.push(trimmed.split('|').slice(1, -1).map(c => c.trim()))
       continue
     } else if (inTable) {
       flushTable()

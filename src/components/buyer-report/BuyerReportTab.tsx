@@ -1,15 +1,15 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { RefreshCw, FileText, MapPin, CheckCircle2, Circle } from 'lucide-react'
+import { RefreshCw, FileText, TrendingUp } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import EditableMarkdownReportView from '@/components/report-export/EditableMarkdownReportView'
-import { buildImprovementRoadmapHtml } from '@/lib/report-export/build-improvement-roadmap-report'
+import { buildBuyerReportHtml } from '@/lib/report-export/build-buyer-report'
 
-type RoadmapReport = {
+type BuyerReport = {
   workstream: string
   workstreamLabel: string
   clientName: string
@@ -33,7 +33,6 @@ function StatusBadge({ text }: { text: string }) {
   return <span>{str}</span>
 }
 
-/** Detect if cell text is a status indicator */
 function isStatusCell(text: string): boolean {
   const s = String(text ?? '').toUpperCase()
   return s.includes('🟢') || s.includes('🟡') || s.includes('🔴') || s.includes('GREEN') || s.includes('YELLOW') || s.includes('RED')
@@ -41,7 +40,7 @@ function isStatusCell(text: string): boolean {
 
 const markdownComponents = {
   h1: ({ children }: { children?: React.ReactNode }) => (
-    <h1 className="mb-5 border-b-2 border-emerald-200 pb-3 text-2xl font-bold tracking-tight text-slate-900">{children}</h1>
+    <h1 className="mb-5 border-b-2 border-blue-200 pb-3 text-2xl font-bold tracking-tight text-slate-900">{children}</h1>
   ),
   h2: ({ children }: { children?: React.ReactNode }) => (
     <h2 className="mb-3 mt-10 text-lg font-bold tracking-tight text-slate-900 border-b border-slate-200 pb-2">{children}</h2>
@@ -59,10 +58,10 @@ const markdownComponents = {
     <strong className="font-bold text-slate-900">{children}</strong>
   ),
   ul: ({ children }: { children?: React.ReactNode }) => (
-    <ul className="mb-5 list-disc space-y-2 pl-5 text-sm text-slate-700 marker:text-emerald-500">{children}</ul>
+    <ul className="mb-5 list-disc space-y-2 pl-5 text-sm text-slate-700 marker:text-blue-500">{children}</ul>
   ),
   ol: ({ children }: { children?: React.ReactNode }) => (
-    <ol className="mb-5 list-decimal space-y-2 pl-5 text-sm text-slate-700 marker:text-emerald-500">{children}</ol>
+    <ol className="mb-5 list-decimal space-y-2 pl-5 text-sm text-slate-700 marker:text-blue-500">{children}</ol>
   ),
   li: ({ children }: { children?: React.ReactNode }) => (
     <li className="leading-7">{children}</li>
@@ -79,28 +78,16 @@ const markdownComponents = {
   th: ({ children }: { children?: React.ReactNode }) => (
     <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">{children}</th>
   ),
-  td: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => {
+  td: ({ children }: { children?: React.ReactNode }) => {
     const text = String(children ?? '')
-    // Render status cells as badges
     if (isStatusCell(text)) {
       return <td className="border-t border-slate-100 px-4 py-3 align-top"><StatusBadge text={text} /></td>
-    }
-    // Render checklist cells
-    if (text.trim() === '☐' || text.trim() === '☑') {
-      return (
-        <td className="border-t border-slate-100 px-4 py-3 align-top text-center">
-          {text.trim() === '☑'
-            ? <CheckCircle2 className="w-4 h-4 text-emerald-500 inline" />
-            : <Circle className="w-4 h-4 text-slate-300 inline" />
-          }
-        </td>
-      )
     }
     return <td className="border-t border-slate-100 px-4 py-3 align-top text-sm leading-6 text-slate-700">{children}</td>
   },
 }
 
-export default function ImprovementRoadmapTab({
+export default function BuyerReportTab({
   clientId,
   clientName,
   workstream,
@@ -109,7 +96,7 @@ export default function ImprovementRoadmapTab({
   clientName: string
   workstream: 'ws1' | 'ws2'
 }) {
-  const [report, setReport] = useState<RoadmapReport | null>(null)
+  const [report, setReport] = useState<BuyerReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -120,12 +107,12 @@ export default function ImprovementRoadmapTab({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/improvement-roadmap?clientId=${encodeURIComponent(clientId)}&workstream=${workstream}`, { cache: 'no-store' })
+      const res = await fetch(`/api/buyer-report?clientId=${encodeURIComponent(clientId)}&workstream=${workstream}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setReport(data.report)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load roadmap.')
+      setError(err instanceof Error ? err.message : 'Failed to load buyer report.')
     } finally {
       setLoading(false)
     }
@@ -135,16 +122,16 @@ export default function ImprovementRoadmapTab({
     setGenerating(true)
     setError(null)
     try {
-      const res = await fetch('/api/improvement-roadmap', {
+      const res = await fetch('/api/buyer-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId, workstream }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to generate roadmap.')
+      if (!res.ok) throw new Error(data.error || 'Failed to generate buyer report.')
       setReport(data.report)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate roadmap.')
+      setError(err instanceof Error ? err.message : 'Failed to generate buyer report.')
     } finally {
       setGenerating(false)
     }
@@ -153,27 +140,27 @@ export default function ImprovementRoadmapTab({
   useEffect(() => { void load() }, [clientId, workstream])
 
   const html = useMemo(() =>
-    report ? buildImprovementRoadmapHtml(report) : '',
+    report ? buildBuyerReportHtml(report) : '',
   [report])
 
   if (loading) {
-    return <div className="h-48 flex items-center justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-emerald-500 rounded-full animate-spin" /></div>
+    return <div className="h-48 flex items-center justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" /></div>
   }
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-slate-800">Assessment & Improvement Roadmap</h2>
-          <p className="text-xs text-slate-500 mt-1">{wsLabel} — Seller-Facing Sale Readiness Plan</p>
+          <h2 className="text-base font-bold text-slate-800">Buyer Report</h2>
+          <p className="text-xs text-slate-500 mt-1">{wsLabel} — Buyer-Facing Acquisition Summary</p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
             <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
-            {report ? 'Regenerate' : 'Generate Roadmap'}
+            {report ? 'Regenerate' : 'Generate Report'}
           </Button>
           {report && (
-            <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Assessment & Improvement Roadmap.pdf`} label="Export PDF" />
+            <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Buyer Report.pdf`} label="Export PDF" />
           )}
         </div>
       </div>
@@ -183,11 +170,11 @@ export default function ImprovementRoadmapTab({
       {generating && !report && (
         <Card className="p-8">
           <div className="flex items-start gap-4">
-            <div className="mt-1 h-5 w-5 rounded-full border-2 border-slate-200 border-t-emerald-500 animate-spin" />
+            <div className="mt-1 h-5 w-5 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin" />
             <div className="flex-1">
-              <h3 className="text-sm font-bold text-slate-800">Building assessment & improvement roadmap</h3>
+              <h3 className="text-sm font-bold text-slate-800">Generating buyer report</h3>
               <p className="mt-1 text-sm text-slate-500">
-                Analyzing all agent findings to create a prioritized, actionable improvement plan with sale readiness indicators. This takes 30-60 seconds.
+                Creating a compelling buyer-facing report from all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agent findings. This takes 30-60 seconds.
               </p>
               <div className="mt-5 space-y-3">
                 <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
@@ -202,30 +189,30 @@ export default function ImprovementRoadmapTab({
       {report ? (
         <EditableMarkdownReportView
           report={report}
-          accentClassName="border-emerald-200 focus:ring-emerald-400"
+          accentClassName="border-blue-200 focus:ring-blue-400"
           markdownComponents={markdownComponents}
           onSave={async (markdown) => {
-            const res = await fetch('/api/improvement-roadmap', {
+            const res = await fetch('/api/buyer-report', {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ clientId, workstream, markdown }),
             })
             const data = await res.json()
-            if (!res.ok) throw new Error(data.error || 'Failed to save roadmap.')
+            if (!res.ok) throw new Error(data.error || 'Failed to save buyer report.')
             setReport(data.report)
           }}
         />
       ) : !generating ? (
         <Card className="p-10 text-center">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
-            <MapPin className="w-7 h-7 text-emerald-500" />
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-4">
+            <TrendingUp className="w-7 h-7 text-blue-500" />
           </div>
-          <h3 className="text-lg font-semibold text-slate-800 mb-2">Assessment & Improvement Roadmap</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-2">Buyer Report</h3>
           <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
-            Generate a seller-facing assessment and improvement roadmap based on all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agent findings. Shows the seller exactly what to do to become sale-ready.
+            Generate a buyer-facing report that presents the business to potential acquirers, highlighting strengths and opportunities based on all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agent findings.
           </p>
           <Button onClick={generate} disabled={generating}>
-            Generate Roadmap
+            Generate Buyer Report
           </Button>
         </Card>
       ) : null}

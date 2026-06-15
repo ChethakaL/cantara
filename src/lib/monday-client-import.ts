@@ -25,6 +25,9 @@ export type MondayClientField =
   | 'phone'
   | 'company'
   | 'website'
+  | 'businessCategory'
+  | 'propertyOwnership'
+  | 'businessAddress'
 
 export type MondayColumnMapping = Record<MondayClientField, string | null>
 
@@ -38,6 +41,9 @@ export type ParsedMondayClient = {
   phone: string
   company: string
   website: string
+  businessCategory: string
+  propertyOwnership: string
+  businessAddress: string
   emailMissing: boolean
 }
 
@@ -48,6 +54,9 @@ export const MONDAY_CLIENT_FIELDS: Array<{ key: MondayClientField; label: string
   { key: 'phone', label: 'Phone' },
   { key: 'company', label: 'Business name' },
   { key: 'website', label: 'Business website' },
+  { key: 'businessCategory', label: 'Business category' },
+  { key: 'propertyOwnership', label: 'Property ownership' },
+  { key: 'businessAddress', label: 'Business address' },
 ]
 
 const FIELD_COLUMN_PATTERNS: Record<MondayClientField, RegExp[]> = {
@@ -57,6 +66,9 @@ const FIELD_COLUMN_PATTERNS: Record<MondayClientField, RegExp[]> = {
   phone: [/phone/i, /mobile/i, /cell/i, /telephone/i, /\btel\b/i],
   company: [/company/i, /business\s*name/i, /organization/i, /account\s*name/i, /deal\s*name/i, /client\s*name/i],
   website: [/website/i, /web\s*site/i, /\burl\b/i, /domain/i, /site\s*url/i],
+  businessCategory: [/categor/i, /business\s*type/i, /service\s*type/i, /vertical/i, /segment/i],
+  propertyOwnership: [/property/i, /real\s*estate/i, /own.*real/i, /lease.*own/i, /building/i],
+  businessAddress: [/address/i, /location/i, /city/i, /street/i],
 }
 
 const EMAIL_LIKE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
@@ -120,10 +132,13 @@ export function suggestColumnMapping(columns: MondayColumnRef[]): MondayColumnMa
     phone: null,
     company: null,
     website: null,
+    businessCategory: null,
+    propertyOwnership: null,
+    businessAddress: null,
   }
   const used = new Set<string>()
 
-  const fields: MondayClientField[] = ['email', 'phone', 'company', 'website', 'firstName', 'lastName']
+  const fields: MondayClientField[] = ['email', 'phone', 'company', 'website', 'firstName', 'lastName', 'businessCategory', 'propertyOwnership', 'businessAddress']
   for (const field of fields) {
     const ranked = columns
       .map(column => ({ column, score: scoreColumnForField(column, field) }))
@@ -209,6 +224,9 @@ export function applyColumnMapping(item: MondayBoardItemRaw, mapping: MondayColu
   let phone = readMappedFieldValue(item, mapping, 'phone')
   let company = readMappedFieldValue(item, mapping, 'company')
   let website = normalizeWebsite(readMappedFieldValue(item, mapping, 'website'))
+  const businessCategory = readMappedFieldValue(item, mapping, 'businessCategory')
+  const propertyOwnership = readMappedFieldValue(item, mapping, 'propertyOwnership')
+  const businessAddress = readMappedFieldValue(item, mapping, 'businessAddress')
 
   if (!email && item.email) email = item.email.trim().toLowerCase()
   if (!email) {
@@ -269,6 +287,9 @@ export function applyColumnMapping(item: MondayBoardItemRaw, mapping: MondayColu
     phone: phone.trim(),
     company: (company || itemName).trim(),
     website,
+    businessCategory: businessCategory.trim(),
+    propertyOwnership: propertyOwnership.trim(),
+    businessAddress: businessAddress.trim(),
     emailMissing: !email.trim(),
   }
 }

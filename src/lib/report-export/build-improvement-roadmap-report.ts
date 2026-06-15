@@ -12,14 +12,14 @@ export function buildImprovementRoadmapHtml(report: RoadmapReport): string {
   const sections = parseMarkdownSections(report.markdown)
 
   return generateReportHtml({
-    title: `${report.workstreamLabel} Improvement Roadmap`,
-    subtitle: 'Sale Readiness & Value Enhancement Plan',
+    title: `${report.workstreamLabel} Assessment & Improvement Roadmap`,
+    subtitle: 'Seller Sale Readiness & Improvement Plan',
     clientName: report.clientName,
     generatedAt: report.generatedAt,
     summaryHtml: sections.length > 0 ? markdownToHtml(sections[0].content) : undefined,
     kpis: [
       { label: 'Workstream', value: report.workstreamLabel.split('—')[0]?.trim() || report.workstream.toUpperCase() },
-      { label: 'Report Type', value: 'Improvement Roadmap' },
+      { label: 'Report Type', value: 'Assessment & Improvement Roadmap' },
       { label: 'For', value: 'Seller' },
       { label: 'Prepared By', value: 'Cantara AI' },
     ],
@@ -56,6 +56,26 @@ function parseMarkdownSections(markdown: string): Array<{ title: string; content
   return result
 }
 
+/** Convert status emoji/text to styled HTML badge */
+function renderStatusBadge(text: string): string {
+  const s = text.toUpperCase()
+  if (s.includes('🟢') || s.includes('GREEN')) {
+    return '<span style="display:inline-block;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🟢 Green</span>'
+  }
+  if (s.includes('🟡') || s.includes('YELLOW')) {
+    return '<span style="display:inline-block;background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🟡 Yellow</span>'
+  }
+  if (s.includes('🔴') || s.includes('RED')) {
+    return '<span style="display:inline-block;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🔴 Red</span>'
+  }
+  return formatInline(text)
+}
+
+function isStatusCell(text: string): boolean {
+  const s = text.toUpperCase()
+  return s.includes('🟢') || s.includes('🟡') || s.includes('🔴') || s.includes('GREEN') || s.includes('YELLOW') || (s === 'RED' || s.includes('🔴'))
+}
+
 function markdownToHtml(markdown: string): string {
   const lines = String(markdown ?? '').replace(/\r\n/g, '\n').split('\n')
   const html: string[] = []
@@ -72,8 +92,21 @@ function markdownToHtml(markdown: string): string {
   const flushTable = () => {
     if (!inTable || tableRows.length < 2) { inTable = false; tableRows = []; return }
     const headers = tableRows[0]
-    const rows = tableRows.slice(2)
-    html.push(`<table class="report-table"><thead><tr>${headers.map(h => `<th>${formatInline(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${formatInline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`)
+    const rows = tableRows.slice(2) // skip separator
+    html.push(`<table class="report-table"><thead><tr>${headers.map(h => `<th>${formatInline(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c, i) => {
+      // Render status cells as badges
+      if (isStatusCell(c)) {
+        return `<td>${renderStatusBadge(c)}</td>`
+      }
+      // Render checklist cells
+      if (c.trim() === '☐') {
+        return `<td style="text-align:center;"><span style="color:#cbd5e1;font-size:16px;">☐</span></td>`
+      }
+      if (c.trim() === '☑' || c.trim() === '✅') {
+        return `<td style="text-align:center;"><span style="color:#10b981;font-size:16px;">☑</span></td>`
+      }
+      return `<td>${formatInline(c)}</td>`
+    }).join('')}</tr>`).join('')}</tbody></table>`)
     inTable = false
     tableRows = []
   }

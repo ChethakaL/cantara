@@ -124,8 +124,8 @@ export default function AssessmentReportTab({
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-slate-800">Assessment Report</h2>
-          <p className="text-xs text-slate-500 mt-1">{wsLabel} — Comprehensive Due Diligence Assessment</p>
+          <h2 className="text-base font-bold text-slate-800">Internal Assessment</h2>
+          <p className="text-xs text-slate-500 mt-1">{wsLabel} — Internal Due Diligence Assessment (Advisor Use Only)</p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
@@ -133,7 +133,7 @@ export default function AssessmentReportTab({
             {report ? 'Regenerate' : 'Generate Report'}
           </Button>
           {report && (
-            <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Assessment Report.pdf`} label="Export PDF" />
+            <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Internal Assessment.pdf`} label="Export PDF" />
           )}
         </div>
       </div>
@@ -181,12 +181,12 @@ export default function AssessmentReportTab({
           <div className="mx-auto w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mb-4">
             <FileText className="w-7 h-7 text-amber-500" />
           </div>
-          <h3 className="text-lg font-semibold text-slate-800 mb-2">Assessment Report</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-2">Internal Assessment</h3>
           <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
-            Generate a comprehensive due diligence assessment that synthesizes findings from all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agents into a single executive report.
+            Generate a comprehensive internal due diligence assessment that synthesizes findings from all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agents. This report is for advisor use only.
           </p>
           <Button onClick={generate} disabled={generating}>
-            Generate Assessment Report
+            Generate Internal Assessment
           </Button>
         </Card>
       ) : null}

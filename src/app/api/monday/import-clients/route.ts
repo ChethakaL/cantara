@@ -43,6 +43,9 @@ export async function POST(req: NextRequest) {
         company?: string
         website?: string
         mondayItemId?: string
+        businessCategory?: string
+        propertyOwnership?: string
+        businessAddress?: string
       }>
     }
 
@@ -97,6 +100,10 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      // Normalize property ownership value
+      const rawOwnership = client.propertyOwnership?.trim().toLowerCase() ?? ''
+      const propertyOwnership = rawOwnership.includes('own') ? 'owns' : rawOwnership.includes('lease') ? 'lease' : ''
+
       const profile = await prisma.clientProfile.create({
         data: {
           userId: user.id,
@@ -104,9 +111,12 @@ export async function POST(req: NextRequest) {
           email,
           phone: client.phone?.trim() || null,
           websiteUrl: client.website?.trim() || null,
+          businessAddress: client.businessAddress?.trim() || null,
+          businessCategory: client.businessCategory?.trim() || null,
           stage: 'ONBOARDING',
           businessType: 'SINGLE',
           notes: client.mondayItemId ? `Imported from Monday item ${client.mondayItemId}` : undefined,
+          ...(propertyOwnership ? { sectionSubmissions: { propertyOwnership } } : {}),
         },
       })
 

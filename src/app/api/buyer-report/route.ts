@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
@@ -18,7 +17,7 @@ export async function GET(req: NextRequest) {
   if (!client) return new Response('Client not found', { status: 404 })
 
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
-  const key = `improvementRoadmap_${workstream}`
+  const key = `buyerReport_${workstream}`
   const report = submissions[key] ?? null
 
   return NextResponse.json({ report })
@@ -38,7 +37,6 @@ export async function POST(req: NextRequest) {
   })
   if (!client) return new Response('Client not found', { status: 404 })
 
-  // Get assessment report data if available, plus raw agent data
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
   const assessmentReport = submissions[`assessmentReport_${workstream}`]
   const agentData = await gatherAgentData(clientId, workstream)
@@ -54,107 +52,106 @@ export async function POST(req: NextRequest) {
     model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 16000,
     temperature: 0.15,
-    system: `You are a senior M&A advisor at Cantara Pet Advisors who specializes in helping sellers prepare their businesses for acquisition. You create clear, actionable assessment and improvement roadmaps that tell sellers exactly what to fix, in what order, and why it matters for their deal.
+    system: `You are a senior M&A advisor at Cantara Pet Advisors creating a buyer-facing report designed to present a business acquisition opportunity in the most compelling yet transparent way.
 
-Your reports are:
-- **Empathetic**: Written directly to the seller, acknowledging their work while being honest about gaps
-- **Visual**: Use GREEN/YELLOW/RED status indicators for every category — never numerical scores
-- **Deal-focused**: Every item explains its impact on the deal (will it slow closing, reduce price, scare buyers?)
-- **Specific**: Each action item has clear steps, not vague recommendations
-- **Realistic**: Include reasonable timelines and acknowledge resource constraints
+Your buyer reports are:
+- **Compelling**: Highlight the opportunity, growth potential, and strengths that make this an attractive acquisition
+- **Transparent**: Acknowledge areas that need attention without being alarmist — frame them as manageable and already being addressed
+- **Professional**: Written for sophisticated buyers and their deal teams — investment-grade quality
+- **Data-driven**: Include specific numbers, metrics, and quantified opportunities wherever possible
+- **Balanced**: Show both the opportunity and the realistic picture — buyers respect honesty
 
 CRITICAL RULES:
-- Do NOT include numerical scores, target scores, readiness scores, or any scoring system with numbers
-- Do NOT include cost estimates or "Estimated Cost" columns
-- Do NOT include valuation multiples or dollar value impact estimates
-- ALWAYS use the exact status indicators: 🟢 GREEN, 🟡 YELLOW, 🔴 RED
-- ALWAYS include "Impact on Deal" for every action item and in the summary table
+- Frame findings positively where possible — "growth opportunity" not "weakness"
+- Present risks as "areas for buyer consideration" with clear mitigation paths
+- Use GREEN/YELLOW/RED status indicators for category readiness
+- Do NOT reveal internal advisor notes, seller-specific improvement plans, or confidential deal strategy
+- Do NOT include seller contact info, internal pricing discussions, or negotiation strategy
+- This is a MARKETING document that must also be TRUTHFUL
 
 Return markdown only. Do not include any preamble.`,
     messages: [{
       role: 'user',
-      content: `Generate a comprehensive ${wsLabel} Assessment & Improvement Roadmap for **${clientName}**.
+      content: `Generate a comprehensive ${wsLabel} Buyer Report for **${clientName}**.
 
-This is a SELLER-FACING document. It shows the seller clearly what their current status is and exactly what they need to do to become sale-ready. Be encouraging but honest.
+This is a BUYER-FACING document. It presents the business to potential acquirers, highlighting strengths, quantifying the opportunity, and transparently addressing areas that need attention. The goal is to encourage serious buyer interest while maintaining credibility.
 
 ## Required Structure — Follow EXACTLY
 
-# Assessment & Improvement Roadmap
-## ${wsLabel}
+# ${clientName}
+## ${wsLabel} — Buyer Due Diligence Summary
 
-## Dear ${clientName.split(' ')[0] || 'Seller'},
-Write a warm 2-3 paragraph letter:
-- Their business's current readiness level (use plain language, no scores)
-- The biggest opportunities to improve sale readiness
-- Your confidence in their ability to prepare
+## Investment Highlights
 
-## Readiness Overview
+Write 4-6 compelling bullet points that summarize why this is an attractive acquisition. Each should be specific and quantified where possible. Think: What would make a buyer lean forward?
 
-Create a summary table using GREEN/YELLOW/RED indicators. This is the most important visual in the report.
+## Business Overview
 
-| Category | Status | Summary | Impact on Deal |
-|----------|--------|---------|----------------|
-| Category Name | 🟢 GREEN / 🟡 YELLOW / 🔴 RED | One-line summary of current state | How this affects the deal (e.g., "Could delay closing by 2-4 weeks", "Buyer will likely request price reduction", "No impact — ready for diligence") |
+Brief 2-3 paragraph overview of the business covering:
+- What the business does, its market, and its history
+- Key operational strengths
+- Position in the market
 
-${workstream === 'ws1' ? `Categories to assess: Legal & Corporate Standing, Ownership & Transfer Readiness, Contracts & Agreements, Litigation & Liens, Insurance Coverage, Permits & Zoning, Employment & HR, Tax Compliance, Key Person Dependencies, Vendor & Technology` :
-`Categories to assess: Revenue & Profitability, Pricing Strategy, Digital Presence & Reputation, Competitive Position, Sales Process Maturity, Facility Condition, Customer Concentration, Growth Trajectory`}
+## Diligence Summary
+
+Create a summary table showing readiness across all categories:
+
+| Category | Status | Summary | Buyer Consideration |
+|----------|--------|---------|---------------------|
+| Category Name | 🟢 GREEN / 🟡 YELLOW / 🔴 RED | One-line summary | What this means for the buyer (opportunity, risk level, action needed) |
+
+${workstream === 'ws1' ? `Categories: Legal & Corporate Standing, Ownership & Transfer Readiness, Contracts & Agreements, Litigation & Liens, Insurance Coverage, Permits & Zoning, Employment & HR, Tax Compliance` :
+`Categories: Revenue & Profitability, Pricing Strategy, Digital Presence & Reputation, Competitive Position, Sales Process, Facility Condition, Customer Mix, Growth Potential`}
 
 Status definitions:
-- 🟢 GREEN = Sale-ready, no action needed. Buyer diligence will pass smoothly.
-- 🟡 YELLOW = Needs attention. Fixable, but if left unaddressed could slow the deal or reduce certainty.
-- 🔴 RED = Critical gap. Must be resolved before listing or it will materially impact the deal.
+- 🟢 GREEN = Strong position. Clean diligence expected.
+- 🟡 YELLOW = Adequate with minor items to address. Normal for a business of this size.
+- 🔴 RED = Requires attention. Seller is aware and actively addressing (provide details).
 
-## Improvement Roadmap
+${workstream === 'ws1' ? `## Legal & Compliance Profile
+Summarize the business's legal standing, corporate structure, ownership clarity, and compliance posture. Highlight strengths. Note any items being addressed.
 
-### Phase 1: Immediate Actions (0-30 Days)
-For each action item, use this format:
+## Operational Readiness
+Cover contracts, insurance, permits, vendor relationships, and key person considerations. Frame positively — emphasize stability and transferability.
 
-**Action Item Name** — 🔴 RED / 🟡 YELLOW
-- **What**: Description of what needs to be done
-- **Why**: Plain-language explanation of why this matters to the seller
-- **Impact on Deal**: Specific impact (e.g., "Without this, buyers will request a 10-15% escrow holdback" or "This is a deal-breaker — no buyer will proceed without it")
-- **How**: Step-by-step actions to resolve
-- **Owner**: Who should handle this (you, your accountant, your attorney, etc.)
-- **Timeline**: Realistic timeframe
+## Employment & HR Profile
+Staffing levels, compensation structure, compliance. Highlight team stability and any competitive advantages in talent.
 
-### Phase 2: Short-Term Actions (30-90 Days)
-${workstream === 'ws1' ? `Organize by:
-#### Legal & Corporate Cleanup
-#### Insurance & Compliance
-#### Employment & HR
-#### Contract Review
-#### Tax & Financial` :
-`Organize by:
-#### Revenue & Pricing
-#### Digital Presence & Marketing
-#### Sales Process
-#### Competitive Positioning
-#### Facility & Operations`}
+## Risk Mitigation Summary
+Honestly address any material risks, but pair each with the mitigation plan or buyer remedy (e.g., escrow, rep & warranty, post-closing adjustment).` :
 
-Same format per item (What, Why, Impact on Deal, How, Owner, Timeline)
+`## Financial Performance
+Revenue trends, profitability, EBITDA quality. Highlight growth trajectory and earnings stability. Include specific numbers.
 
-### Phase 3: Medium-Term Actions (90-180 Days)
-Strategic improvements. Same format.
+## Market Position & Competition
+Competitive landscape, market share, pricing position. Emphasize competitive advantages and market opportunity.
 
-## Your Sale-Readiness Checklist
+## Growth Opportunities
+Specific, quantified growth levers available to a buyer. What could a well-resourced acquirer do that the current owner hasn't? (e.g., expand services, digital marketing, new locations, pricing optimization)
 
-Create a comprehensive checklist organized by category. Each item should be actionable and specific.
+## Operational Strengths
+Facility condition, sales process maturity, digital presence. Highlight what's working well and what a buyer inherits.`}
 
-| ✅ | Category | Item | Status | Action Needed |
-|----|----------|------|--------|---------------|
-| ☐ | Category | Specific document or action | 🟢/🟡/🔴 | What to do |
+## Key Metrics at a Glance
 
-Include at least 15-25 checklist items covering all categories. Mark status as 🟢 (have it), 🟡 (needs update), or 🔴 (missing).
+Create a clean metrics table:
+| Metric | Value | Context |
+|--------|-------|---------|
+(Include revenue, growth rate, customer count, facility size, team size, years in operation, and any other relevant metrics from the data)
 
-## What Happens Next
+## Buyer Considerations & Next Steps
 
-Write a simple numbered list (5-7 items) of exactly what the seller should do this week to get started. Be specific and encouraging.
+Numbered list of 5-7 recommended next steps for an interested buyer. Be specific:
+- What additional diligence to request
+- Key meetings to schedule (management, key employees, landlord)
+- Areas to focus on during site visits
+- Timeline expectations
 
 ---
 
 ## Source Data
 
-${assessmentReport?.markdown ? `### Assessment Report Summary\n${truncate(assessmentReport.markdown, 6000)}` : ''}
+${assessmentReport?.markdown ? `### Internal Assessment Summary\n${truncate(assessmentReport.markdown, 6000)}` : ''}
 
 ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`).join('\n\n')}`,
     }],
@@ -176,7 +173,7 @@ ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`)
     data: {
       sectionSubmissions: {
         ...current,
-        [`improvementRoadmap_${workstream}`]: report,
+        [`buyerReport_${workstream}`]: report,
       },
     },
   })
@@ -203,10 +200,10 @@ export async function PATCH(req: NextRequest) {
   const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
     ? client.sectionSubmissions
     : {}) as Record<string, any>
-  const key = `improvementRoadmap_${workstream}`
+  const key = `buyerReport_${workstream}`
   const existing = current[key]
   if (!existing) {
-    return new Response('Generate the improvement roadmap before editing.', { status: 404 })
+    return new Response('Generate the buyer report before editing.', { status: 404 })
   }
 
   const report = {
@@ -273,7 +270,7 @@ async function gatherAgentData(clientId: string, workstream: 'ws1' | 'ws2') {
     await addFromTable('Tax Liability Review', (prisma as any).taxLiabilityReport, 'markdown')
     await addFromSubmissions('Insurance Review', 'insuranceReview')
     await addFromSubmissions('Litigation & Liens', 'litigationSearch')
-    await addFromSubmissions('Org Chart', 'orgChart')
+    await addFromSubmissions('Org Chart Review', 'orgChart')
     await addFromSubmissions('Owner & GM Assessment', 'ownerGmAssessment')
     await addFromSubmissions('Professional Advisors', 'professionalAdvisors')
     await addFromSubmissions('Software & Vendors', 'vendorDirectory')

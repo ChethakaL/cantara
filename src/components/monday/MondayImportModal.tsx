@@ -93,6 +93,9 @@ const FIELD_ICONS: Record<MondayClientField, typeof Mail> = {
   phone: Phone,
   company: Building2,
   website: Globe2,
+  businessCategory: Filter,
+  propertyOwnership: Building2,
+  businessAddress: Building2,
 }
 
 export default function MondayImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
@@ -112,6 +115,9 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
     phone: null,
     company: null,
     website: null,
+    businessCategory: null,
+    propertyOwnership: null,
+    businessAddress: null,
   })
   const [loadingItems, setLoadingItems] = useState(false)
   const [itemSearch, setItemSearch] = useState('')
@@ -231,6 +237,9 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
             company: c.company,
             website: c.website,
             mondayItemId: c.mondayItemId,
+            businessCategory: c.businessCategory,
+            propertyOwnership: c.propertyOwnership,
+            businessAddress: c.businessAddress,
           })),
         }),
       })

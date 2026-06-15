@@ -43,6 +43,7 @@ import LegalEntitySearchTab from '@/components/legal-entity-search/LegalEntitySe
 import TaxLiabilityReviewTab from '@/components/tax-liability-review/TaxLiabilityReviewTab'
 import AssessmentReportTab from '@/components/assessment-report/AssessmentReportTab'
 import ImprovementRoadmapTab from '@/components/improvement-roadmap/ImprovementRoadmapTab'
+import BuyerReportTab from '@/components/buyer-report/BuyerReportTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -71,16 +72,18 @@ const AGENT_TABS = [
   { key: 'tax-liability-review', label: 'Tax Liability Review', badge: null, icon: FileSpreadsheet, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
+  { key: 'pricing-analysis', label: 'Competitive Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
-  { key: 'pricing-analysis', label: 'Competitive Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'pricing-vertical', label: 'Pricing by Vertical', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
-  // Assessment Reports & Roadmaps
-  { key: 'ws1-assessment', label: 'WS1 Assessment Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
-  { key: 'ws2-assessment', label: 'WS2 Assessment Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
-  { key: 'ws1-roadmap', label: 'WS1 Improvement Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
-  { key: 'ws2-roadmap', label: 'WS2 Improvement Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  // Reports & Roadmaps
+  { key: 'ws1-assessment', label: 'WS1 Internal Assessment', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws1-roadmap', label: 'WS1 Assessment & Improvement Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws1-buyer-report', label: 'WS1 Buyer Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws2-assessment', label: 'WS2 Internal Assessment', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws2-roadmap', label: 'WS2 Assessment & Improvement Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws2-buyer-report', label: 'WS2 Buyer Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   // Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again.
   // { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
   // M&A
@@ -613,6 +616,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'ws2-roadmap' && (
               <ImprovementRoadmapTab clientId={client.id} clientName={client.company || client.name} workstream="ws2" />
+            )}
+            {activeTab === 'ws1-buyer-report' && (
+              <BuyerReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws1" />
+            )}
+            {activeTab === 'ws2-buyer-report' && (
+              <BuyerReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws2" />
             )}
             {/* Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again. */}
             {/* {activeTab === 'meeting-notes' && (
