@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import {
+  deleteTaxLiabilityReports,
+  getLatestTaxLiabilityReport,
+  saveTaxLiabilityReport,
+  updateLatestTaxLiabilityReport,
+} from '@/lib/tax-liability-review/storage'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,16 +14,9 @@ export async function GET(req: NextRequest) {
     const clientId = req.nextUrl.searchParams.get('clientId')
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
-    const report = await (prisma as any).taxLiabilityReport.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    return NextResponse.json({ report: report ?? null })
-  } catch (error: any) {
-    if (error?.code === 'P2021') {
-      return NextResponse.json({ report: null })
-    }
+    const report = await getLatestTaxLiabilityReport(clientId)
+    return NextResponse.json({ report })
+  } catch (error) {
     console.error('[WS1-11] Report fetch error:', error)
     return new Response('Internal Server Error', { status: 500 })
   }
@@ -31,14 +29,11 @@ export async function POST(req: NextRequest) {
       return new Response('Missing clientId or markdown', { status: 400 })
     }
 
-    const report = await (prisma as any).taxLiabilityReport.create({
-      data: {
-        clientId,
-        markdown,
-        documentNames: documentNames ?? [],
-        metadata: metadata ?? undefined,
-        createdAt: new Date(),
-      },
+    const report = await saveTaxLiabilityReport({
+      clientId,
+      markdown,
+      documentNames,
+      metadata,
     })
 
     return NextResponse.json({ report })
@@ -54,21 +49,8 @@ export async function PATCH(req: NextRequest) {
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
     const { metadata, markdown } = await req.json()
-
-    const latest = await (prisma as any).taxLiabilityReport.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    if (!latest) return new Response('Report not found', { status: 404 })
-
-    const report = await (prisma as any).taxLiabilityReport.update({
-      where: { id: latest.id },
-      data: {
-        ...(metadata !== undefined ? { metadata } : {}),
-        ...(typeof markdown === 'string' ? { markdown } : {}),
-      },
-    })
+    const report = await updateLatestTaxLiabilityReport(clientId, { metadata, markdown })
+    if (!report) return new Response('Report not found', { status: 404 })
 
     return NextResponse.json({ report })
   } catch (error) {
@@ -82,10 +64,7 @@ export async function DELETE(req: NextRequest) {
     const clientId = req.nextUrl.searchParams.get('clientId')
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
-    await (prisma as any).taxLiabilityReport.deleteMany({
-      where: { clientId },
-    })
-
+    await deleteTaxLiabilityReports(clientId)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('[WS1-11] Report delete error:', error)

@@ -1,13 +1,15 @@
 'use client'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
-import { Bell, LogOut, Settings, Users, Globe2 } from 'lucide-react'
+import { Bell, LogOut, Settings, Globe2 } from 'lucide-react'
 import { logout } from '@/lib/store'
 import { GoldLine, cn } from '@/components/ui'
+import { useAdminInboxUnread } from '@/hooks/useChatRoom'
 
 export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) {
   const router = useRouter()
   const pathname = usePathname()
+  const { total: unreadCount } = useAdminInboxUnread()
   const handleLogout = () => { logout(); router.push('/') }
   return (
     <header className="sticky top-0 z-40" style={{ background: '#21263C' }}>
@@ -34,9 +36,26 @@ export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) 
         </div>
         <div className="flex items-center gap-3">
           <span className="text-cantara-sun/40 text-xs hidden md:block">{name}</span>
-          <button className="p-2 rounded hover:bg-cantara-sun/5 transition-colors text-cantara-sun/30 hover:text-cantara-sun/70">
+          <Link
+            href="/admin/notifications"
+            className={cn(
+              'relative p-2 rounded transition-colors',
+              pathname?.startsWith('/admin/notifications')
+                ? 'bg-cantara-sun/10 text-cantara-gold'
+                : 'text-cantara-sun/30 hover:bg-cantara-sun/5 hover:text-cantara-sun/70',
+            )}
+            aria-label="Notifications"
+          >
             <Bell className="w-4 h-4" />
-          </button>
+            {unreadCount > 0 && (
+              <span
+                className="absolute top-1 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center"
+                style={{ background: '#ef4444' }}
+              >
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </Link>
           <Link
             href="/admin/settings"
             className={cn(

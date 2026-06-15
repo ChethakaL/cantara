@@ -6,7 +6,9 @@ import { motion } from 'framer-motion'
 import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink, Trello, LogOut, Download, FileText } from 'lucide-react'
 import AdminNav from '@/components/admin/AdminNav'
 import MondayImportModal from '@/components/monday/MondayImportModal'
-import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card } from '@/components/ui'
+import PetBusinessCategoryField from '@/components/ui/PetBusinessCategoryField'
+import { PROPERTY_OWNERSHIP_OPTIONS } from '@/lib/pet-business-categories'
+import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card, Select } from '@/components/ui'
 import { getClients, createClient, getCurrentRole, getAdminName } from '@/lib/store'
 import { useAdminInboxUnread } from '@/hooks/useChatRoom'
 import type { Client } from '@/lib/store'
@@ -115,7 +117,14 @@ export default function AdminDashboard() {
   const [loadingClients, setLoadingClients] = useState(true)
   const [search, setSearch] = useState('')
   const [adding, setAdding] = useState(false)
-  const [newClient, setNewClient] = useState({ name: '', email: '', company: '' })
+  const [newClient, setNewClient] = useState({
+    name: '',
+    email: '',
+    company: '',
+    phone: '',
+    businessCategory: '',
+    propertyOwnership: '' as '' | 'lease' | 'owns',
+  })
   const [adminName, setAdminName] = useState('Admin Pollack')
   const [driveStatus, setDriveStatus] = useState<{ connected: boolean; connection: { status: string; updatedAt: string | null } | null } | null>(null)
   const [connectingDrive, setConnectingDrive] = useState(false)
@@ -206,10 +215,10 @@ export default function AdminDashboard() {
 
   const handleAddClient = async () => {
     if (!newClient.name || !newClient.email) return
-    await createClient(newClient)
+    await createClient({ ...newClient, advisorName: adminName })
     refresh()
     setAdding(false)
-    setNewClient({ name: '', email: '', company: '' })
+    setNewClient({ name: '', email: '', company: '', phone: '', businessCategory: '', propertyOwnership: '' })
   }
 
   const connectDrive = async () => {
@@ -600,14 +609,25 @@ export default function AdminDashboard() {
       <Modal open={adding} onClose={() => setAdding(false)} title="Add New Client">
         <div className="space-y-4">
           <p className="text-sm text-slate-500">
-            Creating a client sends them a portal invitation email and sets up their workspace. Assign a workstream in Client Management to provision their document checklist.
+            Creates the client workspace and emails portal login credentials to the primary contact. Assign a workstream in Client Management to provision their document checklist.
           </p>
-          <Input label="Full name *" placeholder="Jane Smith" value={newClient.name} onChange={e => setNewClient(p => ({ ...p, name: e.target.value }))} />
-          <Input label="Email address *" type="email" placeholder="jane@company.com" value={newClient.email} onChange={e => setNewClient(p => ({ ...p, email: e.target.value }))} />
-          <Input label="Company / Business name" placeholder="Happy Paws Resort" value={newClient.company} onChange={e => setNewClient(p => ({ ...p, company: e.target.value }))} />
+          <Input label="Business name *" placeholder="Happy Paws Resort" value={newClient.company} onChange={e => setNewClient(p => ({ ...p, company: e.target.value }))} />
+          <Input label="Primary contact name *" placeholder="Jane Smith" value={newClient.name} onChange={e => setNewClient(p => ({ ...p, name: e.target.value }))} />
+          <Input label="Email address *" type="email" placeholder="jane@happypaws.com" value={newClient.email} onChange={e => setNewClient(p => ({ ...p, email: e.target.value }))} />
+          <Input label="Phone" placeholder="(555) 555-0100" value={newClient.phone} onChange={e => setNewClient(p => ({ ...p, phone: e.target.value }))} />
+          <PetBusinessCategoryField
+            value={newClient.businessCategory}
+            onChange={businessCategory => setNewClient(p => ({ ...p, businessCategory }))}
+          />
+          <Select
+            label="Real estate"
+            value={newClient.propertyOwnership}
+            onChange={e => setNewClient(p => ({ ...p, propertyOwnership: e.target.value as '' | 'lease' | 'owns' }))}
+            options={PROPERTY_OWNERSHIP_OPTIONS}
+          />
           <div className="flex gap-3 justify-end pt-2">
             <Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
-            <Button onClick={handleAddClient} disabled={!newClient.name || !newClient.email}>
+            <Button onClick={handleAddClient} disabled={!newClient.name || !newClient.email || !newClient.company}>
               <Mail className="w-4 h-4" /> Create & Send Invite
             </Button>
           </div>

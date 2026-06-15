@@ -21,6 +21,10 @@ import {
 } from '@/lib/pricing-analysis/normalize-report'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildPricingAnalysisReportHtml } from '@/lib/report-export/build-pricing-analysis-report'
+import {
+  groupRowsByPricingVertical,
+  PRICING_SERVICE_VERTICAL_ORDER,
+} from '@/lib/pricing-analysis/service-vertical'
 
 const STATUS_COLORS: Record<string, { badge: 'red' | 'green' | 'blue' | 'slate'; label: string }> = {
   underpriced: { badge: 'red', label: 'Underpriced' },
@@ -645,130 +649,135 @@ export default function PricingAnalysisTab({
           )}
         </Card>
 
-        {/* Table 1: Detailed Competitor Price Matrix */}
+        {/* Table 1: Detailed Competitor Price Matrix — grouped by service vertical */}
         {(editMode || (result.priceMatrix ?? []).length > 0) && (
-          <Card className="overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-slate-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                  Detailed Competitor Price Matrix
-                </h3>
-              </div>
-              {editMode && (
-                <button
-                  type="button"
-                  onClick={addMatrixRow}
-                  className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add row
-                </button>
-              )}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Service</th>
-                    <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Basis</th>
-                    <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Your Price</th>
-                    <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Norm. Daily</th>
-                    {competitorNames.map(name => (
-                      <th key={`${name}-listed`} colSpan={2} className="text-center px-3 py-2.5 font-semibold text-slate-600 bg-emerald-50 border-l border-slate-100">
-                        {name}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-slate-200 bg-slate-50/30">
-                    <th className="px-3 py-1" />
-                    <th className="px-3 py-1" />
-                    <th className="px-3 py-1 bg-yellow-50" />
-                    <th className="px-3 py-1 bg-yellow-50" />
-                    {competitorNames.map(name => (
-                      <Fragment key={`${name}-sub`}>
-                        <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">Listed</th>
-                        <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50">Norm.</th>
-                      </Fragment>
-                    ))}
-                    {editMode && <th className="w-10 px-2 py-1" />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(result.priceMatrix ?? []).map((row, ri) => {
-                    const compMap = new Map(row.competitors.map(c => [c.name, c]))
-                    return (
-                      <tr key={ri} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
-                        <td className="px-3 py-2.5 font-medium text-slate-800">
-                          <EditableCell value={row.service} onChange={v => updateMatrixRow(ri, 'service', v)} editMode={editMode} />
-                        </td>
-                        <td className="px-3 py-2.5 text-slate-600">
-                          <EditableCell value={row.basis} onChange={v => updateMatrixRow(ri, 'basis', v)} editMode={editMode} />
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
-                          <EditableCell value={row.sellerPrice} onChange={v => updateMatrixRow(ri, 'sellerPrice', v)} editMode={editMode} align="right" />
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
-                          <EditableCell value={row.sellerNormalized} onChange={v => updateMatrixRow(ri, 'sellerNormalized', v)} editMode={editMode} align="right" />
-                        </td>
-                        {competitorNames.map(name => {
-                          const comp = compMap.get(name)
-                          return (
-                            <Fragment key={`${name}-${ri}`}>
-                              <td className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700 border-l border-slate-100">
-                                <EditableCell
-                                  value={comp?.listedPrice ?? ''}
-                                  onChange={v => updateMatrixCompetitor(ri, name, 'listedPrice', v)}
-                                  editMode={editMode}
-                                  align="right"
-                                />
-                              </td>
-                              <td className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700" title={comp?.normalizationNote ?? ''}>
-                                {editMode ? (
-                                  <EditableCell
-                                    value={comp?.normalized ?? ''}
-                                    onChange={v => updateMatrixCompetitor(ri, name, 'normalized', v)}
-                                    editMode={editMode}
-                                    align="right"
-                                  />
-                                ) : (
-                                  <span>
-                                    {formatPriceDisplay(comp?.normalized ?? '')}
-                                    {comp?.normalizationNote && (
-                                      <span className="block text-[9px] text-slate-400 mt-0.5">{comp.normalizationNote}</span>
-                                    )}
-                                  </span>
+          <div className="space-y-4">
+            {PRICING_SERVICE_VERTICAL_ORDER.map(vertical => {
+              const groupedRows = groupRowsByPricingVertical(result.priceMatrix ?? [])[vertical]
+              if (!editMode && groupedRows.length === 0) return null
+
+              return (
+                <Card key={vertical} className="overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-slate-400" />
+                      <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                        {vertical}
+                      </h3>
+                      {!editMode && groupedRows.length === 0 && (
+                        <span className="text-[10px] text-slate-400">No services in this section</span>
+                      )}
+                    </div>
+                    {editMode && vertical === 'Other' && (
+                      <button
+                        type="button"
+                        onClick={addMatrixRow}
+                        className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add row
+                      </button>
+                    )}
+                  </div>
+                  {(editMode || groupedRows.length > 0) && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50/50">
+                            <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Service</th>
+                            <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Basis</th>
+                            <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Your Price</th>
+                            <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Norm. Daily</th>
+                            {competitorNames.map(name => (
+                              <th key={`${vertical}-${name}-listed`} colSpan={2} className="text-center px-3 py-2.5 font-semibold text-slate-600 bg-emerald-50 border-l border-slate-100">
+                                {name}
+                              </th>
+                            ))}
+                          </tr>
+                          <tr className="border-b border-slate-200 bg-slate-50/30">
+                            <th className="px-3 py-1" />
+                            <th className="px-3 py-1" />
+                            <th className="px-3 py-1 bg-yellow-50" />
+                            <th className="px-3 py-1 bg-yellow-50" />
+                            {competitorNames.map(name => (
+                              <Fragment key={`${vertical}-${name}-sub`}>
+                                <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">Listed</th>
+                                <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50">Norm.</th>
+                              </Fragment>
+                            ))}
+                            {editMode && <th className="w-10 px-2 py-1" />}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupedRows.map((row) => {
+                            const ri = (result.priceMatrix ?? []).indexOf(row)
+                            const compMap = new Map(row.competitors.map(c => [c.name, c]))
+                            return (
+                              <tr key={`${vertical}-${ri}`} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
+                                <td className="px-3 py-2.5 font-medium text-slate-800">
+                                  <EditableCell value={row.service} onChange={v => updateMatrixRow(ri, 'service', v)} editMode={editMode} />
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-600">
+                                  <EditableCell value={row.basis} onChange={v => updateMatrixRow(ri, 'basis', v)} editMode={editMode} />
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
+                                  <EditableCell value={row.sellerPrice} onChange={v => updateMatrixRow(ri, 'sellerPrice', v)} editMode={editMode} align="right" />
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
+                                  <EditableCell value={row.sellerNormalized} onChange={v => updateMatrixRow(ri, 'sellerNormalized', v)} editMode={editMode} align="right" />
+                                </td>
+                                {competitorNames.map(name => {
+                                  const comp = compMap.get(name)
+                                  return (
+                                    <Fragment key={`${vertical}-${name}-${ri}`}>
+                                      <td className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700 border-l border-slate-100">
+                                        <EditableCell
+                                          value={comp?.listedPrice ?? ''}
+                                          onChange={v => updateMatrixCompetitor(ri, name, 'listedPrice', v)}
+                                          editMode={editMode}
+                                          align="right"
+                                        />
+                                      </td>
+                                      <td className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700">
+                                        <EditableCell
+                                          value={comp?.normalized ?? ''}
+                                          onChange={v => updateMatrixCompetitor(ri, name, 'normalized', v)}
+                                          editMode={editMode}
+                                          align="right"
+                                        />
+                                      </td>
+                                    </Fragment>
+                                  )
+                                })}
+                                {editMode && (
+                                  <td className="px-2 py-2.5 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => removeMatrixRow(ri)}
+                                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition-all"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
                                 )}
+                              </tr>
+                            )
+                          })}
+                          {editMode && groupedRows.length === 0 && (
+                            <tr>
+                              <td colSpan={4 + competitorNames.length * 2 + 1} className="px-4 py-6 text-center text-sm text-slate-400">
+                                No {vertical.toLowerCase()} services yet. Add a row from the Other section or run analysis.
                               </td>
-                            </Fragment>
-                          )
-                        })}
-                        {editMode && (
-                          <td className="px-2 py-2.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeMatrixRow(ri)}
-                              className="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="Remove row"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    )
-                  })}
-                  {editMode && (result.priceMatrix ?? []).length === 0 && (
-                    <tr>
-                      <td colSpan={4 + competitorNames.length * 2 + 1} className="px-4 py-8 text-center text-sm text-slate-400">
-                        No rows yet. Click &ldquo;Add row&rdquo; to build the matrix manually.
-                      </td>
-                    </tr>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                </Card>
+              )
+            })}
+          </div>
         )}
 
         {/* Table 2: Pricing Summary & Variance */}

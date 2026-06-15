@@ -89,6 +89,11 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
           : null,
     businessCategory: client.businessCategory || "",
     websiteUrl: client.websiteUrl || "",
+    propertyOwnership:
+      (client.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'lease' ||
+      (client.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'owns'
+        ? ((client.sectionSubmissions as Record<string, unknown>).propertyOwnership as 'lease' | 'owns')
+        : "",
     workstream: client.workstream ? client.workstream.toLowerCase() : null,
     customWorkstreamId: client.customWorkstreamId ?? null,
     customWorkstream: client.customWorkstream

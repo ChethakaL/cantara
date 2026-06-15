@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { KeyRound, Loader2, ShieldCheck } from 'lucide-react'
-import AdminNav from '@/components/admin/AdminNav'
+import { AdminPortalHeader } from '@/components/admin/AdminPortalHeader'
 import { Button, Input } from '@/components/ui'
-import { getAdminName } from '@/lib/store'
+import { useAdminInboxUnread } from '@/hooks/useChatRoom'
 
 type KeyStatus = {
   configured: boolean
@@ -13,6 +13,7 @@ type KeyStatus = {
 }
 
 export default function AdminSettingsPage() {
+  const { total: unreadCount } = useAdminInboxUnread()
   const [status, setStatus] = useState<KeyStatus | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [loading, setLoading] = useState(true)
@@ -60,8 +61,8 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <AdminNav name={getAdminName()} />
-      <main className="mx-auto max-w-3xl px-6 py-10">
+      <AdminPortalHeader pageLabel="Settings" unreadCount={unreadCount} active="settings" />
+      <main className="mx-auto max-w-3xl px-4 md:px-6 py-10">
         <div className="mb-8">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cantara-gold">Admin Settings</p>
           <h1 className="mt-2 text-2xl font-semibold text-slate-900">AI credentials</h1>

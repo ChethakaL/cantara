@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
           try {
             activeStream = await client.messages.stream({
               model: resolveModel('claude-sonnet-4-20250514'),
-              max_tokens: 12000,
+              max_tokens: 20000,
               temperature: 0,
               system: WS111_SYSTEM_PROMPT,
               messages: [{ role: 'user', content: userContent }],

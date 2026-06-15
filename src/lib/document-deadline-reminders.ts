@@ -27,7 +27,12 @@ import {
   type DocumentDef,
 } from '@/lib/documentData'
 import { applyAgentDocumentRequirements } from '@/lib/workstream-agent-mapping'
-import { sendEmailWithComposio, isComposioMailConfiguredAsync } from '@/lib/composio'
+import { isComposioMailConfiguredAsync } from '@/lib/composio'
+import { sendClientPortalNotificationEmail } from '@/lib/client-portal-notification-email'
+import {
+  getClientNotificationPreferences,
+  resolveNotificationRecipient,
+} from '@/lib/client-notification-preferences'
 import { getProjectEnv } from '@/lib/project-env'
 import { prisma } from '@/lib/prisma'
 import type { DocumentStatus, Workstream, BusinessType } from '@/lib/store'
@@ -274,8 +279,13 @@ export async function runDocumentDeadlineReminders(
   for (const rawClient of clients) {
     summary.clientsScanned += 1
     const client = applyAgentDocumentRequirements(rawClient, requirements)
-    const recipientEmail = (client.User?.email || client.email || '').trim()
-    if (!recipientEmail) continue
+    const prefs = await getClientNotificationPreferences(client.id)
+    const recipient = resolveNotificationRecipient(prefs)
+    if (!recipient.shouldSend) {
+      summary.emailsSkippedAlreadySent += 1
+      continue
+    }
+    const recipientEmail = recipient.email
 
     const workstream = (client.workstream ? String(client.workstream).toLowerCase() : null) as Workstream
     const businessType = (client.businessType ? String(client.businessType).toLowerCase() : 'single') as BusinessType
@@ -359,26 +369,20 @@ export async function runDocumentDeadlineReminders(
           continue
         }
 
-        await sendEmailWithComposio({
-          to: recipientEmail,
+        await sendClientPortalNotificationEmail({
+          clientId: client.id,
+          type: 'DOCUMENT_DEADLINE_REMINDER',
           displayName: recipientName,
           subject,
           body,
-        })
-        await recordClientEmailNotification({
-          clientId: client.id,
-          type: 'DOCUMENT_DEADLINE_REMINDER',
-          recipientEmail,
           reminderDaysBefore: group.reminderDaysBefore,
           documentId: DEADLINE_REMINDER_BUNDLE_DOCUMENT_ID,
           targetDeadline,
-          subject,
           payload: {
             documentIds: group.documents.map(doc => doc.documentId),
             documentNames: group.documents.map(doc => doc.documentName),
             dueDate: group.deadlineIso,
           },
-          status: 'SENT',
         })
         summary.emailsSent += 1
       } catch (error) {

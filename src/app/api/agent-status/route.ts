@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getLatestTaxLiabilityReport } from '@/lib/tax-liability-review/storage'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,7 +39,11 @@ export async function GET(req: NextRequest) {
   try { checks.legalEntitySearch = !!(await (prisma as any).legalEntitySearchReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.legalEntitySearch = false }
 
   // Tax Liability Review — has its own table
-  try { checks.taxLiabilityReview = !!(await (prisma as any).taxLiabilityReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.taxLiabilityReview = false }
+  try {
+    checks.taxLiabilityReview = Boolean(await getLatestTaxLiabilityReport(clientId))
+  } catch {
+    checks.taxLiabilityReview = false
+  }
 
   // Insurance Review — saved on the uploaded insurance claim document review fields.
   try {

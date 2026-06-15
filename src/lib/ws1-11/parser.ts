@@ -25,7 +25,23 @@ export function parseWS111Markdown(
   const payrollTaxReview = parsePayroll(sections[6] ?? '')
   const dealStructureImplications = parseDealImplications(sections[7] ?? '')
   const buyerSummary = parseBuyerSummary(sections[8] ?? '')
-  const flags = parseFlags(sections[9] ?? '')
+  const flagSection =
+    sections[9] ??
+    Object.entries(sections).find(([, content]) => /flag summary/i.test(content))?.[1] ??
+    ''
+  const parsedFlags = parseFlags(flagSection, markdown)
+  const flags =
+    parsedFlags.length > 0
+      ? parsedFlags
+      : synthesizeFlagsFromReport({
+          documents,
+          taxReturnSummary,
+          outstandingLiabilities,
+          auditHistory,
+          stateLocalCompliance,
+          payrollTaxReview,
+          dealStructureImplications,
+        })
 
   return {
     report: {
@@ -47,7 +63,7 @@ export function parseWS111Markdown(
 
 function splitSections(markdown: string): Record<number, string> {
   const result: Record<number, string> = {}
-  const sectionRegex = /## SECTION (\d+)/g
+  const sectionRegex = /^#{1,3}\s*SECTION\s*(\d+)/gim
   let match: RegExpExecArray | null
   const positions: Array<{ num: number; start: number }> = []
 
@@ -217,17 +233,171 @@ function parseBuyerSummary(section: string): BuyerSummary {
   }
 }
 
-function parseFlags(section: string): WS111Flag[] {
-  const rows = parseTable(section)
-  return rows.map((row, i) => ({
-    id: `flag-${i}`,
-    domain: normalizeFlagDomain(row[0]),
-    severity: getSeverity(row[1]),
-    title: row[2] ?? '',
-    description: row[2] ?? '',
-    sourceRef: row[3] ?? '',
-    status: 'pending' as const,
-  }))
+function parseFlags(section: string, fullMarkdown = ''): WS111Flag[] {
+  const fromTable = parseTable(section)
+  if (fromTable.length) {
+    return fromTable.map((row, i) => ({
+      id: `flag-${i}`,
+      domain: normalizeFlagDomain(row[0]),
+      severity: getSeverity(row[1]),
+      title: row[2] ?? '',
+      description: row[2] ?? '',
+      sourceRef: row[3] ?? '',
+      status: 'pending' as const,
+    }))
+  }
+
+  const bulletSource = section.trim() || extractFlagSummaryBlock(fullMarkdown)
+  const bulletFlags = bulletSource
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => /^[-*]\s+/.test(line))
+    .map((line, i) => {
+      const text = line.replace(/^[-*]\s+/, '').trim()
+      const severityMatch = text.match(/\*\*(deal-risk|negotiation|informational)\*\*/i)
+      const severity = getSeverity(severityMatch?.[1])
+      const cleaned = text.replace(/\*\*(deal-risk|negotiation|informational)\*\*:?\s*/i, '').trim()
+      return {
+        id: `flag-bullet-${i}`,
+        domain: normalizeFlagDomain(cleaned),
+        severity,
+        title: cleaned,
+        description: cleaned,
+        sourceRef: '',
+        status: 'pending' as const,
+      }
+    })
+    .filter(flag => flag.title.length > 0 && !/^no (material )?flags/i.test(flag.title))
+
+  return bulletFlags
+}
+
+function synthesizeFlagsFromReport(report: {
+  documents: InventoryDocument[]
+  taxReturnSummary: TaxReturnSummary[]
+  outstandingLiabilities: TaxLiability[]
+  auditHistory: AuditRecord[]
+  stateLocalCompliance: StateLocalTaxRecord[]
+  payrollTaxReview: PayrollTaxRecord[]
+  dealStructureImplications: DealImplication[]
+}): WS111Flag[] {
+  const flags: WS111Flag[] = []
+  let id = 0
+
+  const add = (flag: Omit<WS111Flag, 'id' | 'status'>) => {
+    flags.push({ ...flag, id: `flag-synth-${id++}`, status: 'pending' })
+  }
+
+  const trustFundQuarters = report.payrollTaxReview.filter(p => p.trustFundIssue === 'yes')
+  if (trustFundQuarters.length) {
+    const periods = trustFundQuarters.map(p => p.period.replace(/^Period:\s*/i, '')).join(', ')
+    add({
+      domain: 'payroll',
+      severity: 'deal-risk',
+      title: `Payroll trust fund deficiency — ${periods}`,
+      description: trustFundQuarters
+        .map(p => `${p.period}: balance ${p.balance}; ${p.notes}`.trim())
+        .join(' '),
+      sourceRef: trustFundQuarters[0]?.sourceRef ?? '',
+    })
+  }
+
+  for (const liability of report.outstandingLiabilities) {
+    if (isResolvedLiability(liability)) continue
+    const text = `${liability.description} ${liability.status} ${liability.currentBalance}`.toLowerCase()
+    const severity =
+      liability.type === 'payroll' || /trust fund|tfrp/.test(text)
+        ? 'deal-risk'
+        : /contingent|risk/.test(text)
+          ? 'negotiation'
+          : 'negotiation'
+    add({
+      domain:
+        liability.type === 'payroll'
+          ? 'payroll'
+          : liability.type === 'sales-tax' || liability.type === 'state'
+            ? 'state-local'
+            : 'outstanding-liabilities',
+      severity,
+      title: liability.description.slice(0, 120) || 'Outstanding tax liability',
+      description: [liability.taxYear, liability.currentBalance, liability.penaltiesInterest]
+        .filter(Boolean)
+        .join(' — '),
+      sourceRef: liability.sourceRef,
+    })
+  }
+
+  for (const audit of report.auditHistory) {
+    if (audit.status === 'closed-no-change' || audit.status === 'closed-adjustment') continue
+    const text = `${audit.status} ${audit.outcome} ${audit.adjustmentAmount}`.toLowerCase()
+    if (audit.status !== 'in-progress' && !/open|urgent|dispute|partially|proposed|npa/.test(text)) continue
+    add({
+      domain: 'audit',
+      severity: /trust fund|tfrp|criminal/.test(text) ? 'deal-risk' : 'negotiation',
+      title: `${audit.taxAuthority} — ${audit.taxYearsAudited}`.trim(),
+      description: audit.outcome || audit.adjustmentAmount || audit.additionalTaxAssessed,
+      sourceRef: audit.sourceRef,
+    })
+  }
+
+  for (const state of report.stateLocalCompliance) {
+    const balance = state.outstandingBalance.replace(/[^0-9.]/g, '')
+    if (!balance || parseFloat(balance) <= 0) continue
+    if (state.filingStatus === 'current' && !state.outstandingBalance.match(/\$[1-9]/)) continue
+    add({
+      domain: 'state-local',
+      severity: 'negotiation',
+      title: `${state.state} ${state.taxType} — outstanding balance`,
+      description: state.outstandingBalance,
+      sourceRef: state.sourceRef,
+    })
+  }
+
+  for (const deal of report.dealStructureImplications) {
+    if (deal.risk === 'low') continue
+    add({
+      domain: 'deal-structure',
+      severity: deal.risk === 'high' ? 'deal-risk' : 'negotiation',
+      title: deal.area || 'Deal structure implication',
+      description: deal.description,
+      sourceRef: deal.sourceRef,
+    })
+  }
+
+  const incompleteDocs = report.documents.filter(d => d.status === 'incomplete' || d.status === 'missing')
+  if (incompleteDocs.length > 0) {
+    add({
+      domain: 'tax-returns',
+      severity: 'informational',
+      title: 'Source documents incomplete or not directly uploaded',
+      description: `${incompleteDocs.length} document(s) marked incomplete or missing; verify figures against filed returns and transcripts.`,
+      sourceRef: incompleteDocs[0]?.filename ?? '',
+    })
+  }
+
+  return dedupeFlags(flags)
+}
+
+function isResolvedLiability(liability: TaxLiability): boolean {
+  if (liability.status === 'resolved') return true
+  const text = `${liability.description} ${liability.currentBalance}`.toLowerCase()
+  if (/open|disputed|outstanding|urgent|partially paid|contingent/.test(text)) return false
+  return /paid in full|likely resolved|no deficiency identified/.test(text)
+}
+
+function dedupeFlags(flags: WS111Flag[]): WS111Flag[] {
+  const seen = new Set<string>()
+  return flags.filter(flag => {
+    const key = `${flag.domain}|${flag.title.toLowerCase()}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function extractFlagSummaryBlock(markdown: string): string {
+  const match = markdown.match(/##\s*SECTION\s*\d+\s*[—-]?\s*FLAG SUMMARY[\s\S]*?(?=\n##\s*SECTION|\n#\s|$)/i)
+  return match?.[0] ?? ''
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -300,15 +470,21 @@ function normalizeLiabilityStatus(raw: string | undefined): TaxLiability['status
   if (lower.includes('outstanding')) return 'outstanding'
   if (lower.includes('collection')) return 'in-collection'
   if (lower.includes('appeal')) return 'under-appeal'
-  if (lower.includes('resolved') || lower.includes('paid')) return 'resolved'
+  if (lower.includes('resolved') || lower.includes('paid in full')) return 'resolved'
+  if (lower.includes('open') || lower.includes('disputed') || lower.includes('partially paid')) {
+    return 'outstanding'
+  }
   return 'unknown'
 }
 
 function normalizeAuditStatus(raw: string | undefined): AuditRecord['status'] {
   const lower = (raw ?? '').toLowerCase()
-  if (lower.includes('open') || lower.includes('in progress') || lower.includes('in-progress')) return 'in-progress'
+  if (lower.includes('open') || lower.includes('in progress') || lower.includes('in-progress')) {
+    return 'in-progress'
+  }
   if (lower.includes('no change') || lower.includes('no-change')) return 'closed-no-change'
-  if (lower.includes('adjustment') || lower.includes('closed')) return 'closed-adjustment'
+  if (lower.includes('closed') && !lower.includes('not closed')) return 'closed-adjustment'
+  if (lower.includes('proposed') || lower.includes('npa')) return 'in-progress'
   return 'unknown'
 }
 

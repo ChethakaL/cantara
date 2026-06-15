@@ -705,6 +705,7 @@ enum Ws2DerivedReportStatus {
 enum ClientEmailNotificationType {
   TEAM_MEMBER_INVITE
   DOCUMENT_DEADLINE_REMINDER
+  CHAT_MESSAGE
 }
 
 enum ClientEmailNotificationStatus {

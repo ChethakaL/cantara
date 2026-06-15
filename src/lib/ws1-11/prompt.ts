@@ -201,7 +201,8 @@ After the implications analysis:
 7. **Think like a buyer's tax attorney.** What creates escrow holdback? What requires indemnification? What could surprise the buyer post-closing?
 8. **Never invent data.** If a document doesn't contain certain information, say so explicitly and recommend obtaining it.
 9. **Calculate trends.** Show revenue growth, effective tax rate, and compliance patterns across years.
-10. **Flag aggressively.** If payroll deposits are even one day late, flag it. If a return was filed under extension, note whether the extension was valid.`
+10. **Flag aggressively.** If payroll deposits are even one day late, flag it. If a return was filed under extension, note whether the extension was valid.
+11. **Always populate SECTION 9 — FLAG SUMMARY** with at least one informational flag when source documents are limited, incomplete, or unaudited. Use the flag table format exactly.`
 
 export function buildWS111ContextBlock(context: {
   clientName: string

@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { mapClientForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
 import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
+import { sendEmailWithComposio } from "@/lib/composio";
+import { buildClientPortalInviteEmail } from "@/lib/client-invite-email";
+import { serializePetBusinessCategories } from "@/lib/pet-business-categories";
+
+function generatePassword() {
+  return crypto.randomBytes(9).toString("base64url");
+}
 
 // GET /api/clients - Get all clients for admin dashboard
 export async function GET(req: NextRequest) {
@@ -27,7 +35,6 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    // Map to match the frontend expected structure
     const requirements = await (prisma as any).agentDocumentRequirement.findMany();
     const mappedClients = await Promise.all(clients.map(async (c: any) => {
       const unreadCount = await prisma.chatMessage.count({
@@ -51,34 +58,83 @@ export async function GET(req: NextRequest) {
 // POST /api/clients - Create a new client (Admin only)
 export async function POST(req: NextRequest) {
   try {
-    const { name, email, company, password } = await req.json();
+    const body = await req.json();
+    const name = String(body.name || "").trim();
+    const email = String(body.email || "").trim().toLowerCase();
+    const company = String(body.company || body.businessName || "").trim();
+    const phone = String(body.phone || "").trim();
+    const businessCategory = serializePetBusinessCategories(
+      String(body.businessCategory || "").split(",").filter(Boolean),
+    );
+    const propertyOwnership = body.propertyOwnership === 'lease' || body.propertyOwnership === 'owns'
+      ? body.propertyOwnership
+      : null;
+    const advisorName = String(body.advisorName || process.env.CANTARA_ADVISOR_NAME || "Cantara Pet Advisors").trim();
+    const sendInvite = body.sendInvite !== false;
 
     if (!name || !email) {
       return new Response("Missing required fields", { status: 400 });
     }
 
-    // 1. Create User account for client
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      return new Response("An account with this email already exists", { status: 409 });
+    }
+
+    const password = String(body.password || "").trim() || generatePassword();
+    const businessName = company || name;
+
     const user = await prisma.user.create({
       data: {
         name,
         email,
-        passwordHash: password || "password123",
+        passwordHash: password,
         role: "CLIENT",
       },
     });
 
-    // 2. Create Client Profile
     const profile = await prisma.clientProfile.create({
       data: {
         userId: user.id,
-        businessName: company || name,
-        email: email,
+        businessName,
+        email,
+        phone: phone || null,
+        businessCategory: businessCategory || null,
         stage: "ONBOARDING",
         businessType: "SINGLE",
+        sectionSubmissions: propertyOwnership ? { propertyOwnership } : undefined,
       },
+      include: { User: true },
     });
 
-    return NextResponse.json(profile);
+    if (sendInvite) {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || new URL(req.url).origin;
+      const loginUrl = `${baseUrl}/login/client`;
+      const settingsUrl = `${baseUrl}/dashboard/settings`;
+      const inviteSubject = `Welcome to the Cantara portal — ${businessName}`;
+      try {
+        await sendEmailWithComposio({
+          to: email,
+          displayName: name,
+          subject: inviteSubject,
+          body: buildClientPortalInviteEmail({
+            businessName,
+            contactName: name,
+            email,
+            password,
+            loginUrl,
+            settingsUrl,
+            businessCategories: businessCategory,
+            advisorName,
+          }),
+        });
+      } catch (emailError) {
+        console.error("CLIENT_INVITE_EMAIL_ERROR", { clientId: profile.id, email, error: emailError });
+      }
+    }
+
+    const requirements = await (prisma as any).agentDocumentRequirement.findMany();
+    return NextResponse.json(mapClientForFrontend(applyAgentDocumentRequirements(profile as any, requirements)));
   } catch (error) {
     console.error("POST Client Error:", error);
     return new Response("Internal Server Error", { status: 500 });

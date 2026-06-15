@@ -5,7 +5,7 @@ export const DEADLINE_REMINDER_BUNDLE_DOCUMENT_ID = '__deadline_bundle__'
 export const TEAM_MEMBER_INVITE_REMINDER_DAYS = -1
 export const TEAM_MEMBER_INVITE_TARGET_DEADLINE = new Date(0)
 
-export type ClientEmailNotificationType = 'TEAM_MEMBER_INVITE' | 'DOCUMENT_DEADLINE_REMINDER'
+export type ClientEmailNotificationType = 'TEAM_MEMBER_INVITE' | 'DOCUMENT_DEADLINE_REMINDER' | 'CHAT_MESSAGE'
 export type ClientEmailNotificationStatus = 'SENT' | 'FAILED'
 
 export function normalizeDeadlineForNotification(iso: string): Date {

@@ -54,15 +54,16 @@ export async function POST(req: NextRequest) {
     model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 16000,
     temperature: 0.15,
-    system: `You are a senior M&A advisor at Cantara Pet Advisors who specializes in helping sellers prepare their businesses for acquisition. You create detailed, actionable improvement roadmaps that tell sellers exactly what to fix, in what order, and by when to maximize their sale price and deal certainty.
+    system: `You are a senior M&A advisor at Cantara Pet Advisors who specializes in helping sellers prepare their businesses for acquisition. You create detailed, actionable improvement roadmaps that tell sellers exactly what to fix, in what order, and by when to improve sale readiness and deal certainty.
 
 Your roadmaps are:
 - **Empathetic**: Written directly to the seller, acknowledging their work while being honest about gaps
-- **Prioritized**: Organized by impact on deal value and deal certainty
+- **Prioritized**: Organized by impact on deal certainty and operational readiness
 - **Specific**: Each action item has clear steps, not vague recommendations
-- **Quantified**: Where possible, estimate the value impact of each improvement
 - **Realistic**: Include reasonable timelines and acknowledge resource constraints
 - **Beautiful formatting**: Use markdown with clear hierarchy, tables, and progress indicators
+
+Do NOT include valuation multiples, dollar value impact estimates, "Value Impact" language, or an overall readiness scorecard. Focus on practical actions and documentation readiness.
 
 Return markdown only. Do not include any preamble.`,
     messages: [{
@@ -79,25 +80,16 @@ This roadmap is for the SELLER — it tells them what they need to fix, improve,
 ## Dear ${clientName.split(' ')[0] || 'Seller'},
 Write a warm 2-3 paragraph letter to the seller summarizing:
 - Their business's current readiness level
-- The biggest opportunities to increase value
+- The biggest opportunities to improve sale readiness
 - Your confidence in their ability to prepare
-
-## Overall Readiness Score
-Create a readiness scorecard:
-| Category | Current Score | Target Score | Gap | Priority |
-|----------|--------------|-------------|-----|----------|
-(Score 1-10 for each major category. Be honest but fair.)
-
-**Overall Readiness: X/10** — with explanation
 
 ## Immediate Actions (0-30 Days)
 ### Critical — Must Fix Before Listing
 For each item:
 - **What**: Specific description of the issue
-- **Why**: How it affects deal value or deal certainty
+- **Why**: How it affects deal certainty or buyer diligence
 - **How**: Step-by-step actions to resolve
-- **Cost**: Estimated cost to fix
-- **Value Impact**: Estimated impact on deal value
+- **Cost**: Estimated cost to fix (if known)
 - **Owner**: Who should handle this (seller, accountant, attorney, etc.)
 
 ### Quick Wins — Easy Improvements with High Impact
@@ -116,20 +108,13 @@ ${workstream === 'ws1' ? `### Legal & Corporate Cleanup
 ### Facility & Operations Improvements`}
 
 ## Medium-Term Actions (90-180 Days)
-Strategic improvements that take longer but significantly increase value
+Strategic improvements that take longer but improve operational readiness and diligence outcomes
 
 ## Documentation Checklist
 Create a comprehensive checklist:
 | Document | Status | Action Needed | Deadline |
 |----------|--------|---------------|----------|
 (Mark as: Have / Missing / Needs Update / N/A)
-
-## Estimated Value Impact Summary
-| Improvement Category | Est. Value Increase | Confidence | Timeline |
-|---------------------|-------------------|------------|----------|
-(Quantify where possible)
-
-**Total Estimated Value Increase: $X — $Y** (range)
 
 ## Professional Resources Needed
 | Resource | Why Needed | Estimated Cost | When |
@@ -165,6 +150,50 @@ ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`)
       sectionSubmissions: {
         ...current,
         [`improvementRoadmap_${workstream}`]: report,
+      },
+    },
+  })
+
+  return NextResponse.json({ report })
+}
+
+export async function PATCH(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+  const clientId = String(body.clientId || '')
+  const workstream = String(body.workstream || '') as 'ws1' | 'ws2'
+  const markdown = typeof body.markdown === 'string' ? body.markdown : null
+
+  if (!clientId || !['ws1', 'ws2'].includes(workstream) || markdown === null) {
+    return new Response('clientId, workstream, and markdown required', { status: 400 })
+  }
+
+  const client = await prisma.clientProfile.findUnique({
+    where: { id: clientId },
+    select: { sectionSubmissions: true },
+  })
+  if (!client) return new Response('Client not found', { status: 404 })
+
+  const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
+    ? client.sectionSubmissions
+    : {}) as Record<string, any>
+  const key = `improvementRoadmap_${workstream}`
+  const existing = current[key]
+  if (!existing) {
+    return new Response('Generate the improvement roadmap before editing.', { status: 404 })
+  }
+
+  const report = {
+    ...existing,
+    markdown,
+    updatedAt: new Date().toISOString(),
+  }
+
+  await prisma.clientProfile.update({
+    where: { id: clientId },
+    data: {
+      sectionSubmissions: {
+        ...current,
+        [key]: report,
       },
     },
   })

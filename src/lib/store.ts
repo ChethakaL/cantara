@@ -146,6 +146,7 @@ export interface Client {
   employmentTypeBreakdown?: string | null
   businessCategory: string
   websiteUrl: string
+  propertyOwnership?: 'lease' | 'owns' | ''
   workstream: Workstream
   customWorkstreamId?: string | null
   customWorkstream?: WorkstreamTemplate | null

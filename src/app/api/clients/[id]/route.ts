@@ -4,31 +4,13 @@ import { prisma } from "@/lib/prisma";
 import { mapClientForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
 import { sendEmailWithComposio } from "@/lib/composio";
+import { buildTeamInviteEmail } from "@/lib/client-invite-email";
 import {
   TEAM_MEMBER_INVITE_REMINDER_DAYS,
   TEAM_MEMBER_INVITE_TARGET_DEADLINE,
   recordClientEmailNotification,
 } from "@/lib/client-email-notifications";
 import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
-
-function buildTeamInviteEmail(args: {
-  clientName: string;
-  memberName: string;
-  email: string;
-  password: string;
-  loginUrl: string;
-}) {
-  return `
-    <p>Hi ${args.memberName},</p>
-    <p>You have been invited to the Cantara client portal for ${args.clientName}.</p>
-    <p>Please use these credentials to log in and upload assigned documents:</p>
-    <p><strong>Login:</strong> <a href="${args.loginUrl}">${args.loginUrl}</a><br/>
-    <strong>Email:</strong> ${args.email}<br/>
-    <strong>Password:</strong> ${args.password}</p>
-    <p>After signing in, you will see the document checklist and any items assigned to you.</p>
-    <p>Thank you,<br/>Cantara Pet Advisors</p>
-  `;
-}
 
 // GET /api/clients/[id] - Get single client detail
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {

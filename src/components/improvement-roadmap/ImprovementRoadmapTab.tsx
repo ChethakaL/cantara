@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import EditableMarkdownReportView from '@/components/report-export/EditableMarkdownReportView'
 import { buildImprovementRoadmapHtml } from '@/lib/report-export/build-improvement-roadmap-report'
 
 type RoadmapReport = {
@@ -13,6 +14,7 @@ type RoadmapReport = {
   workstreamLabel: string
   clientName: string
   generatedAt: string
+  updatedAt?: string
   markdown: string
 }
 
@@ -158,17 +160,21 @@ export default function ImprovementRoadmapTab({
       )}
 
       {report ? (
-        <Card className="p-8">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-6">
-            <MapPin className="w-3.5 h-3.5" />
-            Generated {new Date(report.generatedAt).toLocaleString()}
-          </div>
-          <div className="max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {report.markdown}
-            </ReactMarkdown>
-          </div>
-        </Card>
+        <EditableMarkdownReportView
+          report={report}
+          accentClassName="border-emerald-200 focus:ring-emerald-400"
+          markdownComponents={markdownComponents}
+          onSave={async (markdown) => {
+            const res = await fetch('/api/improvement-roadmap', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clientId, workstream, markdown }),
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || 'Failed to save improvement roadmap.')
+            setReport(data.report)
+          }}
+        />
       ) : !generating ? (
         <Card className="p-10 text-center">
           <div className="mx-auto w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">

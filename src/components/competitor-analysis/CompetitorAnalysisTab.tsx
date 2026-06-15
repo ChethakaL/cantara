@@ -30,6 +30,7 @@ import type { CompetitorAnalysis as SavedCompetitorAnalysis } from '@/lib/store'
 import { deleteCompetitorAnalysis, getCompetitorAnalyses, saveCompetitorAnalysis, updateCompetitorAnalysis } from '@/lib/store';
 import { ExportReportButton } from '@/components/report-export/ExportReportButton';
 import { buildCompetitorReportHtml } from '@/lib/report-export/build-competitor-report';
+import { formatPetBusinessCategories } from '@/lib/pet-business-categories';
 
 interface ProgressEvent {
   type: 'progress';
@@ -1197,17 +1198,16 @@ export default function CompetitorAnalysisTab({
         const savedFormRes = await fetch(`/api/client-data/${clientId}?section=competitorAnalysisForm`);
         if (savedFormRes.ok) {
           const savedForm = await savedFormRes.json();
-          if (!cancelled && savedForm?.data) {
+          if (!cancelled && savedForm && typeof savedForm === 'object') {
             setForm((current) => ({
               ...current,
-              ...savedForm.data,
-              // Keep props-provided values as fallback
-              businessName: savedForm.data.businessName || current.businessName,
-              businessAddress: savedForm.data.businessAddress || current.businessAddress,
+              ...savedForm,
+              businessName: savedForm.businessName || current.businessName,
+              businessAddress: savedForm.businessAddress || current.businessAddress,
+              businessCategory: savedForm.businessCategory || current.businessCategory,
             }));
           }
         } else {
-          // Fallback to legacy agentFormResponses
           const formRes = await fetch(`/api/client-data/${clientId}?section=agentFormResponses`);
           if (formRes.ok) {
             const savedInputs = await formRes.json();
@@ -1226,6 +1226,37 @@ export default function CompetitorAnalysisTab({
                   .slice(0, 5),
               }));
             }
+          }
+        }
+
+        const pricingInputsRes = await fetch(`/api/client-data/${clientId}?section=competitorPricingInputs`);
+        if (pricingInputsRes.ok) {
+          const pricingInputs = await pricingInputsRes.json();
+          if (!cancelled && pricingInputs?.competitors?.length) {
+            setForm((current) => {
+              const fromClientPortal = (pricingInputs.competitors as Array<{ name?: string; websiteUrl?: string }>)
+                .map((competitor): ManualCompetitorEntry => ({
+                  name: competitor.name?.trim() || '',
+                  address: '',
+                  websiteUrl: competitor.websiteUrl?.trim() || '',
+                }))
+                .filter(item => item.name || item.websiteUrl)
+                .slice(0, 5)
+              if (!fromClientPortal.length) return current
+              const existing = current.manualCompetitors ?? []
+              const merged = [...fromClientPortal]
+              for (const entry of existing) {
+                if (merged.length >= 5) break
+                if (!merged.some(item => item.name.toLowerCase() === entry.name.toLowerCase() && item.websiteUrl === entry.websiteUrl)) {
+                  merged.push(entry)
+                }
+              }
+              return {
+                ...current,
+                websiteUrl: current.websiteUrl || pricingInputs.sellerWebsiteUrl || '',
+                manualCompetitors: merged.slice(0, 5),
+              }
+            })
           }
         }
         const analyses = await getCompetitorAnalyses(clientId);
@@ -1549,33 +1580,12 @@ export default function CompetitorAnalysisTab({
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Business Categories</label>
-                <div className="space-y-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-                  {[
-                    { value: 'pet resort', label: 'Pet resort (includes dog and cat boarding and dog daycare)' },
-                    { value: 'dog grooming', label: 'Dog grooming' },
-                    { value: 'dog training', label: 'Dog training' },
-                  ].map((option) => {
-                    const categories = form.businessCategory.split(',').map(s => s.trim()).filter(Boolean);
-                    const isChecked = categories.includes(option.value);
-                    return (
-                      <label key={option.value} className="flex items-center gap-2.5 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {
-                            const next = isChecked
-                              ? categories.filter(c => c !== option.value)
-                              : [...categories, option.value];
-                            setField('businessCategory', next.join(', '));
-                          }}
-                          className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
-                        />
-                        <span className="text-sm text-slate-700 group-hover:text-slate-900">{option.label}</span>
-                      </label>
-                    );
-                  })}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <p className="text-sm text-slate-700">{formatPetBusinessCategories(form.businessCategory)}</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Set in <span className="font-semibold text-slate-600">Client Management → Business Market Profile</span>. This agent uses those categories automatically.
+                  </p>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">Select all categories that apply to this business.</p>
               </div>
             </div>
 

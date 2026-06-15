@@ -44,8 +44,11 @@ import { useChatRoom } from '@/hooks/useChatRoom'
 import { ChatThread } from '@/components/chat/ChatThread'
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
-function ClientNav({ workstreamTitle, unreadCount, onSettings, showSettings }: {
-  workstreamTitle: string | null; unreadCount: number; onSettings: () => void; showSettings: boolean
+function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSettings }: {
+  workstreamTitle: string | null
+  unreadCount: number
+  onNotifications: () => void
+  onAccountSettings: () => void
 }) {
   const router = useRouter()
   return (
@@ -62,7 +65,11 @@ function ClientNav({ workstreamTitle, unreadCount, onSettings, showSettings }: {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <button className="relative p-2 rounded hover:bg-white/5 transition-colors text-white/30 hover:text-white/70">
+          <button
+            onClick={onNotifications}
+            className="relative p-2 rounded hover:bg-white/5 transition-colors text-white/30 hover:text-white/70"
+            aria-label="Open notifications"
+          >
             <Bell className="w-4 h-4" />
             {unreadCount > 0 && (
               <span className="absolute top-1 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center" style={{ background: '#ef4444' }}>
@@ -71,8 +78,9 @@ function ClientNav({ workstreamTitle, unreadCount, onSettings, showSettings }: {
             )}
           </button>
           <button
-            onClick={onSettings}
-            className={`p-2 rounded transition-colors ${showSettings ? 'bg-white/10 text-white/80' : 'text-white/30 hover:bg-white/5 hover:text-white/70'}`}
+            onClick={onAccountSettings}
+            className="p-2 rounded transition-colors text-white/30 hover:bg-white/5 hover:text-white/70"
+            aria-label="Account settings"
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -148,12 +156,9 @@ export default function ClientDashboard() {
   const router = useRouter()
   const [client, setClient] = useState<Client | null>(null)
   const [phase, setPhase] = useState('overview')
-  const [showSettings, setShowSettings] = useState(false)
   const [showChat, setShowChat] = useState(false)
   const [docStatuses, setDocStatuses] = useState<Record<string, DocumentStatus>>({})
   const [assignPhaseComplete, setAssignPhaseComplete] = useState(false)
-  const [notifEmail, setNotifEmail] = useState(true)
-  const [notifSms, setNotifSms] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
   const [requirements, setRequirements] = useState<AdditionalRequirement[]>([])
   const [savingStatuses, setSavingStatuses] = useState(false)
@@ -438,8 +443,8 @@ export default function ClientDashboard() {
       <ClientNav
         workstreamTitle={workstreamTitle}
         unreadCount={unreadMsgs + openReqs.length}
-        onSettings={() => setShowSettings(v => !v)}
-        showSettings={showSettings}
+        onNotifications={() => router.push('/dashboard/notifications')}
+        onAccountSettings={() => router.push('/dashboard/settings')}
       />
 
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-8">
@@ -606,6 +611,7 @@ export default function ClientDashboard() {
                   }}
                   deletingTeamMemberId={deletingTeamMemberId}
                   isTeamMemberSession={isTeamMemberSession}
+                  sectionDeadlines={sectionDeadlines}
                 />
               )}
               {phase === 'information' && <AgentInformationTab clientId={client.id} uploaderEmail={sessionEmail || client.email} />}
@@ -639,38 +645,6 @@ export default function ClientDashboard() {
           </AnimatePresence>
         </div>
       </main>
-
-      {/* Settings panel */}
-      {showSettings && (
-        <div className="fixed inset-0 z-40 flex items-start justify-end p-4 pt-16">
-          <div className="absolute inset-0" onClick={() => setShowSettings(false)} />
-          <motion.div
-            initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-            className="relative bg-white rounded-2xl shadow-2xl w-80 p-6 space-y-6"
-          >
-            <h3 className="font-semibold text-slate-800">Notification Preferences</h3>
-            <div className="space-y-3">
-              {[
-                { label: 'Email notifications', sub: 'New requirements, messages, updates', val: notifEmail, set: setNotifEmail },
-                { label: 'SMS notifications', sub: 'Urgent items only', val: notifSms, set: setNotifSms },
-              ].map(s => (
-                <div key={s.label} className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-slate-700">{s.label}</p>
-                    <p className="text-xs text-slate-400">{s.sub}</p>
-                  </div>
-                  <button
-                    onClick={() => s.set(v => !v)}
-                    className={`relative w-10 h-6 rounded-full transition-all shrink-0 ${s.val ? 'bg-amber-500' : 'bg-slate-200'}`}
-                  >
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${s.val ? 'left-5' : 'left-1'}`} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
-      )}
 
       {/* Chat button */}
       <button
@@ -1139,6 +1113,7 @@ function AssignTab({
   cancelEditingTeamMember,
   deletingTeamMemberId,
   isTeamMemberSession,
+  sectionDeadlines,
 }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
@@ -1159,6 +1134,7 @@ function AssignTab({
   cancelEditingTeamMember: () => void
   deletingTeamMemberId: string | null
   isTeamMemberSession: boolean
+  sectionDeadlines: Record<string, string>
 }) {
   const [subView, setSubView] = useState<'yesno' | 'assign'>('yesno')
   const diligenceDocs = categories.flatMap(c => c.documents)
@@ -1289,9 +1265,14 @@ function AssignTab({
           ) : (
             <>
               <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl overflow-hidden">
-                <div className="px-5 py-3 border-b border-amber-200/80">
-                  <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
-                  <p className="text-xs text-amber-700 mt-1">Assign these first to yourself or a team member who will upload them.</p>
+                <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
+                    <p className="text-xs text-amber-700 mt-1">Assign these first to yourself or a team member who will upload them.</p>
+                  </div>
+                  {sectionDeadlines[VALUATION_SECTION_ID] && (
+                    <TargetDeadlineBadge deadline={sectionDeadlines[VALUATION_SECTION_ID]} uploaded={false} />
+                  )}
                 </div>
                 <div className="divide-y divide-amber-100/80">
                   {valuationDocs.map(doc => {
@@ -1306,7 +1287,6 @@ function AssignTab({
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-medium text-slate-800">{doc.name}</p>
                             <Badge color="gold">Required</Badge>
-                            <TargetDeadlineBadge deadline={getDeadline(doc.id, VALUATION_SECTION_ID)} uploaded={Boolean(s.fileName)} />
                           </div>
                           {doc.description && <p className="text-xs text-slate-500 mt-1">{doc.description}</p>}
                           {DOCUMENT_ASSIGN_HELP[doc.id] && (
@@ -1347,7 +1327,6 @@ function AssignTab({
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-medium text-slate-800">{doc.name}</p>
                         {doc.type === 'required' && <Badge color="gold">Required</Badge>}
-                        <TargetDeadlineBadge deadline={getDeadline(doc.id, cat.id)} uploaded={Boolean(s.fileName)} />
                       </div>
                       {doc.description && <p className="text-xs text-slate-500 mt-1">{doc.description}</p>}
                       {DOCUMENT_ASSIGN_HELP[doc.id] && (
@@ -2265,9 +2244,6 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                   title={doc.name}
                   description={doc.description}
                   assignedTo={s.assignedTo}
-                  deadlineBadge={
-                    <TargetDeadlineBadge deadline={getDeadline(doc.id, VALUATION_SECTION_ID)} uploaded={valuationComplete} />
-                  }
                   fileCount={fileCount}
                   isComplete={valuationComplete}
                   tone="valuation"
@@ -2348,7 +2324,6 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                     title={doc.name}
                     description={doc.description}
                     assignedTo={s.assignedTo}
-                    deadlineBadge={<TargetDeadlineBadge deadline={getDeadline(doc.id, cat.id)} uploaded={slotUploaded} />}
                     fileCount={fileCount}
                     isComplete={slotUploaded}
                   >

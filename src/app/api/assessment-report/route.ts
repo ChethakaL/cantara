@@ -179,6 +179,50 @@ ${a.excerpt || 'No data available for this agent.'}`).join('\n\n')}`,
   return NextResponse.json({ report })
 }
 
+export async function PATCH(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+  const clientId = String(body.clientId || '')
+  const workstream = String(body.workstream || '') as 'ws1' | 'ws2'
+  const markdown = typeof body.markdown === 'string' ? body.markdown : null
+
+  if (!clientId || !['ws1', 'ws2'].includes(workstream) || markdown === null) {
+    return new Response('clientId, workstream, and markdown required', { status: 400 })
+  }
+
+  const client = await prisma.clientProfile.findUnique({
+    where: { id: clientId },
+    select: { sectionSubmissions: true },
+  })
+  if (!client) return new Response('Client not found', { status: 404 })
+
+  const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
+    ? client.sectionSubmissions
+    : {}) as Record<string, any>
+  const key = `assessmentReport_${workstream}`
+  const existing = current[key]
+  if (!existing) {
+    return new Response('Generate the assessment report before editing.', { status: 404 })
+  }
+
+  const report = {
+    ...existing,
+    markdown,
+    updatedAt: new Date().toISOString(),
+  }
+
+  await prisma.clientProfile.update({
+    where: { id: clientId },
+    data: {
+      sectionSubmissions: {
+        ...current,
+        [key]: report,
+      },
+    },
+  })
+
+  return NextResponse.json({ report })
+}
+
 async function gatherAgentData(clientId: string, workstream: 'ws1' | 'ws2') {
   const agentSources: Array<{ agentName: string; excerpt: string }> = []
 

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Card, Button, cn } from '@/components/ui'
+import { Card, Button, cn, Badge } from '@/components/ui'
 import { useWS111Analysis, type UploadedDoc } from '@/hooks/useWS111Analysis'
 import { parseWS111Markdown } from '@/lib/ws1-11/parser'
 import type { WS111Persistence, WS111Flag } from '@/types/ws1-11-types'
@@ -9,21 +9,21 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildTaxLiabilityReportHtml } from '@/lib/report-export/build-tax-liability-report'
-import { Upload, FileText, X, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
+import { Upload, FileText, X, AlertTriangle } from 'lucide-react'
 
 // ── Document Uploader ───────────────────────────────────────────────────────
 
 function DocumentUploader({
+  documents,
   onDocumentsReady,
   onAnalyze,
   isLoading,
 }: {
+  documents: UploadedDoc[]
   onDocumentsReady: (docs: UploadedDoc[]) => void
   onAnalyze: () => void
   isLoading: boolean
 }) {
-  const [files, setFiles] = useState<UploadedDoc[]>([])
-
   const handleFiles = useCallback(async (fileList: FileList) => {
     const newDocs: UploadedDoc[] = []
     for (const file of Array.from(fileList)) {
@@ -37,15 +37,11 @@ function DocumentUploader({
         sizeBytes: file.size,
       })
     }
-    const updated = [...files, ...newDocs]
-    setFiles(updated)
-    onDocumentsReady(updated)
-  }, [files, onDocumentsReady])
+    onDocumentsReady([...documents, ...newDocs])
+  }, [documents, onDocumentsReady])
 
   const removeFile = (name: string) => {
-    const updated = files.filter(f => f.name !== name)
-    setFiles(updated)
-    onDocumentsReady(updated)
+    onDocumentsReady(documents.filter(f => f.name !== name))
   }
 
   return (
@@ -74,9 +70,9 @@ function DocumentUploader({
         />
       </label>
 
-      {files.length > 0 && (
+      {documents.length > 0 && (
         <div className="space-y-2">
-          {files.map(f => (
+          {documents.map(f => (
             <div key={f.name} className="flex items-center gap-3 px-4 py-2.5 bg-stone-50 rounded-lg border border-stone-200">
               <FileText className="w-4 h-4 text-stone-400 flex-shrink-0" />
               <span className="text-sm text-stone-700 flex-1 truncate">{f.name}</span>
@@ -87,9 +83,12 @@ function DocumentUploader({
             </div>
           ))}
           <Button onClick={onAnalyze} disabled={isLoading} className="w-full mt-4">
-            {isLoading ? 'Analyzing...' : `Analyze ${files.length} Document${files.length !== 1 ? 's' : ''}`}
+            {isLoading ? 'Analyzing...' : `Analyze ${documents.length} Document${documents.length !== 1 ? 's' : ''}`}
           </Button>
         </div>
+      )}
+      {documents.length > 0 && (
+        <p className="text-xs text-center text-stone-400">Draft uploads auto-save while you work.</p>
       )}
     </div>
   )
@@ -106,54 +105,136 @@ function FlagReviewPanel({
   onConfirm: (id: string) => void
   onNA: (id: string) => void
 }) {
-  const severityColor = (s: string) => {
-    if (s === 'deal-risk') return 'bg-red-50 border-red-200 text-red-700'
-    if (s === 'negotiation') return 'bg-amber-50 border-amber-200 text-amber-700'
-    return 'bg-emerald-50 border-emerald-200 text-emerald-700'
+  const groups = [
+    {
+      key: 'deal-risk' as const,
+      title: 'Red Flags — Requires Immediate Attention',
+      emoji: '🔴',
+      tone: 'rose' as const,
+      badge: 'red' as const,
+      cardClass: 'bg-[#fef2f2] border-rose-200',
+      titleClass: 'text-rose-700',
+      iconClass: 'text-[#8a2f2c]',
+    },
+    {
+      key: 'negotiation' as const,
+      title: 'Yellow Flags — Requires Clarification',
+      emoji: '🟡',
+      tone: 'amber' as const,
+      badge: 'gold' as const,
+      cardClass: 'bg-[#fffbeb] border-amber-200',
+      titleClass: 'text-amber-700',
+      iconClass: 'text-amber-700',
+    },
+    {
+      key: 'informational' as const,
+      title: 'Green Flags — Informational',
+      emoji: '🟢',
+      tone: 'emerald' as const,
+      badge: 'green' as const,
+      cardClass: 'bg-emerald-50 border-emerald-100',
+      titleClass: 'text-emerald-700',
+      iconClass: 'text-emerald-700',
+    },
+  ]
+
+  const renderControls = (flag: WS111Flag) => {
+    const labelClass =
+      flag.severity === 'deal-risk'
+        ? 'border-rose-200 bg-white/70 text-rose-700'
+        : flag.severity === 'negotiation'
+          ? 'border-amber-200 bg-white/70 text-amber-700'
+          : 'border-emerald-200 bg-white/70 text-emerald-700'
+
+    return (
+      <div className="mt-3 pt-3 border-t border-black/5 flex items-center justify-between gap-3 flex-wrap">
+        <div className="space-y-1">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Admin Review</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${labelClass}`}>
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={flag.status === 'confirmed'}
+                onChange={event => {
+                  if (event.target.checked) onConfirm(flag.id)
+                }}
+              />
+              Relevant
+            </label>
+            <label className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${labelClass}`}>
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={flag.status === 'na'}
+                onChange={event => {
+                  if (event.target.checked) onNA(flag.id)
+                }}
+              />
+              Not applicable
+            </label>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {flag.status === 'confirmed' && <Badge color="blue">Reviewed</Badge>}
+          {flag.status === 'na' && <Badge color="slate">Not Applicable</Badge>}
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-3">
-      <h4 className="text-sm font-bold text-stone-800 uppercase tracking-wider">Flag Review</h4>
+    <div className="space-y-6">
+      <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+        <p className="text-xs leading-relaxed text-blue-800">
+          Resolved flags are incorporated into the final tax liability summary. Once all flags are reviewed, the report can be exported with flag resolutions included.
+        </p>
+      </div>
+      {groups.map(group => {
+        const sectionFlags = flags.filter(flag => flag.severity === group.key)
+        if (!sectionFlags.length) return null
+        return (
+          <section key={group.key}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-base">{group.emoji}</span>
+              <h5 className={`font-semibold ${group.titleClass}`}>{group.title}</h5>
+              <Badge color={group.badge}>{sectionFlags.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {sectionFlags.map(flag => (
+                <div
+                  key={flag.id}
+                  className={cn(
+                    'p-4 rounded-sm border shadow-sm transition-shadow hover:shadow-md',
+                    flag.status === 'na' ? 'bg-slate-50 border-slate-200 opacity-70' : group.cardClass,
+                  )}
+                >
+                  <div className="flex items-start gap-4">
+                    <AlertTriangle className={cn('mt-1 h-[18px] w-[18px] shrink-0', group.iconClass)} strokeWidth={2.5} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{flag.domain}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{flag.severity}</span>
+                      </div>
+                      <h4 className={cn('text-[17px] font-bold leading-tight tracking-tight', group.titleClass)}>
+                        {flag.title}
+                      </h4>
+                      {flag.sourceRef && (
+                        <p className="mt-2 text-[11px] font-bold uppercase tracking-wider opacity-70">
+                          Source: {flag.sourceRef}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {renderControls(flag)}
+                </div>
+              ))}
+            </div>
+          </section>
+        )
+      })}
       {flags.length === 0 && <p className="text-sm text-stone-400">No flags identified.</p>}
-      {flags.map(flag => (
-        <div key={flag.id} className={cn('p-4 rounded-xl border', severityColor(flag.severity))}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{flag.domain}</span>
-                <span className="text-[10px] font-bold uppercase tracking-widest">{flag.severity}</span>
-              </div>
-              <p className="text-sm font-medium">{flag.title}</p>
-              {flag.sourceRef && <p className="text-xs opacity-60 mt-1">Source: {flag.sourceRef}</p>}
-            </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              {flag.status === 'pending' ? (
-                <>
-                  <button
-                    onClick={() => onConfirm(flag.id)}
-                    className="p-1.5 rounded-lg bg-white/80 hover:bg-white border border-current/20 transition-colors"
-                    title="Confirm flag"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => onNA(flag.id)}
-                    className="p-1.5 rounded-lg bg-white/80 hover:bg-white border border-current/20 transition-colors"
-                    title="Mark N/A"
-                  >
-                    <XCircle className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <span className="text-xs font-semibold px-2 py-1 rounded-md bg-white/60">
-                  {flag.status === 'confirmed' ? 'Confirmed' : 'N/A'}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      ))}
     </div>
   )
 }
@@ -183,6 +264,40 @@ export default function TaxLiabilityReviewTab({
     useWS111Analysis({ clientId, clientName, state, entityType })
 
   const isRunning = status === 'uploading' || status === 'streaming'
+  const [draftLoaded, setDraftLoaded] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    fetch(`/api/tax-liability-review/draft?clientId=${encodeURIComponent(clientId)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!active || !data?.draft?.documents?.length) return
+        setDocuments(data.draft.documents)
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (active) setDraftLoaded(true)
+      })
+    return () => { active = false }
+  }, [clientId, setDocuments])
+
+  useEffect(() => {
+    if (!draftLoaded || savedReport || isRunning) return
+    if (!documents.length) {
+      void fetch(`/api/tax-liability-review/draft?clientId=${encodeURIComponent(clientId)}`, { method: 'DELETE' })
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      void fetch('/api/tax-liability-review/draft', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, documents }),
+      }).catch(console.error)
+    }, 700)
+
+    return () => window.clearTimeout(timeout)
+  }, [clientId, documents, draftLoaded, isRunning, savedReport])
 
   useEffect(() => {
     setLoadingReport(true)
@@ -206,9 +321,10 @@ export default function TaxLiabilityReviewTab({
       const { flags: pFlags } = parseWS111Markdown(rawMarkdown, clientName)
       setFlags(pFlags)
       clearAll()
+      void fetch(`/api/tax-liability-review/draft?clientId=${encodeURIComponent(clientId)}`, { method: 'DELETE' })
       setToast({ message: 'Tax liability review completed', type: 'success' })
     }
-  }, [status, rawMarkdown, clearAll, clientName])
+  }, [status, rawMarkdown, clearAll, clientName, clientId])
 
   const handleFlagUpdate = async (id: string, action: 'confirmed' | 'na') => {
     const nextFlags = flags.map(f => (f.id === id ? { ...f, status: action as any } : f))
@@ -257,7 +373,7 @@ export default function TaxLiabilityReviewTab({
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="p-10 border-stone-200 shadow-sm">
-            <DocumentUploader onDocumentsReady={setDocuments} onAnalyze={analyze} isLoading={isRunning} />
+            <DocumentUploader documents={documents} onDocumentsReady={setDocuments} onAnalyze={analyze} isLoading={isRunning} />
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
           </Card>
         </div>

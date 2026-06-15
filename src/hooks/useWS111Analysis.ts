@@ -87,7 +87,7 @@ export function useWS111Analysis({ clientId, clientName, state, entityType, fisc
         throw new Error(accumulated.replace('PAGE_LIMIT_EXCEEDED: ', ''))
       }
 
-      await fetch('/api/tax-liability-review/reports', {
+      const saveRes = await fetch('/api/tax-liability-review/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -96,6 +96,9 @@ export function useWS111Analysis({ clientId, clientName, state, entityType, fisc
           documentNames: documents.map(d => d.name),
         }),
       })
+      if (!saveRes.ok) {
+        throw new Error(await saveRes.text().catch(() => 'Failed to save tax liability report'))
+      }
 
       setStatus('complete')
     } catch (err: any) {

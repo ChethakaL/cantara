@@ -8,6 +8,8 @@ import {
   MessageSquareText, Sparkles, FileText, Handshake, ClipboardList,
 } from 'lucide-react'
 import { Button, Input, Select, Textarea, Badge, WorkstreamBadge, cn } from '@/components/ui'
+import PetBusinessCategoryField from '@/components/ui/PetBusinessCategoryField'
+import { PROPERTY_OWNERSHIP_OPTIONS } from '@/lib/pet-business-categories'
 import { deleteWorkstreamTemplate, getWorkstreamTemplates, saveClient, saveWorkstreamTemplate } from '@/lib/store'
 import { type AgentDocumentSelection } from '@/lib/documentData'
 import type { Client, Workstream, BusinessType, WorkstreamTemplate } from '@/lib/store'
@@ -196,6 +198,11 @@ export default function ClientManager({ client: initial, onSaved }: {
     email: existingOwner2?.email || '',
     phone: existingOwner2?.phone || '',
   })
+  const [propertyOwnership, setPropertyOwnership] = useState<'lease' | 'owns' | ''>(
+    initial.propertyOwnership === 'lease' || initial.propertyOwnership === 'owns'
+      ? initial.propertyOwnership
+      : '',
+  )
 
   const update = <K extends keyof Client>(key: K, val: Client[K]) =>
     setClient(p => ({ ...p, [key]: val }))
@@ -349,6 +356,11 @@ export default function ClientManager({ client: initial, onSaved }: {
     } else {
       delete mergedSectionSubmissions.owner2
     }
+    if (propertyOwnership) {
+      mergedSectionSubmissions.propertyOwnership = propertyOwnership
+    } else {
+      delete mergedSectionSubmissions.propertyOwnership
+    }
 
     const baseAgents = getBaseAgentsForClient(client, customDraftMode)
     const clientSpecificAgents = agentsEqual(baseAgents, draftAgents) ? [] : draftAgents
@@ -357,6 +369,7 @@ export default function ClientManager({ client: initial, onSaved }: {
       provisionedAt: isFirstProvision ? now : client.provisionedAt,
       driveFolder,
       sectionSubmissions: mergedSectionSubmissions,
+      propertyOwnership,
       workstreamAgents: clientSpecificAgents.map(agent => ({ id: agent.agentId, ...agent })),
     }
     saveClient(updated)
@@ -447,9 +460,9 @@ export default function ClientManager({ client: initial, onSaved }: {
       <section>
         <h4 className="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Client Information</h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input label="Full name" value={client.name} onChange={e => update('name', e.target.value)} />
+          <Input label="Primary contact name" value={client.name} onChange={e => update('name', e.target.value)} />
           <Input label="Email address" type="email" value={client.email} onChange={e => update('email', e.target.value)} />
-          <Input label="Company / Business name" value={client.company} onChange={e => update('company', e.target.value)} />
+          <Input label="Business name" value={client.company} onChange={e => update('company', e.target.value)} />
           <Input label="Phone" value={client.phone} onChange={e => update('phone', e.target.value)} />
         </div>
 
@@ -457,20 +470,20 @@ export default function ClientManager({ client: initial, onSaved }: {
         {!showOwner2 ? (
           <div className="mt-4">
             <Button variant="outline" size="sm" onClick={() => setShowOwner2(true)}>
-              <UserPlus className="w-3.5 h-3.5" /> Add Second Owner
+              <UserPlus className="w-3.5 h-3.5" /> Add Second Contact Person
             </Button>
           </div>
         ) : (
           <div className="mt-4 p-4 rounded-xl border border-amber-200 bg-amber-50/50 space-y-3">
             <div className="flex items-center justify-between">
-              <h5 className="text-sm font-medium text-slate-700">Second Owner</h5>
+              <h5 className="text-sm font-medium text-slate-700">Second Contact Person</h5>
               <button
                 onClick={() => {
                   setShowOwner2(false)
                   setOwner2({ name: '', email: '', phone: '' })
                 }}
                 className="text-slate-400 hover:text-rose-400 transition-colors"
-                title="Remove second owner"
+                title="Remove second contact person"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -487,11 +500,17 @@ export default function ClientManager({ client: initial, onSaved }: {
       <section>
         <h4 className="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Business Market Profile</h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input
-            label="Business category"
-            placeholder="e.g. Chinese restaurant, veterinary clinic, hair salon"
-            value={client.businessCategory}
-            onChange={e => update('businessCategory', e.target.value)}
+          <div className="md:col-span-2">
+            <PetBusinessCategoryField
+              value={client.businessCategory}
+              onChange={value => update('businessCategory', value)}
+            />
+          </div>
+          <Select
+            label="Real estate"
+            value={propertyOwnership}
+            onChange={e => setPropertyOwnership(e.target.value as 'lease' | 'owns' | '')}
+            options={PROPERTY_OWNERSHIP_OPTIONS}
           />
           <Input
             label="Website URL"
