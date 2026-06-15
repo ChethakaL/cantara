@@ -277,3 +277,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return new Response("Internal Server Error", { status: 500 });
   }
 }
+
+// DELETE /api/clients/[id] - Permanently delete client workspace and portal login
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const { id } = params;
+  try {
+    const profile = await prisma.clientProfile.findUnique({
+      where: { id },
+      select: { id: true, userId: true, businessName: true },
+    });
+
+    if (!profile) {
+      return new Response("Client not found", { status: 404 });
+    }
+
+    await prisma.clientProfile.delete({ where: { id: profile.id } });
+    await prisma.session.deleteMany({ where: { userId: profile.userId } });
+    await prisma.user.delete({ where: { id: profile.userId } });
+
+    return NextResponse.json({ ok: true, deletedId: id });
+  } catch (error) {
+    console.error("DELETE Client Error:", error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+}

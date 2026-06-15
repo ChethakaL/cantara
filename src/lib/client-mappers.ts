@@ -118,7 +118,7 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
     })),
     stage: client.stage ? client.stage.toLowerCase() : "onboarding",
     businessType: client.businessType ? client.businessType.toLowerCase() : "single",
-    branches: client.Branches.map((branch) => ({ id: branch.id, name: branch.name })),
+    branches: (client.Branches ?? []).map((branch) => ({ id: branch.id, name: branch.name })),
     teamMembers: (client.TeamMembers ?? []).map((member) => ({
       id: member.id,
       name: member.name,

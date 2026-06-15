@@ -10,7 +10,7 @@ import {
 import { Button, Input, Select, Textarea, Badge, WorkstreamBadge, cn } from '@/components/ui'
 import PetBusinessCategoryField from '@/components/ui/PetBusinessCategoryField'
 import { PROPERTY_OWNERSHIP_OPTIONS } from '@/lib/pet-business-categories'
-import { deleteWorkstreamTemplate, getWorkstreamTemplates, saveClient, saveWorkstreamTemplate } from '@/lib/store'
+import { deleteWorkstreamTemplate, deleteClient, getWorkstreamTemplates, saveClient, saveWorkstreamTemplate } from '@/lib/store'
 import { type AgentDocumentSelection } from '@/lib/documentData'
 import type { Client, Workstream, BusinessType, WorkstreamTemplate } from '@/lib/store'
 
@@ -167,9 +167,11 @@ function ProvisioningBadge({ client, customDraftMode }: { client: Client; custom
   return <WorkstreamBadge ws={client.workstream} />
 }
 
-export default function ClientManager({ client: initial, onSaved }: {
+export default function ClientManager({ client: initial, onSaved, onDeleted, onDeleteError }: {
   client: Client
   onSaved: (c: Client) => void
+  onDeleted?: () => void
+  onDeleteError?: (message: string) => void
 }) {
   const [client, setClient] = useState(initial)
   const [saved, setSaved] = useState(false)
@@ -188,6 +190,7 @@ export default function ClientManager({ client: initial, onSaved }: {
   const [customDraftMode, setCustomDraftMode] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [deletingTemplate, setDeletingTemplate] = useState(false)
+  const [deletingClient, setDeletingClient] = useState(false)
   const advisorImageInputRef = useRef<HTMLInputElement | null>(null)
 
   // Second owner support — stored in sectionSubmissions.owner2
@@ -376,6 +379,25 @@ export default function ClientManager({ client: initial, onSaved }: {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     onSaved(updated)
+  }
+
+  const handleDeleteClient = async () => {
+    const label = client.company || client.name
+    const confirmed = window.confirm(
+      `Permanently delete "${label}"?\n\nThis removes the client workspace, uploaded documents, agent reports, messages, and the portal login for ${client.email}. This cannot be undone.`,
+    )
+    if (!confirmed) return
+
+    setDeletingClient(true)
+    try {
+      await deleteClient(client.id)
+      onDeleted?.()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete client'
+      onDeleteError?.(message)
+    } finally {
+      setDeletingClient(false)
+    }
   }
 
   const addBranch = () => {
@@ -903,6 +925,24 @@ export default function ClientManager({ client: initial, onSaved }: {
         <Button onClick={handleSave}>{saved ? '✓ Saved' : 'Save Changes'}</Button>
         <span className="text-xs text-slate-400">Changes update the client portal immediately.</span>
       </div>
+
+      {/* Danger zone */}
+      <section className="pt-6 mt-6 border-t border-red-100">
+        <h4 className="text-sm font-semibold text-red-700 mb-1">Danger zone</h4>
+        <p className="text-xs text-slate-500 mb-4">
+          Permanently delete this client workspace, all associated data, and the portal login. This action cannot be undone.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleDeleteClient}
+          disabled={deletingClient}
+          className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+        >
+          {deletingClient ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+          {deletingClient ? 'Deleting...' : 'Delete Client'}
+        </Button>
+      </section>
     </div>
   )
 }
