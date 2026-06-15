@@ -5,9 +5,9 @@ import {
   Image as ImageIcon, Loader2, CheckCircle2, UserPlus, X, Bot, Search,
   Calculator, FileSpreadsheet, Landmark, ShieldCheck, Scale, Network,
   AlertCircle, BadgeDollarSign, Globe2, Camera, Tags, ChartNoAxesColumn,
-  MessageSquareText, Sparkles, FileText, Handshake, ClipboardList,
+  MessageSquareText, Sparkles, FileText, Handshake, ClipboardList, ChevronRight,
 } from 'lucide-react'
-import { Button, Input, Select, Textarea, Badge, WorkstreamBadge, cn } from '@/components/ui'
+import { Button, Input, Modal, Select, Textarea, Badge, WorkstreamBadge, cn } from '@/components/ui'
 import PetBusinessCategoryField from '@/components/ui/PetBusinessCategoryField'
 import { PROPERTY_OWNERSHIP_OPTIONS } from '@/lib/pet-business-categories'
 import { deleteWorkstreamTemplate, deleteClient, getWorkstreamTemplates, saveClient, saveWorkstreamTemplate } from '@/lib/store'
@@ -19,6 +19,14 @@ interface Owner2Data {
   email: string
   phone: string
 }
+
+interface DrivePickerFolder {
+  id: string
+  name: string
+  url: string
+}
+
+type DrivePickerMode = 'existing' | 'parent'
 
 const WS_OPTIONS = [
   { value: '', label: '— Not provisioned —' },
@@ -191,6 +199,16 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [deletingTemplate, setDeletingTemplate] = useState(false)
   const [deletingClient, setDeletingClient] = useState(false)
+  const [driveParentFolder, setDriveParentFolder] = useState('')
+  const [driveFolderName, setDriveFolderName] = useState(initial.company || initial.name || '')
+  const [driveExistingFolder, setDriveExistingFolder] = useState(initial.driveFolder || '')
+  const [driveBusy, setDriveBusy] = useState(false)
+  const [driveError, setDriveError] = useState('')
+  const [drivePickerMode, setDrivePickerMode] = useState<DrivePickerMode | null>(null)
+  const [drivePickerFolders, setDrivePickerFolders] = useState<DrivePickerFolder[]>([])
+  const [drivePickerPath, setDrivePickerPath] = useState<DrivePickerFolder[]>([])
+  const [drivePickerLoading, setDrivePickerLoading] = useState(false)
+  const [drivePickerError, setDrivePickerError] = useState('')
   const advisorImageInputRef = useRef<HTMLInputElement | null>(null)
 
   // Second owner support — stored in sectionSubmissions.owner2
@@ -325,24 +343,6 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
   const handleSave = async () => {
     const now = new Date().toISOString()
     const isFirstProvision = client.workstream && !initial.provisionedAt
-    
-    let driveFolder = client.driveFolder
-    if (!driveFolder && client.name) {
-      // Call Drive API to create folder structure
-      try {
-        const res = await fetch('/api/drive/create-folder', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientName: client.name, clientId: client.id }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          driveFolder = data.folderUrl
-        }
-      } catch {
-        // Non-fatal: Drive folder creation can be retried
-      }
-    }
 
     // Merge owner2 into sectionSubmissions
     const existingSections = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object')
@@ -370,7 +370,6 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     const updated = {
       ...client,
       provisionedAt: isFirstProvision ? now : client.provisionedAt,
-      driveFolder,
       sectionSubmissions: mergedSectionSubmissions as Client['sectionSubmissions'],
       propertyOwnership,
       workstreamAgents: clientSpecificAgents.map(agent => ({ id: agent.agentId, ...agent })),
@@ -398,6 +397,117 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     } finally {
       setDeletingClient(false)
     }
+  }
+
+  const saveDriveFolder = async (folderUrl: string) => {
+    const trimmed = folderUrl.trim()
+    if (!trimmed) return
+    const updated = { ...client, driveFolder: trimmed }
+    setClient(updated)
+    setDriveExistingFolder(trimmed)
+    const savedClient = await saveClient(updated)
+    if (savedClient) {
+      setClient(savedClient)
+      onSaved(savedClient)
+    } else {
+      onSaved(updated)
+    }
+  }
+
+  const createDriveFolder = async () => {
+    const folderName = driveFolderName.trim()
+    const parentFolder = driveParentFolder.trim()
+    if (!folderName || !parentFolder || driveBusy) return
+    setDriveBusy(true)
+    setDriveError('')
+    try {
+      const res = await fetch('/api/drive/create-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientName: folderName, clientId: client.id, parentFolder }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to create Google Drive folder')
+      await saveDriveFolder(data.folderUrl)
+      setDriveParentFolder('')
+    } catch (error) {
+      setDriveError(error instanceof Error ? error.message : 'Failed to create Google Drive folder')
+    } finally {
+      setDriveBusy(false)
+    }
+  }
+
+  const setExistingDriveFolder = async () => {
+    if (!driveExistingFolder.trim() || driveBusy) return
+    setDriveBusy(true)
+    setDriveError('')
+    try {
+      await saveDriveFolder(driveExistingFolder)
+    } catch (error) {
+      setDriveError(error instanceof Error ? error.message : 'Failed to save Google Drive folder')
+    } finally {
+      setDriveBusy(false)
+    }
+  }
+
+  const clearDriveFolder = async () => {
+    if (!client.driveFolder || driveBusy) return
+    setDriveBusy(true)
+    setDriveError('')
+    try {
+      const updated = { ...client, driveFolder: null }
+      setClient(updated)
+      setDriveExistingFolder('')
+      const savedClient = await saveClient(updated)
+      onSaved(savedClient || updated)
+    } catch (error) {
+      setDriveError(error instanceof Error ? error.message : 'Failed to clear Google Drive folder')
+    } finally {
+      setDriveBusy(false)
+    }
+  }
+
+  const loadDriveFolders = async (parent?: DrivePickerFolder | null, nextPath?: DrivePickerFolder[]) => {
+    const parentId = parent?.id || 'root'
+    setDrivePickerLoading(true)
+    setDrivePickerError('')
+    try {
+      const res = await fetch(`/api/drive/folders?parentId=${encodeURIComponent(parentId)}`, { cache: 'no-store' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not load Google Drive folders')
+      setDrivePickerFolders(Array.isArray(data.folders) ? data.folders : [])
+      if (nextPath) setDrivePickerPath(nextPath)
+    } catch (error) {
+      setDrivePickerError(error instanceof Error ? error.message : 'Could not load Google Drive folders')
+      setDrivePickerFolders([])
+    } finally {
+      setDrivePickerLoading(false)
+    }
+  }
+
+  const openDrivePicker = (mode: DrivePickerMode) => {
+    setDrivePickerMode(mode)
+    setDrivePickerPath([])
+    void loadDriveFolders(null, [])
+  }
+
+  const closeDrivePicker = () => {
+    setDrivePickerMode(null)
+    setDrivePickerError('')
+  }
+
+  const currentDrivePickerFolder = drivePickerPath[drivePickerPath.length - 1] || null
+
+  const selectDrivePickerFolder = async () => {
+    if (!currentDrivePickerFolder || !drivePickerMode) return
+    if (drivePickerMode === 'parent') {
+      setDriveParentFolder(currentDrivePickerFolder.url)
+      closeDrivePicker()
+      return
+    }
+    closeDrivePicker()
+    setDriveExistingFolder(currentDrivePickerFolder.url)
+    await saveDriveFolder(currentDrivePickerFolder.url)
   }
 
   const addBranch = () => {
@@ -893,21 +1003,140 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
       {/* Google Drive */}
       <section>
-        <h4 className="text-sm font-semibold text-slate-700 mb-3 pb-2 border-b border-slate-100">Google Drive Folder</h4>
+        <h4 className="text-sm font-semibold text-slate-700 mb-3 pb-2 border-b border-slate-100">Google Drive Location</h4>
         {client.driveFolder ? (
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
-            <FolderOpen className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="text-sm text-slate-600 flex-1 truncate">{client.driveFolder}</span>
-            <a href={client.driveFolder} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:text-amber-700 shrink-0">
-              <ExternalLink className="w-4 h-4" />
-            </a>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+              <FolderOpen className="w-4 h-4 text-amber-500 shrink-0" />
+              <span className="text-sm text-slate-600 flex-1 truncate">{client.driveFolder}</span>
+              <a href={client.driveFolder} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:text-amber-700 shrink-0" title="Open folder">
+                <ExternalLink className="w-4 h-4" />
+              </a>
+              <button onClick={() => void clearDriveFolder()} disabled={driveBusy} className="text-slate-300 hover:text-rose-400 transition-colors disabled:opacity-50" title="Clear folder">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+              <Input
+                label="Replace with existing Drive folder URL or ID"
+                placeholder="https://drive.google.com/drive/folders/..."
+                value={driveExistingFolder}
+                onChange={e => setDriveExistingFolder(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => openDrivePicker('existing')} disabled={driveBusy}>
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Choose
+                </Button>
+                <Button variant="outline" onClick={() => void setExistingDriveFolder()} disabled={driveBusy || !driveExistingFolder.trim()}>
+                  {driveBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                  Set Folder
+                </Button>
+              </div>
+            </div>
           </div>
         ) : (
-          <div className="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-sm text-slate-400 text-center">
-            Google Drive folder will be created after Google Drive is connected from the admin dashboard.
+          <div className="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 space-y-4">
+            <p className="text-sm text-slate-500">
+              Choose an existing Google Drive folder for this client.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+              <Input
+                label="Existing client folder URL or ID"
+                placeholder="https://drive.google.com/drive/folders/..."
+                value={driveExistingFolder}
+                onChange={e => setDriveExistingFolder(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => openDrivePicker('existing')} disabled={driveBusy}>
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Choose
+                </Button>
+                <Button variant="outline" onClick={() => void setExistingDriveFolder()} disabled={driveBusy || !driveExistingFolder.trim()}>
+                  {driveBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                  Set Folder
+                </Button>
+              </div>
+            </div>
           </div>
         )}
+        {driveError && (
+          <p className="mt-2 text-xs text-red-600">{driveError}</p>
+        )}
       </section>
+
+      <Modal
+        open={drivePickerMode !== null}
+        onClose={closeDrivePicker}
+        title={drivePickerMode === 'parent' ? 'Choose Parent Folder' : 'Choose Client Folder'}
+        sizeClassName="max-w-2xl"
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            <button
+              type="button"
+              onClick={() => void loadDriveFolders(null, [])}
+              className={cn('font-medium hover:text-amber-700', drivePickerPath.length === 0 ? 'text-slate-800' : 'text-slate-500')}
+            >
+              My Drive
+            </button>
+            {drivePickerPath.map((folder, index) => (
+              <span key={folder.id} className="inline-flex items-center gap-2">
+                <ChevronRight className="h-3 w-3 text-slate-300" />
+                <button
+                  type="button"
+                  onClick={() => void loadDriveFolders(folder, drivePickerPath.slice(0, index + 1))}
+                  className={cn('font-medium hover:text-amber-700', index === drivePickerPath.length - 1 ? 'text-slate-800' : 'text-slate-500')}
+                >
+                  {folder.name}
+                </button>
+              </span>
+            ))}
+          </div>
+
+          <div className="min-h-[260px] max-h-[360px] overflow-y-auto rounded-xl border border-slate-200 bg-white">
+            {drivePickerLoading ? (
+              <div className="flex h-40 items-center justify-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading folders...
+              </div>
+            ) : drivePickerError ? (
+              <div className="p-4 text-sm text-red-600">{drivePickerError}</div>
+            ) : drivePickerFolders.length === 0 ? (
+              <div className="p-4 text-sm text-slate-400">No folders found here.</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {drivePickerFolders.map(folder => (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => void loadDriveFolders(folder, [...drivePickerPath, folder])}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-amber-50"
+                  >
+                    <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+                    <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500">
+              {currentDrivePickerFolder
+                ? `Selected: ${currentDrivePickerFolder.name}`
+                : 'Open a folder, then select the current folder.'}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={closeDrivePicker}>Cancel</Button>
+              <Button onClick={() => void selectDrivePickerFolder()} disabled={!currentDrivePickerFolder || driveBusy}>
+                {drivePickerMode === 'parent' ? 'Use as Parent' : 'Set as Client Folder'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {/* Notes */}
       <section>

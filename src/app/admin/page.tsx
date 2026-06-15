@@ -8,10 +8,12 @@ import AdminNav from '@/components/admin/AdminNav'
 import MondayImportModal from '@/components/monday/MondayImportModal'
 import PetBusinessCategoryField from '@/components/ui/PetBusinessCategoryField'
 import { PROPERTY_OWNERSHIP_OPTIONS } from '@/lib/pet-business-categories'
-import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card, Select } from '@/components/ui'
-import { getClients, createClient, getCurrentRole, getAdminName } from '@/lib/store'
+import { Button, Badge, WorkstreamBadge, ProgressBar, Modal, Input, Card, Select, cn } from '@/components/ui'
+import { getClients, createClient, saveClient, getCurrentRole, getAdminName } from '@/lib/store'
 import { useAdminInboxUnread } from '@/hooks/useChatRoom'
 import type { Client } from '@/lib/store'
+
+type DrivePickerTarget = 'parent' | 'new-parent' | 'new-existing' | `client:${string}`
 
 const WORKSTREAM_SECTIONS = [
   { id: 'onboarding', label: 'Onboarding', color: '#94a3b8' },
@@ -134,6 +136,20 @@ export default function AdminDashboard() {
   const [driveSyncSummary, setDriveSyncSummary] = useState<string>('')
   const [driveSyncJob, setDriveSyncJob] = useState<any>(null)
   const [lastSyncUpdate, setLastSyncUpdate] = useState<Date | null>(null)
+  const [showDriveManager, setShowDriveManager] = useState(false)
+  const [driveParentFolder, setDriveParentFolder] = useState('')
+  const [driveRowExistingFolders, setDriveRowExistingFolders] = useState<Record<string, string>>({})
+  const [driveRowFolderNames, setDriveRowFolderNames] = useState<Record<string, string>>({})
+  const [driveRowBusy, setDriveRowBusy] = useState<Record<string, string>>({})
+  const [driveManagerMessage, setDriveManagerMessage] = useState('')
+  const [drivePickerTarget, setDrivePickerTarget] = useState<DrivePickerTarget | null>(null)
+  const [drivePickerFolders, setDrivePickerFolders] = useState<Array<{ id: string; name: string; url: string }>>([])
+  const [drivePickerPath, setDrivePickerPath] = useState<Array<{ id: string; name: string; url: string }>>([])
+  const [drivePickerLoading, setDrivePickerLoading] = useState(false)
+  const [drivePickerError, setDrivePickerError] = useState('')
+  const [newClientDriveExistingFolder, setNewClientDriveExistingFolder] = useState('')
+  const [newClientDriveParentFolder, setNewClientDriveParentFolder] = useState('')
+  const [newClientDriveFolderName, setNewClientDriveFolderName] = useState('')
   const [mondayStatus, setMondayStatus] = useState<{ connected: boolean } | null>(null)
   const [connectingMonday, setConnectingMonday] = useState(false)
   const [showMondayImport, setShowMondayImport] = useState(false)
@@ -163,6 +179,28 @@ export default function AdminDashboard() {
       active = false
     }
   }, [router])
+
+  useEffect(() => {
+    setDriveParentFolder(window.localStorage.getItem('cantara-drive-parent-folder') || '')
+    setNewClientDriveParentFolder(window.localStorage.getItem('cantara-drive-parent-folder') || '')
+  }, [])
+
+  useEffect(() => {
+    setDriveRowFolderNames(prev => {
+      const next = { ...prev }
+      for (const client of clients) {
+        if (!next[client.id]) next[client.id] = client.company || client.name || 'Client'
+      }
+      return next
+    })
+    setDriveRowExistingFolders(prev => {
+      const next = { ...prev }
+      for (const client of clients) {
+        if (!next[client.id]) next[client.id] = client.driveFolder || ''
+      }
+      return next
+    })
+  }, [clients])
 
   const refreshDriveStatus = async () => {
     try {
@@ -219,10 +257,29 @@ export default function AdminDashboard() {
     if (!newClient.name || !newClient.email || !newClient.company || creatingClient) return
     setCreatingClient(true)
     try {
-      await createClient({ ...newClient, advisorName: adminName })
-      refresh()
+      const createdClient = await createClient({ ...newClient, advisorName: adminName })
+      let driveFolder = newClientDriveExistingFolder.trim()
+      const folderName = (newClientDriveFolderName || newClient.company || newClient.name).trim()
+      const parentFolder = newClientDriveParentFolder.trim()
+      if (!driveFolder && parentFolder && folderName) {
+        const res = await fetch('/api/drive/create-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId: createdClient.id, clientName: folderName, parentFolder }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || 'Client was created, but Drive folder creation failed.')
+        driveFolder = data.folderUrl
+      }
+      if (driveFolder) {
+        await saveClient({ ...createdClient, driveFolder })
+      }
+      await refresh()
       setAdding(false)
       setNewClient({ name: '', email: '', company: '', phone: '', businessCategory: '', propertyOwnership: '' })
+      setNewClientDriveExistingFolder('')
+      setNewClientDriveParentFolder('')
+      setNewClientDriveFolderName('')
       setToast({ message: 'Client created and invite email sent', type: 'success' })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create client'
@@ -280,7 +337,7 @@ export default function AdminDashboard() {
   }
 
   const disconnectDrive = async () => {
-    if (!confirm('Are you sure you want to disconnect Google Drive? This will stop automatic folder creation and document syncing.')) return
+    if (!confirm('Are you sure you want to disconnect Google Drive? This will stop folder browsing and document syncing.')) return
     setConnectingDrive(true)
     try {
       const res = await fetch('/api/composio/google-drive/disconnect', { method: 'POST' })
@@ -294,11 +351,17 @@ export default function AdminDashboard() {
     }
   }
 
-  const syncDrive = async () => {
+  const syncDrive = async (clientId?: string) => {
+    setShowDriveManager(false)
+    closeDrivePicker()
     setSyncingDrive(true)
-    setDriveSyncSummary('Google Drive sync started. This can take more than 10 minutes; you can keep working while it runs.')
+    setDriveSyncSummary(clientId ? 'Client Google Drive sync started.' : 'Google Drive sync started. This can take more than 10 minutes; you can keep working while it runs.')
     try {
-      const res = await fetch('/api/drive/sync-all', { method: 'POST' })
+      const res = await fetch('/api/drive/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clientId ? { clientId } : {}),
+      })
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setDriveSyncJob(data)
@@ -307,6 +370,130 @@ export default function AdminDashboard() {
       setDriveSyncSummary('Google Drive sync failed. Confirm Google Drive is connected, then try again.')
       setSyncingDrive(false)
     }
+  }
+
+  const persistDriveParentFolder = () => {
+    const trimmed = driveParentFolder.trim()
+    if (!trimmed) {
+      setDriveManagerMessage('Set a parent folder first.')
+      return false
+    }
+    window.localStorage.setItem('cantara-drive-parent-folder', trimmed)
+    setDriveManagerMessage('Parent folder saved for this browser.')
+    return true
+  }
+
+  const updateClientDriveFolder = async (client: Client, folderUrl: string) => {
+    const trimmed = folderUrl.trim()
+    if (!trimmed) return
+    setDriveRowBusy(prev => ({ ...prev, [client.id]: 'Saving...' }))
+    setDriveManagerMessage('')
+    try {
+      await saveClient({ ...client, driveFolder: trimmed })
+      setDriveRowExistingFolders(prev => ({ ...prev, [client.id]: trimmed }))
+      await refresh()
+      setDriveManagerMessage(`Drive folder set for ${client.company || client.name}.`)
+    } catch (error) {
+      setDriveManagerMessage(error instanceof Error ? error.message : 'Failed to set Drive folder.')
+    } finally {
+      setDriveRowBusy(prev => {
+        const next = { ...prev }
+        delete next[client.id]
+        return next
+      })
+    }
+  }
+
+  const createClientDriveFolder = async (client: Client) => {
+    if (!persistDriveParentFolder()) return
+    const folderName = (driveRowFolderNames[client.id] || client.company || client.name || 'Client').trim()
+    if (!folderName) {
+      setDriveManagerMessage('Enter a folder name first.')
+      return
+    }
+    setDriveRowBusy(prev => ({ ...prev, [client.id]: 'Creating...' }))
+    setDriveManagerMessage('')
+    try {
+      const res = await fetch('/api/drive/create-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id, clientName: folderName, parentFolder: driveParentFolder.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to create Drive folder.')
+      await updateClientDriveFolder(client, data.folderUrl)
+    } catch (error) {
+      setDriveManagerMessage(error instanceof Error ? error.message : 'Failed to create Drive folder.')
+    } finally {
+      setDriveRowBusy(prev => {
+        const next = { ...prev }
+        delete next[client.id]
+        return next
+      })
+    }
+  }
+
+  const syncClientDrive = async (client: Client) => {
+    if (!client.driveFolder) {
+      setDriveManagerMessage('Set this client folder before syncing.')
+      return
+    }
+    await syncDrive(client.id)
+  }
+
+  const loadDrivePickerFolders = async (
+    parent?: { id: string; name: string; url: string } | null,
+    nextPath?: Array<{ id: string; name: string; url: string }>,
+  ) => {
+    setDrivePickerLoading(true)
+    setDrivePickerError('')
+    try {
+      const parentId = parent?.id || 'root'
+      const res = await fetch(`/api/drive/folders?parentId=${encodeURIComponent(parentId)}`, { cache: 'no-store' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not load Google Drive folders.')
+      setDrivePickerFolders(Array.isArray(data.folders) ? data.folders : [])
+      if (nextPath) setDrivePickerPath(nextPath)
+    } catch (error) {
+      setDrivePickerError(error instanceof Error ? error.message : 'Could not load Google Drive folders.')
+      setDrivePickerFolders([])
+    } finally {
+      setDrivePickerLoading(false)
+    }
+  }
+
+  const openDrivePicker = (target: DrivePickerTarget) => {
+    setDrivePickerTarget(target)
+    setDrivePickerPath([])
+    void loadDrivePickerFolders(null, [])
+  }
+
+  const closeDrivePicker = () => {
+    setDrivePickerTarget(null)
+    setDrivePickerError('')
+  }
+
+  const currentDrivePickerFolder = drivePickerPath[drivePickerPath.length - 1] || null
+
+  const useSelectedDrivePickerFolder = () => {
+    if (!currentDrivePickerFolder || !drivePickerTarget) return
+    if (drivePickerTarget === 'parent') {
+      setDriveParentFolder(currentDrivePickerFolder.url)
+      window.localStorage.setItem('cantara-drive-parent-folder', currentDrivePickerFolder.url)
+      setDriveManagerMessage(`Parent folder set to ${currentDrivePickerFolder.name}.`)
+    } else if (drivePickerTarget === 'new-parent') {
+      setNewClientDriveParentFolder(currentDrivePickerFolder.url)
+      window.localStorage.setItem('cantara-drive-parent-folder', currentDrivePickerFolder.url)
+    } else if (drivePickerTarget === 'new-existing') {
+      setNewClientDriveExistingFolder(currentDrivePickerFolder.url)
+    } else {
+      const clientId = drivePickerTarget.replace(/^client:/, '')
+      setDriveRowExistingFolders(prev => ({ ...prev, [clientId]: currentDrivePickerFolder.url }))
+      const client = clients.find(item => item.id === clientId)
+      if (client) void updateClientDriveFolder(client, currentDrivePickerFolder.url)
+      setDriveManagerMessage(`Selected folder: ${currentDrivePickerFolder.name}.`)
+    }
+    closeDrivePicker()
   }
 
   useEffect(() => {
@@ -362,6 +549,12 @@ export default function AdminDashboard() {
 
   const totalClients = clients.length
   const totalMessages = inboxUnreadTotal
+  const clientsForDriveManager = [...clients].sort((a, b) => {
+    if (!a.driveFolder && b.driveFolder) return -1
+    if (a.driveFolder && !b.driveFolder) return 1
+    return (a.company || a.name).localeCompare(b.company || b.name)
+  })
+  const missingDriveFolderCount = clients.filter(client => !client.driveFolder).length
 
   return (
     <div className="min-h-screen" style={{ background: 'hsl(220,18%,96%)' }}>
@@ -398,7 +591,7 @@ export default function AdminDashboard() {
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
-                    Sign in with Google to create client folders and save uploaded documents in Google Drive automatically. Full syncs can take more than 10 minutes and continue in the background.
+                    Sign in with Google, then choose or change each client&apos;s Drive folder from Client Management.
                   </p>
                 </div>
               </div>
@@ -406,11 +599,10 @@ export default function AdminDashboard() {
                 {driveStatus?.connected && (
                   <Button
                     size="sm"
-                    onClick={() => void syncDrive()}
-                    disabled={syncingDrive}
+                    onClick={() => setShowDriveManager(true)}
                   >
-                    {syncingDrive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
-                    {syncingDrive ? 'Syncing...' : 'Sync client folders'}
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    Manage folders
                   </Button>
                 )}
                 <Button
@@ -466,11 +658,20 @@ export default function AdminDashboard() {
                           </div>
                         )}
 
-                        <div className="grid grid-cols-3 gap-4 py-3 border-y border-slate-100">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-3 border-y border-slate-100">
                           <div>
                             <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Clients</p>
                             <p className="text-sm font-bold text-slate-700">
                               {driveSyncJob.summary.clients || 0} <span className="text-slate-300 font-normal">/</span> {driveSyncJob.summary.totalClients || 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Assigned</p>
+                            <p className="text-sm font-bold text-slate-700">
+                              {driveSyncJob.summary.foldersCreatedOrFound || 0}
+                              {driveSyncJob.summary.skippedMissingFolder ? (
+                                <span className="ml-1 text-xs font-normal text-slate-400">({driveSyncJob.summary.skippedMissingFolder} skipped)</span>
+                              ) : null}
                             </p>
                           </div>
                           <div>
@@ -524,6 +725,201 @@ export default function AdminDashboard() {
               </div>
             )}
           </Card>
+
+          <Modal
+            open={showDriveManager}
+            onClose={() => setShowDriveManager(false)}
+            title="Google Drive folders"
+            sizeClassName="max-w-3xl"
+          >
+            <div className="space-y-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                  <div className="min-w-0 flex-1">
+                    <label className="block text-xs font-medium text-slate-600">Parent folder</label>
+                    <div className="mt-1.5 flex min-h-[38px] items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                      <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+                      <span className={cn('min-w-0 flex-1 truncate text-sm', driveParentFolder ? 'text-slate-700' : 'text-slate-400')}>
+                        {driveParentFolder || 'Choose where missing client folders should be created'}
+                      </span>
+                      <Button size="sm" variant="outline" onClick={() => openDrivePicker('parent')}>
+                        Choose
+                      </Button>
+                    </div>
+                    <p className="mt-2 text-xs text-amber-700">
+                      {missingDriveFolderCount > 0
+                        ? `${missingDriveFolderCount} client${missingDriveFolderCount === 1 ? '' : 's'} need a Drive folder. Link an existing folder or create one inside this parent.`
+                        : 'All clients currently have an assigned Drive folder.'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={persistDriveParentFolder} disabled={!driveParentFolder.trim()}>
+                      Save Parent
+                    </Button>
+                    <Button onClick={() => void syncDrive()} disabled={syncingDrive}>
+                      {syncingDrive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
+                      Sync All Now
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              {driveManagerMessage && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  {driveManagerMessage}
+                </div>
+              )}
+              <div className="max-h-[520px] overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                {clients.length === 0 ? (
+                  <div className="p-4 text-sm text-slate-400">No clients found.</div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {clientsForDriveManager.map(client => (
+                      <div key={client.id} className={cn('px-4 py-4', !client.driveFolder && 'bg-amber-50/50')}>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-800">{client.company || client.name}</p>
+                            {client.name && client.name !== client.company && (
+                              <p className="mt-0.5 truncate text-xs text-slate-500">Client: {client.name}</p>
+                            )}
+                            <p className="mt-0.5 truncate text-xs text-slate-500">
+                              {client.driveFolder ? client.driveFolder : 'No Drive folder assigned'}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {client.driveFolder ? <Badge color="green">Assigned</Badge> : <Badge color="gold">Needs folder</Badge>}
+                            <Button size="sm" variant="outline" onClick={() => void syncClientDrive(client)} disabled={syncingDrive || !client.driveFolder}>
+                              {syncingDrive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
+                              Sync now
+                            </Button>
+                            <Link href={`/admin/client/${client.id}`}>
+                              <Button size="sm" variant="outline">
+                                <FolderOpen className="h-3.5 w-3.5" />
+                                Open
+                              </Button>
+                            </Link>
+                          </div>
+                        </div>
+                        {!client.driveFolder && (
+                          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-600">Existing folder</label>
+                              <div className="mt-1.5 flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                                <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+                                <span className={cn('min-w-0 flex-1 truncate text-sm', driveRowExistingFolders[client.id] ? 'text-slate-700' : 'text-slate-400')}>
+                                  {driveRowExistingFolders[client.id] || 'Choose existing folder'}
+                                </span>
+                                <Button size="sm" variant="outline" onClick={() => openDrivePicker(`client:${client.id}`)}>
+                                  Choose
+                                </Button>
+                              </div>
+                            </div>
+                            <Input
+                              label="Or create folder named"
+                              placeholder="Folder name"
+                              value={driveRowFolderNames[client.id] || ''}
+                              onChange={e => setDriveRowFolderNames(prev => ({ ...prev, [client.id]: e.target.value }))}
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => void createClientDriveFolder(client)}
+                                disabled={!!driveRowBusy[client.id] || !driveParentFolder.trim() || !(driveRowFolderNames[client.id] || '').trim()}
+                                title={!driveParentFolder.trim() ? 'Choose a parent folder first' : !(driveRowFolderNames[client.id] || '').trim() ? 'Enter a folder name first' : undefined}
+                              >
+                                {driveRowBusy[client.id] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                                Create
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                        {!client.driveFolder && !driveParentFolder.trim() && (
+                          <p className="mt-2 text-xs text-amber-700">
+                            Choose a parent folder above before creating this client folder.
+                          </p>
+                        )}
+                        {driveRowBusy[client.id] && (
+                          <p className="mt-2 text-xs text-amber-700">{driveRowBusy[client.id]}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
+            open={drivePickerTarget !== null}
+            onClose={closeDrivePicker}
+            title={drivePickerTarget === 'parent' || drivePickerTarget === 'new-parent' ? 'Choose Parent Folder' : 'Choose Client Folder'}
+            sizeClassName="max-w-2xl"
+          >
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                <button
+                  type="button"
+                  onClick={() => void loadDrivePickerFolders(null, [])}
+                  className={cn('font-medium hover:text-amber-700', drivePickerPath.length === 0 ? 'text-slate-800' : 'text-slate-500')}
+                >
+                  My Drive
+                </button>
+                {drivePickerPath.map((folder, index) => (
+                  <span key={folder.id} className="inline-flex items-center gap-2">
+                    <ChevronRight className="h-3 w-3 text-slate-300" />
+                    <button
+                      type="button"
+                      onClick={() => void loadDrivePickerFolders(folder, drivePickerPath.slice(0, index + 1))}
+                      className={cn('font-medium hover:text-amber-700', index === drivePickerPath.length - 1 ? 'text-slate-800' : 'text-slate-500')}
+                    >
+                      {folder.name}
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              <div className="min-h-[260px] max-h-[360px] overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                {drivePickerLoading ? (
+                  <div className="flex h-40 items-center justify-center gap-2 text-sm text-slate-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading folders...
+                  </div>
+                ) : drivePickerError ? (
+                  <div className="p-4 text-sm text-red-600">{drivePickerError}</div>
+                ) : drivePickerFolders.length === 0 ? (
+                  <div className="p-4 text-sm text-slate-400">No folders found here.</div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {drivePickerFolders.map(folder => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        onClick={() => void loadDrivePickerFolders(folder, [...drivePickerPath, folder])}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-amber-50"
+                      >
+                        <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+                        <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-500">
+                  {currentDrivePickerFolder
+                    ? `Selected: ${currentDrivePickerFolder.name}`
+                    : 'Open a folder, then select the current folder.'}
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={closeDrivePicker}>Cancel</Button>
+                  <Button onClick={useSelectedDrivePickerFolder} disabled={!currentDrivePickerFolder}>
+                    {drivePickerTarget === 'parent' || drivePickerTarget === 'new-parent' ? 'Use as Parent' : 'Use Folder'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Modal>
 
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -636,9 +1032,51 @@ export default function AdminDashboard() {
             onChange={e => setNewClient(p => ({ ...p, propertyOwnership: e.target.value as '' | 'lease' | 'owns' }))}
             options={PROPERTY_OWNERSHIP_OPTIONS}
           />
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-800">Google Drive location</h4>
+              <p className="mt-1 text-xs text-slate-500">
+                Choose an existing folder, or enter a folder name to create under the saved Drive parent.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Existing client folder</label>
+              <div className="mt-1.5 flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+                <span className={cn('min-w-0 flex-1 truncate text-sm', newClientDriveExistingFolder ? 'text-slate-700' : 'text-slate-400')}>
+                  {newClientDriveExistingFolder || 'Choose existing folder'}
+                </span>
+                <Button size="sm" variant="outline" onClick={() => openDrivePicker('new-existing')}>
+                  Choose
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Input
+                label="Create folder named"
+                placeholder={newClient.company || 'Client folder name'}
+                value={newClientDriveFolderName}
+                onChange={e => setNewClientDriveFolderName(e.target.value)}
+              />
+              {!newClientDriveExistingFolder && newClientDriveFolderName.trim() && !newClientDriveParentFolder.trim() && (
+                <p className="text-xs text-amber-700">
+                  Set the parent folder from Manage folders before creating new client folders.
+                </p>
+              )}
+            </div>
+          </div>
           <div className="flex gap-3 justify-end pt-2">
             <Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
-            <Button onClick={handleAddClient} disabled={!newClient.name || !newClient.email || !newClient.company || creatingClient}>
+            <Button
+              onClick={handleAddClient}
+              disabled={
+                !newClient.name ||
+                !newClient.email ||
+                !newClient.company ||
+                creatingClient ||
+                (!newClientDriveExistingFolder && !!newClientDriveFolderName.trim() && !newClientDriveParentFolder.trim())
+              }
+            >
               {creatingClient ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
               {creatingClient ? 'Creating...' : 'Create & Send Invite'}
             </Button>

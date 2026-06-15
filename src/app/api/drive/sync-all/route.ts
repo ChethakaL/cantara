@@ -1,6 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
-  ensureClientDriveFolder,
   ensureClientDriveSubfolder,
   saveGeneratedReportToDrive,
   uploadClientDocumentToDrive,
@@ -29,6 +28,7 @@ type DriveSyncSummary = {
   reportsArchived: number;
   errors: Array<{ clientId: string; message: string }>;
   logs: string[];
+  skippedMissingFolder: number;
 };
 
 type DriveSyncJob = {
@@ -50,6 +50,7 @@ const emptySummary = (): DriveSyncSummary => ({
   reportsArchived: 0,
   errors: [],
   logs: [],
+  skippedMissingFolder: 0,
 });
 
 const globalForDriveSync = globalThis as typeof globalThis & {
@@ -77,6 +78,13 @@ function safeFileName(input: string) {
 function addLog(job: DriveSyncJob, message: string) {
   const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   job.summary.logs = [`[${timestamp}] ${message}`, ...job.summary.logs].slice(0, 20);
+}
+
+function extractDriveFolderId(value: unknown) {
+  if (typeof value !== "string") return null;
+  const folderMatch = value.match(/\/folders\/([^/?#]+)/);
+  if (folderMatch?.[1]) return folderMatch[1];
+  return /^[a-zA-Z0-9_-]{10,}$/.test(value.trim()) ? value.trim() : null;
 }
 
 function clientDisplayName(client: any) {
@@ -285,9 +293,10 @@ async function mirrorDocuments(client: any, folderId: string) {
   return count;
 }
 
-async function runDriveSync(job: DriveSyncJob) {
+async function runDriveSync(job: DriveSyncJob, clientId?: string | null) {
   try {
     const clients = await prisma.clientProfile.findMany({
+      where: clientId ? { id: clientId } : undefined,
       include: {
         User: true,
         ClientDocument: true,
@@ -305,7 +314,9 @@ async function runDriveSync(job: DriveSyncJob) {
     job.summary = emptySummary();
     job.summary.totalClients = clients.length;
     job.summary.phase = "Starting Google Drive sync";
-    job.message = "Starting Google Drive sync. This can take more than 10 minutes for clients with many reports.";
+    job.message = clientId
+      ? "Starting Google Drive sync for this client."
+      : "Starting Google Drive sync. This can take more than 10 minutes for clients with many reports.";
 
     for (const client of clients) {
       const name = clientDisplayName(client);
@@ -314,21 +325,17 @@ async function runDriveSync(job: DriveSyncJob) {
 
       job.summary.clients += 1;
       job.summary.currentClientName = clientDisplayName(client);
-      job.summary.phase = "Creating or finding client folder";
+      job.summary.phase = "Checking assigned client folder";
       job.message = `Syncing ${job.summary.currentClientName} (${job.summary.clients}/${job.summary.totalClients})...`;
       try {
-        const folder = await ensureClientDriveFolder({
-          clientName: client.User?.name || client.businessName,
-          clientId: client.id,
-        });
-        const folderUrl = folder.url;
-        await prisma.clientProfile.update({
-          where: { id: client.id },
-          data: { driveFolderId: folderUrl },
-        });
+        const folderId = extractDriveFolderId(client.driveFolderId);
+        if (!folderId) {
+          job.summary.skippedMissingFolder += 1;
+          addLog(job, `Skipped ${name}: no Google Drive folder set`);
+          continue;
+        }
         job.summary.foldersCreatedOrFound += 1;
 
-        const folderId = folder.id;
         job.summary.phase = "Uploading client documents";
         job.summary.documentsMirrored += await mirrorDocuments(client, folderId);
         job.summary.phase = "Generating and uploading report PDFs";
@@ -345,7 +352,7 @@ async function runDriveSync(job: DriveSyncJob) {
     job.finishedAt = new Date().toISOString();
     job.summary.currentClientName = null;
     job.summary.phase = "Complete";
-    job.message = `Sync complete: ${job.summary.foldersCreatedOrFound} client folders, ${job.summary.documentsMirrored} documents, ${job.summary.reportsArchived} reports.`;
+    job.message = `Sync complete: ${job.summary.foldersCreatedOrFound} assigned folders, ${job.summary.documentsMirrored} documents, ${job.summary.reportsArchived} reports.`;
   } catch (error) {
     console.error("Drive sync all error:", error);
     job.status = "error";
@@ -355,23 +362,26 @@ async function runDriveSync(job: DriveSyncJob) {
   }
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const existing = currentJob();
   if (existing.status === "running") {
     return NextResponse.json(existing);
   }
+
+  const body = await req.json().catch(() => ({}));
+  const clientId = typeof body.clientId === "string" && body.clientId.trim() ? body.clientId.trim() : null;
 
   const job: DriveSyncJob = {
     id: `drive-sync-${Date.now()}`,
     status: "running",
     startedAt: new Date().toISOString(),
     finishedAt: null,
-    message: "Google Drive sync started. This can take more than 10 minutes.",
+    message: clientId ? "Client Google Drive sync started." : "Google Drive sync started. This can take more than 10 minutes.",
     summary: emptySummary(),
   };
   globalForDriveSync.cantaraDriveSyncJob = job;
 
-  void runDriveSync(job);
+  void runDriveSync(job, clientId);
 
   return NextResponse.json(job, { status: 202 });
 }

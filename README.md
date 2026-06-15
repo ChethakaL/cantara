@@ -70,7 +70,7 @@ Everything that previously required Monday.com is now native to the admin portal
 /api/chat                  Message persistence
 /api/auth/nylas/connect    Start Nylas Google OAuth
 /api/auth/nylas/callback   OAuth callback → session + Drive access
-/api/drive/create-folder   Create Google Drive folder tree per client
+/api/drive/create-folder   Create a named client Drive folder inside an admin-selected parent folder
 ```
 
 ---
@@ -97,11 +97,11 @@ Everything that previously required Monday.com is now native to the admin portal
 - **Workstream provisioning** from admin side → controls which documents client sees
 - **Chat widget**: bottom-right floating button, admin team chat (Slack-style), client gets email notification badge
 
-### Google Drive Integration (via Nylas)
-- Admin signs in with Google via Nylas OAuth
-- On client provision + save: creates `Cantara — {ClientName}` folder with 5 subfolders
-- Drive URL stored on client record, accessible from Client Management tab
-- In demo mode (no Nylas keys): generates mock Drive URL
+### Google Drive Integration
+- Admin signs in with Google from the admin dashboard
+- Client Management stores a selected Drive folder URL on each client record
+- Admins can either paste an existing client folder URL/ID or create a named folder inside a parent folder they choose
+- Drive sync uploads documents and generated reports only for clients with an assigned Drive folder
 
 ---
 

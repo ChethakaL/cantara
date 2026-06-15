@@ -605,14 +605,13 @@ export async function ensureClientDriveSubfolder(clientFolderId: string, name: s
   return ensureFolder(name, clientFolderId);
 }
 
-export async function ensureClientDriveFolder(args: { clientName: string; clientId: string }) {
+export async function ensureClientDriveFolder(args: { clientName: string; clientId: string; parentFolderId?: string }) {
   const connection = await getGoogleDriveConnection();
   if (!connection || connection.status !== "ACTIVE" || connection.is_disabled) {
     throw new Error("Google Drive is not connected");
   }
 
-  const root = await ensureFolder("Cantara Clients");
-  const clientFolder = await ensureFolder(args.clientName, root.id);
+  const clientFolder = await ensureFolder(args.clientName, args.parentFolderId);
   await Promise.all([
     ensureFolder("Client Uploads", clientFolder.id),
     ensureFolder("Generated Reports", clientFolder.id),
