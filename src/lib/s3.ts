@@ -1,9 +1,10 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+// Prefer AWS_S3_REGION so AWS_REGION can stay us-east-1 for Bedrock without breaking S3.
 const region =
-  process.env.AWS_REGION ||
   process.env.AWS_S3_REGION ||
+  process.env.AWS_REGION ||
   process.env.AWS_DEFAULT_REGION ||
   "us-east-1";
 const endpoint =
