@@ -117,6 +117,8 @@ export default function AdminDashboard() {
   const [loadingClients, setLoadingClients] = useState(true)
   const [search, setSearch] = useState('')
   const [adding, setAdding] = useState(false)
+  const [creatingClient, setCreatingClient] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [newClient, setNewClient] = useState({
     name: '',
     email: '',
@@ -214,11 +216,20 @@ export default function AdminDashboard() {
   const refresh = () => getClients().then(setClients)
 
   const handleAddClient = async () => {
-    if (!newClient.name || !newClient.email) return
-    await createClient({ ...newClient, advisorName: adminName })
-    refresh()
-    setAdding(false)
-    setNewClient({ name: '', email: '', company: '', phone: '', businessCategory: '', propertyOwnership: '' })
+    if (!newClient.name || !newClient.email || !newClient.company || creatingClient) return
+    setCreatingClient(true)
+    try {
+      await createClient({ ...newClient, advisorName: adminName })
+      refresh()
+      setAdding(false)
+      setNewClient({ name: '', email: '', company: '', phone: '', businessCategory: '', propertyOwnership: '' })
+      setToast({ message: 'Client created and invite email sent', type: 'success' })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create client'
+      setToast({ message, type: 'error' })
+    } finally {
+      setCreatingClient(false)
+    }
   }
 
   const connectDrive = async () => {
@@ -627,12 +638,27 @@ export default function AdminDashboard() {
           />
           <div className="flex gap-3 justify-end pt-2">
             <Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
-            <Button onClick={handleAddClient} disabled={!newClient.name || !newClient.email || !newClient.company}>
-              <Mail className="w-4 h-4" /> Create & Send Invite
+            <Button onClick={handleAddClient} disabled={!newClient.name || !newClient.email || !newClient.company || creatingClient}>
+              {creatingClient ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+              {creatingClient ? 'Creating...' : 'Create & Send Invite'}
             </Button>
           </div>
         </div>
       </Modal>
+
+      {toast && (
+        <div
+          className={`fixed bottom-8 right-8 z-[100] px-6 py-4 rounded-2xl shadow-2xl border flex items-center gap-3 max-w-md ${
+            toast.type === 'success'
+              ? 'bg-stone-900 text-white border-stone-800'
+              : 'bg-red-50 text-red-700 border-red-200'
+          }`}
+        >
+          <div className={`w-2 h-2 rounded-full shrink-0 ${toast.type === 'success' ? 'bg-amber-400' : 'bg-red-500'}`} />
+          <p className="text-sm font-medium">{toast.message}</p>
+          <button type="button" onClick={() => setToast(null)} className="ml-2 opacity-50 hover:opacity-100 shrink-0">×</button>
+        </div>
+      )}
     </div>
   )
 }

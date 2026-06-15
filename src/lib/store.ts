@@ -208,12 +208,16 @@ export async function saveClient(client: Partial<Client>) {
   }
 }
 
-export async function createClient(data: Partial<Client>): Promise<Client> {
+export async function createClient(data: Partial<Client> & { advisorName?: string }): Promise<Client> {
   const res = await fetch('/api/clients', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
+  if (!res.ok) {
+    const message = (await res.text()).trim() || 'Failed to create client'
+    throw new Error(message)
+  }
   return await res.json();
 }
 

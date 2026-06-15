@@ -345,7 +345,7 @@ export default function ClientManager({ client: initial, onSaved }: {
     const existingSections = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object')
       ? client.sectionSubmissions
       : {}
-    const mergedSectionSubmissions = { ...existingSections }
+    const mergedSectionSubmissions: Record<string, unknown> = { ...existingSections }
     if (showOwner2) {
       mergedSectionSubmissions.owner2 = {
         submittedAt: (existingSections.owner2 as any)?.submittedAt || now,
@@ -368,7 +368,7 @@ export default function ClientManager({ client: initial, onSaved }: {
       ...client,
       provisionedAt: isFirstProvision ? now : client.provisionedAt,
       driveFolder,
-      sectionSubmissions: mergedSectionSubmissions,
+      sectionSubmissions: mergedSectionSubmissions as Client['sectionSubmissions'],
       propertyOwnership,
       workstreamAgents: clientSpecificAgents.map(agent => ({ id: agent.agentId, ...agent })),
     }

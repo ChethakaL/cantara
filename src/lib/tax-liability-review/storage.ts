@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 
 export type TaxLiabilityReportRecord = {
@@ -49,7 +50,13 @@ async function readSectionSubmission(clientId: string): Promise<TaxLiabilityRepo
 
 async function writeSectionSubmission(
   clientId: string,
-  data: Omit<TaxLiabilityReportRecord, 'id' | 'clientId'> & { id?: string },
+  data: {
+    markdown: string
+    documentNames: string[]
+    metadata?: unknown
+    id?: string
+    createdAt?: Date | string
+  },
 ): Promise<TaxLiabilityReportRecord> {
   const client = await prisma.clientProfile.findUnique({
     where: { id: clientId },
@@ -66,7 +73,11 @@ async function writeSectionSubmission(
     markdown: data.markdown,
     documentNames: data.documentNames,
     metadata: data.metadata,
-    createdAt: typeof existing?.createdAt === 'string' ? existing.createdAt : now,
+    createdAt: typeof data.createdAt === 'string'
+      ? data.createdAt
+      : typeof existing?.createdAt === 'string'
+        ? existing.createdAt
+        : now,
     updatedAt: now,
   }
 
@@ -76,7 +87,7 @@ async function writeSectionSubmission(
       sectionSubmissions: {
         ...submissions,
         [SECTION_KEY]: next,
-      },
+      } as Prisma.InputJsonValue,
     },
   })
 
@@ -94,7 +105,7 @@ async function deleteSectionSubmission(clientId: string) {
   delete submissions[SECTION_KEY]
   await prisma.clientProfile.update({
     where: { id: clientId },
-    data: { sectionSubmissions: submissions },
+    data: { sectionSubmissions: submissions as Prisma.InputJsonValue },
   })
 }
 
