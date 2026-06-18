@@ -611,6 +611,7 @@ export default function ClientDashboard() {
                   }}
                   deletingTeamMemberId={deletingTeamMemberId}
                   isTeamMemberSession={isTeamMemberSession}
+                  sessionEmail={sessionEmail}
                   sectionDeadlines={sectionDeadlines}
                 />
               )}
@@ -1113,6 +1114,7 @@ function AssignTab({
   cancelEditingTeamMember,
   deletingTeamMemberId,
   isTeamMemberSession,
+  sessionEmail,
   sectionDeadlines,
 }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
@@ -1134,12 +1136,34 @@ function AssignTab({
   cancelEditingTeamMember: () => void
   deletingTeamMemberId: string | null
   isTeamMemberSession: boolean
+  sessionEmail: string
   sectionDeadlines: Record<string, string>
 }) {
-  const [subView, setSubView] = useState<'yesno' | 'assign'>('yesno')
+  const [subView, setSubView] = useState<'yesno' | 'assign' | 'assigned'>('yesno')
   const diligenceDocs = categories.flatMap(c => c.documents)
   const allDocs = [...valuationDocs, ...diligenceDocs]
   const assignableDocs = allDocs.filter(d => d.type === 'required' || valuationDocs.some(v => v.id === d.id) || getStatus(d.id).hasDoc === true)
+  const assignedDocs = assignableDocs.filter(doc => Boolean(getStatus(doc.id).assignedTo))
+  const currentTeamMember = teamMembers.find(member => member.email.toLowerCase() === sessionEmail.toLowerCase())
+  const currentAssigneeValues = currentTeamMember
+    ? [currentTeamMember.name, currentTeamMember.email]
+    : ['me', client.name, client.email]
+  const isAssignedToMe = (docId: string) => {
+    const assignedTo = getStatus(docId).assignedTo?.toLowerCase()
+    return Boolean(assignedTo && currentAssigneeValues.some(value => value.toLowerCase() === assignedTo))
+  }
+  const myAssignedDocs = assignedDocs.filter(doc => isAssignedToMe(doc.id))
+  const otherAssignedDocs = assignedDocs.filter(doc => !isAssignedToMe(doc.id))
+  const otherDocsByAssignee = otherAssignedDocs.reduce<Array<{ assignee: string; documents: typeof otherAssignedDocs }>>((groups, doc) => {
+    const assignee = getStatus(doc.id).assignedTo || 'Unassigned'
+    const existingGroup = groups.find(group => group.assignee.toLowerCase() === assignee.toLowerCase())
+    if (existingGroup) {
+      existingGroup.documents.push(doc)
+    } else {
+      groups.push({ assignee, documents: [doc] })
+    }
+    return groups
+  }, [])
   const answeredAll = diligenceDocs
     .filter(d => d.type !== 'required')
     .every(d => getStatus(d.id).hasDoc !== null || getStatus(d.id).notApplicable)
@@ -1148,14 +1172,18 @@ function AssignTab({
     <div className="space-y-4">
       {/* Step switcher */}
       <div className="bg-white rounded-2xl border border-slate-200 p-1 flex gap-1">
-        {(['yesno', 'assign'] as const).map(v => (
+        {(['yesno', 'assign', 'assigned'] as const).map(v => (
           <button
             key={v}
             onClick={() => setSubView(v)}
             className={`flex-1 py-2.5 rounded-xl text-xs font-medium transition-all ${subView === v ? 'text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
             style={subView === v ? { background: '#0d1829' } : {}}
           >
-            {v === 'yesno' ? '1 — Tell us which documents you have' : '2 — Assign documents to yourself or another team member'}
+            {v === 'yesno'
+              ? '1 — Tell us which documents you have'
+              : v === 'assign'
+                ? '2 — Assign documents'
+                : 'Assigned documents'}
             {v === 'assign' && allAssigned && <CheckCircle className="w-3 h-3 text-emerald-400 inline ml-1.5" />}
           </button>
         ))}
@@ -1357,6 +1385,81 @@ function AssignTab({
               )}
             </>
           )}
+        </div>
+      )}
+
+      {subView === 'assigned' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 leading-relaxed">
+            Track the documents assigned to you and the upload progress for documents assigned to other team members.
+          </div>
+          <AssignedDocumentStatusList
+            title="Assigned to me"
+            emptyMessage="No documents are assigned to you yet."
+            documents={myAssignedDocs}
+            getStatus={getStatus}
+          />
+          {otherDocsByAssignee.length === 0 ? (
+            <AssignedDocumentStatusList
+              title="Assigned to other team members"
+              emptyMessage="No documents are assigned to other team members yet."
+              documents={[]}
+              getStatus={getStatus}
+            />
+          ) : (
+            otherDocsByAssignee.map(group => (
+              <AssignedDocumentStatusList
+                key={group.assignee.toLowerCase()}
+                title={`Assigned to ${group.assignee}`}
+                emptyMessage=""
+                documents={group.documents}
+                getStatus={getStatus}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AssignedDocumentStatusList({
+  title,
+  emptyMessage,
+  documents,
+  getStatus,
+}: {
+  title: string
+  emptyMessage: string
+  documents: Array<{ id: string; name: string; description?: string }>
+  getStatus: (id: string) => DocumentStatus
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+        <h4 className="text-sm font-semibold text-slate-700">{title}</h4>
+        <span className="text-xs text-slate-400">{documents.length} {documents.length === 1 ? 'document' : 'documents'}</span>
+      </div>
+      {documents.length === 0 ? (
+        <p className="px-5 py-6 text-center text-sm text-slate-400">{emptyMessage}</p>
+      ) : (
+        <div className="divide-y divide-slate-100">
+          {documents.map(doc => {
+            const status = getStatus(doc.id)
+            const uploaded = Boolean(status.fileName || status.uploadedAt)
+            return (
+              <div key={doc.id} className="flex items-center gap-4 px-5 py-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-800">{doc.name}</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  uploaded ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                }`}>
+                  {uploaded ? 'Uploaded' : 'Waiting'}
+                </span>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
