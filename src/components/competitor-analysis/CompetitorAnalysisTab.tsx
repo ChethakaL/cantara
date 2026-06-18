@@ -884,12 +884,34 @@ function ReportView({
   deleting,
   onResearch,
   researchingPlaceId,
+  isEditingSummaries,
+  setIsEditingSummaries,
+  draftExecutiveSummary,
+  setDraftExecutiveSummary,
+  draftMarketSummary,
+  setDraftMarketSummary,
+  draftPositioningSummary,
+  setDraftPositioningSummary,
+  savingSummaries,
+  handleSaveSummaries,
+  handleStartEditingSummaries,
 }: {
   report: CompetitorAnalysisReport;
   onDelete: () => void;
   deleting: boolean;
   onResearch: (competitor: DiscoveredCompetitorItem) => void;
   researchingPlaceId: string | null;
+  isEditingSummaries: boolean;
+  setIsEditingSummaries: (v: boolean) => void;
+  draftExecutiveSummary: string;
+  setDraftExecutiveSummary: (v: string) => void;
+  draftMarketSummary: string;
+  setDraftMarketSummary: (v: string) => void;
+  draftPositioningSummary: string;
+  setDraftPositioningSummary: (v: string) => void;
+  savingSummaries: boolean;
+  handleSaveSummaries: () => void;
+  handleStartEditingSummaries: () => void;
 }) {
   const [serviceEditMode, setServiceEditMode] = useState(false);
   // Build initial service overrides from report data
@@ -940,6 +962,20 @@ function ReportView({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isEditingSummaries ? (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setIsEditingSummaries(false)} disabled={savingSummaries}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSaveSummaries} disabled={savingSummaries}>
+                {savingSummaries ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" variant="outline" onClick={handleStartEditingSummaries}>
+              Edit Report
+            </Button>
+          )}
           <ExportReportButton
             html={buildCompetitorReportHtml(report)}
             fileName={`competitor-analysis-${report.businessName.replace(/\s+/g, '-').toLowerCase()}`}
@@ -976,18 +1012,52 @@ function ReportView({
       <CompetitorCoverageMap report={report} />
 
       <Card className="p-5 space-y-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Executive Summary</p>
-            <p className="text-sm text-slate-700 leading-7 mt-3">{report.executiveSummary}</p>
+        {isEditingSummaries ? (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Executive Summary</label>
+              <Textarea
+                className="w-full text-sm leading-6"
+                rows={5}
+                value={draftExecutiveSummary}
+                onChange={(e) => setDraftExecutiveSummary(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Market Summary</label>
+              <Textarea
+                className="w-full text-sm leading-6"
+                rows={5}
+                value={draftMarketSummary}
+                onChange={(e) => setDraftMarketSummary(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Positioning Summary</label>
+              <Textarea
+                className="w-full text-sm leading-6"
+                rows={5}
+                value={draftPositioningSummary}
+                onChange={(e) => setDraftPositioningSummary(e.target.value)}
+              />
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Market Summary</p>
-            <p className="text-sm text-slate-700 leading-7 mt-3">{report.marketSummary}</p>
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Positioning Summary</p>
-            <p className="text-sm text-slate-700 leading-7 mt-3">{report.positioningSummary}</p>
-          </div>
+        ) : (
+          <>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Executive Summary</p>
+              <p className="text-sm text-slate-700 leading-7 mt-3">{report.executiveSummary}</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Market Summary</p>
+              <p className="text-sm text-slate-700 leading-7 mt-3">{report.marketSummary}</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Positioning Summary</p>
+              <p className="text-sm text-slate-700 leading-7 mt-3">{report.positioningSummary}</p>
+            </div>
+          </>
+        )}
       </Card>
 
       {/* Subject Business section removed — displayed in other sections */}
@@ -1177,6 +1247,50 @@ export default function CompetitorAnalysisTab({
   const [log, setLog] = useState<LogEntry[]>([]);
   const [currentPhase, setCurrentPhase] = useState<'research' | 'analyze' | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  const [isEditingSummaries, setIsEditingSummaries] = useState(false);
+  const [draftExecutiveSummary, setDraftExecutiveSummary] = useState('');
+  const [draftMarketSummary, setDraftMarketSummary] = useState('');
+  const [draftPositioningSummary, setDraftPositioningSummary] = useState('');
+  const [savingSummaries, setSavingSummaries] = useState(false);
+
+  const handleSaveSummaries = async () => {
+    if (!report || !savedAnalysis) return;
+    setSavingSummaries(true);
+    try {
+      const nextReport: CompetitorAnalysisReport = {
+        ...report,
+        executiveSummary: draftExecutiveSummary,
+        marketSummary: draftMarketSummary,
+        positioningSummary: draftPositioningSummary,
+      };
+
+      const updated = await updateCompetitorAnalysis(savedAnalysis.id, {
+        report: JSON.stringify(nextReport),
+        parsed: nextReport,
+      });
+
+      if (updated) {
+        setReport(nextReport);
+        setSavedAnalysis(updated);
+        setIsEditingSummaries(false);
+      } else {
+        throw new Error('Failed to update competitor analysis in database.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save edits.');
+    } finally {
+      setSavingSummaries(false);
+    }
+  };
+
+  const handleStartEditingSummaries = () => {
+    if (!report) return;
+    setDraftExecutiveSummary(report.executiveSummary || '');
+    setDraftMarketSummary(report.marketSummary || '');
+    setDraftPositioningSummary(report.positioningSummary || '');
+    setIsEditingSummaries(true);
+  };
 
   useEffect(() => {
     setForm((current) => ({
@@ -1737,6 +1851,17 @@ export default function CompetitorAnalysisTab({
           deleting={deleting || saving}
           onResearch={handleResearchCompetitor}
           researchingPlaceId={researchingPlaceId}
+          isEditingSummaries={isEditingSummaries}
+          setIsEditingSummaries={setIsEditingSummaries}
+          draftExecutiveSummary={draftExecutiveSummary}
+          setDraftExecutiveSummary={setDraftExecutiveSummary}
+          draftMarketSummary={draftMarketSummary}
+          setDraftMarketSummary={setDraftMarketSummary}
+          draftPositioningSummary={draftPositioningSummary}
+          setDraftPositioningSummary={setDraftPositioningSummary}
+          savingSummaries={savingSummaries}
+          handleSaveSummaries={handleSaveSummaries}
+          handleStartEditingSummaries={handleStartEditingSummaries}
         />
       )}
     </div>

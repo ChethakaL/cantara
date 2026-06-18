@@ -24,6 +24,7 @@ import { buildPricingAnalysisReportHtml } from '@/lib/report-export/build-pricin
 import {
   groupRowsByPricingVertical,
   PRICING_SERVICE_VERTICAL_ORDER,
+  classifyPricingService,
 } from '@/lib/pricing-analysis/service-vertical'
 
 const STATUS_COLORS: Record<string, { badge: 'red' | 'green' | 'blue' | 'slate'; label: string }> = {
@@ -687,9 +688,8 @@ export default function PricingAnalysisTab({
                             <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Service</th>
                             <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Basis</th>
                             <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Your Price</th>
-                            <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Norm. Daily</th>
                             {competitorNames.map(name => (
-                              <th key={`${vertical}-${name}-listed`} colSpan={2} className="text-center px-3 py-2.5 font-semibold text-slate-600 bg-emerald-50 border-l border-slate-100">
+                              <th key={`${vertical}-${name}-listed`} className="text-center px-3 py-2.5 font-semibold text-slate-600 bg-emerald-50 border-l border-slate-100">
                                 {name}
                               </th>
                             ))}
@@ -698,11 +698,9 @@ export default function PricingAnalysisTab({
                             <th className="px-3 py-1" />
                             <th className="px-3 py-1" />
                             <th className="px-3 py-1 bg-yellow-50" />
-                            <th className="px-3 py-1 bg-yellow-50" />
                             {competitorNames.map(name => (
                               <Fragment key={`${vertical}-${name}-sub`}>
-                                <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">Listed</th>
-                                <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50">Norm.</th>
+                                <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">Price</th>
                               </Fragment>
                             ))}
                             {editMode && <th className="w-10 px-2 py-1" />}
@@ -723,9 +721,6 @@ export default function PricingAnalysisTab({
                                 <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
                                   <EditableCell value={row.sellerPrice} onChange={v => updateMatrixRow(ri, 'sellerPrice', v)} editMode={editMode} align="right" />
                                 </td>
-                                <td className="px-3 py-2.5 text-right font-semibold bg-yellow-50 text-slate-900">
-                                  <EditableCell value={row.sellerNormalized} onChange={v => updateMatrixRow(ri, 'sellerNormalized', v)} editMode={editMode} align="right" />
-                                </td>
                                 {competitorNames.map(name => {
                                   const comp = compMap.get(name)
                                   return (
@@ -734,14 +729,6 @@ export default function PricingAnalysisTab({
                                         <EditableCell
                                           value={comp?.listedPrice ?? ''}
                                           onChange={v => updateMatrixCompetitor(ri, name, 'listedPrice', v)}
-                                          editMode={editMode}
-                                          align="right"
-                                        />
-                                      </td>
-                                      <td className="px-3 py-2.5 text-right bg-emerald-50/50 text-slate-700">
-                                        <EditableCell
-                                          value={comp?.normalized ?? ''}
-                                          onChange={v => updateMatrixCompetitor(ri, name, 'normalized', v)}
                                           editMode={editMode}
                                           align="right"
                                         />
@@ -765,7 +752,7 @@ export default function PricingAnalysisTab({
                           })}
                           {editMode && groupedRows.length === 0 && (
                             <tr>
-                              <td colSpan={4 + competitorNames.length * 2 + 1} className="px-4 py-6 text-center text-sm text-slate-400">
+                              <td colSpan={3 + competitorNames.length + (editMode ? 1 : 0)} className="px-4 py-6 text-center text-sm text-slate-400">
                                 No {vertical.toLowerCase()} services yet. Add a row from the Other section or run analysis.
                               </td>
                             </tr>
@@ -792,9 +779,9 @@ export default function PricingAnalysisTab({
               </div>
               {editMode && (
                 <button
-                  type="button"
-                  onClick={addSummaryRow}
-                  className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
+                   type="button"
+                   onClick={addSummaryRow}
+                   className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Add row
@@ -810,7 +797,7 @@ export default function PricingAnalysisTab({
                     <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Comp. Average</th>
                     <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Variance</th>
                     <th className="text-center px-4 py-2.5 font-semibold text-slate-600">Status</th>
-                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600">Est. Annual Uplift</th>
+                    <th className="text-right px-4 py-2.5 font-semibold text-slate-600 font-medium opacity-50 select-none pointer-events-none hidden">Est. Annual Uplift</th>
                     {editMode && <th className="w-10 px-2 py-2.5" />}
                   </tr>
                 </thead>
@@ -861,7 +848,7 @@ export default function PricingAnalysisTab({
                             <Badge color={statusConfig.badge}>{statusConfig.label}</Badge>
                           )}
                         </td>
-                        <td className="px-4 py-2.5 text-right">
+                        <td className="px-4 py-2.5 text-right hidden">
                           <EditableCell value={row.estAnnualUplift} onChange={v => updateSummaryRow(i, 'estAnnualUplift', v)} editMode={editMode} align="right" />
                         </td>
                         {editMode && (
@@ -881,7 +868,7 @@ export default function PricingAnalysisTab({
                   })}
                   {editMode && (result.pricingSummary ?? []).length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">
+                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
                         No summary rows yet. Click &ldquo;Add row&rdquo; to add one.
                       </td>
                     </tr>
@@ -892,25 +879,65 @@ export default function PricingAnalysisTab({
           </Card>
         )}
 
-        {/* Total Estimated Uplift */}
-        <Card className="p-5 border-emerald-200 bg-emerald-50/30">
-          <div className="flex items-center gap-3">
-            <DollarSign className="w-5 h-5 text-emerald-600" />
-            {editMode ? (
-              <input
-                type="text"
-                value={result.totalEstimatedUplift}
-                onChange={e => setResult({ ...result, totalEstimatedUplift: e.target.value })}
-                className="flex-1 border border-amber-300 rounded-lg px-3 py-2 text-lg font-bold text-emerald-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
-              />
-            ) : (
-              <>
-                <span className="text-lg font-bold text-emerald-700">{result.totalEstimatedUplift}</span>
-                <span className="text-xs text-emerald-600">Total Estimated Annual Uplift</span>
-              </>
-            )}
+        {/* Pricing Comparison Charts */}
+        {(!editMode && (result.priceMatrix ?? []).length > 0) && (
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">Pricing Comparison Charts</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {['Boarding', 'Daycare', 'Grooming', 'Training'].map(vertical => {
+                const verticalRows = (result.priceMatrix ?? []).filter(row => classifyPricingService(row.service) === vertical)
+                if (verticalRows.length === 0) return null
+
+                return (
+                  <Card key={vertical} className="p-5 space-y-4">
+                    <h4 className="text-xs font-bold uppercase text-slate-500 tracking-wide">{vertical} Price Comparison</h4>
+                    <div className="space-y-4">
+                      {verticalRows.map((row, idx) => {
+                        const parseVal = (val: string) => {
+                          const num = parseFloat(val.replace(/[^0-9.]/g, ''))
+                          return isNaN(num) ? 0 : num
+                        }
+                        const yourVal = parseVal(row.sellerPrice)
+                        const compVals = row.competitors.map(c => ({ name: c.name, val: parseVal(c.listedPrice) }))
+                        const maxVal = Math.max(yourVal, ...compVals.map(c => c.val), 1)
+
+                        return (
+                          <div key={idx} className="space-y-2 border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                            <div className="text-xs font-semibold text-slate-800">{row.service} ({row.basis})</div>
+                            {/* Your Price bar */}
+                            <div className="flex items-center gap-2">
+                              <div className="w-24 text-[10px] text-slate-500 truncate font-medium">Your Price</div>
+                              <div className="flex-1 h-3.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-amber-500"
+                                  style={{ width: `${(yourVal / maxVal) * 100}%` }}
+                                />
+                              </div>
+                              <div className="text-[10px] font-bold text-slate-700 w-12 text-right">${yourVal}</div>
+                            </div>
+                            {/* Competitors bars */}
+                            {compVals.map((cv, ci) => (
+                              <div key={ci} className="flex items-center gap-2">
+                                <div className="w-24 text-[10px] text-slate-400 truncate">{cv.name}</div>
+                                <div className="flex-1 h-3.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-slate-400"
+                                    style={{ width: `${(cv.val / maxVal) * 100}%` }}
+                                  />
+                                </div>
+                                <div className="text-[10px] text-slate-600 w-12 text-right">${cv.val || 'N/A'}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </Card>
+                )
+              })}
+            </div>
           </div>
-        </Card>
+        )}
 
         {/* Flags */}
         <Card className="p-5">

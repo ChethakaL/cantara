@@ -428,10 +428,20 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-2">Investment Thesis Bullets</p>
         <div className="space-y-2">
           {data.investmentThesis.map((b, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="text-xs text-slate-400 w-4">{i + 1}.</span>
-              <Input value={b} onChange={e => setThesisBullet(i, e.target.value)} className="flex-1" />
-              <button onClick={() => { const arr = [...data.investmentThesis]; arr.splice(i, 1); set('investmentThesis', arr) }} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className="text-xs text-slate-400 w-4 mt-2.5">{i + 1}.</span>
+              <textarea
+                value={b}
+                onChange={e => setThesisBullet(i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
+                rows={2}
+              />
+              <button
+                onClick={() => { const arr = [...data.investmentThesis]; arr.splice(i, 1); set('investmentThesis', arr) }}
+                className="text-slate-300 hover:text-rose-400 mt-2.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => set('investmentThesis', [...data.investmentThesis, ''])}>
@@ -462,9 +472,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Financial Highlights</p>
         <div className="space-y-2">
           {(data.financialHighlights || []).map((b, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input value={b} onChange={e => setArrayItem('financialHighlights', i, e.target.value)} className="flex-1" />
-              <button onClick={() => removeArrayItem('financialHighlights', i)} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className="text-xs text-slate-400 w-4 mt-2.5">{i + 1}.</span>
+              <textarea
+                value={b}
+                onChange={e => setArrayItem('financialHighlights', i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
+                rows={2}
+              />
+              <button onClick={() => removeArrayItem('financialHighlights', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => addArrayItem('financialHighlights')}>
@@ -548,9 +564,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Normalization Notes</p>
         <div className="space-y-2">
           {(data.normalizationNotes || []).map((n, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input value={n} onChange={e => setArrayItem('normalizationNotes', i, e.target.value)} className="flex-1" />
-              <button onClick={() => removeArrayItem('normalizationNotes', i)} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className="text-xs text-slate-400 w-4 mt-2.5">{i + 1}.</span>
+              <textarea
+                value={n}
+                onChange={e => setArrayItem('normalizationNotes', i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
+                rows={2}
+              />
+              <button onClick={() => removeArrayItem('normalizationNotes', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => addArrayItem('normalizationNotes')}>
@@ -634,9 +656,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-4">Staffing Overview</p>
         <div className="space-y-2">
           {(data.staffingOverview || []).map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input value={s} onChange={e => setArrayItem('staffingOverview', i, e.target.value)} className="flex-1" />
-              <button onClick={() => removeArrayItem('staffingOverview', i)} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className="text-xs text-slate-400 w-4 mt-2.5">{i + 1}.</span>
+              <textarea
+                value={s}
+                onChange={e => setArrayItem('staffingOverview', i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
+                rows={2}
+              />
+              <button onClick={() => removeArrayItem('staffingOverview', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => addArrayItem('staffingOverview')}>
@@ -647,9 +675,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-4">Technology Stack</p>
         <div className="space-y-2">
           {(data.technologyStack || []).map((t, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input value={t} onChange={e => setArrayItem('technologyStack', i, e.target.value)} className="flex-1" />
-              <button onClick={() => removeArrayItem('technologyStack', i)} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className="text-xs text-slate-400 w-4 mt-2.5">{i + 1}.</span>
+              <textarea
+                value={t}
+                onChange={e => setArrayItem('technologyStack', i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
+                rows={2}
+              />
+              <button onClick={() => removeArrayItem('technologyStack', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => addArrayItem('technologyStack')}>
@@ -660,9 +694,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-4">Marketing Overview</p>
         <div className="space-y-2">
           {(data.marketingOverview || []).map((m, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input value={m} onChange={e => setArrayItem('marketingOverview', i, e.target.value)} className="flex-1" />
-              <button onClick={() => removeArrayItem('marketingOverview', i)} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className="text-xs text-slate-400 w-4 mt-2.5">{i + 1}.</span>
+              <textarea
+                value={m}
+                onChange={e => setArrayItem('marketingOverview', i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
+                rows={2}
+              />
+              <button onClick={() => removeArrayItem('marketingOverview', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => addArrayItem('marketingOverview')}>
@@ -673,9 +713,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-4">Marketing Opportunities</p>
         <div className="space-y-2">
           {(data.marketingOpportunities || []).map((m, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input value={m} onChange={e => setArrayItem('marketingOpportunities', i, e.target.value)} className="flex-1" />
-              <button onClick={() => removeArrayItem('marketingOpportunities', i)} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className="text-xs text-slate-400 w-4 mt-2.5">{i + 1}.</span>
+              <textarea
+                value={m}
+                onChange={e => setArrayItem('marketingOpportunities', i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
+                rows={2}
+              />
+              <button onClick={() => removeArrayItem('marketingOpportunities', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => addArrayItem('marketingOpportunities')}>
@@ -689,16 +735,22 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Facility Details</p>
         <div className="space-y-2">
           {(data.facilityDetails || []).map((f, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={i} className="flex items-start gap-2 py-1">
               <Input value={f.label} placeholder="Label" onChange={e => {
                 const arr = [...data.facilityDetails]; arr[i] = { ...arr[i], label: e.target.value }; set('facilityDetails', arr)
               }} className="w-40" />
-              <Input value={f.value} placeholder="Value" onChange={e => {
-                const arr = [...data.facilityDetails]; arr[i] = { ...arr[i], value: e.target.value }; set('facilityDetails', arr)
-              }} className="flex-1" />
+              <textarea
+                value={f.value}
+                placeholder="Value"
+                onChange={e => {
+                  const arr = [...data.facilityDetails]; arr[i] = { ...arr[i], value: e.target.value }; set('facilityDetails', arr)
+                }}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[40px] leading-relaxed resize-y"
+                rows={1}
+              />
               <button onClick={() => {
                 const arr = [...data.facilityDetails]; arr.splice(i, 1); set('facilityDetails', arr)
-              }} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+              }} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => set('facilityDetails', [...data.facilityDetails, { label: '', value: '' }])}>
@@ -709,16 +761,22 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-4">Lease Details</p>
         <div className="space-y-2">
           {(data.leaseDetails || []).map((l, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={i} className="flex items-start gap-2 py-1">
               <Input value={l.label} placeholder="Label" onChange={e => {
                 const arr = [...data.leaseDetails]; arr[i] = { ...arr[i], label: e.target.value }; set('leaseDetails', arr)
               }} className="w-40" />
-              <Input value={l.value} placeholder="Value" onChange={e => {
-                const arr = [...data.leaseDetails]; arr[i] = { ...arr[i], value: e.target.value }; set('leaseDetails', arr)
-              }} className="flex-1" />
+              <textarea
+                value={l.value}
+                placeholder="Value"
+                onChange={e => {
+                  const arr = [...data.leaseDetails]; arr[i] = { ...arr[i], value: e.target.value }; set('leaseDetails', arr)
+                }}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[40px] leading-relaxed resize-y"
+                rows={1}
+              />
               <button onClick={() => {
                 const arr = [...data.leaseDetails]; arr.splice(i, 1); set('leaseDetails', arr)
-              }} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+              }} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => set('leaseDetails', [...data.leaseDetails, { label: '', value: '' }])}>
@@ -732,9 +790,15 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Competitive Intro</p>
         <div className="space-y-2">
           {(data.competitiveIntro || []).map((c, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input value={c} onChange={e => setArrayItem('competitiveIntro', i, e.target.value)} className="flex-1" />
-              <button onClick={() => removeArrayItem('competitiveIntro', i)} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className="text-xs text-slate-400 w-4 mt-2.5">{i + 1}.</span>
+              <textarea
+                value={c}
+                onChange={e => setArrayItem('competitiveIntro', i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
+                rows={2}
+              />
+              <button onClick={() => removeArrayItem('competitiveIntro', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => addArrayItem('competitiveIntro')}>
@@ -824,19 +888,25 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-4">Process Steps</p>
         <div className="space-y-2">
           {(data.processSteps || []).map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={i} className="flex items-start gap-2 py-1">
               <Input value={s.step} placeholder="Step" onChange={e => {
                 const arr = [...data.processSteps]; arr[i] = { ...arr[i], step: e.target.value }; set('processSteps', arr)
               }} className="w-20" />
               <Input value={s.title} placeholder="Title" onChange={e => {
                 const arr = [...data.processSteps]; arr[i] = { ...arr[i], title: e.target.value }; set('processSteps', arr)
               }} className="w-40" />
-              <Input value={s.description} placeholder="Description" onChange={e => {
-                const arr = [...data.processSteps]; arr[i] = { ...arr[i], description: e.target.value }; set('processSteps', arr)
-              }} className="flex-1" />
+              <textarea
+                value={s.description}
+                placeholder="Description"
+                onChange={e => {
+                  const arr = [...data.processSteps]; arr[i] = { ...arr[i], description: e.target.value }; set('processSteps', arr)
+                }}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[40px] leading-relaxed resize-y"
+                rows={1}
+              />
               <button onClick={() => {
                 const arr = [...data.processSteps]; arr.splice(i, 1); set('processSteps', arr)
-              }} className="text-slate-300 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+              }} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => set('processSteps', [...data.processSteps, { step: '', title: '', description: '' }])}>

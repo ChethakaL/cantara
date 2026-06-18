@@ -164,7 +164,7 @@ export default function ImprovementRoadmapTab({
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-slate-800">Assessment & Improvement Roadmap</h2>
+          <h2 className="text-base font-bold text-slate-800">Sales Readiness Roadmap</h2>
           <p className="text-xs text-slate-500 mt-1">{wsLabel} — Seller-Facing Sale Readiness Plan</p>
         </div>
         <div className="flex items-center gap-2">
@@ -173,7 +173,7 @@ export default function ImprovementRoadmapTab({
             {report ? 'Regenerate' : 'Generate Roadmap'}
           </Button>
           {report && (
-            <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Assessment & Improvement Roadmap.pdf`} label="Export PDF" />
+            <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Sales Readiness Roadmap.pdf`} label="Export PDF" />
           )}
         </div>
       </div>
@@ -185,7 +185,7 @@ export default function ImprovementRoadmapTab({
           <div className="flex items-start gap-4">
             <div className="mt-1 h-5 w-5 rounded-full border-2 border-slate-200 border-t-emerald-500 animate-spin" />
             <div className="flex-1">
-              <h3 className="text-sm font-bold text-slate-800">Building assessment & improvement roadmap</h3>
+              <h3 className="text-sm font-bold text-slate-800">Building Sales Readiness Roadmap</h3>
               <p className="mt-1 text-sm text-slate-500">
                 Analyzing all agent findings to create a prioritized, actionable improvement plan with sale readiness indicators. This takes 30-60 seconds.
               </p>
@@ -220,7 +220,7 @@ export default function ImprovementRoadmapTab({
           <div className="mx-auto w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
             <MapPin className="w-7 h-7 text-emerald-500" />
           </div>
-          <h3 className="text-lg font-semibold text-slate-800 mb-2">Assessment & Improvement Roadmap</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-2">Sales Readiness Roadmap</h3>
           <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
             Generate a seller-facing assessment and improvement roadmap based on all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agent findings. Shows the seller exactly what to do to become sale-ready.
           </p>

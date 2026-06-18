@@ -53,6 +53,45 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client' }: 
   const [document, setDocument] = useState<InsuranceDoc | null>(null)
   const [summary, setSummary] = useState<InsuranceSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [draftSummary, setDraftSummary] = useState<InsuranceSummary | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const saveChanges = async () => {
+    if (!draftSummary) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/insurance-review', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, summary: draftSummary }),
+        cache: 'no-store',
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Failed to update insurance review')
+      }
+      const data = await res.json()
+      setSummary(data.summary)
+      setIsEditing(false)
+    } catch (err: any) {
+      console.error('[InsuranceReviewTab] Update failed', err)
+      setError(err?.message ?? 'Failed to save edits')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const startEditing = () => {
+    setDraftSummary(summary)
+    setIsEditing(true)
+  }
+
+  const cancelEditing = () => {
+    setIsEditing(false)
+    setDraftSummary(null)
+  }
 
   const logDebug = (...args: unknown[]) => {
     console.debug('[InsuranceReviewTab]', ...args)
@@ -286,82 +325,192 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client' }: 
                 </div>
               )}
 
-              <div className="flex justify-end mb-2">
-                <ExportReportButton
-                  html={buildInsuranceReportHtml(summary, document?.fileName ?? 'insurance-claim', clientName)}
-                  fileName={`insurance-review-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-                />
-              </div>
-
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium">
-                    <CheckCircle className="w-4 h-4" />
-                    Insurance claim summary
-                  </div>
-                  {summary.status && (
-                    <Badge color={formatClaimStatus(summary.status).badgeColor}>
-                      {formatClaimStatus(summary.status).label}
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-sm text-slate-700 leading-relaxed">{summary.summary}</p>
-                {summary.status && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Claim Status:</span>
-                    <Badge color={formatClaimStatus(summary.status).badgeColor} className="text-sm px-3 py-1">
-                      {formatClaimStatus(summary.status).label}
-                    </Badge>
-                  </div>
+              <div className="flex justify-end gap-2 mb-2">
+                {isEditing ? (
+                  <>
+                    <Button size="sm" variant="outline" onClick={cancelEditing} disabled={saving}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={saveChanges} disabled={saving}>
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" onClick={startEditing}>
+                      Edit Report
+                    </Button>
+                    <ExportReportButton
+                      html={buildInsuranceReportHtml(summary, document?.fileName ?? 'insurance-claim', clientName)}
+                      fileName={`insurance-review-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+                    />
+                  </>
                 )}
               </div>
 
-              {hasStructuredFields ? (
+              {isEditing ? (
                 <div className="space-y-4">
+                  <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      Insurance claim summary
+                    </label>
+                    <textarea
+                      className="w-full rounded-lg border border-slate-200 p-2 text-sm focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                      rows={4}
+                      value={draftSummary?.summary || ''}
+                      onChange={(e) => setDraftSummary(prev => prev ? { ...prev, summary: e.target.value } : null)}
+                    />
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className={`rounded-xl border p-3 ${formatClaimStatus(summary.status).color}`}>
-                      <p className="text-[11px] uppercase tracking-wide opacity-70">Claim Status</p>
-                      <p className="text-sm font-semibold mt-1">{formatClaimStatus(summary.status).label}</p>
+                    <div className="rounded-xl border border-slate-200 p-3">
+                      <label className="block text-[11px] uppercase tracking-wide text-slate-400">Claim Status</label>
+                      <select
+                        className="rounded-lg border border-slate-200 p-2 text-sm w-full mt-1 bg-white"
+                        value={draftSummary?.status || 'unknown'}
+                        onChange={(e) => setDraftSummary(prev => prev ? { ...prev, status: e.target.value } : null)}
+                      >
+                        <option value="denied">Denied</option>
+                        <option value="in_process">In Process</option>
+                        <option value="paid_in_part">Paid in Part</option>
+                        <option value="paid_in_full">Paid in Full</option>
+                        <option value="pending">Pending</option>
+                        <option value="unknown">Unknown</option>
+                      </select>
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Incident Date</p>
-                      <p className="text-sm text-slate-700 mt-1">{summary.incidentDate || 'Unknown'}</p>
+                    <div className="rounded-xl border border-slate-200 p-3">
+                      <label className="block text-[11px] uppercase tracking-wide text-slate-400">Incident Date</label>
+                      <input
+                        type="text"
+                        className="rounded-lg border border-slate-200 p-2 text-sm w-full mt-1"
+                        value={draftSummary?.incidentDate || ''}
+                        onChange={(e) => setDraftSummary(prev => prev ? { ...prev, incidentDate: e.target.value } : null)}
+                      />
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Claim Type</p>
-                      <p className="text-sm text-slate-700 mt-1">{summary.claimType || 'Unknown'}</p>
+                    <div className="rounded-xl border border-slate-200 p-3">
+                      <label className="block text-[11px] uppercase tracking-wide text-slate-400">Claim Type</label>
+                      <input
+                        type="text"
+                        className="rounded-lg border border-slate-200 p-2 text-sm w-full mt-1"
+                        value={draftSummary?.claimType || ''}
+                        onChange={(e) => setDraftSummary(prev => prev ? { ...prev, claimType: e.target.value } : null)}
+                      />
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Cause</p>
-                      <p className="text-sm text-slate-700 mt-1">{summary.incidentCause || 'Unknown'}</p>
+                    <div className="rounded-xl border border-slate-200 p-3">
+                      <label className="block text-[11px] uppercase tracking-wide text-slate-400">Cause</label>
+                      <input
+                        type="text"
+                        className="rounded-lg border border-slate-200 p-2 text-sm w-full mt-1"
+                        value={draftSummary?.incidentCause || ''}
+                        onChange={(e) => setDraftSummary(prev => prev ? { ...prev, incidentCause: e.target.value } : null)}
+                      />
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Amount Requested</p>
-                      <p className="text-sm text-slate-700 mt-1">{summary.amountRequested || 'Unknown'}</p>
+                    <div className="rounded-xl border border-slate-200 p-3">
+                      <label className="block text-[11px] uppercase tracking-wide text-slate-400">Amount Requested</label>
+                      <input
+                        type="text"
+                        className="rounded-lg border border-slate-200 p-2 text-sm w-full mt-1"
+                        value={draftSummary?.amountRequested || ''}
+                        onChange={(e) => setDraftSummary(prev => prev ? { ...prev, amountRequested: e.target.value } : null)}
+                      />
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400">Amount Claimed</p>
-                      <p className="text-sm text-slate-700 mt-1">{summary.amountClaimed || 'Unknown'}</p>
+                    <div className="rounded-xl border border-slate-200 p-3">
+                      <label className="block text-[11px] uppercase tracking-wide text-slate-400">Amount Claimed</label>
+                      <input
+                        type="text"
+                        className="rounded-lg border border-slate-200 p-2 text-sm w-full mt-1"
+                        value={draftSummary?.amountClaimed || ''}
+                        onChange={(e) => setDraftSummary(prev => prev ? { ...prev, amountClaimed: e.target.value } : null)}
+                      />
                     </div>
                   </div>
 
-                  {summary.keyFacts && summary.keyFacts.length > 0 && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Key Facts</p>
-                      <div className="space-y-2">
-                        {summary.keyFacts.map((fact, index) => (
-                          <p key={`${fact}-${index}`} className="text-sm text-slate-700">{fact}</p>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
+                      Key Facts (one per line)
+                    </label>
+                    <textarea
+                      className="w-full rounded-lg border border-slate-200 p-2 text-sm focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                      rows={4}
+                      placeholder="One fact per line..."
+                      value={draftSummary?.keyFacts?.join('\n') || ''}
+                      onChange={(e) => setDraftSummary(prev => prev ? { ...prev, keyFacts: e.target.value.split('\n').filter(Boolean) } : null)}
+                    />
+                  </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
-                  <p className="text-sm text-slate-600">
-                    Structured fields have not been extracted for this cached review yet. Run the Insurance Review Agent to populate incident date, cause, and claim amounts.
-                  </p>
-                </div>
+                <>
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium">
+                        <CheckCircle className="w-4 h-4" />
+                        Insurance claim summary
+                      </div>
+                      {summary.status && (
+                        <Badge color={formatClaimStatus(summary.status).badgeColor}>
+                          {formatClaimStatus(summary.status).label}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-700 leading-relaxed">{summary.summary}</p>
+                    {summary.status && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Claim Status:</span>
+                        <Badge color={formatClaimStatus(summary.status).badgeColor} className="text-sm px-3 py-1">
+                          {formatClaimStatus(summary.status).label}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+
+                  {hasStructuredFields ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className={`rounded-xl border p-3 ${formatClaimStatus(summary.status).color}`}>
+                          <p className="text-[11px] uppercase tracking-wide opacity-70">Claim Status</p>
+                          <p className="text-sm font-semibold mt-1">{formatClaimStatus(summary.status).label}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-slate-400">Incident Date</p>
+                          <p className="text-sm text-slate-700 mt-1">{summary.incidentDate || 'Unknown'}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-slate-400">Claim Type</p>
+                          <p className="text-sm text-slate-700 mt-1">{summary.claimType || 'Unknown'}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-slate-400">Cause</p>
+                          <p className="text-sm text-slate-700 mt-1">{summary.incidentCause || 'Unknown'}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-slate-400">Amount Requested</p>
+                          <p className="text-sm text-slate-700 mt-1">{summary.amountRequested || 'Unknown'}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-slate-400">Amount Claimed</p>
+                          <p className="text-sm text-slate-700 mt-1">{summary.amountClaimed || 'Unknown'}</p>
+                        </div>
+                      </div>
+
+                      {summary.keyFacts && summary.keyFacts.length > 0 && (
+                        <div className="rounded-xl border border-slate-200 bg-white p-4">
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Key Facts</p>
+                          <div className="space-y-2">
+                            {summary.keyFacts.map((fact, index) => (
+                              <p key={`${fact}-${index}`} className="text-sm text-slate-700">{fact}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <p className="text-sm text-slate-600">
+                        Structured fields have not been extracted for this cached review yet. Run the Insurance Review Agent to populate incident date, cause, and claim amounts.
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (

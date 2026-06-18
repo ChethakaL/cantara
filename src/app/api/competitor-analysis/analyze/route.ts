@@ -143,6 +143,9 @@ export async function POST(req: NextRequest) {
           });
         }
 
+        // Limit deep-dive comparisons to only the 5 closest competitors listed by the client (or radius closest)
+        nearby.competitors = nearby.competitors.slice(0, 5);
+
         const subjectWebsiteResearch = await researchWebsite({
           websiteUrl: subjectLookup.subject.websiteUrl ?? formData.websiteUrl ?? null,
           businessName: formData.businessName,

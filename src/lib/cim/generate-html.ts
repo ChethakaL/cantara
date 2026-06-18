@@ -6,6 +6,15 @@ function escapeHtml(str: any): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+function formatContent(text: string): string {
+  const escaped = escapeHtml(text || '');
+  const withImages = escaped.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => {
+    const cleanUrl = url.replace(/&amp;/g, '&');
+    return `<img src="${cleanUrl}" alt="${alt}" style="max-width: 100%; border-radius: 8px; margin: 16px 0; display: block;" />`;
+  });
+  return withImages.replace(/\n/g, '<br/>');
+}
+
 export function generateCimHtml(data: CimInputData): string {
   const currentDate = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 
@@ -79,7 +88,7 @@ export function generateCimHtml(data: CimInputData): string {
   const overviewCards = overviewSections.map(s => `
     <div class="overview-card">
       <h4>${escapeHtml(s.title)}</h4>
-      <p>${escapeHtml(s.content!)}</p>
+      <p>${formatContent(s.content!)}</p>
     </div>`).join('')
 
   // Competitive intro bullets
@@ -185,13 +194,12 @@ export function generateCimHtml(data: CimInputData): string {
 <div class="section page-break">
   <div class="section-number">01</div>
   <div class="section-header">Executive Summary</div>
-  <h2>Investment Overview</h2>
-  <p>${escapeHtml(data.investmentOverview)}</p>
+  <p>${formatContent(data.investmentOverview)}</p>
 
   ${thesisBullets ? `<h3>Investment Thesis</h3><ul>${thesisBullets}</ul>` : ''}
 
-  ${data.sellerOverview ? `<h3>Seller Overview</h3><p>${escapeHtml(data.sellerOverview)}</p>` : ''}
-  ${data.transactionOverview ? `<h3>Transaction Overview</h3><p>${escapeHtml(data.transactionOverview)}</p>` : ''}
+  ${data.sellerOverview ? `<h3>Seller Overview</h3><p>${formatContent(data.sellerOverview)}</p>` : ''}
+  ${data.transactionOverview ? `<h3>Transaction Overview</h3><p>${formatContent(data.transactionOverview)}</p>` : ''}
 </div>
 
 <!-- 02 Business Overview -->
@@ -200,7 +208,7 @@ export function generateCimHtml(data: CimInputData): string {
   <div class="section-number">02</div>
   <div class="section-header">Business Overview</div>
   <h2>Company Profile</h2>
-  <p>${escapeHtml(data.businessDescription)}</p>
+  <p>${formatContent(data.businessDescription)}</p>
 
   ${overviewCards ? `<div class="overview-grid">${overviewCards}</div>` : ''}
 </div>
@@ -258,7 +266,7 @@ ${valueRows ? `
   <div class="section-number">05</div>
   <div class="section-header">Value Creation</div>
   <h2>Growth & Optimization Roadmap</h2>
-  <p>${escapeHtml(data.valueCreationIntro)}</p>
+  <p>${formatContent(data.valueCreationIntro)}</p>
   <table>
     <thead><tr><th>Initiative</th><th>Description</th><th>Timing</th><th>Revenue Impact</th><th>Dependencies</th></tr></thead>
     <tbody>${valueRows}</tbody>
@@ -269,7 +277,7 @@ ${valueRows ? `
   <div class="section-number">05</div>
   <div class="section-header">Value Creation</div>
   <h2>Growth & Optimization Roadmap</h2>
-  <p>${escapeHtml(data.valueCreationIntro)}</p>
+  <p>${formatContent(data.valueCreationIntro)}</p>
 </div>`}
 
 <!-- 06 Operations & Management -->

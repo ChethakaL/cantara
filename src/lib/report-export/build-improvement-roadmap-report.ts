@@ -12,14 +12,14 @@ export function buildImprovementRoadmapHtml(report: RoadmapReport): string {
   const sections = parseMarkdownSections(report.markdown)
 
   return generateReportHtml({
-    title: `${report.workstreamLabel} Assessment & Improvement Roadmap`,
+    title: `${report.workstreamLabel} Sales Readiness Roadmap`,
     subtitle: 'Seller Sale Readiness & Improvement Plan',
     clientName: report.clientName,
     generatedAt: report.generatedAt,
     summaryHtml: sections.length > 0 ? markdownToHtml(sections[0].content) : undefined,
     kpis: [
       { label: 'Workstream', value: report.workstreamLabel.split('—')[0]?.trim() || report.workstream.toUpperCase() },
-      { label: 'Report Type', value: 'Assessment & Improvement Roadmap' },
+      { label: 'Report Type', value: 'Sales Readiness Roadmap' },
       { label: 'For', value: 'Seller' },
       { label: 'Prepared By', value: 'Cantara AI' },
     ],
@@ -123,9 +123,16 @@ function markdownToHtml(markdown: string): string {
     }
 
     if (!trimmed) { flushList(); continue }
-    if (/^#{3,4}\s+/.test(trimmed)) {
+    if (/^###\s+/.test(trimmed)) {
       flushList()
-      html.push(`<h3 style="font-size:14px;font-weight:800;color:#21263C;margin:16px 0 8px;">${formatInline(trimmed.replace(/^#{3,4}\s+/, ''))}</h3>`)
+      const headerText = trimmed.replace(/^###\s+/, '')
+      const isPhase = headerText.toLowerCase().startsWith('phase')
+      html.push(`<h3 style="font-size:${isPhase ? '18px' : '15px'};font-weight:800;color:#1e293b;margin:28px 0 12px;border-bottom:${isPhase ? '2px solid #caa15f' : '1px solid #f1f5f9'};padding-bottom:6px;">${formatInline(headerText)}</h3>`)
+      continue
+    }
+    if (/^####\s+/.test(trimmed)) {
+      flushList()
+      html.push(`<h4 style="font-size:13px;font-weight:700;color:#caa15f;margin:16px 0 6px;">${formatInline(trimmed.replace(/^####\s+/, ''))}</h4>`)
       continue
     }
     if (/^[-*]\s+/.test(trimmed)) { list.push(trimmed.replace(/^[-*]\s+/, '')); continue }

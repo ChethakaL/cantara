@@ -5,6 +5,7 @@ import {
 } from './generate-report-html'
 import type { PricingAnalysisReport } from '@/lib/pricing-analysis/types'
 import { getCompetitorNamesFromReport } from '@/lib/pricing-analysis/normalize-report'
+import { classifyPricingService } from '@/lib/pricing-analysis/service-vertical'
 
 function statusLabel(status: string): string {
   switch (status) {
@@ -51,16 +52,14 @@ function buildPriceMatrixHtml(report: PricingAnalysisReport): string {
   // Header row 1 - main headers
   let header1 = '<th>Service</th><th>Basis</th>'
   header1 += '<th style="background:#fef9c3;text-align:right;">Your Price</th>'
-  header1 += '<th style="background:#fef9c3;text-align:right;">Norm. Daily</th>'
   for (const name of competitorNames) {
-    header1 += `<th colspan="2" style="background:#dcfce7;text-align:center;border-left:1px solid #e2e8f0;">${escapeHtml(name)}</th>`
+    header1 += `<th style="background:#dcfce7;text-align:center;border-left:1px solid #e2e8f0;">${escapeHtml(name)}</th>`
   }
 
   // Header row 2 - sub-headers
-  let header2 = '<th></th><th></th><th style="background:#fef9c3;"></th><th style="background:#fef9c3;"></th>'
+  let header2 = '<th></th><th></th><th style="background:#fef9c3;"></th>'
   for (const _name of competitorNames) {
-    header2 += '<th style="background:#dcfce7;font-size:10px;text-align:right;border-left:1px solid #e2e8f0;">Listed</th>'
-    header2 += '<th style="background:#dcfce7;font-size:10px;text-align:right;">Norm.</th>'
+    header2 += '<th style="background:#dcfce7;font-size:10px;text-align:right;border-left:1px solid #e2e8f0;">Price</th>'
   }
 
   const body = rows.map(row => {
@@ -68,14 +67,10 @@ function buildPriceMatrixHtml(report: PricingAnalysisReport): string {
     let cells = `<td><strong>${escapeHtml(row.service)}</strong></td>`
     cells += `<td>${escapeHtml(row.basis)}</td>`
     cells += `<td style="background:#fef9c3;font-weight:700;text-align:right;">${escapeHtml(row.sellerPrice)}</td>`
-    cells += `<td style="background:#fef9c3;font-weight:700;text-align:right;">${escapeHtml(row.sellerNormalized)}</td>`
 
     for (const name of competitorNames) {
       const comp = compMap.get(name)
       cells += `<td style="background:#f0fdf4;text-align:right;border-left:1px solid #e2e8f0;">${escapeHtml(comp?.listedPrice ?? '--')}</td>`
-      const normDisplay = comp?.normalized ?? '--'
-      const noteDisplay = comp?.normalizationNote ? `<br/><span style="font-size:9px;color:#94a3b8;">${escapeHtml(comp.normalizationNote)}</span>` : ''
-      cells += `<td style="background:#f0fdf4;text-align:right;">${escapeHtml(normDisplay)}${noteDisplay}</td>`
     }
 
     return `<tr>${cells}</tr>`
@@ -91,7 +86,7 @@ function buildSummaryTableHtml(report: PricingAnalysisReport): string {
   const rows = report.pricingSummary ?? []
   if (!rows.length) return '<p>No pricing summary data available.</p>'
 
-  const header = '<th>Service</th><th style="text-align:right;">Your Price</th><th style="text-align:right;">Comp. Average</th><th style="text-align:right;">Variance</th><th style="text-align:center;">Status</th><th style="text-align:right;">Est. Annual Uplift</th>'
+  const header = '<th>Service</th><th style="text-align:right;">Your Price</th><th style="text-align:right;">Comp. Average</th><th style="text-align:right;">Variance</th><th style="text-align:center;">Status</th>'
 
   const body = rows.map(row => {
     const style = statusStyle(row.status)
@@ -101,11 +96,64 @@ function buildSummaryTableHtml(report: PricingAnalysisReport): string {
       <td style="text-align:right;">${escapeHtml(row.competitorAvg)}</td>
       <td style="text-align:right;font-weight:700;">${escapeHtml(row.variance)}</td>
       <td style="text-align:center;${style}">${escapeHtml(statusLabel(row.status))}</td>
-      <td style="text-align:right;">${escapeHtml(row.estAnnualUplift)}</td>
     </tr>`
   }).join('')
 
   return `<table class="report-table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`
+}
+
+function buildChartsHtml(report: PricingAnalysisReport): string {
+  const verticals = ['Boarding', 'Daycare', 'Grooming', 'Training']
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:16px;margin-top:12px;">'
+
+  let totalCharts = 0
+  for (const vertical of verticals) {
+    const verticalRows = (report.priceMatrix ?? []).filter(row => classifyPricingService(row.service) === vertical)
+    if (verticalRows.length === 0) continue
+    totalCharts++
+
+    html += `<div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;background:#ffffff;">
+      <h4 style="margin-top:0;margin-bottom:12px;font-size:12px;text-transform:uppercase;color:#475569;letter-spacing:1px;border-bottom:1px solid #f1f5f9;padding-bottom:8px;">${vertical} Price Comparison</h4>
+      <div style="display:flex;flex-direction:column;gap:12px;">`
+
+    for (const row of verticalRows) {
+      const parseVal = (val: string) => {
+        const num = parseFloat(val.replace(/[^0-9.]/g, ''))
+        return isNaN(num) ? 0 : num
+      }
+      const yourVal = parseVal(row.sellerPrice)
+      const compVals = row.competitors.map(c => ({ name: c.name, val: parseVal(c.listedPrice) }))
+      const maxVal = Math.max(yourVal, ...compVals.map(c => c.val), 1)
+
+      html += `<div style="margin-bottom:8px;border-bottom:1px solid #f8fafc;padding-bottom:8px;">
+        <div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:4px;">${escapeHtml(row.service)} (${escapeHtml(row.basis)})</div>
+        <!-- Your Price bar -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <div style="width:80px;font-size:9px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Your Price</div>
+          <div style="flex:1;height:10px;background:#f1f5f9;border-radius:5px;overflow:hidden;position:relative;">
+            <div style="height:100%;border-radius:5px;background:#f59e0b;width:${(yourVal / maxVal) * 100}%;"></div>
+          </div>
+          <div style="width:36px;text-align:right;font-size:9px;font-weight:700;color:#334155;">$${yourVal}</div>
+        </div>`
+
+      for (const cv of compVals) {
+        html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+          <div style="width:80px;font-size:9px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(cv.name)}</div>
+          <div style="flex:1;height:10px;background:#f1f5f9;border-radius:5px;overflow:hidden;position:relative;">
+            <div style="height:100%;border-radius:5px;background:#94a3b8;width:${(cv.val / maxVal) * 100}%;"></div>
+          </div>
+          <div style="width:36px;text-align:right;font-size:9px;color:#475569;">$${cv.val || 'N/A'}</div>
+        </div>`
+      }
+
+      html += '</div>'
+    }
+
+    html += '</div></div>'
+  }
+
+  html += '</div>'
+  return totalCharts > 0 ? html : '<p>No service pricing data available for comparison charts.</p>'
 }
 
 export function buildPricingAnalysisReportHtml(
@@ -119,7 +167,6 @@ export function buildPricingAnalysisReportHtml(
     { label: 'Competitors Analyzed', value: String(report.competitorsAnalyzed) },
     { label: 'Services Compared', value: String((report.pricingSummary ?? []).length) },
     { label: 'Underpriced Services', value: String(underpricedCount) },
-    { label: 'Total Est. Uplift', value: report.totalEstimatedUplift },
   ]
 
   // Price Matrix table
@@ -128,11 +175,8 @@ export function buildPricingAnalysisReportHtml(
   // Summary & Variance table
   const summaryTableHtml = buildSummaryTableHtml(report)
 
-  // Total Uplift card
-  const upliftContent = `<div style="margin-top:12px;padding:16px;background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;">
-    <p style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#166534;font-weight:700;margin-bottom:4px;">Total Estimated Annual Uplift</p>
-    <p style="font-size:24px;font-weight:800;color:#166534;">${escapeHtml(report.totalEstimatedUplift)}</p>
-  </div>`
+  // Comparison charts
+  const chartsHtml = buildChartsHtml(report)
 
   // Flags
   const flagsContent = report.flags.length > 0
@@ -163,7 +207,7 @@ export function buildPricingAnalysisReportHtml(
     sections: [
       { title: 'Detailed Competitor Price Matrix', content: priceMatrixHtml },
       { title: 'Pricing Summary & Variance', content: summaryTableHtml },
-      { title: 'Estimated Revenue Uplift', content: upliftContent },
+      { title: 'Pricing Comparison Charts', content: chartsHtml },
       { title: 'Pricing Flags', content: flagsContent },
       { title: 'Recommendations', content: recsContent },
     ],

@@ -1,5 +1,4 @@
 export type PetBusinessCategoryValue =
-  | 'pet resort'
   | 'boarding'
   | 'daycare'
   | 'grooming'
@@ -12,7 +11,6 @@ export const PET_BUSINESS_CATEGORY_OPTIONS: Array<{
   value: PetBusinessCategoryValue
   label: string
 }> = [
-  { value: 'pet resort', label: 'Pet resort (boarding, daycare, grooming)' },
   { value: 'boarding', label: 'Boarding' },
   { value: 'daycare', label: 'Daycare' },
   { value: 'grooming', label: 'Grooming' },

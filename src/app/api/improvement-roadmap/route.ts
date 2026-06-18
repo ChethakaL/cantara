@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 16000,
     temperature: 0.15,
-    system: `You are a senior M&A advisor at Cantara Pet Advisors who specializes in helping sellers prepare their businesses for acquisition. You create clear, actionable assessment and improvement roadmaps that tell sellers exactly what to fix, in what order, and why it matters for their deal.
+    system: `You are a senior M&A advisor at Cantara Pet Advisors who specializes in helping sellers prepare their businesses for acquisition. You create clear, actionable Sales Readiness Roadmaps that tell sellers exactly what to fix, in what order, and why it matters for their deal.
 
 Your reports are:
 - **Empathetic**: Written directly to the seller, acknowledging their work while being honest about gaps
@@ -73,13 +73,13 @@ CRITICAL RULES:
 Return markdown only. Do not include any preamble.`,
     messages: [{
       role: 'user',
-      content: `Generate a comprehensive ${wsLabel} Assessment & Improvement Roadmap for **${clientName}**.
+      content: `Generate a comprehensive ${wsLabel} Sales Readiness Roadmap for **${clientName}**.
 
 This is a SELLER-FACING document. It shows the seller clearly what their current status is and exactly what they need to do to become sale-ready. Be encouraging but honest.
 
 ## Required Structure — Follow EXACTLY
 
-# Assessment & Improvement Roadmap
+# Sales Readiness Roadmap
 ## ${wsLabel}
 
 ## Dear ${clientName.split(' ')[0] || 'Seller'},
@@ -97,7 +97,7 @@ Create a summary table using GREEN/YELLOW/RED indicators. This is the most impor
 | Category Name | 🟢 GREEN / 🟡 YELLOW / 🔴 RED | One-line summary of current state | How this affects the deal (e.g., "Could delay closing by 2-4 weeks", "Buyer will likely request price reduction", "No impact — ready for diligence") |
 
 ${workstream === 'ws1' ? `Categories to assess: Legal & Corporate Standing, Ownership & Transfer Readiness, Contracts & Agreements, Litigation & Liens, Insurance Coverage, Permits & Zoning, Employment & HR, Tax Compliance, Key Person Dependencies, Vendor & Technology` :
-`Categories to assess: Revenue & Profitability, Pricing Strategy, Digital Presence & Reputation, Competitive Position, Sales Process Maturity, Facility Condition, Customer Concentration, Growth Trajectory`}
+`Categories to assess: Revenue & Profitability, Pricing Strategy, Digital Presence & Marketing, Competitive Positioning, Sales Process Maturity, Facility & Operations, Customer Concentration, Growth Trajectory`}
 
 Status definitions:
 - 🟢 GREEN = Sale-ready, no action needed. Buyer diligence will pass smoothly.
@@ -119,17 +119,25 @@ For each action item, use this format:
 
 ### Phase 2: Short-Term Actions (30-90 Days)
 ${workstream === 'ws1' ? `Organize by:
-#### Legal & Corporate Cleanup
-#### Insurance & Compliance
+#### Legal & Corporate Standing
+#### Ownership & Transfer Readiness
+#### Contracts & Agreements
+#### Litigation & Liens
+#### Insurance Coverage
+#### Permits & Zoning
 #### Employment & HR
-#### Contract Review
-#### Tax & Financial` :
+#### Tax Compliance
+#### Key Person Dependencies
+#### Vendor & Technology` :
 `Organize by:
-#### Revenue & Pricing
+#### Revenue & Profitability
+#### Pricing Strategy
 #### Digital Presence & Marketing
-#### Sales Process
 #### Competitive Positioning
-#### Facility & Operations`}
+#### Sales Process Maturity
+#### Facility & Operations
+#### Customer Concentration
+#### Growth Trajectory`}
 
 Same format per item (What, Why, Impact on Deal, How, Owner, Timeline)
 
@@ -145,10 +153,6 @@ Create a comprehensive checklist organized by category. Each item should be acti
 | ☐ | Category | Specific document or action | 🟢/🟡/🔴 | What to do |
 
 Include at least 15-25 checklist items covering all categories. Mark status as 🟢 (have it), 🟡 (needs update), or 🔴 (missing).
-
-## What Happens Next
-
-Write a simple numbered list (5-7 items) of exactly what the seller should do this week to get started. Be specific and encouraging.
 
 ---
 

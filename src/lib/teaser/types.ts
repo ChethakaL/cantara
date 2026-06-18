@@ -51,6 +51,7 @@ export interface TeaserInputData {
   regionLabel: string
   /** Printed on the teaser cover when set (Cantara deal reference #). */
   dealReference: string
+  ndaLink?: string
 }
 
 export interface TeaserGeneratorState {
@@ -100,4 +101,5 @@ export const DEFAULT_TEASER_INPUT: TeaserInputData = {
   teaserSubtitle: 'Acquisition Opportunity',
   regionLabel: '',
   dealReference: '',
+  ndaLink: '',
 }

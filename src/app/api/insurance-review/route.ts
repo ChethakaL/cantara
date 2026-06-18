@@ -232,3 +232,68 @@ export async function DELETE(req: NextRequest) {
     return new Response("Internal Server Error", { status: 500 });
   }
 }
+
+export async function PUT(req: NextRequest) {
+  try {
+    const { clientId, summary } = await req.json();
+
+    if (!clientId) {
+      return new Response("Missing clientId", { status: 400 });
+    }
+    if (!summary) {
+      return new Response("Missing summary data", { status: 400 });
+    }
+
+    const document = await (prisma as any).clientDocument.findFirst({
+      where: {
+        clientId,
+        documentId: "insurance_claims_12m",
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!document) {
+      return new Response("Insurance claim document not found", { status: 404 });
+    }
+
+    // Determine withinLast12Months flag recalculation
+    let withinLast12Months = summary.withinLast12Months;
+    if (summary.incidentDate && summary.incidentDate !== "Unknown") {
+      try {
+        const incidentDateObj = new Date(summary.incidentDate);
+        if (!isNaN(incidentDateObj.getTime())) {
+          const twelveMonthsAgo = new Date();
+          twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+          withinLast12Months = incidentDateObj >= twelveMonthsAgo;
+        }
+      } catch (err) {
+        console.error("Error parsing incident date:", err);
+      }
+    }
+
+    await (prisma as any).clientDocument.update({
+      where: { id: document.id },
+      data: {
+        aiDetectedType: summary.claimType || "insurance_claim",
+        aiReviewStatus: summary.status || "complete",
+        aiReviewSummary: serializeInsuranceReview({
+          ...summary,
+          withinLast12Months,
+        }),
+        aiReviewFlags: withinLast12Months === false
+          ? [`Claim is older than 12 months${summary.incidentDate && summary.incidentDate !== "Unknown" ? ` (incident date: ${summary.incidentDate})` : ""}.`]
+          : [],
+        aiReviewedAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({ success: true, summary: { ...summary, withinLast12Months } });
+  } catch (error) {
+    console.error("Insurance review update error:", error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+}
+

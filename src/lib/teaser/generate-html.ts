@@ -11,6 +11,16 @@ function escapeHtml(str: any): string {
     .replace(/'/g, '&#039;')
 }
 
+function formatExternalUrl(url: string | undefined | null): string {
+  if (!url) return '#'
+  const trimmed = url.trim()
+  if (!trimmed) return '#'
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed
+  }
+  return `https://${trimmed}`
+}
+
 /** Under section 02 headline: one line → paragraph; multiple lines → bullet list. */
 function section02LeadHtml(text: string): string {
   const raw = String(text ?? '').trim()
@@ -336,7 +346,7 @@ export function generateTeaserHtml(data: TeaserInputData): string {
   <div class="next-steps">
     <h3>Interested?</h3>
     <p>Execute an NDA to receive the CIM & access to the data room</p>
-    <a href="#" class="nda-link">Click here to access and complete the NDA</a>
+    <a href="${escapeHtml(formatExternalUrl(data.ndaLink))}" target="_blank" rel="noopener noreferrer" class="nda-link">Click here to access and complete the NDA</a>
     <div class="contact-info" style="margin-top: 24px;">
       <div class="name">${escapeHtml(data.contactName)}</div>
       <div class="title">${escapeHtml(data.contactTitle)}</div>

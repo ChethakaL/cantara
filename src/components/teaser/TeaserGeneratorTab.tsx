@@ -473,11 +473,12 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
 
       {/* Section 6: Contact */}
       <Card className="p-5 space-y-4">
-        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Contact Information</p>
-        <div className="grid grid-cols-3 gap-3">
+        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Contact & NDA Information</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Input label="Contact Name" value={data.contactName} onChange={e => set('contactName', e.target.value)} />
           <Input label="Title" value={data.contactTitle} onChange={e => set('contactTitle', e.target.value)} />
           <Input label="Email" value={data.contactEmail} onChange={e => set('contactEmail', e.target.value)} />
+          <Input label="Buyer NDA Link" placeholder="https://..." value={data.ndaLink || ''} onChange={e => set('ndaLink', e.target.value)} />
         </div>
       </Card>
 

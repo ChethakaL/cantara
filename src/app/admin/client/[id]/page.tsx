@@ -79,10 +79,10 @@ const AGENT_TABS = [
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
   // Reports & Roadmaps
   { key: 'ws1-assessment', label: 'WS1 Internal Assessment', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
-  { key: 'ws1-roadmap', label: 'WS1 Assessment & Improvement Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws1-roadmap', label: 'WS1 Sales Readiness Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   { key: 'ws1-buyer-report', label: 'WS1 Buyer Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   { key: 'ws2-assessment', label: 'WS2 Internal Assessment', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
-  { key: 'ws2-roadmap', label: 'WS2 Assessment & Improvement Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  { key: 'ws2-roadmap', label: 'WS2 Sales Readiness Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   { key: 'ws2-buyer-report', label: 'WS2 Buyer Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   // Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again.
   // { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
