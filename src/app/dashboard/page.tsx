@@ -2225,8 +2225,8 @@ function AgentInformationTab({
 
       {activeFormTab !== '' && (
         <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
-            <div>
+          <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <h4 className="text-sm font-semibold text-slate-700">{FORM_LABELS[activeFormTab]}</h4>
               <p className="text-xs text-slate-500 mt-1">
                 {activeFormTab === 'facility_review'
@@ -2235,7 +2235,7 @@ function AgentInformationTab({
               </p>
             </div>
             {!isTeamMemberSession && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs text-slate-400 font-medium">Assign to:</span>
                 <select
                   className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all font-medium text-slate-600"
