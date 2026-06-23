@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { syncStructuredToFormResponses, formatProfessionalAdvisors, formatVendorDirectory } from '@/lib/sync-form-responses'
 
 type AgentSelection = { agentId: string; agentName?: string | null }
 type FormQuestionRow = {
@@ -130,32 +131,6 @@ function buildPrefillResponses(client: any, existing: Record<string, any>): Reco
   }
 }
 
-function formatProfessionalAdvisors(value: unknown): string {
-  if (!Array.isArray(value)) return ''
-  return value.map((advisor: any) => [
-    advisor.role ?? '',
-    advisor.name ?? '',
-    advisor.company ?? '',
-    advisor.email ?? '',
-    advisor.phone ?? '',
-    advisor.willingToParticipate ?? 'unknown',
-    advisor.notes ?? '',
-  ].join(' | ')).join('\n')
-}
-
-function formatVendorDirectory(value: unknown): string {
-  if (!Array.isArray(value)) return ''
-  return value.map((item: any) => [
-    item.name ?? '',
-    item.vendor ?? '',
-    item.category ?? '',
-    item.annualCost ?? '',
-    item.contractStatus ?? '',
-    item.transferable ?? 'unknown',
-    item.loginAccess ?? '',
-    item.notes ?? '',
-  ].join(' | ')).join('\n')
-}
 
 function compatibilitySections(client: any, existing: Record<string, any>, responses: Record<string, string>) {
   const merged = { ...existing.agentFormResponses, ...responses }
@@ -285,7 +260,10 @@ export async function GET(req: NextRequest) {
   `) as FormQuestionRow[]
 
   const existing = (client.sectionSubmissions as Record<string, any>) ?? {}
-  const responses = buildPrefillResponses(client, existing)
+  const responses = {
+    ...buildPrefillResponses(client, existing),
+    ...syncStructuredToFormResponses(existing, client),
+  }
 
   const questions = dedupeQuestions(rows).map(question => ({
     ...question,

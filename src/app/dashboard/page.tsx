@@ -43,6 +43,20 @@ import type { Client, DocumentStatus, AdditionalRequirement } from '@/lib/store'
 import { useChatRoom } from '@/hooks/useChatRoom'
 import { ChatThread } from '@/components/chat/ChatThread'
 
+export type ClientPortalFormQuestion = {
+  id: string
+  agentId: string
+  fieldKey: string
+  label: string
+  description?: string | null
+  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number'
+  placeholder?: string | null
+  required: boolean
+  options?: string[] | null
+  groupKey?: string | null
+  groupLabel?: string | null
+}
+
 // ── Nav ──────────────────────────────────────────────────────────────────────
 function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSettings }: {
   workstreamTitle: string | null
@@ -169,6 +183,8 @@ export default function ClientDashboard() {
   const [deletingTeamMemberId, setDeletingTeamMemberId] = useState<string | null>(null)
   const [editingTeamMemberId, setEditingTeamMemberId] = useState<string | null>(null)
   const [sessionEmail, setSessionEmail] = useState('')
+  const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
+  const [formResponses, setFormResponses] = useState<Record<string, string>>({})
   const chat = useChatRoom({
     clientId: client?.id ?? '',
     viewer: 'client',
@@ -218,6 +234,25 @@ export default function ClientDashboard() {
     }, 30000)
     return () => clearInterval(interval)
   }, [client, dirtyStatusIds])
+
+  useEffect(() => {
+    if (!client) return
+    let cancelled = false
+    async function loadFormQuestions() {
+      try {
+        const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(client.id)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setFormQuestions(data.questions ?? [])
+        setFormResponses(data.responses ?? {})
+      } catch {
+        if (!cancelled) setFormQuestions([])
+      }
+    }
+    void loadFormQuestions()
+    return () => { cancelled = true }
+  }, [client?.id])
 
   useEffect(() => {
     if (!client || dirtyStatusIds.size === 0) return
@@ -392,6 +427,13 @@ export default function ClientDashboard() {
   const sessionTeamMember = client.teamMembers.find(member => member.email.toLowerCase() === sessionEmail.toLowerCase()) ?? null
   const isTeamMemberSession = Boolean(sessionTeamMember && sessionEmail.toLowerCase() !== client.email.toLowerCase())
   const memberAssignedTo = sessionTeamMember ? [sessionTeamMember.name, sessionTeamMember.email] : []
+  const hasAssignedForms = (() => {
+    if (!isTeamMemberSession) return true
+    const formAssignments = (client.sectionSubmissions as any)?.formAssignments ?? {}
+    return Object.values(formAssignments).some(assignedTo =>
+      Boolean(assignedTo && memberAssignedTo.some(value => value.toLowerCase() === (assignedTo as string).toLowerCase()))
+    )
+  })()
   const isAssignedToCurrentTeamMember = (docId: string) => {
     if (!isTeamMemberSession) return true
     const assignedTo = getDocStatus(docId).assignedTo
@@ -518,7 +560,8 @@ export default function ClientDashboard() {
             <div className="space-y-1">
               {PHASES.filter(p => {
                 if (!isTeamMemberSession) return true
-                if (p.id === 'assign' || p.id === 'information') return false
+                if (p.id === 'assign') return false
+                if (p.id === 'information' && !hasAssignedForms) return false
                 if (p.id === 'requirements' && visibleRequirements.length === 0) return false
                 return true
               }).map(p => {
@@ -613,9 +656,20 @@ export default function ClientDashboard() {
                   isTeamMemberSession={isTeamMemberSession}
                   sessionEmail={sessionEmail}
                   sectionDeadlines={sectionDeadlines}
+                  formQuestions={formQuestions}
+                  setClient={setClient}
                 />
               )}
-              {phase === 'information' && <AgentInformationTab clientId={client.id} uploaderEmail={sessionEmail || client.email} />}
+              {phase === 'information' && (
+                <AgentInformationTab
+                  clientId={client.id}
+                  uploaderEmail={sessionEmail || client.email}
+                  client={client}
+                  isTeamMemberSession={isTeamMemberSession}
+                  sessionTeamMember={sessionTeamMember}
+                  setClient={setClient}
+                />
+              )}
               {phase === 'collection' && (
                 <CollectionTab
                   valuationDocs={visibleValuationDocs}
@@ -1116,6 +1170,8 @@ function AssignTab({
   isTeamMemberSession,
   sessionEmail,
   sectionDeadlines,
+  formQuestions,
+  setClient,
 }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
@@ -1138,6 +1194,8 @@ function AssignTab({
   isTeamMemberSession: boolean
   sessionEmail: string
   sectionDeadlines: Record<string, string>
+  formQuestions: ClientPortalFormQuestion[]
+  setClient: Dispatch<SetStateAction<Client | null>>
 }) {
   const [subView, setSubView] = useState<'yesno' | 'assign' | 'assigned'>('yesno')
   const diligenceDocs = categories.flatMap(c => c.documents)
@@ -1374,6 +1432,75 @@ function AssignTab({
                   </div>
                 )
               }))}
+
+              {(() => {
+                const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
+                const activeFormKeys = [
+                  ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
+                  ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
+                  ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
+                  ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
+                  ...(formQuestions.some(q => !['vendor_directory', 'facility_review', 'digital_presence', 'professional_advisors'].includes(q.agentId)) ? ['other_info'] : []),
+                ]
+                const FORM_LABELS: Record<string, string> = {
+                  vendor_directory: 'Software & Vendors',
+                  facility_review: 'Facility Review',
+                  digital_presence: 'Digital Presence',
+                  professional_advisors: 'Professional Advisors',
+                  other_info: 'Other Required Info',
+                }
+
+                if (activeFormKeys.length === 0) return null
+
+                return (
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                    <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">
+                      <h4 className="text-sm font-semibold text-slate-700">Agent Forms & Information</h4>
+                      <p className="text-xs text-slate-500 mt-1">Assign these forms or questionnaires to yourself or a team member to fill out.</p>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {activeFormKeys.map(formKey => {
+                        const formAssignments = (client.sectionSubmissions as any)?.formAssignments ?? {}
+                        const assignedTo = formAssignments[formKey] ?? ''
+                        const options = [
+                          { value: 'me', label: "Me (I'll fill it)" },
+                          ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
+                        ]
+                        return (
+                          <div key={formKey} className="px-5 py-4 flex items-center gap-4">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-slate-800">{FORM_LABELS[formKey]}</p>
+                              <p className="text-xs text-slate-500 mt-1">Interactive form / questionnaire for client portal onboarding.</p>
+                            </div>
+                            <select
+                              className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all"
+                              value={assignedTo}
+                              onChange={async (e) => {
+                                const val = e.target.value || null
+                                const nextAssignments = { ...((client.sectionSubmissions as any)?.formAssignments ?? {}), [formKey]: val }
+                                const nextClient = {
+                                  ...client,
+                                  sectionSubmissions: {
+                                    ...(client.sectionSubmissions ?? {}),
+                                    formAssignments: nextAssignments,
+                                  }
+                                }
+                                setClient(nextClient)
+                                await saveClient(nextClient)
+                              }}
+                            >
+                              <option value="">— Assign to —</option>
+                              {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                            {assignedTo && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
+
               {allAssigned && (
                 <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
                   <CheckCircle className="w-5 h-5 text-emerald-500" />
@@ -1467,18 +1594,6 @@ function AssignedDocumentStatusList({
 }
 
 // ── Collection Tab ────────────────────────────────────────────────────────────
-type ClientPortalFormQuestion = {
-  id: string
-  fieldKey: string
-  label: string
-  description?: string | null
-  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number'
-  placeholder?: string | null
-  required: boolean
-  options?: string[] | null
-  groupKey?: string | null
-  groupLabel?: string | null
-}
 
 function isFacilityReviewFormQuestion(question: ClientPortalFormQuestion): boolean {
   return (
@@ -1938,7 +2053,21 @@ function FacilityImageSectionUploader({
   )
 }
 
-function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; uploaderEmail: string }) {
+function AgentInformationTab({
+  clientId,
+  uploaderEmail,
+  client,
+  isTeamMemberSession,
+  sessionTeamMember,
+  setClient,
+}: {
+  clientId: string
+  uploaderEmail: string
+  client: Client
+  isTeamMemberSession: boolean
+  sessionTeamMember: Client['teamMembers'][number] | null
+  setClient: Dispatch<SetStateAction<Client | null>>
+}) {
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
   const [savingFormResponses, setSavingFormResponses] = useState(false)
@@ -2012,14 +2141,48 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
     return () => clearTimeout(timeout)
   }, [formResponses, formHydrated, formQuestions.length, clientId])
 
-  const orderedGroups = buildOrderedFormQuestionGroups(formQuestions)
-  const otherFormGroups = orderedGroups.filter(group =>
-    !group.questions.some(isFacilityReviewFormQuestion),
-  )
-  const facilityFormGroups = orderedGroups.filter(group =>
-    group.questions.some(isFacilityReviewFormQuestion),
-  )
-  const hasFacilityQuestions = facilityFormGroups.length > 0
+  const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
+  const activeFormKeys = [
+    ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
+    ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
+    ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
+    ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
+    ...(formQuestions.some(q => !['vendor_directory', 'facility_review', 'digital_presence', 'professional_advisors'].includes(q.agentId)) ? ['other_info'] : []),
+  ]
+
+  const FORM_LABELS: Record<string, string> = {
+    vendor_directory: 'Software & Vendors',
+    facility_review: 'Facility Review',
+    digital_presence: 'Digital Presence',
+    professional_advisors: 'Professional Advisors',
+    other_info: 'Other Required Info',
+  }
+
+  const memberAssignedTo = sessionTeamMember ? [sessionTeamMember.name, sessionTeamMember.email] : []
+  const isFormAssignedToCurrentTeamMember = (formKey: string) => {
+    if (!isTeamMemberSession) return true
+    const formAssignments = (client.sectionSubmissions as any)?.formAssignments ?? {}
+    const assignedTo = formAssignments[formKey]
+    return Boolean(assignedTo && memberAssignedTo.some(value => value.toLowerCase() === assignedTo.toLowerCase()))
+  }
+  const visibleFormKeys = activeFormKeys.filter(isFormAssignedToCurrentTeamMember)
+
+  const [activeFormTab, setActiveFormTab] = useState<string>('')
+
+  const currentIndex = visibleFormKeys.indexOf(activeFormTab)
+  const hasNext = currentIndex !== -1 && currentIndex < visibleFormKeys.length - 1
+  const handleNext = async () => {
+    const success = await saveFormResponses()
+    if (success && hasNext) {
+      setActiveFormTab(visibleFormKeys[currentIndex + 1])
+    }
+  }
+
+  useEffect(() => {
+    if (visibleFormKeys.length && (!activeFormTab || !visibleFormKeys.includes(activeFormTab))) {
+      setActiveFormTab(visibleFormKeys[0])
+    }
+  }, [visibleFormKeys, clientId, activeFormTab])
 
   if (!formQuestions.length) {
     return (
@@ -2029,67 +2192,128 @@ function AgentInformationTab({ clientId, uploaderEmail }: { clientId: string; up
     )
   }
 
+  if (visibleFormKeys.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-sm text-slate-500">
+        No form information is assigned to you right now.
+      </div>
+    )
+  }
+
+  const otherFormQuestions = formQuestions.filter(q =>
+    !['vendor_directory', 'facility_review', 'digital_presence', 'professional_advisors'].includes(q.agentId)
+  )
+
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h4 className="text-sm font-semibold text-slate-700">Required Information</h4>
-          <p className="text-xs text-slate-500 mt-1">
-            Complete these fields once. Answers save automatically as you type and when you switch sections — you can also use Save Information below.
-          </p>
-        </div>
-        <div className="p-5 space-y-5">
-          {otherFormGroups.map((group, index) => (
-            <div
-              key={group.groupLabel}
-              className={`space-y-3 pt-2 border-t border-slate-100${
-                index === 0 && !facilityFormGroups.length ? ' first:border-t-0 first:pt-0' : ''
-              }`}
-            >
-              <h5 className="text-sm font-bold text-slate-800">{group.groupLabel}</h5>
-              <FormQuestionFields
-                questions={group.questions}
-                formResponses={formResponses}
-                onUpdate={updateFormResponse}
-                onError={setFormError}
-              />
+      <div className="bg-white rounded-2xl border border-slate-200 p-1 flex flex-wrap gap-1">
+        {visibleFormKeys.map(key => (
+          <button
+            key={key}
+            onClick={() => setActiveFormTab(key)}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+              activeFormTab === key
+                ? 'text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            }`}
+            style={activeFormTab === key ? { background: '#0d1829' } : {}}
+          >
+            {FORM_LABELS[key]}
+          </button>
+        ))}
+      </div>
+
+      {activeFormTab !== '' && (
+        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-700">{FORM_LABELS[activeFormTab]}</h4>
+              <p className="text-xs text-slate-500 mt-1">
+                {activeFormTab === 'facility_review'
+                  ? 'Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.'
+                  : 'Complete the fields below. Answers save automatically.'}
+              </p>
             </div>
-          ))}
-          {hasFacilityQuestions && (
-            <div className="pt-6 border-t border-slate-100">
-              <div className="mb-4">
-                <h4 className="text-sm font-bold text-slate-800">Facility Review</h4>
-                <p className="text-xs text-slate-500 mt-1">
-                  Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.
-                </p>
+            {!isTeamMemberSession && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400 font-medium">Assign to:</span>
+                <select
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all font-medium text-slate-600"
+                  value={(client.sectionSubmissions as any)?.formAssignments?.[activeFormTab] ?? ''}
+                  onChange={async (e) => {
+                    const val = e.target.value || null
+                    const nextAssignments = { ...((client.sectionSubmissions as any)?.formAssignments ?? {}), [activeFormTab]: val }
+                    const nextClient = {
+                      ...client,
+                      sectionSubmissions: {
+                        ...(client.sectionSubmissions ?? {}),
+                        formAssignments: nextAssignments,
+                      }
+                    }
+                    setClient(nextClient)
+                    await saveClient(nextClient)
+                  }}
+                >
+                  <option value="">— Assign to —</option>
+                  <option value="me">Me (I'll fill it)</option>
+                  {client.teamMembers.map(m => (
+                    <option key={m.name} value={m.name}>{m.name} · {m.role}</option>
+                  ))}
+                </select>
               </div>
-              <div className="rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
-                {facilityFormGroups.map(group => (
-                  <div key={group.groupLabel} className="space-y-3 px-4 py-4 bg-slate-50/30">
-                    <h5 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      {facilityReviewSubgroupLabel(group.groupLabel)}
-                    </h5>
-                    <FormQuestionFields
-                      questions={group.questions}
-                      formResponses={formResponses}
-                      onUpdate={updateFormResponse}
-                      onError={setFormError}
-                    />
-                  </div>
-                ))}
+            )}
+          </div>
+          <div className="p-5 space-y-5">
+            {buildOrderedFormQuestionGroups(
+              formQuestions.filter(q => {
+                if (activeFormTab === 'other_info') {
+                  return !['vendor_directory', 'facility_review', 'digital_presence', 'professional_advisors'].includes(q.agentId)
+                }
+                return q.agentId === activeFormTab
+              })
+            ).map((group, index) => (
+              <div
+                key={group.groupLabel}
+                className="space-y-3 pt-2 border-t border-slate-100 first:border-t-0 first:pt-0"
+              >
+                <h5 className="text-sm font-bold text-slate-800">
+                  {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
+                </h5>
+                <FormQuestionFields
+                  questions={group.questions}
+                  formResponses={formResponses}
+                  onUpdate={updateFormResponse}
+                  onError={setFormError}
+                />
               </div>
+            ))}
+            {formError && <p className="text-xs text-red-600">{formError}</p>}
+            <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
+              <div className="flex items-center gap-3">
+                <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
+                  {savingFormResponses ? 'Saving...' : 'Save Information'}
+                </Button>
+                {formSaved && <span className="text-xs text-emerald-600 font-medium">Saved</span>}
+              </div>
+              {hasNext && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex items-center gap-1.5 border-slate-200 hover:bg-slate-50 transition-all font-semibold text-xs text-slate-700"
+                  onClick={() => void handleNext()}
+                  disabled={savingFormResponses}
+                >
+                  Next Section
+                  <ChevronRight className="w-4 h-4 text-slate-500" />
+                </Button>
+              )}
             </div>
-          )}
-          {formError && <p className="text-xs text-red-600">{formError}</p>}
-          <div className="flex items-center gap-3">
-            <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
-              {savingFormResponses ? 'Saving...' : 'Save Information'}
-            </Button>
-            {formSaved && <span className="text-xs text-emerald-600">Saved</span>}
           </div>
         </div>
-      </div>
-      {hasFacilityQuestions && <FacilityImageUploadPanel clientId={clientId} uploaderEmail={uploaderEmail} />}
+      )}
+      {activeFormTab === 'facility_review' && (
+        <FacilityImageUploadPanel clientId={clientId} uploaderEmail={uploaderEmail} />
+      )}
     </div>
   )
 }
