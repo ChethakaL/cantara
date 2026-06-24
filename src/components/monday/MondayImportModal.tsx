@@ -24,6 +24,7 @@ import {
   type MondayColumnRef,
   type ParsedMondayClient,
 } from '@/lib/monday-client-import'
+import { pickClientImportColumnMapping } from '@/lib/monday-settings'
 import { SearchableSelect } from '@/components/ui'
 
 type Board = { id: string; name: string }
@@ -37,14 +38,12 @@ type ImportResult = {
   clientId?: string
 }
 
-type Step = 'board' | 'mapping' | 'items' | 'review' | 'importing' | 'done'
+type Step = 'items' | 'review' | 'importing' | 'done'
 
-const STEP_ORDER: Step[] = ['board', 'mapping', 'items', 'review', 'importing', 'done']
+const STEP_ORDER: Step[] = ['items', 'review', 'importing', 'done']
 
 function StepIndicator({ current }: { current: Step }) {
   const steps: { key: Step; label: string }[] = [
-    { key: 'board', label: 'Board' },
-    { key: 'mapping', label: 'Map columns' },
     { key: 'items', label: 'Pick leads' },
     { key: 'review', label: 'Review' },
     { key: 'done', label: 'Done' },
@@ -99,7 +98,7 @@ const FIELD_ICONS: Record<MondayClientField, typeof Mail> = {
 }
 
 export default function MondayImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
-  const [step, setStep] = useState<Step>('board')
+  const [step, setStep] = useState<Step>('items')
   const [boards, setBoards] = useState<Board[]>([])
   const [loadingBoards, setLoadingBoards] = useState(true)
   const [selectedBoard, setSelectedBoard] = useState<Board | null>(null)
@@ -129,15 +128,6 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setLoadingBoards(true)
-    fetch('/api/composio/monday/boards')
-      .then(r => r.json())
-      .then(d => setBoards(d.boards ?? []))
-      .catch(() => setError('Failed to load Monday.com boards'))
-      .finally(() => setLoadingBoards(false))
-  }, [])
-
   const fetchBoardItems = useCallback(async (board: Board) => {
     setLoadingItems(true)
     setError(null)
@@ -149,9 +139,21 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
       setItems(loaded)
       const columns = collectBoardColumns(loaded)
       setBoardColumns(columns)
+
+      let finalMapping: MondayColumnMapping | null = null
+      try {
+        const mRes = await fetch('/api/admin/settings/monday')
+        if (mRes.ok) {
+          const mData = await mRes.json()
+          finalMapping = pickClientImportColumnMapping(mData.columnMapping)
+        }
+      } catch (err) {
+        console.warn('[MondayImport] Failed to load global column mapping:', err)
+      }
+
       const stored = loadStoredMapping(board.id)
       const suggested = suggestColumnMapping(columns)
-      setColumnMapping(stored ?? suggested)
+      setColumnMapping(finalMapping ?? stored ?? suggested)
       return loaded
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Failed to load board items'
@@ -162,18 +164,55 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
     }
   }, [])
 
-  const handleSelectBoard = async (board: Board) => {
-    setSelectedBoard(board)
-    setSelectedItems(new Set())
-    setStep('mapping')
-    await fetchBoardItems(board)
-  }
+  useEffect(() => {
+    setLoadingBoards(true)
 
-  const handleSaveMappingAndContinue = () => {
-    if (!selectedBoard) return
-    saveStoredMapping(selectedBoard.id, columnMapping)
-    setStep('items')
-  }
+    const initImport = async () => {
+      let boardsList: Board[] = []
+      try {
+        const [settingsRes, boardsRes] = await Promise.all([
+          fetch('/api/admin/settings/monday'),
+          fetch('/api/composio/monday/boards'),
+        ])
+
+        if (!boardsRes.ok) {
+          throw new Error('Failed to load Monday.com boards')
+        }
+
+        boardsList = ((await boardsRes.json()).boards ?? []) as Board[]
+        setBoards(boardsList)
+
+        if (settingsRes.ok) {
+          const mData = await settingsRes.json()
+          if (mData.boardId) {
+            const matchedBoard = boardsList.find((board) => board.id === mData.boardId)
+            const configuredBoard: Board = {
+              id: mData.boardId,
+              name: matchedBoard?.name ?? `Board ${mData.boardId}`,
+            }
+            setSelectedBoard(configuredBoard)
+            setSelectedItems(new Set())
+            setStep('items')
+            await fetchBoardItems(configuredBoard)
+            return
+          }
+        }
+      } catch (err) {
+        console.warn('[MondayImport] Failed to initialize from global Monday settings:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load Monday.com boards')
+      }
+
+      const suggested = preferLeadsBoard(boardsList)
+      if (suggested) {
+        setSelectedBoard(suggested)
+        setSelectedItems(new Set())
+        setStep('items')
+        await fetchBoardItems(suggested)
+      }
+    }
+
+    void initImport().finally(() => setLoadingBoards(false))
+  }, [fetchBoardItems])
 
   const handleToggleItem = (id: string) => {
     setSelectedItems(prev => {
@@ -319,150 +358,10 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
 
         <div className="flex-1 overflow-y-auto px-6 pb-6 min-h-0">
           <AnimatePresence mode="wait">
-            {step === 'board' && (
-              <motion.div key="board" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-                <p className="text-xs text-slate-500 mb-3">
-                  Choose your leads board. Column mapping is auto-detected and can be adjusted on the next step.
-                </p>
-                {suggestedLeadsBoard && (
-                  <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                    Suggested: <button type="button" className="font-semibold underline" onClick={() => void handleSelectBoard(suggestedLeadsBoard)}>{suggestedLeadsBoard.name}</button>
-                  </div>
-                )}
-                <div className="relative mb-3">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search boards..."
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/20"
-                    value={boardSearch}
-                    onChange={e => setBoardSearch(e.target.value)}
-                  />
-                </div>
-                {loadingBoards ? (
-                  <div className="flex items-center justify-center py-12 text-slate-400 gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-xs">Loading boards...</span>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-80 overflow-y-auto">
-                    {filteredBoards.map(board => (
-                      <button
-                        key={board.id}
-                        onClick={() => void handleSelectBoard(board)}
-                        className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-white hover:border-red-300 hover:bg-red-50/30 transition-all text-left"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="text-sm font-medium text-slate-700 truncate">{board.name}</span>
-                          {suggestedLeadsBoard?.id === board.id && (
-                            <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0">Leads</span>
-                          )}
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-slate-300" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {step === 'mapping' && (
-              <motion.div key="mapping" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <button type="button" onClick={() => setStep('board')} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400">
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="text-xs text-slate-500 truncate">Board: <strong className="text-slate-700">{selectedBoard?.name}</strong></span>
-                  <button type="button" onClick={() => selectedBoard && void fetchBoardItems(selectedBoard)} className="ml-auto p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-                    <RefreshCw className={`w-3 h-3 ${loadingItems ? 'animate-spin' : ''}`} />
-                  </button>
-                </div>
-
-                {loadingItems ? (
-                  <div className="py-12 flex justify-center text-slate-400 gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-xs">Reading board columns...</span>
-                  </div>
-                ) : (
-                  <>
-                    <div className={`mb-4 rounded-xl border px-3 py-2.5 text-xs flex items-start gap-2 ${
-                      confidence === 'high' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' :
-                      confidence === 'medium' ? 'border-amber-200 bg-amber-50 text-amber-800' :
-                      'border-slate-200 bg-slate-50 text-slate-600'
-                    }`}>
-                      <Columns3 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <div>
-                        {confidence === 'high' && <p><strong>Auto-mapped.</strong> We matched Monday columns to Cantara fields. Confirm below or change any mapping.</p>}
-                        {confidence === 'medium' && <p><strong>Partial auto-map.</strong> Some fields were guessed — please verify email and business name columns.</p>}
-                        {confidence === 'low' && <p><strong>Manual mapping needed.</strong> Pick which Monday column feeds each Cantara field.</p>}
-                        <p className="mt-1 text-[10px] opacity-80">
-                          Use <strong>{MONDAY_ITEM_NAME_COLUMN_LABEL}</strong> for Monday&apos;s first column (e.g. Client). Mapping is saved per board in this browser.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {MONDAY_CLIENT_FIELDS.map(field => {
-                        const Icon = FIELD_ICONS[field.key]
-                        return (
-                          <div key={field.key} className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
-                            <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">
-                              <Icon className="w-3 h-3" />
-                              {field.label}
-                              {field.required && <span className="text-red-500">*</span>}
-                            </label>
-                            <SearchableSelect
-                              options={columnOptions}
-                              value={columnMapping[field.key] ?? ''}
-                              onChange={nextValue =>
-                                setColumnMapping(prev => ({ ...prev, [field.key]: nextValue || null }))
-                              }
-                              placeholder="Search Monday columns…"
-                              emptyLabel="— Not mapped —"
-                            />
-                          </div>
-                        )
-                      })}
-                    </div>
-
-                    {previewClient && (
-                      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Preview (first row)</p>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600">
-                          <span>Name: <strong className="text-slate-800">{previewClient.fullName || '—'}</strong></span>
-                          <span>Email: <strong className="text-slate-800">{previewClient.email || '—'}</strong></span>
-                          <span>Phone: <strong className="text-slate-800">{previewClient.phone || '—'}</strong></span>
-                          <span>Company: <strong className="text-slate-800">{previewClient.company || '—'}</strong></span>
-                          <span className="col-span-2">Website: <strong className="text-slate-800">{previewClient.website || '—'}</strong></span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="mt-4 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={handleSaveMappingAndContinue}
-                        disabled={!columnMapping.email}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-50"
-                        style={{ background: 'linear-gradient(135deg,#FF3D57,#FF9A3C)' }}
-                      >
-                        Continue to pick leads <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </>
-                )}
-              </motion.div>
-            )}
-
             {step === 'items' && (
               <motion.div key="items" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
                 <div className="flex items-center gap-2 mb-3">
-                  <button type="button" onClick={() => setStep('mapping')} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400">
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="text-xs text-slate-500">{items.length} items on board</span>
+                  <span className="text-xs text-slate-500 font-medium">Auto-selected board: <strong className="text-slate-800">{selectedBoard?.name}</strong> ({items.length} items loaded)</span>
                 </div>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="relative flex-1">
@@ -494,9 +393,17 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
                       >
                         <input type="checkbox" checked={selected} onChange={() => handleToggleItem(item.id)} className="mt-1" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-slate-800">{parsed.fullName || item.name}</p>
+                          <p className="text-xs text-slate-800">
+                            <span className="font-bold">{parsed.fullName || item.name}</span>
+                            {parsed.company && (
+                              <>
+                                <span className="text-slate-400 mx-1.5">|</span>
+                                <span className="font-bold text-slate-700">{parsed.company}</span>
+                              </>
+                            )}
+                          </p>
                           <p className="text-[10px] text-slate-500 mt-0.5">
-                            {[parsed.email, parsed.phone, parsed.company].filter(Boolean).join(' · ') || 'No mapped fields yet'}
+                            {[parsed.email, parsed.phone].filter(Boolean).join(' · ') || 'No mapped fields yet'}
                           </p>
                         </div>
                       </label>

@@ -65,7 +65,7 @@ const FIELD_COLUMN_PATTERNS: Record<MondayClientField, RegExp[]> = {
   email: [/e-?mail/i, /email\s*address/i],
   phone: [/phone/i, /mobile/i, /cell/i, /telephone/i, /\btel\b/i],
   company: [/company/i, /business\s*name/i, /organization/i, /account\s*name/i, /deal\s*name/i, /client\s*name/i],
-  website: [/website/i, /web\s*site/i, /\burl\b/i, /domain/i, /site\s*url/i],
+  website: [/website/i, /web\s*site/i, /\burl\b/i, /domain/i, /site\s*url/i, /website\s*url/i],
   businessCategory: [/categor/i, /business\s*type/i, /service\s*type/i, /vertical/i, /segment/i],
   propertyOwnership: [/property/i, /real\s*estate/i, /own.*real/i, /lease.*own/i, /building/i],
   businessAddress: [/address/i, /location/i, /city/i, /street/i],
@@ -294,7 +294,14 @@ export function applyColumnMapping(item: MondayBoardItemRaw, mapping: MondayColu
   }
 }
 
-export function preferLeadsBoard<T extends { name: string }>(boards: T[]): T | null {
+export function preferLeadsBoard<T extends { id: string; name: string }>(boards: T[]): T | null {
+  // First, try to find a board named exactly "Closed Won" or containing "Closed Won" but not "Subitems"
+  const closedWon = boards.find(board => 
+    /closed\s*won/i.test(board.name) && 
+    !/subitem/i.test(board.name) && 
+    !/sub-item/i.test(board.name)
+  )
+  if (closedWon) return closedWon
   const exact = boards.find(board => /\bleads?\b/i.test(board.name))
   if (exact) return exact
   return boards.find(board => /lead/i.test(board.name)) ?? null

@@ -3,9 +3,15 @@
 import { useState, useEffect } from 'react'
 import {
   CheckCircle2, ChevronDown, ExternalLink, Loader2,
-  RefreshCw, Trello, AlertCircle, Link2, Search
+  RefreshCw, Trello, AlertCircle, Link2, Search, ChevronRight, FolderOpen, Plus, FolderPlus
 } from 'lucide-react'
-import { Button, Card, cn } from '@/components/ui'
+import { Button, Card, Modal, cn } from '@/components/ui'
+
+interface DrivePickerFolder {
+  id: string
+  name: string
+  url: string
+}
 
 interface Props {
   clientId: string
@@ -41,6 +47,165 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
   const [linked, setLinked] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // ── Google Drive Picker states ─────────────────────────────────────────────
+  const [showDrivePicker, setShowDrivePicker] = useState(false)
+  // 'create' = default quick-create tab; 'browse' = folder browser tab
+  const [pickerTab, setPickerTab] = useState<'create' | 'browse'>('create')
+  // Admin global parent folder (from /api/drive/settings)
+  const [globalParentFolder, setGlobalParentFolder] = useState<string | null>(null)
+  const [globalParentLoading, setGlobalParentLoading] = useState(false)
+  // The resolved parent folder for creation (either global or overridden by user picking)
+  // Stored as a DrivePickerFolder object when chosen from browser, or as raw URL string
+  const [selectedParentFolder, setSelectedParentFolder] = useState<DrivePickerFolder | null>(null)
+  // Browse-mode states
+  const [drivePickerFolders, setDrivePickerFolders] = useState<DrivePickerFolder[]>([])
+  const [drivePickerPath, setDrivePickerPath] = useState<DrivePickerFolder[]>([])
+  const [drivePickerLoading, setDrivePickerLoading] = useState(false)
+  const [drivePickerError, setDrivePickerError] = useState('')
+  const [driveBusy, setDriveBusy] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  // Whether user is in "change parent" flow inside create tab
+  const [choosingParent, setChoosingParent] = useState(false)
+
+  const currentDrivePickerFolder = drivePickerPath[drivePickerPath.length - 1] || null
+
+  const fetchGlobalParentFolder = async () => {
+    setGlobalParentLoading(true)
+    try {
+      const res = await fetch('/api/drive/settings', { cache: 'no-store' })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.parentFolder) {
+        setGlobalParentFolder(data.parentFolder)
+      } else {
+        setGlobalParentFolder(null)
+      }
+    } catch {
+      setGlobalParentFolder(null)
+    } finally {
+      setGlobalParentLoading(false)
+    }
+  }
+
+  const loadDriveFolders = async (parent?: DrivePickerFolder | null, nextPath?: DrivePickerFolder[]) => {
+    const parentId = parent?.id || 'root'
+    setDrivePickerLoading(true)
+    setDrivePickerError('')
+    try {
+      const res = await fetch(`/api/drive/folders?parentId=${encodeURIComponent(parentId)}`, { cache: 'no-store' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not load Google Drive folders')
+      setDrivePickerFolders(Array.isArray(data.folders) ? data.folders : [])
+      if (nextPath) setDrivePickerPath(nextPath)
+    } catch (error) {
+      setDrivePickerError(error instanceof Error ? error.message : 'Could not load Google Drive folders')
+      setDrivePickerFolders([])
+    } finally {
+      setDrivePickerLoading(false)
+    }
+  }
+
+  /** Sets the currently-browsed folder as the client folder directly (no new folder created) */
+  const selectDrivePickerFolder = async () => {
+    if (!currentDrivePickerFolder) return
+    setDriveBusy(true)
+    setDrivePickerError('')
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driveFolder: currentDrivePickerFolder.url }),
+      })
+      if (!res.ok) throw new Error('Failed to update client with selected drive folder')
+      setShowDrivePicker(false)
+      // Auto-retry save+link
+      setSavingToDrive(true)
+      const fileName = `${clientName.replace(/\s+/g, '-').toLowerCase()}-${reportType.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.html`
+      const saveRes = await fetch('/api/drive/save-report', {
+        method: 'POST',
+        body: JSON.stringify({ clientId, fileName, html }),
+      })
+      if (!saveRes.ok) throw new Error(await saveRes.text() || 'Failed to save to Drive')
+      const result = await saveRes.json()
+      const driveUrl = result.result?.webViewLink
+      if (!driveUrl) throw new Error('No Drive link returned')
+      setFileUrl(driveUrl)
+      await linkReport(driveUrl)
+    } catch (err: any) {
+      setDrivePickerError(err.message || 'Failed to associate folder and save')
+    } finally {
+      setDriveBusy(false)
+    }
+  }
+
+  /** Uses the browsed folder as the parent for creation (inside "change parent" flow) */
+  const useAsParentFolder = () => {
+    if (!currentDrivePickerFolder) return
+    setSelectedParentFolder(currentDrivePickerFolder)
+    setChoosingParent(false)
+    setPickerTab('create')
+  }
+
+  const closeDrivePicker = () => {
+    setShowDrivePicker(false)
+    setDrivePickerError('')
+    setNewFolderName('')
+    setChoosingParent(false)
+    setSelectedParentFolder(null)
+    setPickerTab('create')
+  }
+
+  /** Resolve the effective parent folder URL for folder creation */
+  const effectiveParentUrl = selectedParentFolder?.url ?? globalParentFolder ?? null
+
+  const createDriveFolder = async () => {
+    const name = newFolderName.trim()
+    if (!name || creatingFolder) return
+    if (!effectiveParentUrl) {
+      setDrivePickerError('Please set a parent folder first.')
+      return
+    }
+    setCreatingFolder(true)
+    setDrivePickerError('')
+    try {
+      const res = await fetch('/api/drive/create-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientName: name, clientId, parentFolder: effectiveParentUrl }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to create folder')
+      // The new folder is the client folder — patch client and retry save
+      const folderUrl: string = data.folderUrl
+      const patchRes = await fetch(`/api/clients/${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driveFolder: folderUrl }),
+      })
+      if (!patchRes.ok) throw new Error('Folder created but failed to save to client profile')
+      setShowDrivePicker(false)
+      setNewFolderName('')
+      // Auto-retry save+link
+      setSavingToDrive(true)
+      const fileName = `${clientName.replace(/\s+/g, '-').toLowerCase()}-${reportType.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.html`
+      const saveRes = await fetch('/api/drive/save-report', {
+        method: 'POST',
+        body: JSON.stringify({ clientId, fileName, html }),
+      })
+      if (!saveRes.ok) throw new Error(await saveRes.text() || 'Failed to save to Drive')
+      const result = await saveRes.json()
+      const driveUrl = result.result?.webViewLink
+      if (!driveUrl) throw new Error('No Drive link returned')
+      setFileUrl(driveUrl)
+      await linkReport(driveUrl)
+    } catch (err: any) {
+      setDrivePickerError(err.message || 'Failed to create folder')
+    } finally {
+      setCreatingFolder(false)
+      setSavingToDrive(false)
+    }
+  }
+
   // ── Check connection ────────────────────────────────────────────────────────
   useEffect(() => { void checkStatus() }, [])
   const filteredItems = items.filter(item => 
@@ -60,15 +225,36 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
     }
   }
 
-  // ── Fetch boards ────────────────────────────────────────────────────────────
+  // ── Fetch boards & auto-select Closed Won ───────────────────────────────────
   const fetchBoards = async () => {
     setLoadingBoards(true)
     setError(null)
     try {
+      // 1. First load global settings board ID
+      let globalBoardId: string | null = null
+      try {
+        const mRes = await fetch('/api/admin/settings/monday')
+        if (mRes.ok) {
+          const mData = await mRes.json()
+          if (mData.boardId) {
+            globalBoardId = mData.boardId
+          }
+        }
+      } catch (err) {}
+
       const res = await fetch('/api/composio/monday/boards')
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
-      setBoards(data.boards ?? [])
+      const list = (data.boards ?? []) as Board[]
+      setBoards(list)
+
+      // Try to find configured board, or fallback to "Closed Won" by name, or first board
+      const targetBoard = list.find(b => b.id === globalBoardId) || 
+                          list.find(b => /closed\s*won/i.test(b.name)) || 
+                          list[0]
+      if (targetBoard) {
+        setSelectedBoard(targetBoard)
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load boards')
     } finally {
@@ -76,7 +262,7 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
     }
   }
 
-  // ── Fetch items for selected board ─────────────────────────────────────────
+  // ── Fetch items for selected board & Auto-select matching client ───────────
   useEffect(() => {
     if (!selectedBoard) return
     void fetchItems(selectedBoard.id)
@@ -90,7 +276,56 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
       const res = await fetch(`/api/composio/monday/items?boardId=${boardId}`)
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
-      setItems(data.items ?? [])
+      const loadedItems = (data.items ?? []) as any[]
+      setItems(loadedItems)
+
+      // Try matching by multiple heuristics:
+      // 1. Check if client notes contain 'Imported from Monday item <id>'
+      let matched = null
+      
+      try {
+        const clientRes = await fetch(`/api/clients/${clientId}`)
+        if (clientRes.ok) {
+          const clientData = await clientRes.json()
+          if (clientData.notes) {
+            const importedMatch = clientData.notes.match(/Imported from Monday item (\d+)/i)
+            if (importedMatch && importedMatch[1]) {
+              const targetId = importedMatch[1]
+              matched = loadedItems.find(item => String(item.id) === String(targetId))
+            }
+          }
+
+          if (!matched) {
+            // 2. Exact match company name
+            if (clientData.company) {
+              matched = loadedItems.find(item => 
+                item.name.toLowerCase().trim() === clientData.company.toLowerCase().trim()
+              )
+            }
+            // 3. Exact email match
+            if (!matched && clientData.email) {
+              matched = loadedItems.find(item => 
+                item.email && item.email.toLowerCase().trim() === clientData.email.toLowerCase().trim()
+              )
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load client details for precise matching:', err)
+      }
+
+      if (!matched) {
+        // 4. Default string heuristics fallback
+        matched = loadedItems.find(item => 
+          item.name.toLowerCase().trim() === clientName.toLowerCase().trim() ||
+          item.name.toLowerCase().includes(clientName.toLowerCase()) ||
+          clientName.toLowerCase().includes(item.name.toLowerCase())
+        )
+      }
+      
+      if (matched) {
+        setSelectedItem(matched)
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load board items')
     } finally {
@@ -129,6 +364,16 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
         method: 'POST',
         body: JSON.stringify({ clientId, fileName, html }),
       })
+      if (res.status === 409) {
+        setSavingToDrive(false)
+        setShowDrivePicker(true)
+        setPickerTab('create')
+        setDrivePickerPath([])
+        setSelectedParentFolder(null)
+        void fetchGlobalParentFolder()
+        void loadDriveFolders(null, [])
+        return
+      }
       if (!res.ok) throw new Error(await res.text() || 'Failed to save to Drive')
       const result = await res.json()
       const driveUrl = result.result?.webViewLink
@@ -185,9 +430,9 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div>
-              <h3 className="text-sm font-semibold text-slate-800">Monday.com</h3>
+              <h3 className="text-sm font-semibold text-slate-800">Monday.com Global Mapping</h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Link this {reportType} to a Monday board item so your team can track it.
+                Automatically link this {reportType} to the corresponding deal in Monday.com.
               </p>
             </div>
 
@@ -234,115 +479,76 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
 
           {/* ── CONNECTED state ── */}
           {connState === 'connected' && (
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-4">
               {!fileUrl && (
                 <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-700 flex items-center gap-2">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  Generate and download the {reportType} first, then paste the file URL below to link it.
+                  Generate and download the {reportType} first, then save to link it.
                 </div>
               )}
 
-              {/* Board selector */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 block">
-                  1. Select a Board
-                </label>
-                {loadingBoards ? (
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading boards...
-                  </div>
-                ) : boards.length === 0 ? (
-                  <div className="text-xs text-slate-400 flex items-center gap-2">
-                    No boards found.{' '}
-                    <button onClick={fetchBoards} className="underline text-amber-600 hover:text-amber-700">
-                      Refresh
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <select
-                      id="monday-board-select"
-                      className="w-full text-xs rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 appearance-none outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-all"
-                      value={selectedBoard?.id ?? ''}
-                      onChange={(e) => {
-                        const board = boards.find((b) => b.id === e.target.value) ?? null
-                        setSelectedBoard(board)
-                        setLinked(false)
-                      }}
-                    >
-                      <option value="">— Choose a board —</option>
-                      {boards.map((b) => (
-                        <option key={b.id} value={b.id}>{b.name}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                  </div>
-                )}
+              {/* Status Indicator */}
+              <div className="text-xs bg-slate-50 rounded-xl p-3.5 border border-slate-100 space-y-1.5">
+                <p className="text-slate-500 font-medium">Target Board: <strong className="text-slate-800 font-bold">{selectedBoard?.name || 'Closed Won'}</strong></p>
+                <p className="text-slate-500 font-medium flex items-center gap-2 flex-wrap">
+                  <span>Matching Deal:</span>
+                  {loadingItems ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-400"><Loader2 className="w-3 h-3 animate-spin" /> Searching deals...</span>
+                  ) : selectedItem ? (
+                    <strong className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">{selectedItem.name}</strong>
+                  ) : (
+                    <span className="text-rose-600 font-semibold bg-rose-50 px-2 py-0.5 rounded border border-rose-200">No matching deal found</span>
+                  )}
+                </p>
               </div>
 
-              {/* Item selector (shown after board selected) */}
-              {selectedBoard && (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      2. Select an Item / Deal
-                    </label>
-                    {!loadingItems && (
-                      <button 
-                        onClick={() => selectedBoard && void fetchItems(selectedBoard.id)} 
-                        className="text-[10px] text-amber-600 hover:underline flex items-center gap-1"
-                      >
-                        <RefreshCw className="w-2.5 h-2.5" /> Refresh
+              {/* Search & choose manually if missing or user wants to re-link */}
+              {!loadingItems && items.length > 0 && (
+                <div className="space-y-2 border-t border-slate-100 pt-3">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    Choose matching deal manually (optional)
+                  </label>
+                  <div className="flex gap-2 items-center">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search deals..."
+                        className="w-full text-xs rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-1.5 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-all"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    {searchTerm && (
+                      <button onClick={() => setSearchTerm('')} className="text-[10px] text-slate-400 hover:text-slate-600 underline">
+                        Clear
                       </button>
                     )}
                   </div>
                   
-                  {loadingItems ? (
-                    <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-50 rounded-lg p-2.5 border border-slate-100">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading deals from Monday...
-                    </div>
-                  ) : items.length === 0 ? (
-                    <div className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2.5 border border-slate-200">
-                      No items found on this board.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <input
-                          type="text"
-                          placeholder="Search deals..."
-                          className="w-full text-xs rounded-lg border border-slate-200 bg-slate-50/50 pl-8 pr-3 py-2 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-all"
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                      </div>
-                      
-                      <div className="relative">
-                        <select
-                          id="monday-item-select"
-                          className="w-full text-xs rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 appearance-none outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-all max-h-40"
-                          value={selectedItem?.id ?? ''}
-                          onChange={(e) => {
-                            const item = items.find((i) => i.id === e.target.value) ?? null
-                            setSelectedItem(item)
+                  {filteredItems.length > 0 && searchTerm && (
+                    <div className="border border-slate-100 rounded-lg max-h-32 overflow-y-auto bg-white divide-y divide-slate-50 shadow-sm">
+                      {filteredItems.map((i) => (
+                        <div
+                          key={i.id}
+                          onClick={() => {
+                            setSelectedItem(i)
+                            setSearchTerm('')
                             setLinked(false)
                           }}
-                          size={filteredItems.length > 0 ? Math.min(6, filteredItems.length + 1) : 1}
+                          className={cn(
+                            "py-2 px-3 text-xs cursor-pointer transition-colors hover:bg-slate-50 flex items-center justify-between",
+                            selectedItem?.id === i.id && "bg-amber-50/50 hover:bg-amber-50"
+                          )}
                         >
-                          <option value="">— {filteredItems.length > 0 ? `Found ${filteredItems.length} matches` : 'No matches found'} —</option>
-                          {filteredItems.map((i) => (
-                            <option key={i.id} value={i.id} className="py-1.5 px-2 cursor-pointer hover:bg-amber-50">
-                              {i.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                          <span className="font-medium text-slate-700">{i.name}</span>
+                          {selectedItem?.id === i.id && <span className="text-[10px] text-amber-600 font-semibold">Active Match</span>}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               )}
-
 
               {/* Link button */}
               {selectedItem && (
@@ -350,7 +556,7 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
                   {linked ? (
                     <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2.5 text-xs text-emerald-700 font-semibold">
                       <CheckCircle2 className="w-4 h-4" />
-                      Successfully linked to <span className="font-bold">{selectedItem.name}</span>! An update has been posted on Monday.com.
+                      Successfully linked to <span className="font-bold">{selectedItem.name}</span>! The {reportType} link has been saved to Monday.com.
                     </div>
                   ) : fileUrl ? (
                     <Button
@@ -412,6 +618,236 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
           )}
         </div>
       </div>
+      {/* Google Drive Picker Modal */}
+      <Modal
+        open={showDrivePicker}
+        onClose={closeDrivePicker}
+        title="Set Up Client Folder"
+        sizeClassName="max-w-2xl"
+      >
+        <div className="space-y-4">
+          {/* ── Tab switcher ── */}
+          <div className="flex rounded-xl border border-slate-200 overflow-hidden text-sm">
+            <button
+              type="button"
+              onClick={() => setPickerTab('create')}
+              className={cn(
+                'flex-1 py-2.5 font-medium flex items-center justify-center gap-1.5 transition-colors',
+                pickerTab === 'create'
+                  ? 'bg-slate-800 text-white'
+                  : 'bg-white text-slate-500 hover:bg-slate-50'
+              )}
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+              Create New Folder
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPickerTab('browse'); setChoosingParent(false) }}
+              className={cn(
+                'flex-1 py-2.5 font-medium flex items-center justify-center gap-1.5 transition-colors border-l border-slate-200',
+                pickerTab === 'browse'
+                  ? 'bg-slate-800 text-white'
+                  : 'bg-white text-slate-500 hover:bg-slate-50'
+              )}
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Select Existing Folder
+            </button>
+          </div>
+
+          {/* ── CREATE TAB ── */}
+          {pickerTab === 'create' && (
+            <div className="space-y-4">
+              {/* Folder name input */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-600 block">New folder name</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder={`e.g. ${clientName}`}
+                    value={newFolderName}
+                    onChange={e => setNewFolderName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') void createDriveFolder() }}
+                    disabled={creatingFolder}
+                    className="flex-1 text-sm rounded-lg border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-all"
+                  />
+                  <Button
+                    onClick={() => void createDriveFolder()}
+                    disabled={!newFolderName.trim() || !effectiveParentUrl || creatingFolder}
+                  >
+                    {creatingFolder ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    {creatingFolder ? 'Creating...' : 'Create Folder'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Parent folder info */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <FolderOpen className="w-3 h-3" /> Parent folder
+                </p>
+                {globalParentLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading admin setting...
+                  </div>
+                ) : effectiveParentUrl ? (
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs text-slate-600 break-all flex-1">
+                      {selectedParentFolder
+                        ? <><span className="font-medium text-slate-800">{selectedParentFolder.name}</span><span className="text-slate-400 ml-1">(selected from browser)</span></>
+                        : <><span className="font-medium text-slate-800">Admin default</span><span className="text-slate-400 ml-1 truncate block">{globalParentFolder}</span></>
+                      }
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { setChoosingParent(true); setPickerTab('browse') }}
+                      className="text-[11px] text-amber-600 hover:text-amber-800 underline shrink-0 font-medium"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                      No parent folder is configured yet. Browse and pick one below, or ask an admin to set a default in Google Drive settings.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setChoosingParent(true); setPickerTab('browse') }}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      Browse & Pick Parent Folder
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {drivePickerError && (
+                <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2.5 text-xs text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {drivePickerError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── BROWSE TAB ── */}
+          {pickerTab === 'browse' && (
+            <div className="space-y-3">
+              {choosingParent && (
+                <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-700">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  Navigate into a folder, then click <strong className="mx-0.5">"Use as Parent Folder"</strong> to set it as the parent for new folders.
+                </div>
+              )}
+
+              {/* Breadcrumb path */}
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                <button
+                  type="button"
+                  onClick={() => void loadDriveFolders(null, [])}
+                  className={cn('font-medium hover:text-amber-700', drivePickerPath.length === 0 ? 'text-slate-800' : 'text-slate-500')}
+                >
+                  My Drive
+                </button>
+                {drivePickerPath.map((folder, index) => (
+                  <span key={folder.id} className="inline-flex items-center gap-2">
+                    <ChevronRight className="h-3 w-3 text-slate-300" />
+                    <button
+                      type="button"
+                      onClick={() => void loadDriveFolders(folder, drivePickerPath.slice(0, index + 1))}
+                      className={cn('font-medium hover:text-amber-700', index === drivePickerPath.length - 1 ? 'text-slate-800' : 'text-slate-500')}
+                    >
+                      {folder.name}
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              {/* Folder list */}
+              <div className="min-h-[220px] max-h-[300px] overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                {drivePickerLoading ? (
+                  <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading folders...
+                  </div>
+                ) : drivePickerFolders.length === 0 ? (
+                  <div className="p-4 text-sm text-slate-400">No folders found here.</div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {drivePickerFolders.map(folder => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        onClick={() => void loadDriveFolders(folder, [...drivePickerPath, folder])}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-amber-50"
+                      >
+                        <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+                        <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {drivePickerError && (
+                <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2.5 text-xs text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {drivePickerError}
+                </div>
+              )}
+
+              {/* Footer actions — differ depending on mode */}
+              <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-500">
+                  {currentDrivePickerFolder
+                    ? <>Current folder: <span className="font-medium text-slate-700">{currentDrivePickerFolder.name}</span></>
+                    : 'Navigate into a folder to select it.'}
+                </p>
+                <div className="flex gap-2">
+                  {choosingParent ? (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={() => { setChoosingParent(false); setPickerTab('create') }}>
+                        ← Back to Create
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={useAsParentFolder}
+                        disabled={!currentDrivePickerFolder}
+                        style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff', border: 'none' }}
+                      >
+                        <FolderPlus className="w-3.5 h-3.5" />
+                        Use as Parent Folder
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button variant="ghost" onClick={closeDrivePicker}>Cancel</Button>
+                      <Button
+                        onClick={() => void selectDrivePickerFolder()}
+                        disabled={!currentDrivePickerFolder || driveBusy}
+                      >
+                        {driveBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                        Set as Client Folder
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Cancel button always visible in create tab */}
+          {pickerTab === 'create' && (
+            <div className="flex justify-end border-t border-slate-100 pt-3">
+              <Button variant="ghost" onClick={closeDrivePicker}>Cancel</Button>
+            </div>
+          )}
+        </div>
+      </Modal>
     </Card>
   )
 }
@@ -455,7 +891,7 @@ function FileUrlInput({ reportType, clientName, selectedItemId }: {
     return (
       <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2.5 text-xs text-emerald-700 font-semibold">
         <CheckCircle2 className="w-4 h-4" />
-        Linked! An update has been posted on Monday.com.
+        Linked! The {reportType} link has been saved to Monday.com.
       </div>
     )
   }

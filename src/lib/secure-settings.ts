@@ -164,3 +164,44 @@ export async function getAnthropicClient() {
   const { getAIClient } = await import("@/lib/ai-client");
   return getAIClient();
 }
+
+const MONDAY_BOARD_ID_KEY = "monday_global_board_id";
+const MONDAY_MAPPING_KEY = "monday_global_column_mapping";
+
+export async function getStoredMondayBoardId() {
+  const secret = await (prisma as any).appSecret.findUnique({
+    where: { key: MONDAY_BOARD_ID_KEY },
+  });
+  return secret?.value ? decryptSecret(secret.value) : null;
+}
+
+export async function saveStoredMondayBoardId(boardId: string) {
+  const trimmed = boardId.trim();
+  await (prisma as any).appSecret.upsert({
+    where: { key: MONDAY_BOARD_ID_KEY },
+    update: { value: encryptSecret(trimmed) },
+    create: { key: MONDAY_BOARD_ID_KEY, value: encryptSecret(trimmed) },
+  });
+}
+
+export async function getStoredMondayColumnMapping() {
+  const secret = await (prisma as any).appSecret.findUnique({
+    where: { key: MONDAY_MAPPING_KEY },
+  });
+  if (!secret?.value) return null;
+  try {
+    const jsonStr = decryptSecret(secret.value);
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function saveStoredMondayColumnMapping(mapping: Record<string, string | null>) {
+  const jsonStr = JSON.stringify(mapping);
+  await (prisma as any).appSecret.upsert({
+    where: { key: MONDAY_MAPPING_KEY },
+    update: { value: encryptSecret(jsonStr) },
+    create: { key: MONDAY_MAPPING_KEY, value: encryptSecret(jsonStr) },
+  });
+}
