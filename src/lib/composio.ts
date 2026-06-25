@@ -6,7 +6,10 @@ import { getProjectEnv } from "@/lib/project-env";
 import {
   getStoredComposioMailConnectedAccountId,
   hasStoredComposioMailConnectedAccountId,
+  getStoredMondayBoardId,
+  getStoredMondayColumnMapping,
 } from "@/lib/secure-settings";
+import { getMondayLinkColumnKey, sanitizeMondayLinkUrl } from "@/lib/monday-settings";
 
 const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
 const QUICKBOOKS_TOOLKIT_SLUG = "QUICKBOOKS";
@@ -47,7 +50,7 @@ function composioApiKey() {
   return key;
 }
 
-async function composioFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function composioFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${COMPOSIO_BASE_URL}${path}`, {
     ...init,
     cache: "no-store",
@@ -837,6 +840,8 @@ async function getMondayAuthConfigId() {
           "MONDAY_GET_ITEMS",
           "MONDAY_CREATE_ITEM",
           "MONDAY_CREATE_UPDATE",
+          "MONDAY_LIST_COLUMNS",
+          "MONDAY_UPDATE_ITEM",
         ],
       },
     }),
@@ -891,28 +896,56 @@ export function getMondayInstallUrl() {
 
 export async function getMondayConnection(adminId?: string) {
   const userId = adminId || getComposioAdminId() || ADMIN_MONDAY_USER_ID;
-  const params = new URLSearchParams({
-    limit: "10",
-    account_type: "ALL",
-    order_by: "updated_at",
-    order_direction: "desc",
-  });
-  params.append("user_ids", userId);
-  params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
+  const buildParams = (includeUser: boolean) => {
+    const params = new URLSearchParams({
+      limit: "10",
+      account_type: "ALL",
+      order_by: "updated_at",
+      order_direction: "desc",
+    });
+    if (includeUser) params.append("user_ids", userId);
+    params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
+    return params;
+  };
+  const pickConnection = (items: Array<{
+    id: string;
+    status: string;
+    updated_at?: string;
+    status_reason?: string;
+    is_disabled?: boolean;
+  }> = []) => {
+    const validStatuses = ["ACTIVE", "VERIFYING", "INITIATED"];
+    return items.find((item) => validStatuses.includes(item.status) && !item.is_disabled) ?? null;
+  };
 
-  const connections = await composioFetch<{
+  const scopedConnections = await composioFetch<{
     items?: Array<{
       id: string;
       status: string;
       updated_at?: string;
       status_reason?: string;
       is_disabled?: boolean;
+      connection?: Record<string, unknown>;
+      user_id?: string;
     }>;
-  }>(`/connected_accounts?${params}`);
+  }>(`/connected_accounts?${buildParams(true)}`);
 
-  // Any status that isn't failed or disabled is considered "connected" for the UI
-  const validStatuses = ["ACTIVE", "VERIFYING", "INITIATED"];
-  return (connections.items ?? []).find((item) => validStatuses.includes(item.status) && !item.is_disabled) ?? null;
+  const scoped = pickConnection(scopedConnections.items);
+  if (scoped) return scoped;
+
+  const globalConnections = await composioFetch<{
+    items?: Array<{
+      id: string;
+      status: string;
+      updated_at?: string;
+      status_reason?: string;
+      is_disabled?: boolean;
+      connection?: Record<string, unknown>;
+      user_id?: string;
+    }>;
+  }>(`/connected_accounts?${buildParams(false)}`);
+
+  return pickConnection(globalConnections.items);
 }
 
 export async function disconnectMonday(adminId?: string) {
@@ -941,14 +974,32 @@ export async function disconnectMonday(adminId?: string) {
 }
 
 async function executeMondayTool<T>(slug: string, argumentsPayload: Record<string, unknown>, adminId?: string) {
-  const userId = adminId || getComposioAdminId() || ADMIN_MONDAY_USER_ID;
-  return composioFetch<{ data?: T; successful?: boolean; error?: unknown }>(`/tools/execute/${slug}`, {
-    method: "POST",
-    body: JSON.stringify({
-      user_id: userId,
-      arguments: argumentsPayload,
-    }),
-  });
+  const scopedUserId = adminId || getComposioAdminId();
+  const activeConnection = scopedUserId ? null : await getMondayConnection().catch(() => null);
+  const activeConnectionUserId =
+    typeof activeConnection?.connection?.user_id === "string"
+      ? activeConnection.connection.user_id
+      : typeof (activeConnection as any)?.user_id === "string"
+        ? (activeConnection as any).user_id
+        : null;
+  const userId = scopedUserId || activeConnectionUserId || ADMIN_MONDAY_USER_ID;
+  const run = (toolSlug: string) =>
+    composioFetch<{ data?: T; successful?: boolean; error?: unknown }>(`/tools/execute/${toolSlug}`, {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: userId,
+        arguments: argumentsPayload,
+      }),
+    });
+
+  try {
+    const result = await run(slug);
+    if (result?.successful !== false) return result;
+  } catch (error) {
+    if (slug === slug.toLowerCase()) throw error;
+  }
+
+  return run(slug.toLowerCase());
 }
 
 /** Composio often returns `data` as a JSON string for Monday tools. */
@@ -981,6 +1032,9 @@ function findMondayItemsPagePayload(payload: Record<string, unknown> | null): {
       undefined;
     return { items, cursor };
   };
+
+  const root = tryPage(payload);
+  if (root) return root;
 
   const boards = payload.boards;
   if (Array.isArray(boards) && boards[0] && typeof boards[0] === "object") {
@@ -1165,6 +1219,101 @@ export async function getMondayBoards() {
     id: String(b.id || b.board_id || ""), 
     name: String(b.name || b.title || "Untitled Board") 
   })).filter(b => b.id);
+}
+
+function parseComposioProxyJson(raw: unknown): Record<string, unknown> | null {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object") return raw as Record<string, unknown>;
+  return null;
+}
+
+function unwrapComposioProxyData(proxyResult: any): Record<string, unknown> | null {
+  const outer = parseComposioProxyJson(proxyResult?.data);
+  const dataLayer = parseComposioProxyJson(outer?.data) ?? outer?.data;
+  return dataLayer && typeof dataLayer === "object" ? (dataLayer as Record<string, unknown>) : outer;
+}
+
+export async function getMondayBoardColumns(boardId: string) {
+  const connection = await getMondayConnection();
+  if (!connection) throw new Error("No Monday.com connection found");
+
+  const columnsResult = await executeMondayTool<any>("MONDAY_LIST_COLUMNS", { board_id: boardId }).catch(() => null);
+  const columnsPayload = unwrapMondayToolData(columnsResult?.data);
+  const columnsFromTool =
+    (columnsPayload as any)?.columns ??
+    (columnsPayload as any)?.raw_response?.data?.boards?.[0]?.columns ??
+    (columnsPayload as any)?.data?.boards?.[0]?.columns ??
+    [];
+  if (Array.isArray(columnsFromTool) && columnsFromTool.length > 0) {
+    return columnsFromTool
+      .map((column: any) => ({
+        id: String(column.id || ""),
+        title: String(column.title || column.id || ""),
+        type: String(column.type || "text"),
+      }))
+      .filter((column: { id: string }) => column.id);
+  }
+
+  const connectionDetails = await composioFetch<any>(`/connected_accounts/${connection.id}`).catch(() => null);
+  const authHeader =
+    connectionDetails?.params?.headers?.Authorization ||
+    connectionDetails?.connection?.access_token ||
+    connectionDetails?.params?.access_token ||
+    connectionDetails?.data?.access_token;
+
+  const gql = `query { boards(ids: [${boardId}]) { id name columns { id title type } } }`;
+  if (authHeader && String(authHeader).length > 20) {
+    const mondayRes = await fetch("https://api.monday.com/v2", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: String(authHeader),
+        "API-Version": "2024-01",
+      },
+      body: JSON.stringify({ query: gql }),
+      cache: "no-store",
+    });
+
+    const mondayJson = await mondayRes.json().catch(() => null);
+    if (!mondayRes.ok) {
+      throw new Error(`Monday.com API responded with status ${mondayRes.status}: ${JSON.stringify(mondayJson).slice(0, 500)}`);
+    }
+    if (Array.isArray(mondayJson?.errors) && mondayJson.errors.length) {
+      throw new Error(`Monday.com GraphQL error: ${JSON.stringify(mondayJson.errors).slice(0, 500)}`);
+    }
+
+    const board = mondayJson?.data?.boards?.[0];
+    const columns = Array.isArray(board?.columns) ? board.columns : [];
+    return columns
+      .map((column: any) => ({
+        id: String(column.id || ""),
+        title: String(column.title || column.id || ""),
+        type: String(column.type || "text"),
+      }))
+      .filter((column: { id: string }) => column.id);
+  }
+
+  const items = await collectMondayBoardItemsViaItemsPage(boardId);
+  const byId = new Map<string, { id: string; title: string; type: string }>();
+  for (const item of items) {
+    for (const column of slimColumnValuesForApi(item)) {
+      if (column.id && !byId.has(column.id)) {
+        byId.set(column.id, {
+          id: column.id,
+          title: column.title || column.id,
+          type: column.type || "text",
+        });
+      }
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.title.localeCompare(b.title));
 }
 
 export async function getMondayBoardItems(boardId: string) {
@@ -1358,23 +1507,179 @@ export async function getMondayBoardItems(boardId: string) {
     .filter((row) => row.id);
 }
 
-export async function postMondayUpdate(args: {
+async function getMondayAuthHeader(): Promise<string | null> {
+  const connection = await getMondayConnection().catch(() => null);
+  if (!connection) return null;
+  const connectionDetails = await composioFetch<any>(`/connected_accounts/${connection.id}`).catch(() => null);
+  const candidates = [
+    connectionDetails?.params?.headers?.Authorization,
+    connectionDetails?.connection?.access_token,
+    connectionDetails?.params?.access_token,
+    connectionDetails?.data?.access_token,
+    connectionDetails?.state?.val?.access_token,
+    connectionDetails?.connection?.state?.val?.access_token,
+    (connection as any)?.connection?.access_token,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const token = String(candidate).trim();
+    if (token.length <= 20) continue;
+    return token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+  }
+  return null;
+}
+
+async function executeMondayGraphqlDirect(args: {
+  query: string;
+  variables?: Record<string, unknown>;
+}): Promise<Record<string, unknown> | null> {
+  const authHeader = await getMondayAuthHeader();
+  if (!authHeader) return null;
+
+  const mondayRes = await fetch("https://api.monday.com/v2", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: authHeader,
+      "API-Version": "2024-01",
+    },
+    body: JSON.stringify({ query: args.query, variables: args.variables }),
+    cache: "no-store",
+  });
+
+  const mondayJson = await mondayRes.json().catch(() => null);
+  if (!mondayRes.ok || (Array.isArray(mondayJson?.errors) && mondayJson.errors.length)) {
+    return null;
+  }
+  return mondayJson;
+}
+
+async function updateMondayLinkColumn(args: {
+  boardId: string;
+  itemId: string;
+  columnId: string;
+  url: string;
+  label: string;
+}): Promise<boolean> {
+  const normalizedUrl = sanitizeMondayLinkUrl(args.url);
+  if (!normalizedUrl.startsWith("http://") && !normalizedUrl.startsWith("https://")) {
+    throw new Error("Link URL must start with http:// or https://");
+  }
+
+  const linkObject = { url: normalizedUrl, text: args.label };
+  const toolPayload = {
+    board_id: args.boardId,
+    item_id: args.itemId,
+    column_id: args.columnId,
+    value: linkObject,
+  };
+
+  // Composio's link-column tool — passes {url,text} JSON to change_column_value.
+  try {
+    const res = await executeMondayTool<any>("MONDAY_UPDATE_ITEM", toolPayload);
+    if (res?.successful !== false) {
+      console.log("[Monday] Link column updated via MONDAY_UPDATE_ITEM");
+      return true;
+    }
+    console.warn("[Monday] MONDAY_UPDATE_ITEM unsuccessful:", res?.error);
+  } catch (e) {
+    console.warn("[Monday] MONDAY_UPDATE_ITEM failed:", e);
+  }
+
+  // Direct GraphQL when OAuth token is available (skip Composio proxy — not enabled on this key).
+  try {
+    const result = await executeMondayGraphqlDirect({
+      query: `
+        mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+          change_multiple_column_values(
+            board_id: $boardId
+            item_id: $itemId
+            column_values: $columnValues
+          ) {
+            id
+          }
+        }
+      `,
+      variables: {
+        boardId: args.boardId,
+        itemId: args.itemId,
+        columnValues: { [args.columnId]: linkObject },
+      },
+    });
+    if ((result?.data as any)?.change_multiple_column_values?.id) {
+      console.log("[Monday] Link column updated via change_multiple_column_values");
+      return true;
+    }
+  } catch (e) {
+    console.warn("[Monday] change_multiple_column_values failed:", e);
+  }
+
+  try {
+    const result = await executeMondayGraphqlDirect({
+      query: `
+        mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: JSON!) {
+          change_column_value(
+            board_id: $boardId
+            item_id: $itemId
+            column_id: $columnId
+            value: $value
+          ) {
+            id
+          }
+        }
+      `,
+      variables: {
+        boardId: args.boardId,
+        itemId: args.itemId,
+        columnId: args.columnId,
+        value: linkObject,
+      },
+    });
+    if ((result?.data as any)?.change_column_value?.id) {
+      console.log("[Monday] Link column updated via change_column_value");
+      return true;
+    }
+  } catch (e) {
+    console.warn("[Monday] change_column_value failed:", e);
+  }
+
+  return false;
+}
+
+export async function linkMondayReport(args: {
   itemId: string;
   reportType: "CIM" | "Teaser";
-  clientName: string;
   fileUrl: string;
 }) {
-  const body = `📎 *${args.reportType} for ${args.clientName}*\n\n` +
-    `The latest ${args.reportType} document has been linked by the Cantara team.\n\n` +
-    `🔗 [View/Download ${args.reportType}](${args.fileUrl})\n\n` +
-    `_Linked on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} via Cantara Advisor Dashboard._`;
+  const globalBoardId = await getStoredMondayBoardId().catch(() => null);
+  const globalMapping = await getStoredMondayColumnMapping().catch(() => null);
 
-  const result = await executeMondayTool<any>("MONDAY_CREATE_UPDATE", {
-    item_id: args.itemId,
-    body,
-  });
-  if (result?.successful === false) {
-    throw new Error(typeof result.error === "string" ? result.error : "Failed to post Monday.com update");
+  const mappingKey = getMondayLinkColumnKey(args.reportType);
+  const columnId: string | null = globalMapping?.[mappingKey] ?? null;
+
+  console.log(
+    `[Monday] linkMondayReport — reportType: ${args.reportType}, itemId: ${args.itemId}, columnId: ${columnId}, boardId: ${globalBoardId}`,
+  );
+
+  if (columnId && globalBoardId && args.itemId && !args.itemId.startsWith("temp")) {
+    const columnUpdated = await updateMondayLinkColumn({
+      boardId: globalBoardId,
+      itemId: args.itemId,
+      columnId,
+      url: args.fileUrl,
+      label: `View ${args.reportType}`,
+    });
+
+    if (!columnUpdated) {
+      throw new Error(
+        `Failed to save the ${args.reportType} link to Monday.com. Reconnect Monday.com in Admin Settings and confirm the mapped column is a Link column.`,
+      );
+    }
+  } else {
+    throw new Error(
+      `Monday.com link column is not configured for ${args.reportType}. Map the ${mappingKey} column in Admin Settings.`,
+    );
   }
-  return result;
+
+  return { success: true };
 }

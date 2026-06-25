@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { postMondayUpdate } from "@/lib/composio";
+import { linkMondayReport } from "@/lib/composio";
+import { sanitizeMondayLinkUrl } from "@/lib/monday-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,11 @@ export async function POST(req: NextRequest) {
       return new Response("itemId, reportType, clientName, and fileUrl are required", { status: 400 });
     }
 
-    await postMondayUpdate({ itemId, reportType, clientName, fileUrl });
+    await linkMondayReport({
+      itemId,
+      reportType,
+      fileUrl: sanitizeMondayLinkUrl(fileUrl),
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Monday.com link error:", error);
