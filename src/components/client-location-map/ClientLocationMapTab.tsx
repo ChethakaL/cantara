@@ -126,7 +126,9 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [geocodeProgress, setGeocodeProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [visibleTypes, setVisibleTypes] = useState<Set<ServiceType>>(new Set(['boarding', 'daycare', 'grooming', 'both', 'other']))
+  const [visibleTypes, setVisibleTypes] = useState<Set<ServiceType>>(
+    () => new Set<ServiceType>(['boarding', 'daycare', 'grooming', 'both', 'other']),
+  )
   const [mapsError, setMapsError] = useState<string | null>(null)
 
   const mapContainerRef = useRef<HTMLDivElement>(null)

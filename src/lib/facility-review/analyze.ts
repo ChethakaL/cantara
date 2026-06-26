@@ -3,6 +3,7 @@ import type { FacilityRating, FacilityReviewReport } from './types'
 import { requireAIClient, resolveModel } from "@/lib/ai-client"
 
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
+const DEFAULT_MAX_TOKENS = Number(process.env.FACILITY_REVIEW_MAX_TOKENS) || 16000
 
 const ZONE_WEIGHTS = [
   ['Exterior & Curb Appeal', 10],
@@ -85,7 +86,17 @@ function ratingForScore(score: number): FacilityRating {
 
 function parseClaudeJson(rawText: string): FacilityReviewReport {
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
-  return JSON.parse(cleaned) as FacilityReviewReport
+  try {
+    return JSON.parse(cleaned) as FacilityReviewReport
+  } catch (error) {
+    const looksTruncated = cleaned.length > 8000 && !cleaned.trimEnd().endsWith('}')
+    if (looksTruncated) {
+      throw new Error(
+        'Facility report JSON was truncated before completion. Try again with fewer photos or shorter meeting notes.',
+      )
+    }
+    throw error
+  }
 }
 
 function isCoverageGapOnly(text: string): boolean {
@@ -190,10 +201,16 @@ ${FACILITY_REPORT_JSON_SCHEMA}`,
 
   const response = await client.messages.create({
     model,
-    max_tokens: 5200,
+    max_tokens: DEFAULT_MAX_TOKENS,
     temperature: 0,
     messages: [{ role: 'user', content }],
   })
+
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error(
+      `Facility report generation hit the ${DEFAULT_MAX_TOKENS} token output limit. Try fewer visit photos or shorter meeting notes.`,
+    )
+  }
 
   const rawText = response.content
     .filter(block => block.type === 'text')
