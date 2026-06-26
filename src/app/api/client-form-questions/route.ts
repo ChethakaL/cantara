@@ -116,6 +116,8 @@ function buildPrefillResponses(client: any, existing: Record<string, any>): Reco
     const competitor = pricingCompetitors[index] ?? {}
     acc[`competitor${index + 1}Name`] = competitor.name ?? ''
     acc[`competitor${index + 1}Website`] = competitor.websiteUrl ?? ''
+    acc[`competitor${index + 1}Address`] = competitor.address ?? ''
+    acc[`competitor${index + 1}Category`] = competitor.category ?? ''
     return acc
   }, {})
 
@@ -138,6 +140,8 @@ function compatibilitySections(client: any, existing: Record<string, any>, respo
   const competitors = Array.from({ length: 5 }, (_, i) => ({
     name: merged[`competitor${i + 1}Name`] ?? '',
     websiteUrl: merged[`competitor${i + 1}Website`] ?? '',
+    address: merged[`competitor${i + 1}Address`] ?? '',
+    category: merged[`competitor${i + 1}Category`] ?? '',
   }))
 
   const next: Record<string, any> = {
