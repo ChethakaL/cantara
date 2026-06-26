@@ -8,7 +8,7 @@ export type WorkstreamAgentSelection = {
 
 export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, WorkstreamAgentSelection[]> = {
   ws1: [
-    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
+    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
     { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts', 'employee_comp_payroll'] },
     { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: [] },
     { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
@@ -20,12 +20,12 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
     { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
-    { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: ['vendor_contracts', 'material_contracts', 'software_subscriptions'] },
+    { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: [] },
     { agentId: 'legal_entity_search', agentName: 'Legal Reports & Entity Search Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure', 'business_licenses'] },
     { agentId: 'tax_liability_review', agentName: 'Tax Liability Review Agent', documentIds: ['tax_returns', 'irs_notices', 'payroll_filings'] },
   ],
   ws2: [
-    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
+    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent', documentIds: [] },
     { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
     { agentId: 'facility_review', agentName: 'Facility Review Agent', documentIds: ['health_safety', 'violations'] },
@@ -34,7 +34,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent', documentIds: ['sales_process_transcript', 'pricing_schedule'] },
   ],
   ma: [
-    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
+    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
     { agentId: 'cim', agentName: 'CIM Generator Agent', documentIds: [] },
     { agentId: 'teaser', agentName: 'Deal Teaser Generator Agent', documentIds: [] },
     { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent', documentIds: [] },

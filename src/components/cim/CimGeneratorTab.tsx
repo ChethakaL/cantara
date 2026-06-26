@@ -21,7 +21,8 @@ const CIM_PREREQUISITES = [
   { key: 'orgChart', label: 'Org Chart Review' },
 ]
 
-// Collapsible section wrapper
+const CIM_BULLET_TEXTAREA_CLASS =
+  'flex-1 px-3 py-2.5 text-sm text-slate-800 rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[100px] leading-relaxed resize-y'
 function Section({ title, number, children, defaultOpen = true }: { title: string; number: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
@@ -423,7 +424,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
 
       {/* 2. Executive Summary */}
       <Section title="Executive Summary" number="02">
-        <Textarea label="Investment Overview" value={data.investmentOverview} onChange={e => set('investmentOverview', e.target.value)} rows={3} />
+        <Textarea label="Investment Overview" value={data.investmentOverview} onChange={e => set('investmentOverview', e.target.value)} rows={5} />
 
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-2">Investment Thesis Bullets</p>
         <div className="space-y-2">
@@ -433,8 +434,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <textarea
                 value={b}
                 onChange={e => setThesisBullet(i, e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
-                rows={2}
+                className={CIM_BULLET_TEXTAREA_CLASS}
+                rows={4}
               />
               <button
                 onClick={() => { const arr = [...data.investmentThesis]; arr.splice(i, 1); set('investmentThesis', arr) }}
@@ -449,22 +450,22 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
           </Button>
         </div>
 
-        <Textarea label="Seller Overview" value={data.sellerOverview} onChange={e => set('sellerOverview', e.target.value)} rows={3} />
-        <Textarea label="Transaction Overview" value={data.transactionOverview} onChange={e => set('transactionOverview', e.target.value)} rows={3} />
+        <Textarea label="Seller Overview" value={data.sellerOverview} onChange={e => set('sellerOverview', e.target.value)} rows={5} />
+        <Textarea label="Transaction Overview" value={data.transactionOverview} onChange={e => set('transactionOverview', e.target.value)} rows={5} />
       </Section>
 
       {/* 3. Business Overview */}
       <Section title="Business Overview" number="03">
-        <Textarea label="Business Description" value={data.businessDescription} onChange={e => set('businessDescription', e.target.value)} rows={3} />
+        <Textarea label="Business Description" value={data.businessDescription} onChange={e => set('businessDescription', e.target.value)} rows={5} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Textarea label="Facility Profile" value={data.facilityProfile} onChange={e => set('facilityProfile', e.target.value)} rows={3} />
-          <Textarea label="Ownership & Management" value={data.ownershipManagement} onChange={e => set('ownershipManagement', e.target.value)} rows={3} />
-          <Textarea label="Client Profile" value={data.clientProfile} onChange={e => set('clientProfile', e.target.value)} rows={3} />
-          <Textarea label="Staff & Operations" value={data.staffOperations} onChange={e => set('staffOperations', e.target.value)} rows={3} />
-          <Textarea label="Real Estate" value={data.realEstate} onChange={e => set('realEstate', e.target.value)} rows={3} />
-          <Textarea label="Technology" value={data.technology} onChange={e => set('technology', e.target.value)} rows={3} />
+          <Textarea label="Facility Profile" value={data.facilityProfile} onChange={e => set('facilityProfile', e.target.value)} rows={5} />
+          <Textarea label="Ownership & Management" value={data.ownershipManagement} onChange={e => set('ownershipManagement', e.target.value)} rows={5} />
+          <Textarea label="Client Profile" value={data.clientProfile} onChange={e => set('clientProfile', e.target.value)} rows={5} />
+          <Textarea label="Staff & Operations" value={data.staffOperations} onChange={e => set('staffOperations', e.target.value)} rows={5} />
+          <Textarea label="Real Estate" value={data.realEstate} onChange={e => set('realEstate', e.target.value)} rows={5} />
+          <Textarea label="Technology" value={data.technology} onChange={e => set('technology', e.target.value)} rows={5} />
         </div>
-        <Textarea label="Permits & Zoning" value={data.permitsZoning} onChange={e => set('permitsZoning', e.target.value)} rows={2} />
+        <Textarea label="Permits & Zoning" value={data.permitsZoning} onChange={e => set('permitsZoning', e.target.value)} rows={4} />
       </Section>
 
       {/* 4. Financial Performance */}
@@ -477,8 +478,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <textarea
                 value={b}
                 onChange={e => setArrayItem('financialHighlights', i, e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
-                rows={2}
+                className={CIM_BULLET_TEXTAREA_CLASS}
+                rows={4}
               />
               <button onClick={() => removeArrayItem('financialHighlights', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -533,7 +534,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
             </tbody>
           </table>
         </div>
-        <Textarea label="Income Footnote" value={data.incomeFootnote} onChange={e => set('incomeFootnote', e.target.value)} rows={2} />
+        <Textarea label="Income Footnote" value={data.incomeFootnote} onChange={e => set('incomeFootnote', e.target.value)} rows={4} />
 
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-4">Service Line Breakdown</p>
         <div className="space-y-2">
@@ -569,8 +570,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <textarea
                 value={n}
                 onChange={e => setArrayItem('normalizationNotes', i, e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
-                rows={2}
+                className={CIM_BULLET_TEXTAREA_CLASS}
+                rows={4}
               />
               <button onClick={() => removeArrayItem('normalizationNotes', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -602,12 +603,12 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
             <Plus className="w-3 h-3" /> Add Item
           </Button>
         </div>
-        <Textarea label="Normalization Footnote" value={data.normalizationFootnote} onChange={e => set('normalizationFootnote', e.target.value)} rows={2} />
+        <Textarea label="Normalization Footnote" value={data.normalizationFootnote} onChange={e => set('normalizationFootnote', e.target.value)} rows={4} />
       </Section>
 
       {/* 6. Value Creation */}
       <Section title="Value Creation" number="06" defaultOpen={false}>
-        <Textarea label="Introduction" value={data.valueCreationIntro} onChange={e => set('valueCreationIntro', e.target.value)} rows={2} />
+        <Textarea label="Introduction" value={data.valueCreationIntro} onChange={e => set('valueCreationIntro', e.target.value)} rows={4} />
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-2">Initiatives</p>
         <div className="space-y-3">
           {(data.valueCreationItems || []).map((vc, i) => (
@@ -651,7 +652,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
           <Input label="Certifications" value={data.gmProfile.certifications} onChange={e => set('gmProfile', { ...data.gmProfile, certifications: e.target.value })} />
           <Input label="Transition Plan" value={data.gmProfile.transition} onChange={e => set('gmProfile', { ...data.gmProfile, transition: e.target.value })} />
         </div>
-        <Textarea label="Responsibilities" value={data.gmProfile.responsibilities} onChange={e => set('gmProfile', { ...data.gmProfile, responsibilities: e.target.value })} rows={2} />
+        <Textarea label="Responsibilities" value={data.gmProfile.responsibilities} onChange={e => set('gmProfile', { ...data.gmProfile, responsibilities: e.target.value })} rows={4} />
 
         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pt-4">Staffing Overview</p>
         <div className="space-y-2">
@@ -661,8 +662,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <textarea
                 value={s}
                 onChange={e => setArrayItem('staffingOverview', i, e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
-                rows={2}
+                className={CIM_BULLET_TEXTAREA_CLASS}
+                rows={4}
               />
               <button onClick={() => removeArrayItem('staffingOverview', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -680,8 +681,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <textarea
                 value={t}
                 onChange={e => setArrayItem('technologyStack', i, e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
-                rows={2}
+                className={CIM_BULLET_TEXTAREA_CLASS}
+                rows={4}
               />
               <button onClick={() => removeArrayItem('technologyStack', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -699,8 +700,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <textarea
                 value={m}
                 onChange={e => setArrayItem('marketingOverview', i, e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
-                rows={2}
+                className={CIM_BULLET_TEXTAREA_CLASS}
+                rows={4}
               />
               <button onClick={() => removeArrayItem('marketingOverview', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -718,8 +719,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <textarea
                 value={m}
                 onChange={e => setArrayItem('marketingOpportunities', i, e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
-                rows={2}
+                className={CIM_BULLET_TEXTAREA_CLASS}
+                rows={4}
               />
               <button onClick={() => removeArrayItem('marketingOpportunities', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -795,8 +796,8 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               <textarea
                 value={c}
                 onChange={e => setArrayItem('competitiveIntro', i, e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none transition-all focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20 min-h-[60px] leading-relaxed resize-y"
-                rows={2}
+                className={CIM_BULLET_TEXTAREA_CLASS}
+                rows={4}
               />
               <button onClick={() => removeArrayItem('competitiveIntro', i)} className="text-slate-300 hover:text-rose-400 mt-2.5"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -834,7 +835,7 @@ export default function CimGeneratorTab({ clientId, clientName }: Props) {
               </div>
               <Textarea value={c.commentary} placeholder="Commentary" onChange={e => {
                 const arr = [...data.competitors]; arr[i] = { ...arr[i], commentary: e.target.value }; set('competitors', arr)
-              }} rows={2} />
+              }} rows={4} />
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={() => set('competitors', [...data.competitors, { name: '', distance: '', services: '', capacity: '', rating: '', commentary: '' }])}>

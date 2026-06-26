@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Cantara production deploy — preserves live .env (never overwrite from template).
+# Run on the Cantara server: bash /home/ubuntu/apps/cantara/deploy.sh
+set -euo pipefail
+
+APP_ROOT="${APP_ROOT:-/home/ubuntu/apps/cantara}"
+REPO="${APP_ROOT}/repo"
+ENV_FILE="${REPO}/.env"
+ENV_BACKUP_DIR="${APP_ROOT}/backups"
+ENV_SNAPSHOT="${CANTARA_ENV_SNAPSHOT:-/home/ubuntu/migration/cantara.env.production}"
+DB_CREDS="${APP_ROOT}/.db-credentials"
+LOG="${APP_ROOT}/deploy-$(date +%Y%m%d-%H%M%S).log"
+IMAGE="${CANTARA_IMAGE:-cantara:latest}"
+CONTAINER="${CANTARA_CONTAINER:-cantara}"
+NETWORK="${CANTARA_NETWORK:-cantara-net}"
+PORT="${CANTARA_PORT:-3020}"
+BRANCH="${CANTARA_BRANCH:-cantara-v3}"
+
+REQUIRED_KEYS=(
+  DATABASE_URL
+  NEXTAUTH_URL
+  NEXTAUTH_SECRET
+  COMPOSIO_API_KEY
+  AI_PROVIDER
+  AWS_REGION
+)
+
+exec > >(tee "$LOG") 2>&1
+echo "=== Cantara deploy $(date) ==="
+
+mkdir -p "$ENV_BACKUP_DIR"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "ERROR: Missing $ENV_FILE — create it manually; deploy will not seed from template."
+  exit 1
+fi
+
+cp "$ENV_FILE" "${ENV_BACKUP_DIR}/.env.pre-deploy.$(date +%Y%m%d-%H%M%S)"
+echo "Backed up .env to ${ENV_BACKUP_DIR}/"
+
+cd "$REPO"
+
+echo "=== git pull origin ${BRANCH} ==="
+git fetch origin
+git checkout "$BRANCH"
+git pull origin "$BRANCH"
+git log -1 --oneline
+
+# Keep DATABASE_URL aligned with local postgres password only (never replace whole .env).
+if [[ -f "$DB_CREDS" ]]; then
+  # shellcheck disable=SC1090
+  source "$DB_CREDS"
+  if grep -q '^DATABASE_URL=' "$ENV_FILE"; then
+    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://cantara:${POSTGRES_PASSWORD}@cantara-postgres:5432/cantara_next|" "$ENV_FILE"
+  fi
+fi
+
+chmod 600 "$ENV_FILE"
+
+echo "=== Verify required env keys ==="
+missing=0
+for key in "${REQUIRED_KEYS[@]}"; do
+  if ! grep -q "^${key}=" "$ENV_FILE"; then
+    echo "MISSING: $key"
+    missing=1
+  fi
+done
+if [[ "$missing" -ne 0 ]]; then
+  echo "ERROR: .env is missing required keys. Restore from ${ENV_BACKUP_DIR}/ and retry."
+  exit 1
+fi
+
+echo "=== Docker build ==="
+docker build -t "$IMAGE" .
+
+echo "=== Recreate ${CONTAINER} (postgres untouched) ==="
+docker rm -f "$CONTAINER" 2>/dev/null || true
+docker run -d \
+  --name "$CONTAINER" \
+  --restart unless-stopped \
+  --network "$NETWORK" \
+  --env-file "$ENV_FILE" \
+  -p "127.0.0.1:${PORT}:3000" \
+  "$IMAGE"
+
+sleep 12
+curl -sf -o /dev/null -w "local:%{http_code}\n" "http://127.0.0.1:${PORT}/" || echo "local:fail"
+curl -sf -o /dev/null -w "login:%{http_code}\n" "http://127.0.0.1:${PORT}/login/admin" || echo "login:fail"
+
+# Refresh migration snapshot FROM live .env (never the reverse).
+mkdir -p "$(dirname "$ENV_SNAPSHOT")"
+cp "$ENV_FILE" "$ENV_SNAPSHOT"
+chmod 600 "$ENV_SNAPSHOT"
+
+git rev-parse --short HEAD > "${APP_ROOT}/DEPLOYED_COMMIT"
+echo "=== Deploy complete ==="
