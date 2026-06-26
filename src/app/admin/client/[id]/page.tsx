@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, FileSpreadsheet, Globe2,
-  ChevronDown, Bot, Users2, Calculator, Sparkles, Camera, TrendingUp,
+  ChevronDown, Bot, Users2, Calculator, Sparkles, Camera, TrendingUp, MapPin,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
@@ -46,6 +46,7 @@ import ImprovementRoadmapTab from '@/components/improvement-roadmap/ImprovementR
 import BuyerReportTab from '@/components/buyer-report/BuyerReportTab'
 import OccupancyReviewTab from '@/components/occupancy-review/OccupancyReviewTab'
 import LoiReviewTab from '@/components/loi-review/LoiReviewTab'
+import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -74,6 +75,7 @@ const AGENT_TABS = [
   { key: 'tax-liability-review', label: 'Tax Liability Review', badge: null, icon: FileSpreadsheet, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
+  { key: 'client-location-map', label: 'Client Location Map', badge: null, icon: MapPin, group: 'WS2 — Performance' },
   { key: 'pricing-analysis', label: 'Competitive Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
@@ -586,6 +588,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'occupancy-review' && (
               <OccupancyReviewTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'client-location-map' && (
+              <ClientLocationMapTab clientId={client.id} clientName={client.company || client.name} businessAddress={client.businessAddress || ''} />
             )}
             {activeTab === 'pricing-analysis' && (
               <PricingAnalysisTab clientId={client.id} clientName={client.company || client.name} />
