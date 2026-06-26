@@ -241,17 +241,58 @@ async function fetchBrowserGoogleMapsKey(): Promise<string> {
   return data.apiKey as string;
 }
 
+// Service vertical detection and color coding for heat map
+const SERVICE_VERTICALS = [
+  { key: 'boarding', label: 'Boarding', color: '#2563eb', patterns: /board|kennel|overnight|lodge|suite|stay/i },
+  { key: 'daycare', label: 'Daycare', color: '#16a34a', patterns: /daycare|day\s*care|day\s*camp|play\s*group/i },
+  { key: 'grooming', label: 'Grooming', color: '#d97706', patterns: /groom|bath|spa|salon|wash/i },
+  { key: 'training', label: 'Training', color: '#9333ea', patterns: /train|obedien|class|behavior/i },
+  { key: 'veterinary', label: 'Veterinary', color: '#dc2626', patterns: /vet|veterinar|animal\s*hospital|clinic/i },
+  { key: 'other', label: 'Other', color: '#64748b', patterns: /./i },
+] as const;
+
+type ServiceVerticalKey = typeof SERVICE_VERTICALS[number]['key'];
+
+function detectServiceVertical(competitor: DiscoveredCompetitorItem, researched?: CompetitorReportItem): ServiceVerticalKey {
+  const searchText = [
+    competitor.name,
+    ...(competitor.primaryTypes ?? []),
+    ...(researched?.services ?? []),
+    researched?.serviceComparison ?? '',
+  ].join(' ').toLowerCase();
+
+  for (const vertical of SERVICE_VERTICALS) {
+    if (vertical.key === 'other') continue;
+    if (vertical.patterns.test(searchText)) return vertical.key;
+  }
+  return 'other';
+}
+
+function getVerticalColor(key: ServiceVerticalKey): string {
+  return SERVICE_VERTICALS.find(v => v.key === key)?.color ?? '#64748b';
+}
+
+function getVerticalMarkerUrl(key: ServiceVerticalKey): string {
+  const colorMap: Record<string, string> = {
+    boarding: 'blue', daycare: 'green', grooming: 'orange',
+    training: 'purple', veterinary: 'red', other: 'yellow',
+  };
+  return `https://maps.google.com/mapfiles/ms/icons/${colorMap[key] ?? 'yellow'}-dot.png`;
+}
+
 function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport }) {
   const radiusMiles = report.radiusMiles || 5;
   const [hoveredId, setHoveredId] = useState<string>('subject');
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [activeFilters, setActiveFilters] = useState<Set<ServiceVerticalKey>>(new Set(SERVICE_VERTICALS.map(v => v.key)));
   const mapNodeRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const subjectMarkerRef = useRef<any>(null);
-  const competitorMarkersRef = useRef<Array<{ id: string; marker: any }>>([]);
+  const competitorMarkersRef = useRef<Array<{ id: string; marker: any; vertical: ServiceVerticalKey }>>([]);
   const radiusCircleRef = useRef<any>(null);
 
+  // Build points with service vertical info
   const points = useMemo(() => {
     const subjectPoint = {
       id: 'subject',
@@ -262,26 +303,53 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
       reviewCount: report.clientProfile.reviewCount,
       similarityLabel: 'Subject business',
       location: report.clientProfile.location,
+      vertical: 'boarding' as ServiceVerticalKey,
     };
 
     const competitorPoints = report.discoveredCompetitors.map((competitor, index) => {
       const researched = report.competitors.find((item) => item.placeId === competitor.placeId);
       const pointId = competitor.placeId ? `${competitor.placeId}-${index}` : `${index}`;
+      const vertical = detectServiceVertical(competitor, researched);
       return {
-      id: pointId,
-      label: String(index + 1),
-      name: competitor.name,
-      distance: competitor.distanceMiles,
-      rating: competitor.rating,
-      reviewCount: competitor.reviewCount,
-      similarityLabel: researched ? `${researched.similarityLevel} similarity` : 'Discovered competitor',
-      location: competitor.location,
-    };});
+        id: pointId,
+        label: String(index + 1),
+        name: competitor.name,
+        distance: competitor.distanceMiles,
+        rating: competitor.rating,
+        reviewCount: competitor.reviewCount,
+        similarityLabel: researched ? `${researched.similarityLevel} similarity` : 'Discovered competitor',
+        location: competitor.location,
+        vertical,
+      };
+    });
 
     return [subjectPoint, ...competitorPoints];
   }, [report.clientProfile.location, report.clientProfile.name, report.clientProfile.rating, report.clientProfile.reviewCount, report.competitors, report.discoveredCompetitors]);
 
+  // Count competitors per vertical for the legend
+  const verticalCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const point of points) {
+      if (point.id === 'subject') continue;
+      counts[point.vertical] = (counts[point.vertical] ?? 0) + 1;
+    }
+    return counts;
+  }, [points]);
+
   const hoveredPoint = points.find((point) => point.id === hoveredId) ?? points[0];
+
+  // Toggle service filter and show/hide markers
+  function toggleFilter(key: ServiceVerticalKey) {
+    setActiveFilters(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      // Show/hide markers based on filter
+      competitorMarkersRef.current.forEach(({ marker, vertical }) => {
+        marker.setVisible(next.has(vertical));
+      });
+      return next;
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -348,6 +416,9 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
 
         competitorMarkersRef.current = report.discoveredCompetitors.map((competitor, index) => {
           bounds.extend(competitor.location);
+          const researched = report.competitors.find((item) => item.placeId === competitor.placeId);
+          const vertical = detectServiceVertical(competitor, researched);
+
           const marker = new googleMaps.Marker({
             map,
             position: competitor.location,
@@ -358,7 +429,7 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
               fontWeight: '700',
             },
             icon: {
-              url: 'https://maps.google.com/mapfiles/ms/icons/orange-dot.png',
+              url: getVerticalMarkerUrl(vertical),
               scaledSize: new googleMaps.Size(32, 32),
               labelOrigin: new googleMaps.Point(16, 11),
             },
@@ -371,6 +442,7 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
           return {
             id: markerId,
             marker,
+            vertical,
           };
         });
 
@@ -438,13 +510,35 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
           </div>
         )}
 
-        <div className="absolute left-5 top-5 z-10 rounded-xl bg-white/94 backdrop-blur px-4 py-3 border border-white shadow-sm max-w-[240px]">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Interactive Google Map</p>
+        <div className="absolute left-5 top-5 z-10 rounded-xl bg-white/94 backdrop-blur px-4 py-3 border border-white shadow-sm max-w-[260px]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Competitor Heat Map</p>
           <p className="text-sm font-semibold text-slate-800 mt-1">{report.radiusMiles}-mile coverage radius</p>
           <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-            Drag and zoom the live map, or use the pills below to jump between the subject business and competitors.
+            Color-coded by service vertical. Click legend to filter.
           </p>
           {mapError && <p className="text-xs text-rose-600 mt-2">{mapError}</p>}
+
+          {/* Service vertical legend / filter */}
+          <div className="mt-3 space-y-1.5">
+            {SERVICE_VERTICALS.filter(v => (verticalCounts[v.key] ?? 0) > 0 || v.key === 'boarding').map(vertical => (
+              <button
+                key={vertical.key}
+                onClick={() => toggleFilter(vertical.key)}
+                className={cn(
+                  'flex items-center gap-2 w-full text-left px-2 py-1 rounded-lg text-xs transition-all',
+                  activeFilters.has(vertical.key) ? 'bg-slate-50 text-slate-800' : 'bg-slate-100/50 text-slate-400 line-through'
+                )}
+              >
+                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: activeFilters.has(vertical.key) ? vertical.color : '#cbd5e1' }} />
+                <span className="flex-1 font-medium">{vertical.label}</span>
+                <span className="text-[10px] text-slate-400">{verticalCounts[vertical.key] ?? 0}</span>
+              </button>
+            ))}
+            <div className="flex items-center gap-2 px-2 py-1 text-xs text-slate-400">
+              <span className="w-3 h-3 rounded-full bg-slate-800 flex-shrink-0" />
+              <span>Subject business</span>
+            </div>
+          </div>
         </div>
 
         <div className="absolute right-5 top-5 z-10 rounded-xl bg-white/94 backdrop-blur px-4 py-3 border border-white shadow-sm min-w-[240px] max-w-[280px]">
@@ -456,10 +550,20 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
           </div>
           <p className="text-sm font-semibold text-slate-800 mt-2">{hoveredPoint.name}</p>
           <div className="mt-2 space-y-1 text-xs text-slate-500">
-            <div>{hoveredPoint.label === 'S' ? 'Subject business' : `Competitor ${hoveredPoint.label}`}</div>
+            <div className="flex items-center gap-2">
+              {hoveredPoint.id !== 'subject' && (
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getVerticalColor(hoveredPoint.vertical) }} />
+              )}
+              <span>{hoveredPoint.label === 'S' ? 'Subject business' : `Competitor ${hoveredPoint.label}`}</span>
+            </div>
             <div>{hoveredPoint.label === 'S' ? 'Center point' : `${formatDistance(hoveredPoint.distance)} from subject`}</div>
             <div>Rating: {hoveredPoint.rating ?? 'Not found'} · Reviews: {formatNumber(hoveredPoint.reviewCount)}</div>
             <div className="capitalize">{hoveredPoint.similarityLabel}</div>
+            {hoveredPoint.id !== 'subject' && (
+              <div className="capitalize font-medium" style={{ color: getVerticalColor(hoveredPoint.vertical) }}>
+                {SERVICE_VERTICALS.find(v => v.key === hoveredPoint.vertical)?.label ?? 'Other'}
+              </div>
+            )}
           </div>
         </div>
 
@@ -475,7 +579,7 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
           </div>
           <div className="overflow-x-auto overflow-y-hidden pb-1">
             <div className="flex w-max gap-2">
-            {points.map((point) => (
+            {points.filter(p => p.id === 'subject' || activeFilters.has(p.vertical)).map((point) => (
               <button
                 key={`legend-${point.id}`}
                 onMouseEnter={() => setHoveredId(point.id)}
@@ -490,7 +594,7 @@ function CompetitorCoverageMap({ report }: { report: CompetitorAnalysisReport })
               >
                 <span
                   className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold"
-                  style={{ backgroundColor: point.id === 'subject' ? '#1f2937' : '#b45309', color: '#ffffff' }}
+                  style={{ backgroundColor: point.id === 'subject' ? '#1f2937' : getVerticalColor(point.vertical), color: '#ffffff' }}
                 >
                   {point.label}
                 </span>
