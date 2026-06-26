@@ -107,8 +107,9 @@ export function Textarea({ label, className, ...props }: TextareaProps) {
       {label && <label className="block text-xs font-medium text-slate-600">{label}</label>}
       <textarea
         className={cn(
-          'w-full px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none resize-none transition-all',
+          'w-full px-3 py-2.5 text-sm text-slate-800 rounded-lg border border-slate-200 outline-none resize-y transition-all leading-relaxed',
           'focus:border-cantara-gold focus:ring-2 focus:ring-cantara-gold/20',
+          'min-h-[120px]',
           className
         )}
         {...props}

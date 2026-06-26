@@ -220,9 +220,13 @@ function SectionUploader({
 
 export default function FacilityReviewTab({ clientId, clientName, businessAddress }: { clientId: string; clientName: string; businessAddress?: string }) {
   const reportTopRef = useRef<HTMLDivElement | null>(null)
+  const [runMode, setRunMode] = useState<'standard' | 'advisor'>('standard')
   const [businessName, setBusinessName] = useState(clientName)
   const [location, setLocation] = useState(businessAddress || '')
   const [notes, setNotes] = useState('')
+  const [meetingNotes, setMeetingNotes] = useState('')
+  const [advisorImages, setAdvisorImages] = useState<File[]>([])
+  const [reportRunMode, setReportRunMode] = useState<'standard' | 'advisor' | null>(null)
   const [intakeQuestions, setIntakeQuestions] = useState<FacilityIntakeQuestion[]>([])
   const [intakeResponses, setIntakeResponses] = useState<Record<string, string>>({})
   const [savingIntake, setSavingIntake] = useState(false)
@@ -261,7 +265,21 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
         const res = await fetch(`/api/client-data/${clientId}?section=facilityReview`)
         if (res.ok) {
           const data = await res.json()
-          if (data?.overallScore) setReport(data)
+          if (data?.overallScore) {
+            setReport(data)
+            if (data.reportVersion?.includes('Advisor Visit')) {
+              setReportRunMode('advisor')
+              setRunMode('advisor')
+            }
+          }
+        }
+        const advisorInputsRes = await fetch(`/api/client-data/${clientId}?section=facilityReviewAdvisorInputs`)
+        if (advisorInputsRes.ok) {
+          const advisorInputs = await advisorInputsRes.json()
+          if (advisorInputs?.meetingNotes) setMeetingNotes(advisorInputs.meetingNotes)
+          if (advisorInputs?.location) setLocation(advisorInputs.location)
+          if (advisorInputs?.businessName) setBusinessName(advisorInputs.businessName)
+          if (advisorInputs?.runMode === 'advisor') setRunMode('advisor')
         }
         const imageEntries = await Promise.all(PHOTO_SECTIONS.map(async section => {
           const docs = await Promise.all((CLIENT_IMAGE_DOCUMENT_IDS[section.key] ?? []).map(async documentId => {
@@ -393,6 +411,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
       if (!res.ok) throw new Error(await res.text())
       const nextReport = await res.json()
       setReport(nextReport)
+      setReportRunMode('standard')
       try {
         const saveRes = await fetch(`/api/client-data/${clientId}`, {
           method: 'PUT',
@@ -444,6 +463,69 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
     setTimeout(() => win.print(), 300)
   }
 
+  const advisorNotesMissing = !meetingNotes.trim()
+
+  const analyzeAdvisorRun = async () => {
+    if (!meetingNotes.trim()) {
+      setError('Fill in meeting notes / visit observations before generating the report.')
+      return
+    }
+    setAnalyzing(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('businessName', businessName)
+      form.append('location', location)
+      form.append('meetingNotes', meetingNotes)
+      advisorImages.forEach(file => form.append('images', file))
+      const res = await fetch('/api/facility-review/advisor-analyze', { method: 'POST', body: form })
+      if (!res.ok) throw new Error(await res.text())
+      const nextReport = await res.json() as FacilityReviewReport
+      setReport(nextReport)
+      setReportRunMode('advisor')
+      try {
+        const saveRes = await fetch(`/api/client-data/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section: 'facilityReview', data: nextReport }),
+        })
+        if (!saveRes.ok) throw new Error('Save failed')
+        await fetch(`/api/client-data/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            section: 'facilityReviewAdvisorInputs',
+            data: { businessName, location, meetingNotes, runMode: 'advisor' },
+          }),
+        })
+        setSaved(true)
+        setTimeout(() => setSaved(false), 1800)
+      } catch (saveErr: any) {
+        setError(saveErr.message || 'Analysis completed but failed to save')
+      }
+      requestAnimationFrame(() => {
+        reportTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    } catch (err: any) {
+      setError(err.message || 'Advisor facility review failed')
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  const onAdvisorDrop = useCallback((accepted: File[]) => {
+    setAdvisorImages(current => [...current, ...accepted].slice(0, 20))
+    setError(null)
+  }, [])
+
+  const { getRootProps: getAdvisorRootProps, getInputProps: getAdvisorInputProps, isDragActive: advisorDragActive } = useDropzone({
+    onDrop: onAdvisorDrop,
+    accept: ACCEPTED_TYPES,
+    multiple: true,
+    maxFiles: 20,
+    maxSize: 5 * 1024 * 1024,
+  })
+
   if (report) {
     return (
       <div ref={reportTopRef} className="space-y-6">
@@ -451,12 +533,13 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-slate-800">Facility Assessment Report</h2>
+              {reportRunMode === 'advisor' && <Badge color="blue">Advisor Run</Badge>}
               <Badge color={RATING_BADGE[report.overallRating]}>{report.overallRating}</Badge>
             </div>
             <p className="text-xs text-slate-400 mt-1">{report.businessName} - Generated {new Date(report.generatedAt).toLocaleString()}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setReport(null)} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"><RefreshCw className="w-3.5 h-3.5" />New Run</button>
+            <button onClick={() => { setReport(null); setReportRunMode(null) }} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"><RefreshCw className="w-3.5 h-3.5" />New Run</button>
             <button onClick={save} disabled={saving} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-900 text-white disabled:opacity-50"><Save className="w-3.5 h-3.5" />{saving ? 'Saving...' : 'Save'}</button>
             <button onClick={openReport} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"><Printer className="w-3.5 h-3.5" />Export PDF</button>
             {saved && <span className="text-xs font-semibold text-emerald-600">Saved</span>}
@@ -515,10 +598,98 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-800">Facility Review Agent</h2>
-        <p className="text-xs text-slate-400 mt-1">Generate from the mandatory seller intake form. Facility photos are optional supporting evidence.</p>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">Facility Review Agent</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            {runMode === 'advisor'
+              ? 'Generate the standard facility assessment report using advisor visit notes and photos only.'
+              : 'Generate from the mandatory seller intake form. Facility photos are optional supporting evidence.'}
+          </p>
+        </div>
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            onClick={() => setRunMode('standard')}
+            className={cn('px-3 py-1.5 text-xs font-medium rounded-md transition-colors', runMode === 'standard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500')}
+          >
+            Standard Review
+          </button>
+          <button
+            type="button"
+            onClick={() => setRunMode('advisor')}
+            className={cn('px-3 py-1.5 text-xs font-medium rounded-md transition-colors', runMode === 'advisor' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500')}
+          >
+            Advisor Run Facility Review
+          </button>
+        </div>
       </div>
+
+      {runMode === 'advisor' ? (
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Input label="Business name" value={businessName} onChange={e => setBusinessName(e.target.value)} />
+            <Input label="Location" value={location} onChange={e => setLocation(e.target.value)} placeholder="City, state/province" />
+          </div>
+          <Textarea
+            label="Meeting notes / visit observations"
+            value={meetingNotes}
+            onChange={e => { setMeetingNotes(e.target.value); setError(null) }}
+            rows={10}
+            className={cn('min-h-[220px] resize-y leading-relaxed', advisorNotesMissing && 'border-amber-300 ring-1 ring-amber-200')}
+            placeholder="Paste or type Craig's facility visit notes, observations from the walkthrough, seller comments, and anything not captured in photos."
+          />
+          {advisorNotesMissing && (
+            <p className="text-xs text-amber-700">Meeting notes are required before you can generate the advisor summary report.</p>
+          )}
+          <Card className="p-4">
+            <h3 className="text-sm font-semibold text-slate-800">Visit photos</h3>
+            <p className="text-xs text-slate-400 mt-1">Upload images from the facility visit. These support the summary report.</p>
+            <div
+              {...getAdvisorRootProps()}
+              className={cn(
+                'mt-4 rounded-lg border border-dashed p-5 text-center cursor-pointer transition-colors',
+                advisorDragActive ? 'bg-amber-50 border-amber-300' : 'border-slate-200 hover:bg-slate-50'
+              )}
+            >
+              <input {...getAdvisorInputProps()} />
+              <Upload className="w-5 h-5 text-slate-300 mx-auto mb-2" />
+              <p className="text-xs font-medium text-slate-600">Drop visit photos here, or click to browse</p>
+            </div>
+            {advisorImages.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {advisorImages.map((file, index) => (
+                  <div key={`${file.name}-${index}`} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+                    <Camera className="w-3.5 h-3.5 text-slate-400" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium text-slate-700">{file.name}</p>
+                      <p className="text-[10px] text-slate-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                    </div>
+                    <button onClick={() => setAdvisorImages(current => current.filter((_, i) => i !== index))} className="text-slate-300 hover:text-rose-500">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+          {error && <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><AlertTriangle className="w-4 h-4 mt-0.5" />{error}</div>}
+          <span
+            className="inline-block"
+            title={advisorNotesMissing ? 'Fill in meeting notes / visit observations to generate the report.' : undefined}
+          >
+            <button
+              onClick={analyzeAdvisorRun}
+              disabled={analyzing || advisorNotesMissing}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              {analyzing ? 'Generating summary report...' : 'Generate Advisor Summary Report'}
+            </button>
+          </span>
+        </>
+      ) : (
+        <>
       <div className="grid gap-4 md:grid-cols-2">
         <Input label="Business name" value={businessName} onChange={e => setBusinessName(e.target.value)} />
         <Input label="Location" value={location} onChange={e => setLocation(e.target.value)} placeholder="City, state/province" />
@@ -631,6 +802,8 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
         {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
         {analyzing ? 'Generating facility report...' : 'Generate Facility Report'}
       </button>
+        </>
+      )}
     </div>
   )
 }

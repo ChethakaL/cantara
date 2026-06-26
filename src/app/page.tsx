@@ -9,9 +9,8 @@ export default function HomePage() {
       <nav className="px-8 py-5 flex items-center justify-between">
         <span className="text-white cantara-serif text-xl tracking-[0.15em]">Cantara</span>
         <div className="flex gap-3">
-          <Link href="/login/client" className="text-white/40 hover:text-white/70 text-sm px-4 py-2 transition-colors">Client Login</Link>
-          <Link href="/login/admin" className="text-sm px-4 py-2 rounded" style={{ background: 'rgba(184,146,42,0.15)', color: '#d4a843', border: '1px solid rgba(184,146,42,0.3)' }}>
-            Advisor Login
+          <Link href="/login/client" className="text-sm px-4 py-2 rounded text-white/70 hover:text-white transition-colors" style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
+            Client Portal
           </Link>
         </div>
       </nav>
@@ -32,10 +31,10 @@ export default function HomePage() {
           <Link href="/login/client" className="flex items-center gap-2 px-6 py-3 rounded text-sm font-medium text-white transition-all hover:opacity-90" style={{ background: 'linear-gradient(135deg, #b8922a, #d4a843)' }}>
             Access Client Portal <ArrowRight className="w-4 h-4" />
           </Link>
-          <Link href="/login/admin" className="flex items-center gap-2 px-6 py-3 rounded text-sm font-medium text-white/60 hover:text-white/90 transition-colors" style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
-            Advisor Sign In
-          </Link>
         </div>
+        {/* <p className="text-slate-600 text-xs mt-6">
+          <Link href="/login/admin" className="text-cantara-gold/80 hover:text-cantara-gold underline underline-offset-2">If your a Cantara Advisor Click here</Link>
+        </p> */}
 
         {/* Features */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-24 max-w-4xl w-full text-left">

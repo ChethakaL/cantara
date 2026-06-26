@@ -43,7 +43,7 @@ export default function AdminLoginPage() {
     <div className="min-h-screen flex items-center justify-center font-sans" style={{ background: 'linear-gradient(145deg, #21263C 0%, #1a1f32 50%, #21263C 100%)' }}>
       <div className="w-full max-w-sm px-6">
         <Link href="/" className="flex items-center gap-2 text-cantara-sun/30 hover:text-cantara-sun/60 text-xs mb-12 transition-colors">
-          <ArrowLeft className="w-3.5 h-3.5" /> Back
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to home
         </Link>
 
         <div className="text-center mb-10">
@@ -90,12 +90,6 @@ export default function AdminLoginPage() {
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
-        </div>
-
-        <div className="text-center mt-6">
-          <Link href="/login/client" className="text-cantara-sun/30 hover:text-cantara-sun/60 text-xs transition-colors">
-            Are you a client? Sign in here →
-          </Link>
         </div>
       </div>
     </div>

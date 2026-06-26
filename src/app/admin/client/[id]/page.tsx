@@ -39,6 +39,7 @@ import PricingByVerticalTab from '@/components/pricing-vertical/PricingByVertica
 import PermitsZoningTab from '@/components/ws1-9/PermitsZoningTab'
 import OwnerGmAssessmentTab from '@/components/owner-gm-assessment/OwnerGmAssessmentTab'
 import AgentOverviewTab from '@/components/admin/AgentOverviewTab'
+import AgentRunsTab from '@/components/admin/AgentRunsTab'
 import LegalEntitySearchTab from '@/components/legal-entity-search/LegalEntitySearchTab'
 import TaxLiabilityReviewTab from '@/components/tax-liability-review/TaxLiabilityReviewTab'
 import AssessmentReportTab from '@/components/assessment-report/AssessmentReportTab'
@@ -97,7 +98,8 @@ type AgentKey = typeof AGENT_TABS[number]['key']
 const STANDARD_TABS = [
   { key: 'manage', label: 'Client Management', icon: Settings },
   { key: 'documents', label: 'Documents', icon: FileText },
-{ key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
+  { key: 'agent-runs', label: 'Agent Runs', icon: Bot },
+  { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
   { key: 'agent-overview', label: 'Agent Overview', icon: FileText },
 ] as const
@@ -510,6 +512,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               />
             )}
             {activeTab === 'documents' && <AdminDocumentsView client={client} onClientUpdated={setClient} />}
+            {activeTab === 'agent-runs' && (
+              <AgentRunsTab
+                clientId={client.id}
+                onOpenAgent={tabKey => setActiveTab(tabKey as TabKey)}
+              />
+            )}
             {activeTab === 'ttm' && (
               <TtmAnalysisTab
                 clientId={client.id}

@@ -1,6 +1,6 @@
 -- Cantara Portal Database Seed Script
 -- Usage: psql -U your_user -d your_db -f seed.sql
-
+-- newly created etest testp client password: LY%Ng%Xc9C&9
 -- 1. Ensure Admin exists
 -- NOTE: In production, passwordHash should be a Bcrypt hash.
 INSERT INTO "User" (id, name, email, "passwordHash", role, "updatedAt")
