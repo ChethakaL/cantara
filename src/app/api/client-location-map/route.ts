@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import * as XLSX from 'xlsx'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -43,9 +44,16 @@ export async function POST(req: NextRequest) {
     if (!client) return new Response('Client not found', { status: 404 })
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const text = buffer.toString('utf-8')
+    const ext = (file.name.split('.').pop() || '').toLowerCase()
 
-    const clients = parseCsvText(text)
+    let clients: Array<{ name: string; address: string; serviceType: string }>
+    if (ext === 'xlsx' || ext === 'xls') {
+      clients = parseXlsxBuffer(buffer)
+    } else {
+      // CSV: decode as UTF-8 text
+      const text = buffer.toString('utf-8')
+      clients = parseCsvText(text)
+    }
 
     return NextResponse.json({
       clients,
@@ -100,6 +108,67 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
+// ── XLSX Parsing ─────────────────────────────────────────────────────────────
+
+function parseXlsxBuffer(buffer: Buffer): Array<{ name: string; address: string; serviceType: string }> {
+  const workbook = XLSX.read(buffer, { type: 'buffer' })
+  const sheetName = workbook.SheetNames[0]
+  if (!sheetName) return []
+
+  const ws = workbook.Sheets[sheetName]
+  // header: 1 → returns array-of-arrays; first row is headers
+  const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' })
+  if (rows.length < 2) return []
+
+  const headerRow = (rows[0] as any[]).map(h => String(h ?? '').toLowerCase().trim())
+
+  // Flexible header matching
+  const nameIdx      = headerRow.findIndex(h => /customer.?name|client.?name|^name$|^client$|^customer$|^business$|^company$/i.test(h))
+  const addressIdx   = headerRow.findIndex(h => /^address$|^street$|full.?address|^location$/i.test(h))
+  const cityIdx      = headerRow.findIndex(h => /^city$/i.test(h))
+  const stateIdx     = headerRow.findIndex(h => /^state$|^province$/i.test(h))
+  const zipIdx       = headerRow.findIndex(h => /^zip$|^postal|^zip.?code$/i.test(h))
+  const serviceIdx   = headerRow.findIndex(h => /^type$|^service$|service.?type|^category$/i.test(h))
+
+  const finalNameIdx    = nameIdx    >= 0 ? nameIdx    : 0
+  const finalAddressIdx = addressIdx >= 0 ? addressIdx : 1
+
+  const results: Array<{ name: string; address: string; serviceType: string }> = []
+
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i] as any[]
+    const name    = String(cols[finalNameIdx] ?? '').trim()
+    let   address = String(cols[finalAddressIdx] ?? '').trim()
+
+    // If city/state/zip are separate columns, append them to form a full address
+    if (cityIdx >= 0 || stateIdx >= 0 || zipIdx >= 0) {
+      const city  = cityIdx  >= 0 ? String(cols[cityIdx]  ?? '').trim() : ''
+      const state = stateIdx >= 0 ? String(cols[stateIdx] ?? '').trim() : ''
+      const zip   = zipIdx   >= 0 ? String(cols[zipIdx]   ?? '').trim() : ''
+
+      // Only append city/state/zip if they are not already in the address string
+      const suffix = [city, state, zip].filter(Boolean).join(', ')
+      if (suffix && !address.toLowerCase().includes(city.toLowerCase()) && city) {
+        address = `${address}, ${suffix}`
+      } else if (suffix && !address.toLowerCase().includes(state.toLowerCase()) && state) {
+        address = `${address}, ${state} ${zip}`.trim()
+      }
+    }
+
+    const rawService = serviceIdx >= 0 ? String(cols[serviceIdx] ?? '') : ''
+
+    if (name && address) {
+      results.push({
+        name,
+        address,
+        serviceType: detectServiceType(rawService),
+      })
+    }
+  }
+
+  return results
+}
+
 // ── CSV Parsing ──────────────────────────────────────────────────────────────
 
 function parseCsvText(text: string): Array<{ name: string; address: string; serviceType: string }> {
@@ -114,13 +183,16 @@ function parseCsvText(text: string): Array<{ name: string; address: string; serv
   const headerLine = lines[0]
   const headers = parseCsvLine(headerLine).map(h => h.toLowerCase().trim())
 
-  // Detect columns
-  const nameIdx = headers.findIndex(h => /^(name|client|customer|business|company)$/i.test(h))
+  // Detect columns — expanded to match "Customer Name" style headers
+  const nameIdx    = headers.findIndex(h => /customer.?name|client.?name|^name$|^client$|^customer$|^business$|^company$/i.test(h))
   const addressIdx = headers.findIndex(h => /^(address|location|street|full.?address)$/i.test(h))
   const serviceIdx = headers.findIndex(h => /^(service|type|service.?type|category)$/i.test(h))
+  const cityIdx    = headers.findIndex(h => /^city$/i.test(h))
+  const stateIdx   = headers.findIndex(h => /^state$|^province$/i.test(h))
+  const zipIdx     = headers.findIndex(h => /^zip$|^postal|^zip.?code$/i.test(h))
 
   // If we can't find name or address, try positional (first col = name, second = address)
-  const finalNameIdx = nameIdx >= 0 ? nameIdx : 0
+  const finalNameIdx    = nameIdx    >= 0 ? nameIdx    : 0
   const finalAddressIdx = addressIdx >= 0 ? addressIdx : (nameIdx >= 0 ? -1 : 1)
 
   if (finalAddressIdx < 0 || finalAddressIdx >= headers.length) {
@@ -143,9 +215,22 @@ function parseCsvText(text: string): Array<{ name: string; address: string; serv
     .map(line => {
       const cols = parseCsvLine(line)
       const rawService = serviceIdx >= 0 ? (cols[serviceIdx] || '') : ''
+      let address = (cols[finalAddressIdx] || '').trim()
+
+      // Combine separate city/state/zip columns if present
+      if (cityIdx >= 0 || stateIdx >= 0 || zipIdx >= 0) {
+        const city  = cityIdx  >= 0 ? (cols[cityIdx]  || '').trim() : ''
+        const state = stateIdx >= 0 ? (cols[stateIdx] || '').trim() : ''
+        const zip   = zipIdx   >= 0 ? (cols[zipIdx]   || '').trim() : ''
+        const suffix = [city, state, zip].filter(Boolean).join(', ')
+        if (suffix && city && !address.toLowerCase().includes(city.toLowerCase())) {
+          address = `${address}, ${suffix}`
+        }
+      }
+
       return {
         name: (cols[finalNameIdx] || '').trim(),
-        address: (cols[finalAddressIdx] || '').trim(),
+        address,
         serviceType: detectServiceType(rawService),
       }
     })
