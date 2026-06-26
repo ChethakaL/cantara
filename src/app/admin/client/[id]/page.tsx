@@ -45,6 +45,7 @@ import AssessmentReportTab from '@/components/assessment-report/AssessmentReport
 import ImprovementRoadmapTab from '@/components/improvement-roadmap/ImprovementRoadmapTab'
 import BuyerReportTab from '@/components/buyer-report/BuyerReportTab'
 import OccupancyReviewTab from '@/components/occupancy-review/OccupancyReviewTab'
+import LoiReviewTab from '@/components/loi-review/LoiReviewTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -91,6 +92,7 @@ const AGENT_TABS = [
   // M&A
   { key: 'cim', label: 'CIM Generator', badge: null, icon: FileText, group: 'M&A Sale Process' },
   { key: 'teaser', label: 'Deal Teaser Generator', badge: null, icon: Sparkles, group: 'M&A Sale Process' },
+  { key: 'loi-review', label: 'LOI Review & Comparison', badge: null, icon: FileText, group: 'M&A Sale Process' },
   { key: 'net-proceeds', label: 'Net Proceeds Calculator', badge: null, icon: Calculator, group: 'M&A Sale Process' },
 ] as const
 
@@ -640,6 +642,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'cim' && (
               <CimGeneratorTab clientId={client.id} clientName={client.name} />
+            )}
+            {activeTab === 'loi-review' && (
+              <LoiReviewTab clientId={client.id} clientName={client.name} />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />
