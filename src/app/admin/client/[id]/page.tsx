@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, FileSpreadsheet, Globe2,
-  ChevronDown, Bot, Users2, Calculator, Sparkles, Camera,
+  ChevronDown, Bot, Users2, Calculator, Sparkles, Camera, TrendingUp,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
@@ -44,6 +44,7 @@ import TaxLiabilityReviewTab from '@/components/tax-liability-review/TaxLiabilit
 import AssessmentReportTab from '@/components/assessment-report/AssessmentReportTab'
 import ImprovementRoadmapTab from '@/components/improvement-roadmap/ImprovementRoadmapTab'
 import BuyerReportTab from '@/components/buyer-report/BuyerReportTab'
+import OccupancyReviewTab from '@/components/occupancy-review/OccupancyReviewTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -75,6 +76,7 @@ const AGENT_TABS = [
   { key: 'pricing-analysis', label: 'Competitive Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
+  { key: 'occupancy-review', label: 'Occupancy Review', badge: null, icon: TrendingUp, group: 'WS2 — Performance' },
   { key: 'pricing-vertical', label: 'Pricing by Vertical', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
   // Reports & Roadmaps
@@ -579,6 +581,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'owner-gm-assessment' && (
               <OwnerGmAssessmentTab clientId={client.id} clientName={client.company || client.name} />
+            )}
+            {activeTab === 'occupancy-review' && (
+              <OccupancyReviewTab clientId={client.id} clientName={client.company || client.name} />
             )}
             {activeTab === 'pricing-analysis' && (
               <PricingAnalysisTab clientId={client.id} clientName={client.company || client.name} />
