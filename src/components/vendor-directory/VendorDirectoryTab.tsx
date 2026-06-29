@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Pencil, Trash2, Package } from 'lucide-react'
 import { Card, Button, Input, Select, Badge, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildVendorReportHtml } from '@/lib/report-export/build-vendor-report'
 
 const SECTION_KEY = 'vendorDirectory'
@@ -106,7 +107,7 @@ function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n)
 }
 
-export default function VendorDirectoryTab({ clientId, clientName }: { clientId: string; clientName: string }) {
+export default function VendorDirectoryTab({ clientId, clientName, readOnly = false }: { clientId: string; clientName: string; readOnly?: boolean }) {
   const [items, setItems] = useState<VendorItem[]>([])
   const [loading, setLoading] = useState(true)
   const [addingNew, setAddingNew] = useState(false)
@@ -176,7 +177,7 @@ export default function VendorDirectoryTab({ clientId, clientName }: { clientId:
             Software, tools, and vendor subscriptions for {clientName}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <AdvisorActions className="flex items-center gap-3">
           {items.length > 0 && (
             <ExportReportButton
               html={buildVendorReportHtml(items, clientName)}
@@ -189,11 +190,11 @@ export default function VendorDirectoryTab({ clientId, clientName }: { clientId:
               <Plus className="w-3.5 h-3.5" /> Add Item
             </Button>
           )}
-        </div>
+        </AdvisorActions>
       </div>
 
       {/* Add form */}
-      {addingNew && (
+      {!readOnly && addingNew && (
         <Card className="p-5 border-amber-200 bg-amber-50/30">
           <p className="text-sm font-semibold text-slate-700 mb-4">New Software / Vendor</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -247,9 +248,11 @@ export default function VendorDirectoryTab({ clientId, clientName }: { clientId:
           <Package className="w-10 h-10 text-slate-300 mx-auto mb-3" />
           <p className="text-sm font-medium text-slate-500">No software or vendor items yet</p>
           <p className="text-xs text-slate-400 mt-1 mb-4">Track the client&apos;s software subscriptions, tools, and vendor contracts.</p>
+          {!readOnly && (
           <Button size="sm" onClick={() => setAddingNew(true)}>
             <Plus className="w-3.5 h-3.5" /> Add First Item
           </Button>
+          )}
         </Card>
       ) : items.length > 0 && (
         <Card className="overflow-hidden">
@@ -316,6 +319,7 @@ export default function VendorDirectoryTab({ clientId, clientName }: { clientId:
                         <TransferBadge status={item.transferable} />
                       </td>
                       <td className="px-4 py-3 text-right">
+                        {!readOnly && (
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => startEdit(item)}
@@ -330,6 +334,7 @@ export default function VendorDirectoryTab({ clientId, clientName }: { clientId:
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
+                        )}
                       </td>
                     </tr>
                   )

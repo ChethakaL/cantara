@@ -4,6 +4,9 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Calculator, DollarSign, Percent, Download, RotateCcw, Plus, Trash2, Save } from 'lucide-react'
 import { Card, Button, Input, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 import { buildHtmlTable, generateReportHtml } from '@/lib/report-export/generate-report-html'
 
 // ---------------------------------------------------------------------------
@@ -399,14 +402,15 @@ function TaxModeToggle({
 // Component
 // ---------------------------------------------------------------------------
 
-interface Props {
+interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
 }
 
-export default function NetProceedsCalculator({ clientId, clientName }: Props) {
+export default function NetProceedsCalculator({ clientId, clientName, readOnly = false }: Props) {
   const [form, setForm] = useState<NetProceedsState>(DEFAULT_STATE)
   const [savedBadge, setSavedBadge] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
   // Load saved data on mount
   useEffect(() => {
@@ -429,6 +433,8 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
         }
       } catch {
         // silently ignore load errors
+      } finally {
+        setLoaded(true)
       }
     }
     loadSaved()
@@ -599,6 +605,105 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
 
   const hasInput = calc.ev > 0
 
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !loaded, hasInput, 'Net Proceeds Calculator')
+  if (readOnlyGate) return readOnlyGate
+
+  if (readOnly) {
+    return (
+      <div className="space-y-6">
+        <Card className="p-5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+              <Calculator className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">Seller Net Proceeds Calculator</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Approved net proceeds waterfall for {clientName}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Net Proceeds Summary — Waterfall</p>
+          </div>
+          <div>
+            <ResultRow label="1. Enterprise Value (EV)" value={calc.ev} source="Mid-range valuation" bold />
+            <ResultRow label="2. + Estimated Cash at Closing" value={calc.cashAtClosing} source="Seller's accountant estimate" />
+            <ResultRow
+              label="3. + Working Capital Adjustment"
+              value={calc.wcAdjustment}
+              source={`Closing WC ${formatUSD(calc.actualWC)} − Target WC ${formatUSD(calc.targetWC)}`}
+            />
+            <ResultRow label={`4. \u2212 Deferred Revenue / Prepaid Adjustment`} value={-calc.deferredRevenue} negative />
+            <SectionHeader>Other Seller Cash Obligations</SectionHeader>
+            {calc.obligationDetails.map((o) =>
+              o.parsedAmount > 0 ? (
+                <ResultRow key={o.id} label={o.description || 'Unnamed obligation'} value={o.parsedAmount} indent />
+              ) : null
+            )}
+            <ResultRow label={`5. \u2212 Other Seller Cash Obligations`} value={-calc.totalSellerObligations} bold negative />
+            <SectionDivider />
+            <ResultRow label="6. = Base Purchase Price" value={calc.basePurchasePrice} bold />
+            <SectionDivider />
+            <SectionHeader>Withheld / Deferred Consideration</SectionHeader>
+            {calc.escrow > 0 && <ResultRow label="Escrow / Holdback" value={calc.escrow} indent />}
+            {calc.sellerNote > 0 && <ResultRow label="Seller Note (Principal)" value={calc.sellerNote} indent />}
+            {calc.earnout > 0 && <ResultRow label="Earnout / Contingent Consideration" value={calc.earnout} indent />}
+            {calc.rollover > 0 && <ResultRow label="Rollover Equity / Reinvestment" value={calc.rollover} indent />}
+            {calc.otherDeferred > 0 && <ResultRow label="Other Deferred Consideration" value={calc.otherDeferred} indent />}
+            <ResultRow label={`7. \u2212 Total Withheld/Deferred`} value={-calc.totalWithheld} bold negative />
+            <SectionDivider />
+            <SectionHeader>Debt Payoffs at Closing</SectionHeader>
+            {calc.debtDetails.map(
+              (d) =>
+                d.estimatedPayoff > 0 && (
+                  <ResultRow
+                    key={d.id}
+                    label={d.description || 'Unnamed debt'}
+                    value={d.estimatedPayoff}
+                    source={`Balance ${formatUSD(d.balance)} − ${calc.monthsToClose}mo × ${formatUSD(d.avgPmt)}/mo`}
+                    indent
+                  />
+                )
+            )}
+            <ResultRow label={`8. \u2212 Total Debt Payoffs`} value={-calc.totalDebt} bold negative />
+            <SectionDivider />
+            <SectionHeader>Transaction Costs</SectionHeader>
+            {calc.legal > 0 && <ResultRow label="Legal Fees" value={calc.legal} indent />}
+            {calc.advisory > 0 && <ResultRow label="Advisory Fee" value={calc.advisory} indent />}
+            {calc.acct > 0 && <ResultRow label="Accounting" value={calc.acct} indent />}
+            {calc.bonuses > 0 && <ResultRow label="Management Bonuses" value={calc.bonuses} indent />}
+            {calc.payrollTax > 0 && <ResultRow label="Payroll Taxes on Management Bonuses" value={calc.payrollTax} indent />}
+            {form.otherCosts.map((c) => {
+              const amt = parseNum(c.amount)
+              return amt > 0 ? <ResultRow key={c.id} label={c.description || 'Other'} value={amt} indent /> : null
+            })}
+            <ResultRow label={`9. \u2212 Total Transaction Costs`} value={-calc.totalTransactionCosts} bold negative />
+            <SectionDivider />
+            <ResultRow label="10. = Net Cash to Seller at Closing (Pre-Tax)" value={calc.netCashAtClosingPreTax} bold highlight />
+            <SectionDivider />
+            <ResultRow
+              label={`11. \u2212 Estimated Taxes on Cash at Closing (Fed ${calc.fedTaxLabel} + State ${calc.stateTaxLabel})`}
+              value={-calc.estimatedTaxesAtClose}
+              negative
+            />
+            <SectionDivider />
+            <ResultRow label="12. = Estimated Cash to Seller at Closing (Post-Tax)" value={calc.netCashPostTax} bold highlight />
+            <SectionDivider />
+            <SectionHeader>Memo</SectionHeader>
+            <ResultRow label="Total Withheld/Deferred (recap)" value={calc.totalWithheld} indent />
+            <ResultRow label={`\u2212 Estimated Taxes on Withheld/Deferred`} value={-calc.deferredTaxAmount} indent negative />
+            <ResultRow label="= Estimated Cash to Seller on Withheld/Deferred (Post-Tax)" value={calc.netDeferredPostTax} indent bold />
+            <SectionDivider />
+            <ResultRow label="13. Total Net Proceeds Pre-Tax (incl. Deferred)" value={calc.totalNetProceedsPreTax} bold highlight />
+            <SectionDivider />
+            <ResultRow label="14. = Estimated Total Proceeds on Sale (Post-Tax)" value={calc.estimatedTotalProceedsPostTax} bold highlight />
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -615,7 +720,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <AdvisorActions className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleReset}>
               <RotateCcw className="w-3.5 h-3.5" />
               Reset
@@ -642,7 +747,7 @@ export default function NetProceedsCalculator({ clientId, clientName }: Props) {
                 </Button>
               </>
             )}
-          </div>
+          </AdvisorActions>
         </div>
       </Card>
 

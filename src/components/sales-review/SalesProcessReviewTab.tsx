@@ -1,4 +1,6 @@
 'use client'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
+import { ClientApprovedEmptyState } from '@/components/client-portal/AgentClientPortalFrame'
 
 import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, Bot, CheckCircle, FileText, Loader2, RefreshCw, Save, Trash2, Upload } from 'lucide-react'
@@ -8,7 +10,7 @@ import { buildSalesReviewReportHtml } from '@/lib/report-export/build-sales-revi
 import { getAdminEmail } from '@/lib/store'
 import type { SalesProcessReviewResult } from '@/lib/sales-review/types'
 
-interface Props {
+interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
 }
@@ -62,7 +64,7 @@ function statusColor(status: SalesProcessReviewResult['benchmarkComparisons'][nu
   return 'gold'
 }
 
-export default function SalesProcessReviewTab({ clientId, clientName }: Props) {
+export default function SalesProcessReviewTab({ clientId, clientName, readOnly = false }: Props) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -184,6 +186,10 @@ export default function SalesProcessReviewTab({ clientId, clientName }: Props) {
     return <div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
   }
 
+  if (readOnly && !result) {
+    return <ClientApprovedEmptyState agentName="Sales Process Review" />
+  }
+
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -200,7 +206,7 @@ export default function SalesProcessReviewTab({ clientId, clientName }: Props) {
               {fileName && <p className="text-[11px] text-slate-400 mt-1">Transcript: {fileName}</p>}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" data-advisor-action>
             {result && !editMode && (
               <>
                 <Button size="sm" variant="outline" onClick={() => setDraft(makeDraft(result))}>Edit Output</Button>
@@ -244,7 +250,7 @@ export default function SalesProcessReviewTab({ clientId, clientName }: Props) {
         </div>
       )}
 
-      {!hasTranscript && !running && (
+      {!readOnly && !hasTranscript && !running && (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center space-y-3">
           <FileText className="w-8 h-8 text-slate-300 mx-auto" />
           <p className="text-sm font-medium text-slate-600">No transcript uploaded yet</p>

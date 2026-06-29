@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, MapPin, Upload, X, Loader2, Eye, EyeOff, AlertCircle, CheckCircle2, RotateCcw } from 'lucide-react'
+import { Download, MapPin, Upload, X, Loader2, Eye, EyeOff, AlertCircle, CheckCircle2, RotateCcw, Pencil, Save, Trash2, Plus } from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -29,6 +29,7 @@ interface Props {
   clientId: string
   clientName: string
   businessAddress: string
+  readOnly?: boolean
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -113,7 +114,7 @@ function createPinSvg(color: string, isFacility = false): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function ClientLocationMapTab({ clientId, clientName, businessAddress }: Props) {
+export default function ClientLocationMapTab({ clientId, clientName, businessAddress, readOnly = false }: Props) {
   // State
   const [phase, setPhase] = useState<'loading' | 'upload' | 'map'>('loading')
   const [mapData, setMapData] = useState<MapData | null>(null)
@@ -128,6 +129,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [saving, setSaving] = useState(false)
   const [visibleTypes, setVisibleTypes] = useState<Set<ServiceType>>(new Set(['boarding', 'daycare', 'grooming', 'both', 'other']))
   const [mapsError, setMapsError] = useState<string | null>(null)
+  const [editingIndex, setEditingIndex] = useState<number | 'new' | null>(null)
+  const [entryDraft, setEntryDraft] = useState<ClientPin | null>(null)
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const googleMapRef = useRef<google.maps.Map | null>(null)
@@ -252,7 +255,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       markersRef.current.push(facilityMarker)
 
       const facilityInfo = new google.maps.InfoWindow({
-        content: `<div style="font-family:system-ui;padding:4px 0"><strong>${clientName}</strong><br/><span style="color:#64748b;font-size:12px">${data.facilityAddress}</span><br/><span style="font-size:11px;color:#1e293b;font-weight:600">Subject Facility</span></div>`,
+        content: `<div style="font-family:system-ui;padding:4px 0"><strong>${clientName}</strong><br/><span style="color:#64748b;font-size:12px">${data.facilityAddress}</span><br/><span style="font-size:11px;color:#1e293b;font-weight:600">Client Facility</span></div>`,
       })
       facilityMarker.addListener('click', () => facilityInfo.open(map, facilityMarker))
     }
@@ -522,6 +525,90 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     googleMapRef.current = null
   }
 
+  const persistMapData = async (nextMapData: MapData) => {
+    setMapData(nextMapData)
+    setSaving(true)
+    try {
+      await fetch('/api/client-location-map', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, mapData: nextMapData }),
+      })
+    } catch {
+      setError('Map changes were applied locally but could not be saved.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const startEntryEdit = (index: number) => {
+    if (!mapData?.clients[index]) return
+    setEditingIndex(index)
+    setEntryDraft({ ...mapData.clients[index] })
+  }
+
+  const startNewEntry = () => {
+    setEditingIndex('new')
+    setEntryDraft({ name: '', address: '', serviceType: 'boarding', geocodeStatus: 'pending' })
+  }
+
+  const cancelEntryEdit = () => {
+    setEditingIndex(null)
+    setEntryDraft(null)
+  }
+
+  const saveEntryDraft = async ({ geocode }: { geocode: boolean }) => {
+    if (!mapData || !entryDraft) return
+    if (!entryDraft.name.trim() || !entryDraft.address.trim()) {
+      setError('Client name and address are required.')
+      return
+    }
+
+    let nextDraft: ClientPin = {
+      ...entryDraft,
+      name: entryDraft.name.trim(),
+      address: entryDraft.address.trim(),
+    }
+
+    if (geocode) {
+      try {
+        setSaving(true)
+        const apiKey = await fetchBrowserGoogleMapsKey()
+        await loadGoogleMapsScript(apiKey)
+        const geocoder = new google.maps.Geocoder()
+        const result = await geocodeAddress(geocoder, nextDraft.address)
+        nextDraft = { ...nextDraft, lat: result.lat, lng: result.lng, geocodeStatus: 'success' }
+      } catch {
+        nextDraft = { ...nextDraft, lat: undefined, lng: undefined, geocodeStatus: 'failed' }
+      } finally {
+        setSaving(false)
+      }
+    } else if (editingIndex !== 'new') {
+      const original = mapData.clients[editingIndex]
+      if (original?.address !== nextDraft.address) {
+        nextDraft = { ...nextDraft, lat: undefined, lng: undefined, geocodeStatus: 'pending' }
+      }
+    }
+
+    const nextClients = [...mapData.clients]
+    if (editingIndex === 'new') nextClients.push(nextDraft)
+    else if (typeof editingIndex === 'number') nextClients[editingIndex] = nextDraft
+
+    await persistMapData({
+      ...mapData,
+      clients: nextClients,
+      generatedAt: new Date().toISOString(),
+    })
+    cancelEntryEdit()
+  }
+
+  const deleteEntry = async (index: number) => {
+    if (!mapData) return
+    const nextClients = mapData.clients.filter((_, idx) => idx !== index)
+    await persistMapData({ ...mapData, clients: nextClients, generatedAt: new Date().toISOString() })
+    if (editingIndex === index) cancelEntryEdit()
+  }
+
   // ── Stats computation ──────────────────────────────────────────────────
 
   const stats = computeStats(mapData)
@@ -736,20 +823,24 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={handleExportSnapshot}
-            className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-4 py-2 rounded-lg flex items-center gap-2"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export Snapshot
-          </Button>
-          <Button
-            onClick={handleReset}
-            className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-4 py-2 rounded-lg flex items-center gap-2"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Re-upload
-          </Button>
+          {!readOnly && (
+            <>
+              <Button
+                onClick={handleExportSnapshot}
+                className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-4 py-2 rounded-lg flex items-center gap-2"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export Snapshot
+              </Button>
+              <Button
+                onClick={handleReset}
+                className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-4 py-2 rounded-lg flex items-center gap-2"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Re-upload
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -769,7 +860,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
 
       {/* Stats bar */}
       {stats && (
-        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {RADIUS_RINGS.map(ring => {
             const pct = stats.withinRadius[ring.miles] ?? 0
             const count = stats.countWithinRadius[ring.miles] ?? 0
@@ -791,6 +883,51 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
               </Card>
             )
           })}
+            </div>
+            <Card className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Service breakout</h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Daycare and boarding include clients marked Both / Multiple.</p>
+                </div>
+                <div className="text-[11px] text-slate-400">{stats.total} mapped clients in combined summary</div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {(['daycare', 'boarding', 'grooming'] as const).map(type => {
+                  const serviceStats = stats.byService[type]
+                  return (
+                    <div key={type} className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SERVICE_COLORS[type] }} />
+                        <span className="text-xs font-semibold text-slate-700">{SERVICE_LABELS[type]}</span>
+                        <span className="ml-auto text-[10px] text-slate-400">{serviceStats.total} clients</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {RADIUS_RINGS.map(ring => (
+                          <div key={ring.miles} className="rounded-md bg-white border border-slate-100 px-2 py-2 text-center">
+                            <div className="text-sm font-bold text-slate-800">{serviceStats.withinRadius[ring.miles] ?? 0}%</div>
+                            <div className="text-[10px] text-slate-400">{ring.miles} mi</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              {stats.insights.length > 0 && (
+                <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
+                  <h4 className="text-xs font-semibold text-indigo-900 mb-2">AI-style insights</h4>
+                  <ul className="space-y-1.5 text-xs text-indigo-900/80">
+                    {stats.insights.map((insight, idx) => (
+                      <li key={idx} className="flex gap-2">
+                        <span className="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+                        <span>{insight}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </Card>
         </div>
       )}
 
@@ -850,7 +987,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
             ))}
             <div className="flex items-center gap-2 text-[11px] text-slate-600 mt-1">
               <span className="w-3 h-3 rounded-full bg-slate-800 flex-shrink-0" />
-              Subject Facility
+              Client Facility
             </div>
           </div>
         </Card>
@@ -861,29 +998,180 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         </Card>
       </div>
 
-      {/* Failed geocodes */}
-      {failedCount > 0 && (
-        <Card className="p-4">
-          <h3 className="text-xs font-semibold text-slate-700 mb-2 flex items-center gap-2">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-            {failedCount} address{failedCount !== 1 ? 'es' : ''} could not be geocoded
-          </h3>
-          <div className="max-h-32 overflow-y-auto space-y-1">
-            {mapData?.clients
-              .filter(c => c.geocodeStatus === 'failed')
-              .map((c, idx) => (
-                <div key={idx} className="text-[11px] text-slate-500 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
-                  <span className="font-medium text-slate-600">{c.name}</span>
-                  <span className="text-slate-400">&mdash;</span>
-                  <span className="truncate">{c.address}</span>
-                </div>
-              ))}
+      {!readOnly && (
+      <Card className="p-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Client Entries</h3>
+            <p className="mt-0.5 text-[11px] text-slate-400">Edit names, addresses, service type, and geocoding status for this map.</p>
           </div>
-        </Card>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={startNewEntry}
+            disabled={editingIndex !== null}
+            className="text-xs"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add entry
+          </Button>
+        </div>
+
+        <div className="max-h-96 overflow-auto rounded-xl border border-slate-100">
+          <table className="min-w-full text-xs">
+            <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
+              <tr>
+                <th className="px-3 py-2 text-left">Name</th>
+                <th className="px-3 py-2 text-left">Address</th>
+                <th className="px-3 py-2 text-left">Service</th>
+                <th className="px-3 py-2 text-left">Geocode</th>
+                <th className="px-3 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {editingIndex === 'new' && entryDraft && (
+                <ClientEntryEditRow
+                  draft={entryDraft}
+                  onChange={setEntryDraft}
+                  onCancel={cancelEntryEdit}
+                  onSave={() => void saveEntryDraft({ geocode: true })}
+                  saving={saving}
+                />
+              )}
+              {mapData?.clients.map((client, index) => (
+                editingIndex === index && entryDraft ? (
+                  <ClientEntryEditRow
+                    key={`${index}-edit`}
+                    draft={entryDraft}
+                    onChange={setEntryDraft}
+                    onCancel={cancelEntryEdit}
+                    onSave={() => void saveEntryDraft({ geocode: true })}
+                    saving={saving}
+                  />
+                ) : (
+                  <tr key={`${client.name}-${index}`} className="hover:bg-slate-50/70">
+                    <td className="px-3 py-2 font-medium text-slate-700">{client.name || 'Unnamed'}</td>
+                    <td className="max-w-md px-3 py-2 text-slate-600">{client.address}</td>
+                    <td className="px-3 py-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white" style={{ backgroundColor: SERVICE_COLORS[client.serviceType] }}>
+                        {SERVICE_LABELS[client.serviceType]}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <GeocodeStatusPill status={client.geocodeStatus} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => startEntryEdit(index)}
+                          disabled={editingIndex !== null}
+                          className="rounded-md border border-slate-200 p-1.5 text-slate-500 hover:bg-white hover:text-slate-800 disabled:opacity-40"
+                          title="Edit entry"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteEntry(index)}
+                          disabled={editingIndex !== null || saving}
+                          className="rounded-md border border-rose-100 p-1.5 text-rose-500 hover:bg-rose-50 disabled:opacity-40"
+                          title="Delete entry"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
       )}
+
     </div>
   )
+}
+
+function ClientEntryEditRow({
+  draft,
+  onChange,
+  onCancel,
+  onSave,
+  saving,
+}: {
+  draft: ClientPin
+  onChange: (draft: ClientPin) => void
+  onCancel: () => void
+  onSave: () => void
+  saving: boolean
+}) {
+  return (
+    <tr className="bg-indigo-50/40">
+      <td className="px-3 py-2 align-top">
+        <input
+          value={draft.name}
+          onChange={event => onChange({ ...draft, name: event.target.value })}
+          className="w-full rounded-md border border-indigo-100 bg-white px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          placeholder="Client name"
+        />
+      </td>
+      <td className="px-3 py-2 align-top">
+        <input
+          value={draft.address}
+          onChange={event => onChange({ ...draft, address: event.target.value })}
+          className="w-full min-w-[280px] rounded-md border border-indigo-100 bg-white px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          placeholder="Address"
+        />
+      </td>
+      <td className="px-3 py-2 align-top">
+        <select
+          value={draft.serviceType}
+          onChange={event => onChange({ ...draft, serviceType: event.target.value as ServiceType })}
+          className="rounded-md border border-indigo-100 bg-white px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          {(Object.keys(SERVICE_LABELS) as ServiceType[]).map(type => (
+            <option key={type} value={type}>{SERVICE_LABELS[type]}</option>
+          ))}
+        </select>
+      </td>
+      <td className="px-3 py-2 align-top">
+        <GeocodeStatusPill status={draft.geocodeStatus} />
+      </td>
+      <td className="px-3 py-2 align-top">
+        <div className="flex justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+            title="Save and geocode"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-slate-50"
+            title="Cancel"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+function GeocodeStatusPill({ status }: { status: ClientPin['geocodeStatus'] }) {
+  const tone = status === 'success'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    : status === 'failed'
+      ? 'border-rose-200 bg-rose-50 text-rose-700'
+      : 'border-amber-200 bg-amber-50 text-amber-700'
+  return <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', tone)}>{status}</span>
 }
 
 // ── Utility functions ────────────────────────────────────────────────────────
@@ -935,5 +1223,48 @@ function computeStats(mapData: MapData | null) {
     withinRadius[ring.miles] = Math.round((count / total) * 100)
   })
 
-  return { total, withinRadius, countWithinRadius }
+  const byService = (['daycare', 'boarding', 'grooming'] as const).reduce((acc, type) => {
+    const serviceClients = geocoded.filter(c =>
+      type === 'daycare'
+        ? c.serviceType === 'daycare' || c.serviceType === 'both'
+        : type === 'boarding'
+          ? c.serviceType === 'boarding' || c.serviceType === 'both'
+          : c.serviceType === 'grooming',
+    )
+    const serviceTotal = serviceClients.length
+    const serviceWithin: Record<number, number> = {}
+    const serviceCounts: Record<number, number> = {}
+    RADIUS_RINGS.forEach(ring => {
+      const count = serviceClients.filter(c =>
+        haversineDistance(mapData.facilityLat!, mapData.facilityLng!, c.lat!, c.lng!) <= ring.miles
+      ).length
+      serviceCounts[ring.miles] = count
+      serviceWithin[ring.miles] = serviceTotal > 0 ? Math.round((count / serviceTotal) * 100) : 0
+    })
+    acc[type] = { total: serviceTotal, withinRadius: serviceWithin, countWithinRadius: serviceCounts }
+    return acc
+  }, {} as Record<'daycare' | 'boarding' | 'grooming', { total: number; withinRadius: Record<number, number>; countWithinRadius: Record<number, number> }>)
+
+  const insights = buildLocationInsights(total, withinRadius, byService)
+
+  return { total, withinRadius, countWithinRadius, byService, insights }
+}
+
+function buildLocationInsights(
+  total: number,
+  withinRadius: Record<number, number>,
+  byService: Record<'daycare' | 'boarding' | 'grooming', { total: number; withinRadius: Record<number, number> }>,
+) {
+  const insights: string[] = []
+  const nearby = withinRadius[5] ?? 0
+  const outer = total - Math.round((total * ((withinRadius[20] ?? 0) / 100)))
+  if (nearby >= 50) insights.push(`${nearby}% of mapped clients are within 5 miles, suggesting a highly local customer base and strong neighborhood dependence.`)
+  if ((withinRadius[20] ?? 0) < 75) insights.push(`${outer} mapped clients appear outside the 20-mile ring, which may indicate destination demand or address data that should be spot-checked.`)
+  const daycareNear = byService.daycare.withinRadius[5] ?? 0
+  const boardingNear = byService.boarding.withinRadius[5] ?? 0
+  if (byService.daycare.total > 0 && byService.boarding.total > 0 && Math.abs(daycareNear - boardingNear) >= 15) {
+    insights.push(`Daycare and boarding have different proximity profiles: ${daycareNear}% of daycare clients vs ${boardingNear}% of boarding clients are within 5 miles.`)
+  }
+  if (byService.grooming.total > 0) insights.push(`Grooming is mapped as a separate client type with ${byService.grooming.total} mapped client${byService.grooming.total === 1 ? '' : 's'}.`)
+  return insights
 }

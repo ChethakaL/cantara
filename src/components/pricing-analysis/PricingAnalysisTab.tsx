@@ -20,6 +20,7 @@ import {
   normalizePricingReport,
 } from '@/lib/pricing-analysis/normalize-report'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildPricingAnalysisReportHtml } from '@/lib/report-export/build-pricing-analysis-report'
 import {
   groupRowsByPricingVertical,
@@ -122,9 +123,11 @@ function makeEmptySummaryRow(): PricingSummaryRow {
 export default function PricingAnalysisTab({
   clientId,
   clientName,
+  readOnly = false,
 }: {
   clientId: string
   clientName: string
+  readOnly?: boolean
 }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -533,7 +536,7 @@ export default function PricingAnalysisTab({
               </p>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <AdvisorActions className="flex items-center gap-3">
             {editMode && autoSaveStatus === 'saving' && (
               <span className="text-xs text-slate-500">Saving…</span>
             )}
@@ -599,7 +602,7 @@ export default function PricingAnalysisTab({
               <RefreshCw className="w-3.5 h-3.5" />
               New Analysis
             </button>
-          </div>
+          </AdvisorActions>
         </div>
 
         {error && (

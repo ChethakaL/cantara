@@ -1,4 +1,5 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureClientDriveSubfolder, uploadClientDocumentToDrive } from "@/lib/composio";
@@ -77,6 +78,64 @@ function extractDriveFolderId(value?: string | null) {
   return match?.[1] ?? value;
 }
 
+async function resolveUploaderUser(uploaderEmail: string, clientId: string) {
+  const normalizedEmail = uploaderEmail.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const existing = await prisma.user.findFirst({
+    where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+  });
+  if (existing) return existing;
+
+  const client = await prisma.clientProfile.findUnique({
+    where: { id: clientId },
+    select: { email: true, businessName: true },
+  });
+  if (!client) return null;
+
+  const teamMember = await (prisma as any).teamMember.findFirst({
+    where: {
+      clientId,
+      email: { equals: normalizedEmail, mode: "insensitive" },
+    },
+    select: { name: true, email: true },
+  });
+
+  if (teamMember) {
+    return prisma.user.upsert({
+      where: { email: normalizedEmail },
+      update: {
+        name: teamMember.name,
+        role: "CLIENT",
+      },
+      create: {
+        name: teamMember.name,
+        email: normalizedEmail,
+        passwordHash: randomBytes(18).toString("base64url"),
+        role: "CLIENT",
+      },
+    });
+  }
+
+  if (client.email?.trim().toLowerCase() === normalizedEmail) {
+    return prisma.user.upsert({
+      where: { email: normalizedEmail },
+      update: {
+        name: client.businessName || normalizedEmail,
+        role: "CLIENT",
+      },
+      create: {
+        name: client.businessName || normalizedEmail,
+        email: normalizedEmail,
+        passwordHash: randomBytes(18).toString("base64url"),
+        role: "CLIENT",
+      },
+    });
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   try {
@@ -100,9 +159,9 @@ export async function POST(req: NextRequest) {
       fileSize: file.size,
     });
 
-    const user = await prisma.user.findUnique({ where: { email: uploaderEmail } });
+    const user = await resolveUploaderUser(uploaderEmail, clientId);
     if (!user) {
-      return new Response("Uploader not found", { status: 404 });
+      return new Response("Uploader not found. Sign in with the email assigned to this client portal.", { status: 404 });
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
@@ -230,6 +289,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Upload Error:", error);
-    return new Response("Internal Server Error", { status: 500 });
+    const message = error instanceof Error ? error.message : "Internal Server Error";
+    return new Response(message, { status: 500 });
   }
 }

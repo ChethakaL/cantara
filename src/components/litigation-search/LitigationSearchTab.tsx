@@ -1,4 +1,6 @@
 'use client'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { Card, Badge, Button, cn } from '@/components/ui'
@@ -9,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { LitigationSearchResult } from '@/lib/litigation-search/search'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildLitigationReportHtml } from '@/lib/report-export/build-litigation-report'
 
 // ── US States ────────────────────────────────────────────────────────────────
@@ -266,13 +269,13 @@ function LitigationResultsEditor({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-interface LitigationSearchTabProps {
+interface LitigationSearchTabProps extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
   businessAddress?: string
 }
 
-export default function LitigationSearchTab({ clientId, clientName, businessAddress }: LitigationSearchTabProps) {
+export default function LitigationSearchTab({ clientId, clientName, businessAddress, readOnly = false }: LitigationSearchTabProps) {
   // Search form state
   const [businessName, setBusinessName] = useState(clientName)
   const [ownerName, setOwnerName] = useState('')
@@ -292,6 +295,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
   const [docError, setDocError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [hydrated, setHydrated] = useState(false)
   const reportHtml = useMemo(() => {
     const result = searchResult || docResult
     return result ? buildLitigationReportHtml(result, clientName) : ''
@@ -311,6 +315,8 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
         if (savedDoc) setDocResult(savedDoc)
       } catch {
         // Saved litigation output is optional.
+      } finally {
+        if (!cancelled) setHydrated(true)
       }
     }
     void loadSaved()
@@ -427,6 +433,9 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
   }, [])
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !hydrated, Boolean(searchResult || docResult), 'Litigation & Liens')
+  if (readOnlyGate) return readOnlyGate
 
   return (
     <div className="space-y-6">
@@ -610,7 +619,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
         <Card className="p-6 space-y-8">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-800">Results</h3>
-            <div className="flex items-center gap-2">
+            <AdvisorActions className="flex items-center gap-2">
               {saving && (
                 <span className="flex items-center gap-1 text-xs font-semibold text-slate-400">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -634,9 +643,9 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
                 fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
                 label="Export PDF"
               />
-            </div>
+            </AdvisorActions>
           </div>
-          {editMode ? (
+          {editMode && !readOnly ? (
             <div className="space-y-8">
               {searchResult && (
                 <LitigationResultsEditor title="Web Search Results" result={searchResult} onChange={setSearchResult} />

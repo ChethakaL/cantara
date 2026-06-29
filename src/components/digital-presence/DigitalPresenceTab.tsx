@@ -6,6 +6,8 @@ import DigitalPresenceForm from './DigitalPresenceForm';
 import DigitalPresenceScorecard from './DigitalPresenceScorecard';
 import { DigitalAssetFormData, DigitalPresenceReport, AnalysisStatus } from '@/lib/digital-presence/types';
 import { cn } from '@/components/ui';
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly';
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab';
 
 interface ProgressEvent {
   type: 'progress';
@@ -23,7 +25,7 @@ interface LogEntry {
 
 let _logId = 0;
 
-interface Props {
+interface Props extends AgentTabReadOnlyProps {
   clientId: string;
   clientName: string;
   clientWebsite?: string;
@@ -36,9 +38,10 @@ interface ManualOverride {
   value: string;
 }
 
-export default function DigitalPresenceTab({ clientId, clientName, clientWebsite }: Props) {
+export default function DigitalPresenceTab({ clientId, clientName, clientWebsite, readOnly = false }: Props) {
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [report, setReport] = useState<DigitalPresenceReport | null>(null);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [currentPhase, setCurrentPhase] = useState<'research' | 'analyze' | null>(null);
@@ -76,6 +79,8 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
         }
       } catch {
         // Saved report is optional.
+      } finally {
+        if (!cancelled) setInitialLoadDone(true);
       }
     }
     void loadSavedReport();
@@ -244,6 +249,9 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
 
   const isLoading = status === 'researching' || status === 'analyzing';
 
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(report), 'Digital Presence');
+  if (readOnlyGate) return readOnlyGate;
+
   return (
     <div className="space-y-5">
       {/* Status strip */}
@@ -267,7 +275,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
       )}
 
       {/* Idle -> form */}
-      {status === 'idle' && (
+      {status === 'idle' && !readOnly && (
         <DigitalPresenceForm
           onSubmit={handleSubmit}
           loading={false}
@@ -369,7 +377,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
 
       {/* Complete -> scorecard */}
       {status === 'complete' && report && (
-        <DigitalPresenceScorecard report={report} onReset={handleReset} onRerun={handleRerun} onEdit={handleEdit} />
+        <DigitalPresenceScorecard report={report} onReset={handleReset} onRerun={handleRerun} onEdit={handleEdit} readOnly={readOnly} />
       )}
     </div>
   );

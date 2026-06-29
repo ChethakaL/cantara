@@ -28,9 +28,10 @@ import { buildDigitalPresenceReportHtml } from '@/lib/report-export/build-digita
 
 interface Props {
   report: DigitalPresenceReport;
-  onReset: () => void;
-  onRerun: () => void;
+  onReset?: () => void;
+  onRerun?: () => void;
   onEdit?: (channelType: string, metricIndex: number, value: string) => void;
+  readOnly?: boolean;
 }
 
 const CHANNEL_ICONS: Record<ChannelType, React.ReactNode> = {
@@ -235,7 +236,7 @@ function handleExportJSON(report: DigitalPresenceReport) {
   URL.revokeObjectURL(url);
 }
 
-export default function DigitalPresenceScorecard({ report, onReset, onRerun, onEdit }: Props) {
+export default function DigitalPresenceScorecard({ report, onReset, onRerun, onEdit, readOnly = false }: Props) {
   const [editMode, setEditMode] = useState(false);
   const [editedReport, setEditedReport] = useState<DigitalPresenceReport>(report);
   const [assetEditMode, setAssetEditMode] = useState(false);
@@ -247,6 +248,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
   const redCount = currentReport.channels.filter(ch => ch.trafficLight === 'red').length;
 
   function handleMetricUpdate(channelType: ChannelType, metricIndex: number, value: string) {
+    if (readOnly) return;
     setEditedReport(prev => ({
       ...prev,
       channels: prev.channels.map(ch => {
@@ -288,6 +290,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
             Digital Presence Report &middot; Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
         </div>
+        {!readOnly && (
         <div className="flex items-center gap-2">
           <button
             onClick={() => setEditMode(m => !m)}
@@ -326,6 +329,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
             New Analysis
           </button>
         </div>
+        )}
       </div>
 
       {/* Edit mode banner */}

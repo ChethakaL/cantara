@@ -1,4 +1,6 @@
 'use client'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
 import React, { useState, useEffect } from 'react'
 import { Card, Button, cn } from '@/components/ui'
@@ -19,6 +21,7 @@ import { parseWS19Markdown } from '@/lib/ws1-9/parser'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildPermitsZoningReportHtml } from '@/lib/report-export/build-permits-zoning-report'
 import { serializeWS19Report } from '@/lib/ws1-9/serialize-report'
 import { PermitsZoningStructuredEditor } from './PermitsZoningEditor'
@@ -80,7 +83,7 @@ function StatusToast({ message, type, onClose }: { message: string; type: 'succe
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface PermitsZoningTabProps {
+interface PermitsZoningTabProps extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
   state?: string
@@ -102,6 +105,7 @@ export default function PermitsZoningTab({
   dba,
   propertyAddress,
   municipality,
+  readOnly = false,
 }: PermitsZoningTabProps) {
   const [savedReport, setSavedReport] = useState<WS19Persistence | null>(null)
   const [flags, setFlags] = useState<WS19Flag[]>([])
@@ -293,6 +297,10 @@ export default function PermitsZoningTab({
     }
   }
 
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, loadingReport, Boolean(savedReport?.markdown), 'Permits & Zoning')
+  if (readOnlyGate) return readOnlyGate
+
   if (!savedReport && !isRunning) {
     return (
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
@@ -342,16 +350,16 @@ export default function PermitsZoningTab({
     { id: 'zoning', label: 'Zoning' },
     { id: 'conditionaluse', label: 'Conditional Use' },
     { id: 'grandfathering', label: 'Grandfathering' },
-    { id: 'review', label: 'Admin Review' },
+    ...(readOnly ? [] : [{ id: 'review', label: 'Admin Review' }]),
   ]
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
         <div className="min-w-0 flex-1">
-          <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} />
+          <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
         </div>
-        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+        <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
           {editMode ? (
             <>
               <Button
@@ -378,11 +386,11 @@ export default function PermitsZoningTab({
             fileName={`permits-zoning-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             label="Export Permits & Zoning Report"
           />
-        </div>
+        </AdvisorActions>
       </div>
 
       {/* Workflow guidance banner */}
-      {(() => {
+      {!readOnly && (() => {
         const pendingCount = flags.filter(f => f.status === 'pending').length
         const totalCount = flags.length
         const allDone = totalCount > 0 && pendingCount === 0
@@ -433,12 +441,12 @@ export default function PermitsZoningTab({
               isReleasing={releasing}
             />
           )}
-          {!editMode && activeTab === 'summary' && <SummaryTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'documents' && <DocumentsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'permits' && <PermitsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'zoning' && <ZoningTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'conditionaluse' && <ConditionalUseTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'grandfathering' && <GrandfatheringTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
+          {!editMode && activeTab === 'summary' && <SummaryTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'documents' && <DocumentsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'permits' && <PermitsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'zoning' && <ZoningTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'conditionaluse' && <ConditionalUseTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'grandfathering' && <GrandfatheringTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
           {!editMode && activeTab === 'review' && <AdminReviewTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} onRelease={handleRelease} isReleasing={releasing} />}
         </div>
       </Card>

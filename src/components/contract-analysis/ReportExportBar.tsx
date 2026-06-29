@@ -22,7 +22,7 @@ export function ReportExportBar({ reportMarkdown, clientName, onNewAnalysis, onD
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" data-advisor-action>
       <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
         <Download className="w-3.5 h-3.5" /> Export
       </Button>

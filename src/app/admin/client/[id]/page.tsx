@@ -104,7 +104,7 @@ type AgentKey = typeof AGENT_TABS[number]['key']
 const STANDARD_TABS = [
   { key: 'manage', label: 'Client Management', icon: Settings },
   { key: 'documents', label: 'Documents', icon: FileText },
-  { key: 'agent-runs', label: 'Agent Runs', icon: Bot },
+  { key: 'agent-runs', label: 'Agent Status', icon: Bot },
   { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
   { key: 'agent-overview', label: 'Agent Overview', icon: FileText },

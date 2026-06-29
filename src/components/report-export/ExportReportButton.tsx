@@ -43,7 +43,7 @@ export function ExportReportButton({ html, fileName, label }: Props) {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" data-advisor-action>
       <Button size="sm" onClick={handlePrint}>
         <Printer className="w-3.5 h-3.5" />
         {saving ? 'Saving...' : label || 'Export PDF'}

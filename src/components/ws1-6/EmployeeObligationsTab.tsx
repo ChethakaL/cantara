@@ -1,4 +1,6 @@
 'use client'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
 import React, { useState, useEffect } from 'react'
 import { Card, Button, cn } from '@/components/ui'
@@ -20,6 +22,7 @@ import { parseWS16Markdown } from '@/lib/ws1-6/parser'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildEmployeeObligationsReportHtml } from '@/lib/report-export/build-employee-obligations-report'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -445,7 +448,7 @@ ${rows([
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface EmployeeObligationsTabProps {
+interface EmployeeObligationsTabProps extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
   state?: string
@@ -467,6 +470,7 @@ export default function EmployeeObligationsTab({
   dba,
   totalEmployeesSelfReported,
   employmentTypeBreakdown,
+  readOnly = false,
 }: EmployeeObligationsTabProps) {
   const [savedReport, setSavedReport] = useState<WS16Persistence | null>(null)
   const [flags, setFlags] = useState<Flag[]>([])
@@ -687,6 +691,10 @@ export default function EmployeeObligationsTab({
     }
   }
 
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, loadingReport, Boolean(savedReport?.markdown), 'Employee Obligations')
+  if (readOnlyGate) return readOnlyGate
+
   if (!savedReport && !isRunning) {
     return (
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
@@ -737,16 +745,16 @@ export default function EmployeeObligationsTab({
     { id: 'benefits', label: 'Benefits' },
     { id: 'contractors', label: 'Contractors' },
     { id: 'keypeople', label: 'Key people' },
-    { id: 'review', label: 'Admin review' },
+    ...(readOnly ? [] : [{ id: 'review', label: 'Admin review' }]),
   ]
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
         <div className="min-w-0 flex-1">
-          <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} />
+          <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
         </div>
-        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+        <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
           {editMode ? (
             <>
               <Button variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown}>Cancel</Button>
@@ -760,11 +768,11 @@ export default function EmployeeObligationsTab({
             fileName={`employee-obligations-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             label="Export PDF"
           />
-        </div>
+        </AdvisorActions>
       </div>
 
       {/* Workflow guidance banner */}
-      {(() => {
+      {!readOnly && (() => {
         const pendingCount = flags.filter(f => f.status === 'pending').length
         const totalCount = flags.length
         const allDone = totalCount > 0 && pendingCount === 0
@@ -813,13 +821,13 @@ export default function EmployeeObligationsTab({
               onNA={id => handleFlagUpdate(id, 'na')}
             />
           )}
-          {!editMode && activeTab === 'summary' && <SummaryTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'documents' && <DocumentsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'agreements' && <AgreementsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'noncompetes' && <NonCompetesTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'benefits' && <BenefitsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'contractors' && <ContractorsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
-          {!editMode && activeTab === 'keypeople' && <KeyPeopleTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} />}
+          {!editMode && activeTab === 'summary' && <SummaryTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'documents' && <DocumentsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'agreements' && <AgreementsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'noncompetes' && <NonCompetesTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'benefits' && <BenefitsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'contractors' && <ContractorsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+          {!editMode && activeTab === 'keypeople' && <KeyPeopleTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
           {!editMode && activeTab === 'review' && <CraigReviewTab flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} report={report} onRelease={handleRelease} isReleasing={releasing} />}
         </div>
       </Card>

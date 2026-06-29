@@ -88,9 +88,10 @@ Write a warm 2-3 paragraph letter:
 - The biggest opportunities to improve sale readiness
 - Your confidence in their ability to prepare
 
-## Readiness Overview
+## Sale-Readiness Overview
 
 Create a summary table using GREEN/YELLOW/RED indicators. This is the most important visual in the report.
+Use the exact category names consistently in every section. For example, if the summary uses "Legal & Corporate Standing", every later reference must use "Legal & Corporate Standing", not "Legal & Corporate".
 
 | Category | Status | Summary | Impact on Deal |
 |----------|--------|---------|----------------|
@@ -104,7 +105,18 @@ Status definitions:
 - 🟡 YELLOW = Needs attention. Fixable, but if left unaddressed could slow the deal or reduce certainty.
 - 🔴 RED = Critical gap. Must be resolved before listing or it will materially impact the deal.
 
-## Improvement Roadmap
+## Sale-Readiness Checklist
+
+Create a comprehensive checklist organized by category. This should come before the improvement roadmap because it is the quickest client-facing action view.
+
+| ✅ | Category | Item | Status | Action Needed |
+|----|----------|------|--------|---------------|
+| ☐ | Category | Specific document or action | 🟢/🟡/🔴 | What to do |
+
+Include at least 15-25 checklist items covering all categories. Mark status as 🟢 (have it), 🟡 (needs update), or 🔴 (missing).
+Do not recommend requiring a standalone Seller Non-Compete. If non-compete or restrictive covenant protection is relevant, frame it as a purchase agreement topic instead.
+
+## Sale-Readiness Improvement Roadmap
 
 ### Phase 1: Immediate Actions (0-30 Days)
 For each action item, use this format:
@@ -143,16 +155,6 @@ Same format per item (What, Why, Impact on Deal, How, Owner, Timeline)
 
 ### Phase 3: Medium-Term Actions (90-180 Days)
 Strategic improvements. Same format.
-
-## Your Sale-Readiness Checklist
-
-Create a comprehensive checklist organized by category. Each item should be actionable and specific.
-
-| ✅ | Category | Item | Status | Action Needed |
-|----|----------|------|--------|---------------|
-| ☐ | Category | Specific document or action | 🟢/🟡/🔴 | What to do |
-
-Include at least 15-25 checklist items covering all categories. Mark status as 🟢 (have it), 🟡 (needs update), or 🔴 (missing).
 
 ---
 

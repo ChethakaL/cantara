@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction } from 'react'
+import { Fragment, useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useDropzone } from 'react-dropzone'
@@ -42,6 +42,11 @@ import { getClients, getRequirements, getCurrentRole, logout, getClient, saveCli
 import type { Client, DocumentStatus, AdditionalRequirement } from '@/lib/store'
 import { useChatRoom } from '@/hooks/useChatRoom'
 import { ChatThread } from '@/components/chat/ChatThread'
+import { Ws2WorkbookView } from '@/components/ttm-agent/Ws2WorkbookView'
+import DigitalPresenceScorecard from '@/components/digital-presence/DigitalPresenceScorecard'
+import ClientApprovedAgentOutput, { type ClientApprovedClient } from '@/components/client-portal/ClientApprovedAgentOutput'
+import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
+import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
 
 export type ClientPortalFormQuestion = {
   id: string
@@ -55,6 +60,7 @@ export type ClientPortalFormQuestion = {
   options?: string[] | null
   groupKey?: string | null
   groupLabel?: string | null
+  sortOrder?: number
 }
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
@@ -118,8 +124,45 @@ const PHASES = [
   { id: 'collection', label: 'Document Upload' },
   { id: 'information', label: 'Required Info' },
   { id: 'requirements', label: 'Action Items' },
-  { id: 'roadmap', label: 'Roadmap', disabled: true },
+  { id: 'roadmap', label: 'Report Tabs' },
 ]
+
+const DEDICATED_REQUIRED_INFO_AGENTS = [
+  'facility_review',
+  'digital_presence',
+  'vendor_directory',
+  'professional_advisors',
+  'competitor_analysis',
+  'pricing_analysis',
+] as const
+
+function isDedicatedRequiredInfoAgent(agentId: string): boolean {
+  return (DEDICATED_REQUIRED_INFO_AGENTS as readonly string[]).includes(agentId)
+}
+
+function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
+  const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
+  return {
+    activeFormKeys: [
+      ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
+      ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
+      ...(hasAgentForm('competitor_analysis') ? ['competitor_analysis'] : []),
+      ...(hasAgentForm('pricing_analysis') ? ['pricing_analysis'] : []),
+      ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
+      ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
+      ...(formQuestions.some(q => !isDedicatedRequiredInfoAgent(q.agentId)) ? ['other_info'] : []),
+    ],
+    formLabels: {
+      facility_review: 'Facility Review',
+      digital_presence: 'Digital Presence',
+      competitor_analysis: 'Competitor Inputs',
+      pricing_analysis: 'Competitor Pricing Inputs',
+      vendor_directory: 'Software & Vendors',
+      professional_advisors: 'Professional Advisors',
+      other_info: 'Other Required Info',
+    } as Record<string, string>,
+  }
+}
 
 function TargetDeadlineBadge({ deadline, uploaded }: { deadline: string | null; uploaded: boolean }) {
   const label = formatDeadlineLabel(deadline)
@@ -695,7 +738,23 @@ export default function ClientDashboard() {
                   }}
                 />
               )}
-              {phase === 'roadmap' && <RoadmapTab />}
+              {phase === 'roadmap' && (
+                <RoadmapTab
+                  clientId={client.id}
+                  client={{
+                    id: client.id,
+                    name: client.name,
+                    company: client.company,
+                    businessAddress: client.businessAddress,
+                    businessCategory: client.businessCategory,
+                    websiteUrl: client.websiteUrl,
+                    state: client.state,
+                    dba: client.dba,
+                    totalEmployeesSelfReported: client.totalEmployeesSelfReported,
+                    employmentTypeBreakdown: client.employmentTypeBreakdown,
+                  }}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -1241,7 +1300,7 @@ function AssignTab({
               ? '1 — Tell us which documents you have'
               : v === 'assign'
                 ? '2 — Assign documents'
-                : 'Assigned documents'}
+                : '3 — Assigned documents'}
             {v === 'assign' && allAssigned && <CheckCircle className="w-3 h-3 text-emerald-400 inline ml-1.5" />}
           </button>
         ))}
@@ -1434,21 +1493,7 @@ function AssignTab({
               }))}
 
               {(() => {
-                const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
-                const activeFormKeys = [
-                  ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
-                  ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
-                  ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
-                  ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
-                  ...(formQuestions.some(q => !['vendor_directory', 'facility_review', 'digital_presence', 'professional_advisors'].includes(q.agentId)) ? ['other_info'] : []),
-                ]
-                const FORM_LABELS: Record<string, string> = {
-                  vendor_directory: 'Software & Vendors',
-                  facility_review: 'Facility Review',
-                  digital_presence: 'Digital Presence',
-                  professional_advisors: 'Professional Advisors',
-                  other_info: 'Other Required Info',
-                }
+                const { activeFormKeys, formLabels: FORM_LABELS } = buildRequiredInfoFormTabs(formQuestions)
 
                 if (activeFormKeys.length === 0) return null
 
@@ -2103,6 +2148,11 @@ function AgentInformationTab({
     setFormError('')
   }
 
+  function replaceFormResponses(nextResponses: Record<string, string>) {
+    setFormResponses(nextResponses)
+    setFormError('')
+  }
+
   async function saveFormResponses(options?: { silent?: boolean }) {
     if (!formQuestions.length) return true
     const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
@@ -2142,21 +2192,7 @@ function AgentInformationTab({
   }, [formResponses, formHydrated, formQuestions.length, clientId])
 
   const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
-  const activeFormKeys = [
-    ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
-    ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
-    ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
-    ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
-    ...(formQuestions.some(q => !['vendor_directory', 'facility_review', 'digital_presence', 'professional_advisors'].includes(q.agentId)) ? ['other_info'] : []),
-  ]
-
-  const FORM_LABELS: Record<string, string> = {
-    vendor_directory: 'Software & Vendors',
-    facility_review: 'Facility Review',
-    digital_presence: 'Digital Presence',
-    professional_advisors: 'Professional Advisors',
-    other_info: 'Other Required Info',
-  }
+  const { activeFormKeys, formLabels: FORM_LABELS } = buildRequiredInfoFormTabs(formQuestions)
 
   const memberAssignedTo = sessionTeamMember ? [sessionTeamMember.name, sessionTeamMember.email] : []
   const isFormAssignedToCurrentTeamMember = (formKey: string) => {
@@ -2200,9 +2236,7 @@ function AgentInformationTab({
     )
   }
 
-  const otherFormQuestions = formQuestions.filter(q =>
-    !['vendor_directory', 'facility_review', 'digital_presence', 'professional_advisors'].includes(q.agentId)
-  )
+  const otherFormQuestions = formQuestions.filter(q => !isDedicatedRequiredInfoAgent(q.agentId))
 
   return (
     <div className="space-y-4">
@@ -2267,7 +2301,7 @@ function AgentInformationTab({
             {buildOrderedFormQuestionGroups(
               formQuestions.filter(q => {
                 if (activeFormTab === 'other_info') {
-                  return !['vendor_directory', 'facility_review', 'digital_presence', 'professional_advisors'].includes(q.agentId)
+                  return !isDedicatedRequiredInfoAgent(q.agentId)
                 }
                 return q.agentId === activeFormTab
               })
@@ -2279,12 +2313,24 @@ function AgentInformationTab({
                 <h5 className="text-sm font-bold text-slate-800">
                   {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
                 </h5>
-                <FormQuestionFields
-                  questions={group.questions}
-                  formResponses={formResponses}
-                  onUpdate={updateFormResponse}
-                  onError={setFormError}
-                />
+                {activeFormTab === 'competitor_analysis' || activeFormTab === 'pricing_analysis' ? (
+                  <ClientCompetitorInputsFields
+                    mode={activeFormTab}
+                    questions={group.questions}
+                    formResponses={formResponses}
+                    onUpdate={updateFormResponse}
+                    onCompetitorsChange={replaceFormResponses}
+                    FormQuestionFields={FormQuestionFields}
+                    onError={setFormError}
+                  />
+                ) : (
+                  <FormQuestionFields
+                    questions={group.questions}
+                    formResponses={formResponses}
+                    onUpdate={updateFormResponse}
+                    onError={setFormError}
+                  />
+                )}
               </div>
             ))}
             {formError && <p className="text-xs text-red-600">{formError}</p>}
@@ -3003,14 +3049,136 @@ function RequirementsClientTab({
 }
 
 // ── Roadmap Tab ───────────────────────────────────────────────────────────────
-function RoadmapTab() {
+type ApprovedOutput = {
+  agentKey: string
+  agentName: string
+  approvedAt: string | null
+  markdown: string
+  data?: unknown
+}
+
+function RoadmapTab({ clientId, client }: { clientId: string; client: ClientApprovedClient }) {
+  const [outputs, setOutputs] = useState<ApprovedOutput[]>([])
+  const [activeOutputKey, setActiveOutputKey] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadOutputs() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/client-approved-outputs?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+        if (!res.ok) throw new Error(await res.text())
+        const data = await res.json()
+        if (!cancelled) {
+          const nextOutputs = (data.outputs ?? []) as ApprovedOutput[]
+          setOutputs(nextOutputs)
+          setActiveOutputKey(current => (
+            current && nextOutputs.some(output => output.agentKey === current)
+              ? current
+              : nextOutputs[0]?.agentKey ?? null
+          ))
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load approved outputs.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void loadOutputs()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400">
+        <Loader2 className="w-6 h-6 animate-spin text-slate-300 mx-auto mb-3" />
+        Loading approved outputs...
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-rose-50 rounded-2xl border border-rose-200 p-6 text-sm text-rose-700">
+        {error}
+      </div>
+    )
+  }
+
+  if (outputs.length === 0) {
+    return (
+      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400">
+        <MapIcon className="w-10 h-10 text-slate-300 mx-auto mb-4" />
+        <p className="font-medium text-slate-600 mb-2">Report Tabs</p>
+        <p className="text-xs leading-relaxed max-w-sm mx-auto">
+          Approved agent reports will appear here after your Cantara advisor completes review.
+        </p>
+      </div>
+    )
+  }
+
+  const activeOutput = outputs.find(output => output.agentKey === activeOutputKey) ?? outputs[0]
+
   return (
-    <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400 opacity-70">
-      <MapIcon className="w-10 h-10 text-slate-300 mx-auto mb-4" />
-      <p className="font-medium text-slate-600 mb-2">Your Roadmap</p>
-      <p className="text-xs leading-relaxed max-w-sm mx-auto">
-        Your sale readiness roadmap and action plan will appear here once your advisor team has completed their initial review of your documents.
-      </p>
+    <div className="space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Advisor-approved</p>
+            <h2 className="text-lg font-semibold text-slate-800 mt-1">Report Tabs</h2>
+            <p className="text-xs text-slate-500 mt-1">Review each approved agent report from your Cantara advisor.</p>
+          </div>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500">
+            {outputs.length} approved
+          </span>
+        </div>
+        <div className="mt-5 -mx-1 overflow-x-auto pb-1">
+          <div className="flex min-w-max gap-2 px-1">
+            {outputs.map(output => {
+              const active = output.agentKey === activeOutput.agentKey
+              return (
+                <button
+                  key={output.agentKey}
+                  type="button"
+                  onClick={() => setActiveOutputKey(output.agentKey)}
+                  className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                    active
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="block text-xs font-semibold">{output.agentName}</span>
+                  <span className={`mt-1 block text-[10px] ${active ? 'text-white/55' : 'text-slate-400'}`}>
+                    {output.approvedAt ? new Date(output.approvedAt).toLocaleDateString() : 'Approved'}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <p className="text-sm font-semibold text-slate-800">{activeOutput.agentName}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Approved {activeOutput.approvedAt ? new Date(activeOutput.approvedAt).toLocaleString() : 'by advisor'}
+          </p>
+        </div>
+        <div className="px-5 py-4">
+          <ClientApprovedAgentOutput
+            agentKey={activeOutput.agentKey}
+            agentName={activeOutput.agentName}
+            client={client}
+            prefetchedData={activeOutput.data}
+            fallbackMarkdown={activeOutput.markdown}
+          />
+        </div>
+      </div>
     </div>
   )
 }
+

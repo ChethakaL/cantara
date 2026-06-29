@@ -265,9 +265,12 @@ function parseCsvLine(line: string): string[] {
 function detectServiceType(raw: string): string {
   const lower = raw.toLowerCase().trim()
   if (!lower) return 'both'
-  if (/both|all|full/i.test(lower)) return 'both'
-  if (/board|kennel|overnight|lodge|suite|stay/i.test(lower)) return 'boarding'
-  if (/daycare|day\s*care|day\s*camp/i.test(lower)) return 'daycare'
-  if (/groom|bath|spa|salon|wash/i.test(lower)) return 'grooming'
+  const hasBoarding = /board|kennel|overnight|lodge|suite|stay/i.test(lower)
+  const hasDaycare = /daycare|day\s*care|day\s*camp/i.test(lower)
+  const hasGrooming = /groom|bath|spa|salon|wash/i.test(lower)
+  if ((hasBoarding && hasDaycare) || /both|all|full/i.test(lower)) return 'both'
+  if (hasGrooming) return 'grooming'
+  if (hasBoarding) return 'boarding'
+  if (hasDaycare) return 'daycare'
   return 'other'
 }

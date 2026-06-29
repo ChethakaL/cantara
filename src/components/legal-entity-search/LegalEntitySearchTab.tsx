@@ -1,4 +1,6 @@
 'use client'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { Card, Button, cn } from '@/components/ui'
@@ -8,6 +10,7 @@ import type { WS110Persistence, WS110Flag } from '@/types/ws1-10-types'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildLegalEntitySearchReportHtml } from '@/lib/report-export/build-legal-entity-search-report'
 import { Upload, FileText, X, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
 
@@ -101,10 +104,12 @@ function FlagReviewPanel({
   flags,
   onConfirm,
   onNA,
+  readOnly = false,
 }: {
   flags: WS110Flag[]
   onConfirm: (id: string) => void
   onNA: (id: string) => void
+  readOnly?: boolean
 }) {
   const severityColor = (s: string) => {
     if (s === 'deal-risk') return 'bg-red-50 border-red-200 text-red-700'
@@ -128,7 +133,7 @@ function FlagReviewPanel({
               {flag.sourceRef && <p className="text-xs opacity-60 mt-1">Source: {flag.sourceRef}</p>}
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
-              {flag.status === 'pending' ? (
+              {!readOnly && flag.status === 'pending' ? (
                 <>
                   <button
                     onClick={() => onConfirm(flag.id)}
@@ -145,11 +150,11 @@ function FlagReviewPanel({
                     <XCircle className="w-4 h-4" />
                   </button>
                 </>
-              ) : (
+              ) : flag.status !== 'pending' ? (
                 <span className="text-xs font-semibold px-2 py-1 rounded-md bg-white/60">
                   {flag.status === 'confirmed' ? 'Confirmed' : 'N/A'}
                 </span>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
@@ -160,7 +165,7 @@ function FlagReviewPanel({
 
 // ── Main Component ──────────────────────────────────────────────────────────
 
-interface LegalEntitySearchTabProps {
+interface LegalEntitySearchTabProps extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
   state?: string
@@ -176,6 +181,7 @@ export default function LegalEntitySearchTab({
   dba,
   entityType,
   businessAddress,
+  readOnly = false,
 }: LegalEntitySearchTabProps) {
   const [savedReport, setSavedReport] = useState<WS110Persistence | null>(null)
   const [flags, setFlags] = useState<WS110Flag[]>([])
@@ -256,6 +262,10 @@ export default function LegalEntitySearchTab({
     )
   }
 
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, loadingReport, Boolean(savedReport?.markdown), 'Legal Reports & Entity Search')
+  if (readOnlyGate) return readOnlyGate
+
   if (!savedReport && !isRunning) {
     return (
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
@@ -301,10 +311,12 @@ export default function LegalEntitySearchTab({
   const negotiationCount = flags.filter(f => f.severity === 'negotiation').length
   const pendingCount = flags.filter(f => f.status === 'pending').length
 
-  const tabs = [
-    { id: 'report' as const, label: 'Full Report' },
-    { id: 'flags' as const, label: `Flags (${flags.length})` },
-  ]
+  const tabs = readOnly
+    ? [{ id: 'report' as const, label: 'Full Report' }]
+    : [
+        { id: 'report' as const, label: 'Full Report' },
+        { id: 'flags' as const, label: `Flags (${flags.length})` },
+      ]
 
   return (
     <div className="space-y-6">
@@ -330,7 +342,7 @@ export default function LegalEntitySearchTab({
             </span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+        <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
           <Button variant="outline" size="sm" onClick={handleNewAnalysis}>+ New Analysis</Button>
           <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:text-red-700">Delete</Button>
           <ExportReportButton
@@ -338,10 +350,10 @@ export default function LegalEntitySearchTab({
             fileName={`legal-entity-search-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             label="Export PDF"
           />
-        </div>
+        </AdvisorActions>
       </div>
 
-      {pendingCount > 0 && flags.length > 0 && (
+      {!readOnly && pendingCount > 0 && flags.length > 0 && (
         <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
           <AlertTriangle className="w-4 h-4 text-amber-600" />
           <p className="text-sm text-amber-800">
@@ -373,11 +385,12 @@ export default function LegalEntitySearchTab({
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{savedReport.markdown}</ReactMarkdown>
             </div>
           )}
-          {activeTab === 'flags' && (
+          {activeTab === 'flags' && !readOnly && (
             <FlagReviewPanel
               flags={flags}
               onConfirm={id => handleFlagUpdate(id, 'confirmed')}
               onNA={id => handleFlagUpdate(id, 'na')}
+              readOnly={readOnly}
             />
           )}
         </div>

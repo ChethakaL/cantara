@@ -1,12 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { RefreshCw, FileText, MapPin, CheckCircle2, Circle } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { RefreshCw, MapPin, CheckCircle2, Circle } from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
-import EditableMarkdownReportView from '@/components/report-export/EditableMarkdownReportView'
+import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildImprovementRoadmapHtml } from '@/lib/report-export/build-improvement-roadmap-report'
 
 type RoadmapReport = {
@@ -33,7 +31,6 @@ function StatusBadge({ text }: { text: string }) {
   return <span>{str}</span>
 }
 
-/** Detect if cell text is a status indicator */
 function isStatusCell(text: string): boolean {
   const s = String(text ?? '').toUpperCase()
   return s.includes('🟢') || s.includes('🟡') || s.includes('🔴') || s.includes('GREEN') || s.includes('YELLOW') || s.includes('RED')
@@ -79,13 +76,11 @@ const markdownComponents = {
   th: ({ children }: { children?: React.ReactNode }) => (
     <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">{children}</th>
   ),
-  td: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => {
+  td: ({ children }: { children?: React.ReactNode }) => {
     const text = String(children ?? '')
-    // Render status cells as badges
     if (isStatusCell(text)) {
       return <td className="border-t border-slate-100 px-4 py-3 align-top"><StatusBadge text={text} /></td>
     }
-    // Render checklist cells
     if (text.trim() === '☐' || text.trim() === '☑') {
       return (
         <td className="border-t border-slate-100 px-4 py-3 align-top text-center">
@@ -162,12 +157,12 @@ export default function ImprovementRoadmapTab({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-slate-800">Sales Readiness Roadmap</h2>
           <p className="text-xs text-slate-500 mt-1">{wsLabel} — Seller-Facing Sale Readiness Plan</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
             <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
             {report ? 'Regenerate' : 'Generate Roadmap'}
@@ -200,9 +195,8 @@ export default function ImprovementRoadmapTab({
       )}
 
       {report ? (
-        <EditableMarkdownReportView
+        <InlineEditableMarkdownReport
           report={report}
-          accentClassName="border-emerald-200 focus:ring-emerald-400"
           markdownComponents={markdownComponents}
           onSave={async (markdown) => {
             const res = await fetch('/api/improvement-roadmap', {

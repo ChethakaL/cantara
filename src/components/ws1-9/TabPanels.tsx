@@ -29,6 +29,7 @@ interface TabProps {
   flags: WS19Flag[]
   onConfirm: (id: string) => void
   onNA: (id: string) => void
+  readOnly?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ function TransferBadge({ status }: { status: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Summary Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function SummaryTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function SummaryTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   return (
     <div className="p-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
@@ -151,6 +152,7 @@ export function SummaryTab({ report, flags, onConfirm, onNA }: TabProps) {
                   status={flag.status}
                   onConfirm={() => onConfirm(flag.id)}
                   onNA={() => onNA(flag.id)}
+                  readOnly={readOnly}
                 />
               ))
             )}
@@ -209,7 +211,7 @@ export function DocumentsTab({ report }: TabProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. Permits Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function PermitsTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function PermitsTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Permits')
 
   return (
@@ -259,6 +261,7 @@ export function PermitsTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -271,7 +274,7 @@ export function PermitsTab({ report, flags, onConfirm, onNA }: TabProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. Zoning Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function ZoningTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function ZoningTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Zoning')
 
   return (
@@ -327,6 +330,7 @@ export function ZoningTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -348,7 +352,7 @@ function ZoneField({ label, value }: { label: string; value: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. Conditional Use Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function ConditionalUseTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function ConditionalUseTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'CUP')
   const hasCUPs = report.conditionalUsePermits.length > 0
 
@@ -414,6 +418,7 @@ export function ConditionalUseTab({ report, flags, onConfirm, onNA }: TabProps) 
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -426,7 +431,7 @@ export function ConditionalUseTab({ report, flags, onConfirm, onNA }: TabProps) 
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. Grandfathering Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function GrandfatheringTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function GrandfatheringTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Grandfathering')
   const hasItems = report.grandfathering.length > 0
 
@@ -494,6 +499,7 @@ export function GrandfatheringTab({ report, flags, onConfirm, onNA }: TabProps) 
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -512,6 +518,7 @@ export function AdminReviewTab({
   onNA,
   onRelease,
   isReleasing,
+  readOnly,
 }: TabProps & { onRelease: () => void; isReleasing: boolean }) {
   const severityOrder: FlagSeverity[] = ['deal-risk', 'negotiation', 'positive', 'informational']
   const sorted = [...flags].sort(
@@ -543,6 +550,7 @@ export function AdminReviewTab({
             status={flag.status}
             onConfirm={() => onConfirm(flag.id)}
             onNA={() => onNA(flag.id)}
+            readOnly={readOnly}
           />
         ))}
       </div>

@@ -47,9 +47,10 @@ interface FlagCardProps {
   status: FlagStatus
   onConfirm: () => void
   onNA: () => void
+  readOnly?: boolean
 }
 
-export function FlagCard({ severity, id, domain, title, description, sourceRef, status, onConfirm, onNA }: FlagCardProps) {
+export function FlagCard({ severity, id, domain, title, description, sourceRef, status, onConfirm, onNA, readOnly = false }: FlagCardProps) {
   return (
     <div className={cn(
       'flex items-start gap-4 bg-white border border-l-[3px] border-stone-200 rounded-lg px-4 py-3.5',
@@ -69,6 +70,7 @@ export function FlagCard({ severity, id, domain, title, description, sourceRef, 
           <p className="text-[11px] text-stone-400 italic">Source: {sourceRef}</p>
         )}
       </div>
+      {!readOnly && (
       <div className="flex flex-col items-end gap-1.5 flex-shrink-0 mt-0.5">
         <div className="flex gap-1.5">
           <HITLButton
@@ -90,6 +92,7 @@ export function FlagCard({ severity, id, domain, title, description, sourceRef, 
           {status === 'na' && 'Marked not applicable — excluded from downstream reports'}
         </p>
       </div>
+      )}
     </div>
   )
 }

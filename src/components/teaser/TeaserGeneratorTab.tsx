@@ -1,4 +1,6 @@
 'use client'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
 import { Bot, CheckCircle2, Download, Eye, FileText, Loader2, Printer, RotateCcw, Save, Sparkles, Circle, AlertCircle } from 'lucide-react'
 import { useState, useEffect } from 'react'
@@ -7,12 +9,12 @@ import { TeaserInputData, DEFAULT_TEASER_INPUT } from '@/lib/teaser/types'
 import { generateTeaserHtml } from '@/lib/teaser/generate-html'
 import MondayLinker from '@/components/monday/MondayLinker'
 
-interface Props {
+interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
 }
 
-export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
+export default function TeaserGeneratorTab({ clientId, clientName, readOnly = false }: Props) {
   const [status, setStatus] = useState<'idle' | 'auto-filling' | 'editing' | 'preview'>('idle')
   const [data, setData] = useState<TeaserInputData>(DEFAULT_TEASER_INPUT)
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null)
@@ -21,6 +23,7 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [prereqs, setPrereqs] = useState<Record<string, boolean> | null>(null)
+  const [draftLoaded, setDraftLoaded] = useState(false)
 
   // ── Load prerequisite agent status ──────────────────────────────────────────
   useEffect(() => {
@@ -48,10 +51,43 @@ export default function TeaserGeneratorTab({ clientId, clientName }: Props) {
         }
       } catch (e) {
         console.error('Failed to load Teaser draft:', e)
+      } finally {
+        setDraftLoaded(true)
       }
     }
     void loadDraft()
   }, [clientId])
+
+  const hasOutput = status === 'editing' || status === 'preview' || Boolean(data.businessOverview?.trim() || data.annualRevenue?.trim())
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !draftLoaded, hasOutput, 'Deal Teaser Generator')
+  if (readOnlyGate) return readOnlyGate
+
+  if (readOnly) {
+    const html = generatedHtml ?? generateTeaserHtml(data)
+    return (
+      <div className="space-y-4">
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
+              <Eye className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">Deal Teaser</h3>
+              <p className="text-xs text-slate-400">Approved teaser for {clientName}</p>
+            </div>
+          </div>
+        </Card>
+        <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-lg">
+          <iframe
+            srcDoc={html}
+            className="w-full border-0"
+            style={{ height: '80vh' }}
+            title="Teaser Preview"
+          />
+        </div>
+      </div>
+    )
+  }
 
   const saveDraft = async (payload?: TeaserInputData) => {
     const toSave = payload ?? data

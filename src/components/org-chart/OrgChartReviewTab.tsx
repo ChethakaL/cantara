@@ -7,6 +7,7 @@ import { Card, Badge, cn } from '@/components/ui'
 import type { OrgChartAnalysis } from '@/lib/org-chart/analyze'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildOrgChartReportHtml } from '@/lib/report-export/build-org-chart-report'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
   'application/pdf': ['.pdf'],
@@ -62,14 +63,17 @@ function EditableCell({
 export default function OrgChartReviewTab({
   clientId,
   clientName,
+  readOnly = false,
 }: {
   clientId: string
   clientName: string
+  readOnly?: boolean
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<OrgChartAnalysis | null>(null)
+  const [hydrated, setHydrated] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedBadge, setSavedBadge] = useState(false)
@@ -85,7 +89,7 @@ export default function OrgChartReviewTab({
             setResult(data)
           }
         }
-      } catch { /* ignore */ }
+      } catch { /* ignore */ } finally { setHydrated(true) }
     }
     loadSaved()
   }, [clientId])
@@ -232,6 +236,9 @@ export default function OrgChartReviewTab({
   }
 
   // ── Results view ──────────────────────────────────────────────────────────
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !hydrated, Boolean(result), 'Org Chart Review')
+  if (readOnlyGate) return readOnlyGate
+
   if (result) {
     const readiness = READINESS_CONFIG[result.transitionReadiness] || READINESS_CONFIG.medium
     return (
@@ -242,7 +249,7 @@ export default function OrgChartReviewTab({
             <h2 className="text-lg font-semibold text-slate-800">Org Chart Analysis</h2>
             <p className="text-xs text-slate-400 mt-0.5">{clientName} &mdash; Generated {new Date(result.generatedAt).toLocaleString()}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3" data-advisor-action>
             <button
               onClick={() => setEditMode(e => !e)}
               className={cn(

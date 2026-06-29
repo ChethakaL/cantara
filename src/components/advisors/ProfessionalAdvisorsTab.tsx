@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Pencil, Trash2, Users2 } from 'lucide-react'
 import { Card, Button, Input, Select, Badge, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildAdvisorsReportHtml } from '@/lib/report-export/build-advisors-report'
 
 const SECTION_KEY = 'professionalAdvisors'
@@ -71,7 +72,7 @@ function WillingBadge({ status }: { status: WillingStatus }) {
   return <Badge color={cfg.color}>{cfg.label}</Badge>
 }
 
-export default function ProfessionalAdvisorsTab({ clientId, clientName }: { clientId: string; clientName: string }) {
+export default function ProfessionalAdvisorsTab({ clientId, clientName, readOnly = false }: { clientId: string; clientName: string; readOnly?: boolean }) {
   const [advisors, setAdvisors] = useState<Advisor[]>([])
   const [loading, setLoading] = useState(true)
   const [addingNew, setAddingNew] = useState(false)
@@ -139,7 +140,7 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName }: { clie
             Key professional contacts for {clientName}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <AdvisorActions className="flex items-center gap-3">
           {advisors.length > 0 && (
             <ExportReportButton
               html={buildAdvisorsReportHtml(advisors, clientName)}
@@ -152,11 +153,11 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName }: { clie
               <Plus className="w-3.5 h-3.5" /> Add Advisor
             </Button>
           )}
-        </div>
+        </AdvisorActions>
       </div>
 
       {/* Add form */}
-      {addingNew && (
+      {!readOnly && addingNew && (
         <Card className="p-5 border-amber-200 bg-amber-50/30">
           <p className="text-sm font-semibold text-slate-700 mb-4">New Advisor</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -270,6 +271,7 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName }: { clie
                         <WillingBadge status={advisor.willingToParticipate} />
                       </td>
                       <td className="px-4 py-3 text-right">
+                        {!readOnly && (
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => startEdit(advisor)}
@@ -284,6 +286,7 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName }: { clie
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
+                        )}
                       </td>
                     </tr>
                   )

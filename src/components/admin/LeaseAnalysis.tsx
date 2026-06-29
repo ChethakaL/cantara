@@ -11,17 +11,20 @@ import type { LeaseReport as LeaseReportData } from '@/lib/lease-analysis/types'
 import { LeaseUploader } from '../lease-analysis/LeaseUploader'
 import { AnalysisProgress } from '../lease-analysis/AnalysisProgress'
 import { LeaseReport } from '../lease-analysis/LeaseReport'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
-interface Props {
+interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
 }
 
-export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
+export default function LeaseAnalysisTab({ clientId, clientName, readOnly = false }: Props) {
   const [analyses, setAnalyses] = useState<LeaseAnalysis[]>([])
   const [activeAnalysis, setActiveAnalysis] = useState<LeaseAnalysis | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [initialLoadDone, setInitialLoadDone] = useState(false)
   
   const { 
     documents: uploads, 
@@ -77,6 +80,7 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
   useEffect(() => {
     loadAnalyses().then(data => {
         if (data.length > 0 && !activeAnalysis) setActiveAnalysis(data[0])
+        setInitialLoadDone(true)
     })
   }, [loadAnalyses, activeAnalysis])
 
@@ -108,6 +112,9 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
     ? uploads.map(d => d.name).join(', ')
     : activeAnalysis?.fileName || ''
 
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(displayReport), 'Lease Analysis')
+  if (readOnlyGate) return readOnlyGate
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -118,7 +125,7 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
           <p className="text-xs text-slate-400 mt-1">Lease documents can also be uploaded in the Documents tab.</p>
         </div>
         {analyses.length > 0 && (
-          <Button variant="outline" size="sm" className="gap-2" onClick={beginNewAnalysis}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={beginNewAnalysis} data-advisor-action>
             <Plus className="w-3.5 h-3.5" /> New Analysis
           </Button>
         )}
@@ -157,7 +164,8 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
               </div>
             ) : null}
           </Card>
-        ) : analyses.length === 0 || uploads.length > 0 ? (
+        ) : !readOnly && (analyses.length === 0 || uploads.length > 0) ? (
+          <div data-advisor-action>
           <LeaseUploader 
             documents={uploads}
             addDocuments={addDocuments}
@@ -165,6 +173,7 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
             status={status}
             onAnalyze={analyze}
           />
+          </div>
         ) : null}
 
         {/* Report Display */}
@@ -175,8 +184,8 @@ export default function LeaseAnalysisTab({ clientId, clientName }: Props) {
             clientName={clientName}
             onNewAnalysis={beginNewAnalysis}
             onDelete={activeAnalysis ? () => setDeleteOpen(true) : undefined}
-            onReportUpdated={activeAnalysis && status === 'idle' ? handleReportUpdated : undefined}
-            adminMode={Boolean(activeAnalysis && status === 'idle')}
+            onReportUpdated={!readOnly && activeAnalysis && status === 'idle' ? handleReportUpdated : undefined}
+            adminMode={!readOnly && Boolean(activeAnalysis && status === 'idle')}
           />
         )}
       </div>
