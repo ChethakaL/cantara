@@ -5,6 +5,9 @@ import { Bot, CheckCircle, FileText, Loader2, RefreshCw, Trash2, Upload } from '
 import { Badge, Button } from '@/components/ui'
 import { getAdminEmail } from '@/lib/store'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import { ClientApprovedEmptyState } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildInsuranceReportHtml } from '@/lib/report-export/build-insurance-report'
 
 interface InsuranceSummary {
@@ -45,7 +48,7 @@ function formatClaimStatus(status: string | null | undefined): { label: string; 
   }
 }
 
-export default function InsuranceReviewTab({ clientId, clientName = 'Client' }: { clientId: string; clientName?: string }) {
+export default function InsuranceReviewTab({ clientId, clientName = 'Client', readOnly = false }: { clientId: string; clientName?: string; readOnly?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -230,6 +233,10 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client' }: 
     )
   }
 
+  if (readOnly && !summary && !document) {
+    return <ClientApprovedEmptyState agentName="Insurance Review" />
+  }
+
   const hasStructuredFields = Boolean(
     summary && (
       summary.incidentDate && summary.incidentDate !== 'Unknown' ||
@@ -325,7 +332,7 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client' }: 
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 mb-2">
+              <AdvisorActions className="flex justify-end gap-2 mb-2">
                 {isEditing ? (
                   <>
                     <Button size="sm" variant="outline" onClick={cancelEditing} disabled={saving}>
@@ -346,9 +353,9 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client' }: 
                     />
                   </>
                 )}
-              </div>
+              </AdvisorActions>
 
-              {isEditing ? (
+              {isEditing && !readOnly ? (
                 <div className="space-y-4">
                   <div className="rounded-xl border border-slate-200 p-4 space-y-3">
                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide">

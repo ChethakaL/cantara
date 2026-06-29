@@ -11,6 +11,8 @@ import { Card, cn } from '@/components/ui'
 import type { EmployeeCompRow, EmployeeCompReport } from '@/lib/employee-comp/analyze'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildEmployeeCompReportHtml } from '@/lib/report-export/build-employee-comp-report'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -181,9 +183,11 @@ function EditableCell({
 export default function EmployeeCompTab({
   clientId,
   clientName,
+  readOnly = false,
 }: {
   clientId: string
   clientName: string
+  readOnly?: boolean
 }) {
   const [mode, setMode] = useState<InputMode>('upload')
   const [file, setFile] = useState<File | null>(null)
@@ -194,6 +198,7 @@ export default function EmployeeCompTab({
   const [saved, setSaved] = useState(false)
   const [employees, setEmployees] = useState<EmployeeCompRow[]>([])
   const [hasData, setHasData] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
 
   // Load saved data on mount
   useEffect(() => {
@@ -207,12 +212,15 @@ export default function EmployeeCompTab({
             setHasData(true)
           }
         }
-      } catch { /* ignore */ }
+      } catch { /* ignore */ } finally { setHydrated(true) }
     }
     loadSaved()
   }, [clientId])
 
   const summary = recalcSummary(employees)
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !hydrated, hasData, 'Employee Staffing & Compensation')
+  if (readOnlyGate) return readOnlyGate
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) {
@@ -396,7 +404,7 @@ export default function EmployeeCompTab({
 
 
       {/* Input mode selector */}
-      {!hasData && (
+      {!readOnly && !hasData && (
         <>
           <div className="flex gap-2">
             {INPUT_MODES.map(m => {
@@ -531,7 +539,7 @@ export default function EmployeeCompTab({
           )}
 
           {/* Action bar */}
-          <div className="flex flex-wrap items-center gap-3">
+          <AdvisorActions className="flex flex-wrap items-center gap-3">
             <button
               onClick={addRow}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
@@ -579,12 +587,14 @@ export default function EmployeeCompTab({
                 </>
               )}
             </button>
-          </div>
+          </AdvisorActions>
 
+          {!readOnly && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-2 text-xs text-amber-800">
             <PenLine className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>Amber dashed cells are editable. Click any cell to update it, then save the table.</span>
           </div>
+          )}
 
           {/* Table */}
           <Card className="overflow-hidden">

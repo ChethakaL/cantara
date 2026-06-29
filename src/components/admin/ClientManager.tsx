@@ -94,6 +94,7 @@ const AGENT_CATALOG = [
   { id: 'pricing_analysis', name: 'Competitive Pricing Analysis Agent', defaultDocumentIds: ['pricing_schedule', 'revenue_breakdown'] },
   { id: 'pricing_vertical', name: 'Pricing by Vertical Agent', defaultDocumentIds: ['revenue_breakdown', 'pricing_schedule'] },
   { id: 'sales_process_review', name: 'Sales Process Review Agent', defaultDocumentIds: ['sales_process_transcript', 'pricing_schedule'] },
+  { id: 'client_location_map', name: 'Client Location Map Agent', defaultDocumentIds: [] },
   { id: 'meeting_notes', name: 'Meeting Notes Agent', defaultDocumentIds: ['meeting_notes'] },
   { id: 'net_proceeds', name: 'Net Proceeds Calculator Agent', defaultDocumentIds: [] },
   { id: 'teaser', name: 'Deal Teaser Generator Agent', defaultDocumentIds: [] },
@@ -124,6 +125,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentS
     { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent', documentIds: ['revenue_breakdown', 'pricing_schedule'] },
     { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent', documentIds: ['sales_process_transcript', 'pricing_schedule'] },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
   ],
   both: [],
   ma: [

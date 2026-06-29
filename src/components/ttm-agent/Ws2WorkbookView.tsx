@@ -72,6 +72,7 @@ export function Ws2WorkbookView({
   clientName,
   onExportXlsx,
   onWorkbookSaved,
+  readOnly = false,
 }: {
   analysis: TtmAnalysisView
   recast: Ws2RecastView
@@ -79,6 +80,7 @@ export function Ws2WorkbookView({
   onExportXlsx?: () => void
   /** Called after inline edits are persisted (Done Editing → DB). Refreshes analysis so Export PDF matches. */
   onWorkbookSaved?: (analysis: TtmAnalysisView) => void
+  readOnly?: boolean
 }) {
   const [activeTab, setActiveTab] = useState<TabId>('valuation')
   const [editMode, setEditMode] = useState(false)
@@ -363,6 +365,7 @@ export function Ws2WorkbookView({
   // ── Inline editing ─────────────────────────────────────────────────────
 
   const startEdit = (cellId: string, currentValue: number) => {
+    if (readOnly) return
     setEditingCell(cellId)
     setEditValue(currentValue === 0 ? '' : String(Math.round(currentValue)))
   }
@@ -444,6 +447,7 @@ export function Ws2WorkbookView({
   ])
 
   const handleEditToggle = async () => {
+    if (readOnly) return
     if (editMode) {
       if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
         document.activeElement.blur()
@@ -1875,27 +1879,29 @@ export function Ws2WorkbookView({
             {multiple ? ` · Multiple: ${acctMult(multiple)}` : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge color="green">WS2-2 Approved</Badge>
-          <Button
-            size="sm"
-            variant={editMode ? 'primary' : 'outline'}
-            onClick={() => void handleEditToggle()}
-            disabled={savingEdits}
-          >
-            {savingEdits ? 'Saving...' : editMode ? 'Done Editing' : 'Edit all fields'}
-          </Button>
-          <Button size="sm" variant="outline" onClick={exportPdf}>
-            <Printer className="mr-1.5 h-3.5 w-3.5" />
-            Export PDF
-          </Button>
-          {onExportXlsx && (
-            <Button size="sm" variant="outline" onClick={onExportXlsx}>
-              <Download className="mr-1.5 h-3.5 w-3.5" />
-              Export XLSX
+        {!readOnly && (
+          <div className="flex items-center gap-2">
+            <Badge color="green">WS2-2 Approved</Badge>
+            <Button
+              size="sm"
+              variant={editMode ? 'primary' : 'outline'}
+              onClick={() => void handleEditToggle()}
+              disabled={savingEdits}
+            >
+              {savingEdits ? 'Saving...' : editMode ? 'Done Editing' : 'Edit all fields'}
             </Button>
-          )}
-        </div>
+            <Button size="sm" variant="outline" onClick={exportPdf}>
+              <Printer className="mr-1.5 h-3.5 w-3.5" />
+              Export PDF
+            </Button>
+            {onExportXlsx && (
+              <Button size="sm" variant="outline" onClick={onExportXlsx}>
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Export XLSX
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}

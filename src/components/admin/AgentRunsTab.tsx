@@ -1,12 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Bot, CheckCircle2, Clock, ExternalLink, Loader2, RefreshCw, FileText, AlertCircle } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Bot, CheckCircle2, Clock, Loader2, RefreshCw, FileText, AlertCircle } from 'lucide-react'
 import { Badge, Button, Card, cn } from '@/components/ui'
-import type { AgentRunRecord, AgentRunStatus } from '@/app/api/agent-runs/route'
+import type { AgentReviewer, AgentRunRecord, AgentRunStatus } from '@/app/api/agent-runs/route'
 
 const STATUS_META: Record<AgentRunStatus, { label: string; color: 'gray' | 'blue' | 'slate' | 'gold' | 'green' | 'red'; icon: typeof Bot }> = {
-  not_started: { label: 'Not Started', color: 'gray', icon: Clock },
+  not_started: { label: 'Docs Not Run', color: 'gray', icon: Clock },
   docs_missing: { label: 'Docs Missing', color: 'red', icon: AlertCircle },
   docs_uploaded: { label: 'Requisite Docs Uploaded', color: 'blue', icon: FileText },
   partial_docs: { label: 'Partial Docs Uploaded', color: 'slate', icon: FileText },
@@ -22,6 +22,7 @@ export default function AgentRunsTab({
   onOpenAgent?: (tabKey: string) => void
 }) {
   const [runs, setRuns] = useState<AgentRunRecord[]>([])
+  const [reviewers, setReviewers] = useState<AgentReviewer[]>([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -34,6 +35,7 @@ export default function AgentRunsTab({
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setRuns(data.runs ?? [])
+      setReviewers(data.reviewers ?? [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load agent runs')
     } finally {
@@ -60,6 +62,23 @@ export default function AgentRunsTab({
     }
   }
 
+  const updateAssignedTo = async (agentId: string, assignedTo: string) => {
+    setUpdating(agentId)
+    try {
+      const res = await fetch('/api/agent-runs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, agentId, assignedTo }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update assignment')
+    } finally {
+      setUpdating(null)
+    }
+  }
+
   const counts = {
     not_started: runs.filter(r => r.status === 'not_started').length,
     docs_missing: runs.filter(r => r.status === 'docs_missing').length,
@@ -80,7 +99,7 @@ export default function AgentRunsTab({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800">Agent Runs</h2>
+          <h2 className="text-lg font-semibold text-slate-800">Agent Status</h2>
           <p className="text-xs text-slate-400 mt-1">
             Track which agents have been run for this client and whether output is still in review or approved.
           </p>
@@ -93,11 +112,11 @@ export default function AgentRunsTab({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {([
+          ['docs_missing', counts.docs_missing, 'Required docs missing'],
+          ['not_started', counts.not_started, 'Docs not run yet'],
           ['in_review', counts.in_review, 'Needs review'],
           ['approved', counts.approved, 'Approved'],
           ['docs_uploaded', counts.docs_uploaded, 'Ready to run'],
-          ['docs_missing', counts.docs_missing, 'Docs missing'],
-          ['not_started', counts.not_started, 'No doc requirements'],
         ] as const).map(([key, count, sub]) => (
           <Card key={key} className="p-4">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -119,6 +138,7 @@ export default function AgentRunsTab({
             <thead className="bg-slate-50 text-xs text-slate-400">
               <tr>
                 <th className="text-left px-5 py-3 font-medium">Agent</th>
+                <th className="text-left px-5 py-3 font-medium">Assigned To</th>
                 <th className="text-left px-5 py-3 font-medium">Status</th>
                 <th className="text-left px-5 py-3 font-medium">Last Run</th>
                 <th className="text-right px-5 py-3 font-medium">Actions</th>
@@ -127,32 +147,54 @@ export default function AgentRunsTab({
             <tbody className="divide-y divide-slate-100">
               {runs.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-5 py-10 text-center text-slate-400 text-sm">
+                  <td colSpan={5} className="px-5 py-10 text-center text-slate-400 text-sm">
                     {error
                       ? 'Could not load agent runs. Click Refresh to try again.'
                       : 'No agents assigned to this client\'s workstream.'}
                   </td>
                 </tr>
-              ) : runs.map(run => {
+              ) : runs.map((run, idx) => {
                 const meta = STATUS_META[run.status]
                 const StatusIcon = meta.icon
+                const showCategory = idx === 0 || runs[idx - 1]?.category !== run.category
                 return (
-                  <tr
-                    key={run.agentKey}
-                    onClick={() => {
-                      if (run.tabKey && onOpenAgent) {
-                        onOpenAgent(run.tabKey)
-                      }
-                    }}
-                    className={cn(
-                      "hover:bg-slate-50/60",
-                      run.tabKey && onOpenAgent && "cursor-pointer"
+                  <Fragment key={run.agentKey}>
+                    {showCategory && (
+                      <tr key={`${run.category}-header`} className="bg-white">
+                        <td colSpan={5} className="px-5 pt-5 pb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                          {run.category}
+                        </td>
+                      </tr>
                     )}
-                  >
-                    <td className="px-5 py-3.5">
-                      <p className="font-medium text-slate-800 hover:text-indigo-600 transition-colors">{run.label}</p>
-                    </td>
-                    <td className="px-5 py-3.5">
+                    <tr
+                      key={run.agentKey}
+                      onClick={() => {
+                        if (run.tabKey && onOpenAgent) {
+                          onOpenAgent(run.tabKey)
+                        }
+                      }}
+                      className={cn(
+                        "hover:bg-slate-50/60",
+                        run.tabKey && onOpenAgent && "cursor-pointer"
+                      )}
+                    >
+                      <td className="px-5 py-3.5">
+                        <p className="font-medium text-slate-800 hover:text-indigo-600 transition-colors">{run.label}</p>
+                      </td>
+                      <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={run.assignedTo ?? ''}
+                          disabled={updating === run.agentId}
+                          onChange={event => void updateAssignedTo(run.agentId, event.target.value)}
+                          className="w-40 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                        >
+                          <option value="">Unassigned</option>
+                          {reviewers.map(reviewer => (
+                            <option key={reviewer.id} value={reviewer.name}>{reviewer.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-5 py-3.5">
                       <span
                         className={cn(
                           run.missingDocs && run.missingDocs.length > 0 && "cursor-help"
@@ -171,12 +213,12 @@ export default function AgentRunsTab({
                           {meta.label}
                         </Badge>
                       </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-slate-500">
-                      {run.runAt ? new Date(run.runAt).toLocaleString() : '—'}
-                    </td>
-                    <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-2">
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-500">
+                        {run.runAt ? new Date(run.runAt).toLocaleString() : '—'}
+                      </td>
+                      <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
                         {/* {run.tabKey && onOpenAgent && (
                           <button
                             type="button"
@@ -208,9 +250,10 @@ export default function AgentRunsTab({
                             Reopen Review
                           </button>
                         )}
-                      </div>
-                    </td>
-                  </tr>
+                        </div>
+                      </td>
+                    </tr>
+                  </Fragment>
                 )
               })}
             </tbody>

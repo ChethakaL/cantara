@@ -12,58 +12,68 @@ export type AgentRunRecord = {
   agentId: string
   agentKey: string
   label: string
+  category: string
   status: AgentRunStatus
+  assignedTo: string | null
   runAt: string | null
   tabKey: string | null
   missingDocs?: { id: string; name: string }[]
 }
 
-const AGENT_LABELS: Record<string, { label: string; tabKey: string }> = {
-  ttm: { label: 'Valuation Agent', tabKey: 'ttm' },
-  ttmAnalysis: { label: 'Valuation Agent', tabKey: 'ttm' },
-  employee_obligations: { label: 'Employee Obligations', tabKey: 'employee-obligations' },
-  employeeObligations: { label: 'Employee Obligations', tabKey: 'employee-obligations' },
-  employee_comp: { label: 'Employee Staffing & Compensation', tabKey: 'employee-comp' },
-  employeeComp: { label: 'Employee Staffing & Compensation', tabKey: 'employee-comp' },
-  insurance_review: { label: 'Insurance Review', tabKey: 'insurance' },
-  insuranceReview: { label: 'Insurance Review', tabKey: 'insurance' },
-  lease_analysis: { label: 'Lease Analysis', tabKey: 'lease' },
-  lease: { label: 'Lease Analysis', tabKey: 'lease' },
-  litigation_search: { label: 'Litigation & Liens', tabKey: 'litigation' },
-  litigationSearch: { label: 'Litigation & Liens', tabKey: 'litigation' },
-  contract_analysis: { label: 'Material Contracts', tabKey: 'contract' },
-  contract: { label: 'Material Contracts', tabKey: 'contract' },
-  org_chart_review: { label: 'Org Chart Review', tabKey: 'org-chart' },
-  orgChart: { label: 'Org Chart Review', tabKey: 'org-chart' },
-  owner_gm_assessment: { label: 'Owner & GM Assessment', tabKey: 'owner-gm-assessment' },
-  ownerGmAssessment: { label: 'Owner & GM Assessment', tabKey: 'owner-gm-assessment' },
-  ownership_verification: { label: 'Ownership Verification', tabKey: 'ownership-verification' },
-  ownershipVerification: { label: 'Ownership Verification', tabKey: 'ownership-verification' },
-  permits_zoning: { label: 'Permits & Zoning', tabKey: 'permits-zoning' },
-  permitsZoning: { label: 'Permits & Zoning', tabKey: 'permits-zoning' },
-  professional_advisors: { label: 'Professional Advisors', tabKey: 'advisors' },
-  professionalAdvisors: { label: 'Professional Advisors', tabKey: 'advisors' },
-  vendor_directory: { label: 'Software & Vendors', tabKey: 'vendor-directory' },
-  vendorDirectory: { label: 'Software & Vendors', tabKey: 'vendor-directory' },
-  legal_entity_search: { label: 'Legal Reports & Entity Search', tabKey: 'legal-entity-search' },
-  legalEntitySearch: { label: 'Legal Reports & Entity Search', tabKey: 'legal-entity-search' },
-  tax_liability_review: { label: 'Tax Liability Review', tabKey: 'tax-liability-review' },
-  taxLiabilityReview: { label: 'Tax Liability Review', tabKey: 'tax-liability-review' },
-  competitor_analysis: { label: 'Competitor Analysis', tabKey: 'competitor' },
-  competitor: { label: 'Competitor Analysis', tabKey: 'competitor' },
-  digital_presence: { label: 'Digital Presence', tabKey: 'digital' },
-  digitalPresence: { label: 'Digital Presence', tabKey: 'digital' },
-  facility_review: { label: 'Facility Review Agent', tabKey: 'facility-review' },
-  facilityReview: { label: 'Facility Review Agent', tabKey: 'facility-review' },
-  pricing_analysis: { label: 'Competitive Pricing Analysis', tabKey: 'pricing-analysis' },
-  pricingAnalysis: { label: 'Competitive Pricing Analysis', tabKey: 'pricing-analysis' },
-  pricing_vertical: { label: 'Pricing by Vertical', tabKey: 'pricing-vertical' },
-  pricingVertical: { label: 'Pricing by Vertical', tabKey: 'pricing-vertical' },
-  sales_process_review: { label: 'Sales Process Review', tabKey: 'sales-process-review' },
-  salesProcessReview: { label: 'Sales Process Review', tabKey: 'sales-process-review' },
-  cim: { label: 'CIM Generator', tabKey: 'cim' },
-  teaser: { label: 'Deal Teaser Generator', tabKey: 'teaser' },
-  net_proceeds: { label: 'Net Proceeds Calculator', tabKey: 'net-proceeds' },
+export type AgentReviewer = {
+  id: string
+  name: string
+  email: string
+}
+
+const AGENT_LABELS: Record<string, { label: string; tabKey: string; category: string }> = {
+  ttm: { label: 'Valuation Agent', tabKey: 'ttm', category: 'Valuation' },
+  ttmAnalysis: { label: 'Valuation Agent', tabKey: 'ttm', category: 'Valuation' },
+  employee_obligations: { label: 'Employee Obligations', tabKey: 'employee-obligations', category: 'WS1 — Risk & Legal' },
+  employeeObligations: { label: 'Employee Obligations', tabKey: 'employee-obligations', category: 'WS1 — Risk & Legal' },
+  employee_comp: { label: 'Employee Staffing & Compensation', tabKey: 'employee-comp', category: 'WS1 — Risk & Legal' },
+  employeeComp: { label: 'Employee Staffing & Compensation', tabKey: 'employee-comp', category: 'WS1 — Risk & Legal' },
+  insurance_review: { label: 'Insurance Review', tabKey: 'insurance', category: 'WS1 — Risk & Legal' },
+  insuranceReview: { label: 'Insurance Review', tabKey: 'insurance', category: 'WS1 — Risk & Legal' },
+  lease_analysis: { label: 'Lease Analysis', tabKey: 'lease', category: 'WS1 — Risk & Legal' },
+  lease: { label: 'Lease Analysis', tabKey: 'lease', category: 'WS1 — Risk & Legal' },
+  litigation_search: { label: 'Litigation & Liens', tabKey: 'litigation', category: 'WS1 — Risk & Legal' },
+  litigationSearch: { label: 'Litigation & Liens', tabKey: 'litigation', category: 'WS1 — Risk & Legal' },
+  contract_analysis: { label: 'Material Contracts', tabKey: 'contract', category: 'WS1 — Risk & Legal' },
+  contract: { label: 'Material Contracts', tabKey: 'contract', category: 'WS1 — Risk & Legal' },
+  org_chart_review: { label: 'Org Chart Review', tabKey: 'org-chart', category: 'WS1 — Risk & Legal' },
+  orgChart: { label: 'Org Chart Review', tabKey: 'org-chart', category: 'WS1 — Risk & Legal' },
+  owner_gm_assessment: { label: 'Owner & GM Assessment', tabKey: 'owner-gm-assessment', category: 'WS1 — Risk & Legal' },
+  ownerGmAssessment: { label: 'Owner & GM Assessment', tabKey: 'owner-gm-assessment', category: 'WS1 — Risk & Legal' },
+  ownership_verification: { label: 'Ownership Verification', tabKey: 'ownership-verification', category: 'WS1 — Risk & Legal' },
+  ownershipVerification: { label: 'Ownership Verification', tabKey: 'ownership-verification', category: 'WS1 — Risk & Legal' },
+  permits_zoning: { label: 'Permits & Zoning', tabKey: 'permits-zoning', category: 'WS1 — Risk & Legal' },
+  permitsZoning: { label: 'Permits & Zoning', tabKey: 'permits-zoning', category: 'WS1 — Risk & Legal' },
+  professional_advisors: { label: 'Professional Advisors', tabKey: 'advisors', category: 'WS1 — Risk & Legal' },
+  professionalAdvisors: { label: 'Professional Advisors', tabKey: 'advisors', category: 'WS1 — Risk & Legal' },
+  vendor_directory: { label: 'Software & Vendors', tabKey: 'vendor-directory', category: 'WS1 — Risk & Legal' },
+  vendorDirectory: { label: 'Software & Vendors', tabKey: 'vendor-directory', category: 'WS1 — Risk & Legal' },
+  legal_entity_search: { label: 'Legal Reports & Entity Search', tabKey: 'legal-entity-search', category: 'WS1 — Risk & Legal' },
+  legalEntitySearch: { label: 'Legal Reports & Entity Search', tabKey: 'legal-entity-search', category: 'WS1 — Risk & Legal' },
+  tax_liability_review: { label: 'Tax Liability Review', tabKey: 'tax-liability-review', category: 'WS1 — Risk & Legal' },
+  taxLiabilityReview: { label: 'Tax Liability Review', tabKey: 'tax-liability-review', category: 'WS1 — Risk & Legal' },
+  competitor_analysis: { label: 'Competitor Analysis', tabKey: 'competitor', category: 'WS2 — Performance' },
+  competitor: { label: 'Competitor Analysis', tabKey: 'competitor', category: 'WS2 — Performance' },
+  digital_presence: { label: 'Digital Presence', tabKey: 'digital', category: 'WS2 — Performance' },
+  digitalPresence: { label: 'Digital Presence', tabKey: 'digital', category: 'WS2 — Performance' },
+  facility_review: { label: 'Facility Review Agent', tabKey: 'facility-review', category: 'WS2 — Performance' },
+  facilityReview: { label: 'Facility Review Agent', tabKey: 'facility-review', category: 'WS2 — Performance' },
+  pricing_analysis: { label: 'Competitive Pricing Analysis', tabKey: 'pricing-analysis', category: 'WS2 — Performance' },
+  pricingAnalysis: { label: 'Competitive Pricing Analysis', tabKey: 'pricing-analysis', category: 'WS2 — Performance' },
+  pricing_vertical: { label: 'Pricing by Vertical', tabKey: 'pricing-vertical', category: 'WS2 — Performance' },
+  pricingVertical: { label: 'Pricing by Vertical', tabKey: 'pricing-vertical', category: 'WS2 — Performance' },
+  sales_process_review: { label: 'Sales Process Review', tabKey: 'sales-process-review', category: 'WS2 — Performance' },
+  salesProcessReview: { label: 'Sales Process Review', tabKey: 'sales-process-review', category: 'WS2 — Performance' },
+  client_location_map: { label: 'Client Location Map', tabKey: 'client-location-map', category: 'WS2 — Performance' },
+  clientLocationMap: { label: 'Client Location Map', tabKey: 'client-location-map', category: 'WS2 — Performance' },
+  cim: { label: 'CIM Generator', tabKey: 'cim', category: 'M&A Sale Process' },
+  teaser: { label: 'Deal Teaser Generator', tabKey: 'teaser', category: 'M&A Sale Process' },
+  net_proceeds: { label: 'Net Proceeds Calculator', tabKey: 'net-proceeds', category: 'M&A Sale Process' },
 }
 
 const DOCUMENT_NAMES: Record<string, string> = {}
@@ -77,11 +87,6 @@ for (const cat of DOCUMENT_CATEGORIES) {
 }
 
 
-function hitlIsApproved(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false
-  const hitl = (value as { hitlStatus?: string }).hitlStatus
-  return hitl === 'complete' || hitl === 'APPROVED'
-}
 
 function manualApproval(
   approvals: Record<string, unknown> | null | undefined,
@@ -131,6 +136,21 @@ export async function GET(req: NextRequest) {
   })
   if (!client) return new Response('Not Found', { status: 404 })
 
+  const reviewerRows = await prisma.user.findMany({
+    where: {
+      role: 'ADMIN',
+      NOT: [
+        { email: 'chethaka.sl@gmail.com' },
+        { email: 'admin@cantara.demo' },
+      ],
+    },
+    select: { id: true, name: true, email: true },
+    orderBy: { name: 'asc' },
+  })
+  const reviewers = reviewerRows
+    .filter(user => !/chethaka/i.test(`${user.name} ${user.email}`))
+    .map(user => ({ id: user.id, name: user.name, email: user.email }))
+
   const submissions = (client.sectionSubmissions as Record<string, unknown>) ?? {}
   const approvals = (submissions.agentApprovals as Record<string, unknown>) ?? {}
   const assignedAgents = getClientWorkstreamAgents({
@@ -167,14 +187,15 @@ export async function GET(req: NextRequest) {
     safeFind(() => prisma.cimReport.findUnique({ where: { clientId }, select: { updatedAt: true, data: true } })),
     safeFind(() => prisma.teaserReport.findUnique({ where: { clientId }, select: { updatedAt: true, data: true } })),
     safeFind(() => prisma.clientDocument.findFirst({ where: { clientId, documentId: 'insurance_claims_12m' }, orderBy: { createdAt: 'desc' }, select: { aiReviewSummary: true, aiReviewStatus: true, createdAt: true } })),
-    safeFind(() => prisma.clientDocument.findFirst({ where: { clientId, documentId: 'sales_process_transcript' }, orderBy: { createdAt: 'desc' }, select: { aiReviewSummary: true, aiReviewStatus: true, createdAt: true } })),
+    safeFind(() => prisma.clientDocument.findFirst({ where: { clientId, documentId: 'sales_process_transcript' }, orderBy: { createdAt: 'desc' }, select: { aiReviewSummary: true, aiReviewStatus: true, aiReviewedAt: true, createdAt: true } })),
     safeFind(() => prisma.clientDocument.findMany({ where: { clientId }, select: { documentId: true } })),
   ])
 
   const runChecks: Record<string, { hasRun: boolean; approved: boolean; runAt: string | null }> = {
     ttmAnalysis: {
       hasRun: Boolean(ttm || submissions.valuation),
-      approved: ttm?.status === 'APPROVED' || manualApproval(approvals, 'ttm', 'ttmAnalysis'),
+      // Client portal only releases output after Mark Approved in Agent Status — not DB APPROVED alone.
+      approved: manualApproval(approvals, 'ttm', 'ttmAnalysis'),
       runAt: ttm?.approvedAt?.toISOString() ?? ttm?.createdAt?.toISOString() ?? null,
     },
     lease: {
@@ -194,17 +215,17 @@ export async function GET(req: NextRequest) {
     },
     employeeObligations: {
       hasRun: Boolean(employeeObligations),
-      approved: hitlIsApproved(employeeObligations?.metadata) || manualApproval(approvals, 'employee_obligations', 'employeeObligations'),
+      approved: manualApproval(approvals, 'employee_obligations', 'employeeObligations'),
       runAt: employeeObligations?.createdAt?.toISOString() ?? null,
     },
     ownershipVerification: {
       hasRun: Boolean(ownershipVerification || submissions.ownershipVerification),
-      approved: hitlIsApproved(ownershipVerification?.metadata) || hitlIsApproved(submissions.ownershipVerification) || manualApproval(approvals, 'ownership_verification', 'ownershipVerification'),
+      approved: manualApproval(approvals, 'ownership_verification', 'ownershipVerification'),
       runAt: ownershipVerification?.createdAt?.toISOString() ?? null,
     },
     permitsZoning: {
       hasRun: Boolean(permitsZoning || submissions.permitsZoning),
-      approved: hitlIsApproved(permitsZoning?.metadata) || hitlIsApproved(submissions.permitsZoning) || manualApproval(approvals, 'permits_zoning', 'permitsZoning'),
+      approved: manualApproval(approvals, 'permits_zoning', 'permitsZoning'),
       runAt: permitsZoning?.createdAt?.toISOString() ?? null,
     },
     legalEntitySearch: {
@@ -219,67 +240,77 @@ export async function GET(req: NextRequest) {
     },
     insuranceReview: {
       hasRun: Boolean(insuranceDoc?.aiReviewSummary || insuranceDoc?.aiReviewStatus || submissions.insuranceReview),
-      approved: hitlIsApproved(submissions.insuranceReview) || manualApproval(approvals, 'insurance_review', 'insuranceReview'),
+      approved: manualApproval(approvals, 'insurance_review', 'insuranceReview'),
       runAt: insuranceDoc?.createdAt?.toISOString() ?? null,
     },
     salesProcessReview: {
       hasRun: Boolean(salesDoc?.aiReviewSummary || salesDoc?.aiReviewStatus || submissions.salesProcessReview),
-      approved: hitlIsApproved(submissions.salesProcessReview) || manualApproval(approvals, 'sales_process_review', 'salesProcessReview'),
-      runAt: salesDoc?.createdAt?.toISOString() ?? null,
+      approved: manualApproval(approvals, 'sales_process_review', 'salesProcessReview'),
+      runAt: salesDoc?.aiReviewedAt?.toISOString() ?? salesDoc?.createdAt?.toISOString() ?? null,
     },
     digitalPresence: {
       hasRun: Boolean(submissions.digitalPresence),
-      approved: hitlIsApproved(submissions.digitalPresence) || manualApproval(approvals, 'digital_presence', 'digitalPresence'),
+      approved: manualApproval(approvals, 'digital_presence', 'digitalPresence'),
       runAt: (submissions.digitalPresence as { generatedAt?: string })?.generatedAt ?? null,
     },
     litigationSearch: {
       hasRun: Boolean(submissions.litigationSearch),
-      approved: hitlIsApproved(submissions.litigationSearch) || manualApproval(approvals, 'litigation_search', 'litigationSearch'),
+      approved: manualApproval(approvals, 'litigation_search', 'litigationSearch'),
       runAt: (submissions.litigationSearch as { generatedAt?: string })?.generatedAt ?? null,
     },
     employeeComp: {
       hasRun: Boolean(submissions.employeeCompReport || submissions.employeeComp),
-      approved: hitlIsApproved(submissions.employeeCompReport ?? submissions.employeeComp) || manualApproval(approvals, 'employee_comp', 'employeeComp'),
+      approved: manualApproval(approvals, 'employee_comp', 'employeeComp'),
       runAt: null,
     },
     ownerGmAssessment: {
       hasRun: Boolean(submissions.ownerGmAssessment),
-      approved: hitlIsApproved(submissions.ownerGmAssessment) || manualApproval(approvals, 'owner_gm_assessment', 'ownerGmAssessment'),
+      approved: manualApproval(approvals, 'owner_gm_assessment', 'ownerGmAssessment'),
       runAt: null,
     },
     professionalAdvisors: {
       hasRun: Boolean(submissions.professionalAdvisors),
-      approved: hitlIsApproved(submissions.professionalAdvisors) || manualApproval(approvals, 'professional_advisors', 'professionalAdvisors'),
+      approved: manualApproval(approvals, 'professional_advisors', 'professionalAdvisors'),
       runAt: null,
     },
     vendorDirectory: {
       hasRun: Boolean(submissions.vendorDirectory),
-      approved: hitlIsApproved(submissions.vendorDirectory) || manualApproval(approvals, 'vendor_directory', 'vendorDirectory'),
+      approved: manualApproval(approvals, 'vendor_directory', 'vendorDirectory'),
       runAt: null,
     },
     facilityReview: {
       hasRun: Boolean(submissions.facilityReview),
-      approved: hitlIsApproved(submissions.facilityReview) || manualApproval(approvals, 'facility_review', 'facilityReview'),
+      approved: manualApproval(approvals, 'facility_review', 'facilityReview'),
       runAt: (submissions.facilityReview as { generatedAt?: string })?.generatedAt ?? null,
     },
     pricingAnalysis: {
       hasRun: Boolean(submissions.pricingAnalysis),
-      approved: hitlIsApproved(submissions.pricingAnalysis) || manualApproval(approvals, 'pricing_analysis', 'pricingAnalysis'),
+      approved: manualApproval(approvals, 'pricing_analysis', 'pricingAnalysis'),
       runAt: null,
     },
     pricingVertical: {
       hasRun: Boolean(submissions.pricingVertical),
-      approved: hitlIsApproved(submissions.pricingVertical) || manualApproval(approvals, 'pricing_vertical', 'pricingVertical'),
+      approved: manualApproval(approvals, 'pricing_vertical', 'pricingVertical'),
       runAt: null,
+    },
+    clientLocationMap: {
+      hasRun: Boolean(
+        (submissions.clientLocationMap as { clients?: unknown[] } | undefined)?.clients?.length
+        || submissions.clientLocationMap,
+      ),
+      approved: manualApproval(approvals, 'client_location_map', 'clientLocationMap'),
+      runAt: (submissions.clientLocationMap as { updatedAt?: string; generatedAt?: string })?.updatedAt
+        ?? (submissions.clientLocationMap as { generatedAt?: string })?.generatedAt
+        ?? null,
     },
     orgChart: {
       hasRun: Boolean(submissions.orgChart),
-      approved: hitlIsApproved(submissions.orgChart) || manualApproval(approvals, 'org_chart_review', 'orgChart'),
+      approved: manualApproval(approvals, 'org_chart_review', 'orgChart'),
       runAt: null,
     },
     cim: {
       hasRun: Boolean(cimReport?.data),
-      approved: manualApproval(approvals, 'cim', 'cim') || Boolean((cimReport?.data as { approved?: boolean })?.approved),
+      approved: manualApproval(approvals, 'cim', 'cim'),
       runAt: cimReport?.updatedAt?.toISOString() ?? null,
     },
     teaser: {
@@ -306,8 +337,10 @@ export async function GET(req: NextRequest) {
     const meta = AGENT_LABELS[agent.agentId] ?? AGENT_LABELS[statusKey] ?? {
       label: agent.agentName,
       tabKey: agent.agentId.replace(/_/g, '-'),
+      category: 'Other',
     }
     const check = runChecks[statusKey] ?? { hasRun: false, approved: false, runAt: null }
+    const assignmentEntry = (approvals[agent.agentId] ?? approvals[statusKey]) as { assignedTo?: string | null } | undefined
 
     const requiredDocIds = agent.documentIds ?? []
     const hasDocRequirements = requiredDocIds.length > 0
@@ -323,7 +356,9 @@ export async function GET(req: NextRequest) {
       agentId: agent.agentId,
       agentKey: statusKey,
       label: meta.label,
+      category: meta.category,
       status: toStatus(check.hasRun, check.approved, hasRequiredDocs, isPartialDocs, hasDocRequirements),
+      assignedTo: assignmentEntry?.assignedTo ?? null,
       runAt: check.runAt,
       tabKey: meta.tabKey,
       missingDocs,
@@ -339,32 +374,46 @@ export async function GET(req: NextRequest) {
     const meta = AGENT_LABELS[key] ?? {
       label: key,
       tabKey: key.replace(/_/g, '-'),
+      category: 'Other',
     }
+    const assignmentEntry = approvals[key] as { assignedTo?: string | null } | undefined
 
     runs.push({
       agentId: key,
       agentKey: key,
       label: meta.label,
+      category: meta.category,
       status: toStatus(check.hasRun, check.approved, false, false, false),
+      assignedTo: assignmentEntry?.assignedTo ?? null,
       runAt: check.runAt,
       tabKey: meta.tabKey,
     })
   }
 
-  const statusOrder: Record<AgentRunStatus, number> = { in_review: 0, approved: 1, docs_uploaded: 2, partial_docs: 3, docs_missing: 4, not_started: 5 }
+  const categoryOrder: Record<string, number> = {
+    Valuation: 0,
+    'WS1 — Risk & Legal': 1,
+    'WS2 — Performance': 2,
+    'Reports & Roadmaps': 3,
+    'M&A Sale Process': 4,
+    Other: 5,
+  }
+  const statusOrder: Record<AgentRunStatus, number> = { docs_missing: 0, not_started: 1, docs_uploaded: 2, partial_docs: 3, in_review: 4, approved: 5 }
   runs.sort((a, b) => {
+    const byCategory = (categoryOrder[a.category] ?? 99) - (categoryOrder[b.category] ?? 99)
+    if (byCategory !== 0) return byCategory
     const byStatus = statusOrder[a.status] - statusOrder[b.status]
     if (byStatus !== 0) return byStatus
     return a.label.localeCompare(b.label)
   })
 
-  return NextResponse.json({ runs })
+  return NextResponse.json({ runs, reviewers })
 }
 
 export async function PATCH(req: NextRequest) {
-  const { clientId, agentId, status } = await req.json()
-  if (!clientId || !agentId || !status) return new Response('clientId, agentId, and status required', { status: 400 })
-  if (status !== 'approved' && status !== 'in_review') return new Response('status must be approved or in_review', { status: 400 })
+  const { clientId, agentId, status, assignedTo } = await req.json()
+  if (!clientId || !agentId) return new Response('clientId and agentId required', { status: 400 })
+  if (status && status !== 'approved' && status !== 'in_review') return new Response('status must be approved or in_review', { status: 400 })
 
   const client = await prisma.clientProfile.findUnique({
     where: { id: clientId },
@@ -376,10 +425,26 @@ export async function PATCH(req: NextRequest) {
   const approvals = { ...((existing.agentApprovals as Record<string, unknown>) ?? {}) }
   const statusKey = normalizeAgentStatusKey(agentId)
 
+  const existingEntry = (approvals[agentId] ?? approvals[statusKey] ?? {}) as Record<string, unknown>
+  const nextAssignedTo = typeof assignedTo === 'string' ? assignedTo.trim() || null : existingEntry.assignedTo ?? null
+
   if (status === 'approved') {
-    approvals[agentId] = { status: 'approved', approvedAt: new Date().toISOString() }
-    approvals[statusKey] = { status: 'approved', approvedAt: new Date().toISOString() }
+    const approvedEntry = { ...existingEntry, status: 'approved', approvedAt: new Date().toISOString(), assignedTo: nextAssignedTo }
+    approvals[agentId] = approvedEntry
+    approvals[statusKey] = approvedEntry
+  } else if (status === 'in_review') {
+    const reviewEntry: Record<string, unknown> = { ...existingEntry, assignedTo: nextAssignedTo }
+    delete reviewEntry.status
+    delete reviewEntry.approvedAt
+    approvals[agentId] = reviewEntry
+    approvals[statusKey] = reviewEntry
   } else {
+    const assignmentEntry = { ...existingEntry, assignedTo: nextAssignedTo }
+    approvals[agentId] = assignmentEntry
+    approvals[statusKey] = assignmentEntry
+  }
+
+  if (status === 'in_review' && !nextAssignedTo) {
     delete approvals[agentId]
     delete approvals[statusKey]
   }

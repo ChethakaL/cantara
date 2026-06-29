@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { AlertTriangle, Camera, CheckCircle, FileText, Loader2, Printer, RefreshCw, Save, Upload, X } from 'lucide-react'
 import { Badge, Card, Input, Textarea, cn } from '@/components/ui'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import type { FacilityRating, FacilityReviewReport } from '@/lib/facility-review/types'
 import { buildFacilityReviewReportHtml } from '@/lib/report-export/build-facility-review-report'
 
@@ -218,7 +220,7 @@ function SectionUploader({
   )
 }
 
-export default function FacilityReviewTab({ clientId, clientName, businessAddress }: { clientId: string; clientName: string; businessAddress?: string }) {
+export default function FacilityReviewTab({ clientId, clientName, businessAddress, readOnly = false }: { clientId: string; clientName: string; businessAddress?: string; readOnly?: boolean }) {
   const reportTopRef = useRef<HTMLDivElement | null>(null)
   const [runMode, setRunMode] = useState<'standard' | 'advisor'>('standard')
   const [businessName, setBusinessName] = useState(clientName)
@@ -240,6 +242,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
     const loadSaved = async () => {
@@ -292,6 +295,9 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
         }))
         setExistingSectionImages(Object.fromEntries(imageEntries) as ExistingSectionImages)
       } catch {}
+      finally {
+        setHydrated(true)
+      }
     }
     void loadSaved()
   }, [clientId])
@@ -538,12 +544,12 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
             </div>
             <p className="text-xs text-slate-400 mt-1">{report.businessName} - Generated {new Date(report.generatedAt).toLocaleString()}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <AdvisorActions className="flex flex-wrap items-center gap-2">
             <button onClick={() => { setReport(null); setReportRunMode(null) }} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"><RefreshCw className="w-3.5 h-3.5" />New Run</button>
             <button onClick={save} disabled={saving} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-900 text-white disabled:opacity-50"><Save className="w-3.5 h-3.5" />{saving ? 'Saving...' : 'Save'}</button>
             <button onClick={openReport} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"><Printer className="w-3.5 h-3.5" />Export PDF</button>
             {saved && <span className="text-xs font-semibold text-emerald-600">Saved</span>}
-          </div>
+          </AdvisorActions>
         </div>
 
         <Card className="p-6">
@@ -595,6 +601,9 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
       </div>
     )
   }
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !hydrated, Boolean(report), 'Facility Review')
+  if (readOnlyGate) return readOnlyGate
 
   return (
     <div className="space-y-6">

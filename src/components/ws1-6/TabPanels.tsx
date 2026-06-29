@@ -27,12 +27,13 @@ interface TabProps {
   flags: Flag[]
   onConfirm: (id: string) => void
   onNA: (id: string) => void
+  readOnly?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Summary Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function SummaryTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function SummaryTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   return (
     <div className="p-6">
       <CoverageGapAlert gaps={report.coverageGaps} />
@@ -96,6 +97,7 @@ export function SummaryTab({ report, flags, onConfirm, onNA }: TabProps) {
                   status={flag.status}
                   onConfirm={() => onConfirm(flag.id)}
                   onNA={() => onNA(flag.id)}
+                  readOnly={readOnly}
                 />
               ))
             )}
@@ -152,7 +154,7 @@ export function DocumentsTab({ report }: TabProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. Agreements Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function AgreementsTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function AgreementsTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Agreements')
 
   return (
@@ -209,6 +211,7 @@ export function AgreementsTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -221,7 +224,7 @@ export function AgreementsTab({ report, flags, onConfirm, onNA }: TabProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. Non-Competes Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function NonCompetesTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function NonCompetesTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Non-competes')
 
   return (
@@ -280,6 +283,7 @@ export function NonCompetesTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -309,7 +313,7 @@ const TRANSFERABLE_CLASS: Record<string, string> = {
   Unknown:    'text-stone-400',
 }
 
-export function BenefitsTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function BenefitsTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Benefits')
 
   return (
@@ -359,6 +363,7 @@ export function BenefitsTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -371,7 +376,7 @@ export function BenefitsTab({ report, flags, onConfirm, onNA }: TabProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. Contractors Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function ContractorsTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function ContractorsTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Contractors')
   const hasContractors = report.contractors.some(c => c.misclassRisk !== 'None Identified')
 
@@ -441,6 +446,7 @@ export function ContractorsTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -503,6 +509,7 @@ export function CraigReviewTab({
   onNA,
   onRelease,
   isReleasing,
+  readOnly,
 }: TabProps & { onRelease: () => void; isReleasing: boolean }) {
   const severityOrder: FlagSeverity[] = ['deal-risk', 'negotiation', 'positive', 'informational']
   const sorted = [...flags].sort(
@@ -534,6 +541,7 @@ export function CraigReviewTab({
             status={flag.status}
             onConfirm={() => onConfirm(flag.id)}
             onNA={() => onNA(flag.id)}
+            readOnly={readOnly}
           />
         ))}
       </div>

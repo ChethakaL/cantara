@@ -96,7 +96,7 @@ export function ReportExportBar({ clientName, onNewAnalysis, onDelete, report }:
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" data-advisor-action>
       <Button variant="outline" size="sm" onClick={handleExportExcel} className="gap-2 text-emerald-600 border-emerald-200 bg-emerald-50 hover:bg-emerald-100">
         <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
       </Button>

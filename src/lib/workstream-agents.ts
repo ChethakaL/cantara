@@ -32,6 +32,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent', documentIds: ['revenue_breakdown', 'pricing_schedule'] },
     { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent', documentIds: ['sales_process_transcript', 'pricing_schedule'] },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
   ],
   ma: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
@@ -79,6 +80,7 @@ export function normalizeAgentStatusKey(agentId: string) {
     pricing_analysis: 'pricingAnalysis',
     pricing_vertical: 'pricingVertical',
     sales_process_review: 'salesProcessReview',
+    client_location_map: 'clientLocationMap',
     legal_entity_search: 'legalEntitySearch',
     tax_liability_review: 'taxLiabilityReview',
   }

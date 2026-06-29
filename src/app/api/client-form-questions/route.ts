@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { ensureCompetitorFormFields } from '@/lib/competitor-form-fields'
 import { syncStructuredToFormResponses, formatProfessionalAdvisors, formatVendorDirectory } from '@/lib/sync-form-responses'
 
 type AgentSelection = { agentId: string; agentName?: string | null }
@@ -106,25 +107,49 @@ function mergeDraftResponses(existingResponses: unknown, draftResponses: Record<
   }, { ...existing })
 }
 
-function buildPrefillResponses(client: any, existing: Record<string, any>): Record<string, string> {
-  const explicit = normalizeResponses(existing.agentFormResponses ?? {})
-  const pricingCompetitors = Array.isArray(existing.competitorPricingInputs?.competitors)
+function buildCompetitorSlotResponses(existing: Record<string, any>, explicit: Record<string, string>): Record<string, string> {
+  const fromAnalysis = Array.isArray(existing.competitorAnalysisForm?.manualCompetitors)
+    ? existing.competitorAnalysisForm.manualCompetitors
+    : []
+  const fromPricing = Array.isArray(existing.competitorPricingInputs?.competitors)
     ? existing.competitorPricingInputs.competitors
     : []
 
-  const competitorResponses = Array.from({ length: 5 }).reduce<Record<string, string>>((acc, _, index) => {
-    const competitor = pricingCompetitors[index] ?? {}
-    acc[`competitor${index + 1}Name`] = competitor.name ?? ''
-    acc[`competitor${index + 1}Website`] = competitor.websiteUrl ?? ''
-    acc[`competitor${index + 1}Address`] = competitor.address ?? ''
-    acc[`competitor${index + 1}Category`] = competitor.category ?? ''
+  return Array.from({ length: 5 }).reduce<Record<string, string>>((acc, _, index) => {
+    const slot = index + 1
+    const analysisEntry = fromAnalysis[index] ?? {}
+    const pricingEntry = fromPricing[index] ?? {}
+    acc[`competitor${slot}Name`] =
+      explicit[`competitor${slot}Name`]
+      || analysisEntry.name
+      || pricingEntry.name
+      || ''
+    acc[`competitor${slot}Website`] =
+      explicit[`competitor${slot}Website`]
+      || analysisEntry.websiteUrl
+      || pricingEntry.websiteUrl
+      || ''
+    acc[`competitor${slot}Address`] =
+      explicit[`competitor${slot}Address`]
+      || analysisEntry.address
+      || pricingEntry.address
+      || ''
+    acc[`competitor${slot}Category`] =
+      explicit[`competitor${slot}Category`]
+      || pricingEntry.category
+      || ''
     return acc
   }, {})
+}
+
+function buildPrefillResponses(client: any, existing: Record<string, any>): Record<string, string> {
+  const explicit = normalizeResponses(existing.agentFormResponses ?? {})
+  const competitorResponses = buildCompetitorSlotResponses(existing, explicit)
 
   return {
     businessWebsite: existing.competitorPricingInputs?.sellerWebsiteUrl ?? client.websiteUrl ?? '',
-    businessAddress: existing.facilityReviewInputs?.location ?? client.businessAddress ?? '',
-    businessCategory: client.businessCategory ?? '',
+    businessAddress: existing.facilityReviewInputs?.location ?? existing.competitorAnalysisForm?.businessAddress ?? client.businessAddress ?? '',
+    businessCategory: existing.competitorAnalysisForm?.businessCategory ?? client.businessCategory ?? '',
     facilityReviewNotes: existing.facilityReviewInputs?.notes ?? '',
     professionalAdvisorsList: formatProfessionalAdvisors(existing.professionalAdvisors),
     vendorDirectoryList: formatVendorDirectory(existing.vendorDirectory),
@@ -185,6 +210,23 @@ function compatibilitySections(client: any, existing: Record<string, any>, respo
 
   if ('vendorDirectoryList' in responses) {
     next.vendorDirectory = parseVendorDirectory(merged.vendorDirectoryList)
+  }
+
+  const filledCompetitors = competitors.filter(item => item.name || item.websiteUrl || item.address)
+  if (filledCompetitors.length || 'businessAddress' in responses || 'businessCategory' in responses) {
+    next.competitorAnalysisForm = {
+      ...(existing.competitorAnalysisForm ?? {}),
+      businessName: client.businessName ?? existing.competitorAnalysisForm?.businessName ?? '',
+      businessAddress: merged.businessAddress ?? client.businessAddress ?? '',
+      businessCategory: merged.businessCategory ?? client.businessCategory ?? '',
+      websiteUrl: merged.businessWebsite ?? client.websiteUrl ?? '',
+      manualCompetitors: competitors.map(item => ({
+        name: item.name ?? '',
+        address: item.address ?? '',
+        websiteUrl: item.websiteUrl ?? '',
+      })),
+      updatedAt: new Date().toISOString(),
+    }
   }
 
   return next
@@ -269,7 +311,7 @@ export async function GET(req: NextRequest) {
     ...syncStructuredToFormResponses(existing, client),
   }
 
-  const questions = dedupeQuestions(rows).map(question => ({
+  const questions = dedupeQuestions(ensureCompetitorFormFields(rows, agentIds)).map(question => ({
     ...question,
     options: Array.isArray(question.options) ? question.options : null,
   }))

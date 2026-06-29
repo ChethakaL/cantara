@@ -23,12 +23,13 @@ interface TabProps {
   flags: WS18Flag[]
   onConfirm: (id: string) => void
   onNA: (id: string) => void
+  readOnly?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Summary Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function SummaryTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function SummaryTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   return (
     <div className="p-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
@@ -86,6 +87,7 @@ export function SummaryTab({ report, flags, onConfirm, onNA }: TabProps) {
                   status={flag.status}
                   onConfirm={() => onConfirm(flag.id)}
                   onNA={() => onNA(flag.id)}
+                  readOnly={readOnly}
                 />
               ))
             )}
@@ -148,7 +150,7 @@ const ENTITY_STATUS_CLASS: Record<string, string> = {
   unknown: 'text-stone-400',
 }
 
-export function EntitiesTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function EntitiesTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Entity-Structure')
 
   return (
@@ -202,6 +204,7 @@ export function EntitiesTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -214,7 +217,7 @@ export function EntitiesTab({ report, flags, onConfirm, onNA }: TabProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. Ownership Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function OwnershipTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function OwnershipTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Ownership')
 
   return (
@@ -272,6 +275,7 @@ export function OwnershipTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -291,7 +295,7 @@ const ENCUMBRANCE_STATUS_CLASS: Record<string, string> = {
   unknown: 'text-amber-700',
 }
 
-export function EncumbrancesTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function EncumbrancesTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'Encumbrances')
   const hasEncumbrances = report.encumbrances.length > 0
 
@@ -356,6 +360,7 @@ export function EncumbrancesTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -384,7 +389,7 @@ const COMPLIANCE_CLASS: Record<string, string> = {
   unknown: 'text-stone-400',
 }
 
-export function StateFilingsTab({ report, flags, onConfirm, onNA }: TabProps) {
+export function StateFilingsTab({ report, flags, onConfirm, onNA, readOnly }: TabProps) {
   const relatedFlags = flags.filter(f => f.domain === 'State-Filings')
 
   return (
@@ -447,6 +452,7 @@ export function StateFilingsTab({ report, flags, onConfirm, onNA }: TabProps) {
                 status={flag.status}
                 onConfirm={() => onConfirm(flag.id)}
                 onNA={() => onNA(flag.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -465,6 +471,7 @@ export function AdminReviewTab({
   onNA,
   onRelease,
   isReleasing,
+  readOnly,
 }: TabProps & { onRelease: () => void; isReleasing: boolean }) {
   const severityOrder: FlagSeverity[] = ['deal-risk', 'negotiation', 'positive', 'informational']
   const sorted = [...flags].sort(
@@ -496,6 +503,7 @@ export function AdminReviewTab({
             status={flag.status}
             onConfirm={() => onConfirm(flag.id)}
             onNA={() => onNA(flag.id)}
+            readOnly={readOnly}
           />
         ))}
       </div>

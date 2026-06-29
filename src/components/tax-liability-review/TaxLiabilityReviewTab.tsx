@@ -1,4 +1,6 @@
 'use client'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { Card, Button, cn, Badge } from '@/components/ui'
@@ -8,6 +10,7 @@ import type { WS111Persistence, WS111Flag } from '@/types/ws1-11-types'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildTaxLiabilityReportHtml } from '@/lib/report-export/build-tax-liability-report'
 import { Upload, FileText, X, AlertTriangle } from 'lucide-react'
 
@@ -100,10 +103,12 @@ function FlagReviewPanel({
   flags,
   onConfirm,
   onNA,
+  readOnly = false,
 }: {
   flags: WS111Flag[]
   onConfirm: (id: string) => void
   onNA: (id: string) => void
+  readOnly?: boolean
 }) {
   const groups = [
     {
@@ -139,6 +144,12 @@ function FlagReviewPanel({
   ]
 
   const renderControls = (flag: WS111Flag) => {
+    if (readOnly) {
+      if (flag.status === 'confirmed') return <div className="mt-3 pt-3 border-t border-black/5"><Badge color="blue">Reviewed</Badge></div>
+      if (flag.status === 'na') return <div className="mt-3 pt-3 border-t border-black/5"><Badge color="slate">Not Applicable</Badge></div>
+      return null
+    }
+
     const labelClass =
       flag.severity === 'deal-risk'
         ? 'border-rose-200 bg-white/70 text-rose-700'
@@ -185,12 +196,14 @@ function FlagReviewPanel({
 
   return (
     <div className="space-y-6">
+      {!readOnly && (
       <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
         <p className="text-xs leading-relaxed text-blue-800">
           Resolved flags are incorporated into the final tax liability summary. Once all flags are reviewed, the report can be exported with flag resolutions included.
         </p>
       </div>
+      )}
       {groups.map(group => {
         const sectionFlags = flags.filter(flag => flag.severity === group.key)
         if (!sectionFlags.length) return null
@@ -241,7 +254,7 @@ function FlagReviewPanel({
 
 // ── Main Component ──────────────────────────────────────────────────────────
 
-interface TaxLiabilityReviewTabProps {
+interface TaxLiabilityReviewTabProps extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
   state?: string
@@ -253,6 +266,7 @@ export default function TaxLiabilityReviewTab({
   clientName,
   state,
   entityType,
+  readOnly = false,
 }: TaxLiabilityReviewTabProps) {
   const [savedReport, setSavedReport] = useState<WS111Persistence | null>(null)
   const [flags, setFlags] = useState<WS111Flag[]>([])
@@ -368,6 +382,10 @@ export default function TaxLiabilityReviewTab({
     )
   }
 
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, loadingReport, Boolean(savedReport?.markdown), 'Tax Liability Review')
+  if (readOnlyGate) return readOnlyGate
+
   if (!savedReport && !isRunning) {
     return (
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
@@ -413,10 +431,12 @@ export default function TaxLiabilityReviewTab({
   const negotiationCount = flags.filter(f => f.severity === 'negotiation').length
   const pendingCount = flags.filter(f => f.status === 'pending').length
 
-  const tabs = [
-    { id: 'report' as const, label: 'Full Report' },
-    { id: 'flags' as const, label: `Flags (${flags.length})` },
-  ]
+  const tabs = readOnly
+    ? [{ id: 'report' as const, label: 'Full Report' }]
+    : [
+        { id: 'report' as const, label: 'Full Report' },
+        { id: 'flags' as const, label: `Flags (${flags.length})` },
+      ]
 
   return (
     <div className="space-y-6">
@@ -442,7 +462,7 @@ export default function TaxLiabilityReviewTab({
             </span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+        <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
           <Button variant="outline" size="sm" onClick={handleNewAnalysis}>+ New Analysis</Button>
           <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:text-red-700">Delete</Button>
           <ExportReportButton
@@ -450,10 +470,10 @@ export default function TaxLiabilityReviewTab({
             fileName={`tax-liability-review-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             label="Export PDF"
           />
-        </div>
+        </AdvisorActions>
       </div>
 
-      {pendingCount > 0 && flags.length > 0 && (
+      {!readOnly && pendingCount > 0 && flags.length > 0 && (
         <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
           <AlertTriangle className="w-4 h-4 text-amber-600" />
           <p className="text-sm text-amber-800">
@@ -485,11 +505,12 @@ export default function TaxLiabilityReviewTab({
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{savedReport.markdown}</ReactMarkdown>
             </div>
           )}
-          {activeTab === 'flags' && (
+          {activeTab === 'flags' && !readOnly && (
             <FlagReviewPanel
               flags={flags}
               onConfirm={id => handleFlagUpdate(id, 'confirmed')}
               onNA={id => handleFlagUpdate(id, 'na')}
+              readOnly={readOnly}
             />
           )}
         </div>

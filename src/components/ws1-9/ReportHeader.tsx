@@ -2,16 +2,17 @@
 
 import React from 'react'
 import type { WS19Report, WS19Flag } from '@/types/ws1-9-types'
-import { Button } from '@/components/ui'
+import { Button, cn } from '@/components/ui'
 
 interface ReportHeaderProps {
   report: WS19Report
   flags: WS19Flag[]
   onDelete: () => void
   onNewAnalysis: () => void
+  readOnly?: boolean
 }
 
-export default function ReportHeader({ report, flags, onDelete, onNewAnalysis }: ReportHeaderProps) {
+export default function ReportHeader({ report, flags, onDelete, onNewAnalysis, readOnly = false }: ReportHeaderProps) {
   const generatedDate = new Date(report.generatedAt).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -32,6 +33,7 @@ export default function ReportHeader({ report, flags, onDelete, onNewAnalysis }:
             <span className="px-2.5 py-1 text-[10px] font-bold tracking-wider text-stone-500 uppercase bg-stone-100 rounded-md border border-stone-200">
               Analysis Engine
             </span>
+            {!readOnly && (
             <span className={`px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase rounded-md border ${
               report.hitlStatus === 'complete'
                 ? 'bg-green-50 text-green-700 border-green-200'
@@ -39,6 +41,7 @@ export default function ReportHeader({ report, flags, onDelete, onNewAnalysis }:
             }`}>
               {report.hitlStatus === 'complete' ? 'Ready' : 'Pending Review'}
             </span>
+            )}
           </div>
 
           <div className="flex items-baseline gap-2">
@@ -56,7 +59,7 @@ export default function ReportHeader({ report, flags, onDelete, onNewAnalysis }:
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3" data-advisor-action>
           <Button
             variant="outline"
             size="sm"
@@ -75,10 +78,12 @@ export default function ReportHeader({ report, flags, onDelete, onNewAnalysis }:
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-stone-100 bg-stone-50/20">
+      <div className={cn('grid grid-cols-2 divide-x divide-stone-100 bg-stone-50/20', readOnly ? 'md:grid-cols-3' : 'md:grid-cols-4')}>
         <Stat icon="Total flags" value={flags.length} color="stone" />
         <Stat icon="Deal risk flags" value={flags.filter(f => f.severity === 'deal-risk').length} color="red" />
-        <Stat icon="Review status" value={report.hitlStatus === 'complete' ? '100%' : 'In progress'} color="amber" />
+        {!readOnly && (
+          <Stat icon="Review status" value={report.hitlStatus === 'complete' ? '100%' : 'In progress'} color="amber" />
+        )}
         <Stat icon="Data source" value="Analysis Engine" color="stone" />
       </div>
     </div>

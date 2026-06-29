@@ -1,4 +1,5 @@
 'use client';
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -28,9 +29,12 @@ import {
 } from '@/lib/competitor-analysis/types';
 import type { CompetitorAnalysis as SavedCompetitorAnalysis } from '@/lib/store';
 import { deleteCompetitorAnalysis, getCompetitorAnalyses, saveCompetitorAnalysis, updateCompetitorAnalysis } from '@/lib/store';
+import TopCompetitorsForm from '@/components/competitor-analysis/TopCompetitorsForm';
 import { ExportReportButton } from '@/components/report-export/ExportReportButton';
 import { buildCompetitorReportHtml } from '@/lib/report-export/build-competitor-report';
 import { formatPetBusinessCategories } from '@/lib/pet-business-categories';
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly';
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame';
 
 interface ProgressEvent {
   type: 'progress';
@@ -44,7 +48,7 @@ interface LogEntry {
   message: string;
 }
 
-interface Props {
+interface Props extends AgentTabReadOnlyProps {
   clientId: string;
   businessName: string;
   businessAddress: string;
@@ -999,6 +1003,7 @@ function ReportView({
   savingSummaries,
   handleSaveSummaries,
   handleStartEditingSummaries,
+  readOnly = false,
 }: {
   report: CompetitorAnalysisReport;
   onDelete: () => void;
@@ -1016,6 +1021,7 @@ function ReportView({
   savingSummaries: boolean;
   handleSaveSummaries: () => void;
   handleStartEditingSummaries: () => void;
+  readOnly?: boolean;
 }) {
   const [serviceEditMode, setServiceEditMode] = useState(false);
   // Build initial service overrides from report data
@@ -1065,7 +1071,7 @@ function ReportView({
             Competitor Analysis Agent · Generated {new Date(report.generatedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <AdvisorActions className="flex items-center gap-2">
           {isEditingSummaries ? (
             <>
               <Button size="sm" variant="outline" onClick={() => setIsEditingSummaries(false)} disabled={savingSummaries}>
@@ -1087,7 +1093,7 @@ function ReportView({
           <Button variant="danger" onClick={onDelete} disabled={deleting}>
             {deleting ? 'Deleting…' : 'Delete Report'}
           </Button>
-        </div>
+        </AdvisorActions>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1230,6 +1236,7 @@ function ReportView({
         <Card className="overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Service Offerings Comparison</p>
+            {!readOnly && (
             <button
               onClick={() => setServiceEditMode(m => !m)}
               className={cn(
@@ -1241,8 +1248,9 @@ function ReportView({
             >
               {serviceEditMode ? '✓ Done' : '✎ Edit'}
             </button>
+            )}
           </div>
-          {serviceEditMode && (
+          {serviceEditMode && !readOnly && (
             <div className="px-5 py-2 bg-amber-50/50 border-b border-amber-100 text-xs text-amber-700">
               Click any cell to toggle the checkmark on or off.
             </div>
@@ -1330,6 +1338,7 @@ export default function CompetitorAnalysisTab({
   businessAddress,
   businessCategory,
   websiteUrl,
+  readOnly = false,
 }: Props) {
   const emptyCompetitor = (): ManualCompetitorEntry => ({ name: '', address: '', websiteUrl: '' });
   const [form, setForm] = useState<CompetitorAnalysisFormData>({
@@ -1515,32 +1524,6 @@ export default function CompetitorAnalysisTab({
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function updateCompetitor(index: number, field: keyof ManualCompetitorEntry, value: string) {
-    setForm((current) => {
-      const competitors = [...(current.manualCompetitors ?? [])];
-      competitors[index] = { ...competitors[index], [field]: value };
-      return { ...current, manualCompetitors: competitors };
-    });
-  }
-
-  function addCompetitor() {
-    setForm((current) => {
-      const competitors = [...(current.manualCompetitors ?? [])];
-      if (competitors.length < 5) {
-        competitors.push(emptyCompetitor());
-      }
-      return { ...current, manualCompetitors: competitors };
-    });
-  }
-
-  function removeCompetitor(index: number) {
-    setForm((current) => {
-      const competitors = [...(current.manualCompetitors ?? [])];
-      competitors.splice(index, 1);
-      return { ...current, manualCompetitors: competitors };
-    });
-  }
-
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
@@ -1720,6 +1703,9 @@ export default function CompetitorAnalysisTab({
     );
   }
 
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, initializing, Boolean(report), 'Competitor Analysis');
+  if (readOnlyGate) return readOnlyGate;
+
   return (
     <div className="space-y-5">
       {(isLoading || status === 'complete') && (
@@ -1741,7 +1727,7 @@ export default function CompetitorAnalysisTab({
         </div>
       )}
 
-      {status === 'idle' && (
+      {status === 'idle' && !readOnly && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <Card className="p-5 space-y-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -1808,62 +1794,11 @@ export default function CompetitorAnalysisTab({
             </div>
 
             {/* Manual Competitors */}
-            <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-700">Top Competitors</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Enter up to 5 known competitors. The analysis will run on these specific businesses.</p>
-                </div>
-                {(form.manualCompetitors?.length ?? 0) < 5 && (
-                  <button
-                    type="button"
-                    onClick={addCompetitor}
-                    className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add
-                  </button>
-                )}
-              </div>
-              <div className="space-y-3">
-                {(form.manualCompetitors ?? []).map((comp, i) => (
-                  <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Competitor {i + 1}</p>
-                      {(form.manualCompetitors?.length ?? 0) > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeCompetitor(i)}
-                          className="text-slate-300 hover:text-rose-500 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                      <Input
-                        label="Business Name *"
-                        placeholder="e.g. Rex Dog Hotel"
-                        value={comp.name}
-                        onChange={(e) => updateCompetitor(i, 'name', e.target.value)}
-                      />
-                      <Input
-                        label="Address *"
-                        placeholder="123 Main St, Vancouver, BC"
-                        value={comp.address ?? ''}
-                        onChange={(e) => updateCompetitor(i, 'address', e.target.value)}
-                      />
-                      <Input
-                        label="Website (optional)"
-                        placeholder="https://..."
-                        value={comp.websiteUrl ?? ''}
-                        onChange={(e) => updateCompetitor(i, 'websiteUrl', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <TopCompetitorsForm
+              competitors={form.manualCompetitors ?? [emptyCompetitor()]}
+              onChange={(manualCompetitors) => setForm(current => ({ ...current, manualCompetitors }))}
+              addressRequired={false}
+            />
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-start gap-3">
@@ -1966,6 +1901,7 @@ export default function CompetitorAnalysisTab({
           savingSummaries={savingSummaries}
           handleSaveSummaries={handleSaveSummaries}
           handleStartEditingSummaries={handleStartEditingSummaries}
+          readOnly={readOnly}
         />
       )}
     </div>

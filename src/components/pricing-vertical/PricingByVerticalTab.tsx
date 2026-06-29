@@ -26,6 +26,8 @@ import type {
   VerticalPricingSummary,
 } from '@/lib/pricing-vertical/types'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import { buildPricingVerticalReportHtml } from '@/lib/report-export/build-pricing-vertical-report'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
 
@@ -80,9 +82,11 @@ function EditableCell({
 export default function PricingByVerticalTab({
   clientId,
   clientName,
+  readOnly = false,
 }: {
   clientId: string
   clientName: string
+  readOnly?: boolean
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
@@ -352,7 +356,7 @@ export default function PricingByVerticalTab({
               {new Date(result.generatedAt).toLocaleString()}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <AdvisorActions className="flex items-center gap-3">
             <button
               onClick={() => setEditMode(e => !e)}
               className={cn(
@@ -405,7 +409,7 @@ export default function PricingByVerticalTab({
               <RefreshCw className="w-3.5 h-3.5" />
               New Analysis
             </button>
-          </div>
+          </AdvisorActions>
         </div>
 
         {reanalyzeNotice && (

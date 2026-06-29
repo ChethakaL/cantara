@@ -10,17 +10,20 @@ import type { ContractReport as ContractReportData } from '@/lib/contract-analys
 import { ContractUploader } from '../contract-analysis/ContractUploader'
 import { AnalysisProgress } from '../contract-analysis/AnalysisProgress'
 import { ContractReport } from '../contract-analysis/ContractReport'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
-interface Props {
+interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
 }
 
-export default function ContractAnalysisTab({ clientId, clientName }: Props) {
+export default function ContractAnalysisTab({ clientId, clientName, readOnly = false }: Props) {
   const [analyses, setAnalyses] = useState<ContractAnalysis[]>([])
   const [activeAnalysis, setActiveAnalysis] = useState<ContractAnalysis | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [initialLoadDone, setInitialLoadDone] = useState(false)
 
   const {
     documents: uploads,
@@ -71,6 +74,7 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
   useEffect(() => {
     loadAnalyses().then((data) => {
       if (data.length > 0 && !activeAnalysis) setActiveAnalysis(data[0])
+      setInitialLoadDone(true)
     })
   }, [loadAnalyses, activeAnalysis])
 
@@ -101,6 +105,9 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
     ? uploads.map((doc) => doc.name).join(', ')
     : activeAnalysis?.fileName || ''
 
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(displayReport), 'Material Contracts')
+  if (readOnlyGate) return readOnlyGate
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -110,7 +117,7 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
           <p className="text-xs text-slate-400 mt-1">Material contracts can also be uploaded in the Documents tab.</p>
         </div>
         {analyses.length > 0 && (
-          <Button variant="outline" size="sm" className="gap-2" onClick={clearAll}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={clearAll} data-advisor-action>
             <Plus className="w-3.5 h-3.5" /> New Analysis
           </Button>
         )}
@@ -146,7 +153,8 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
               </div>
             ) : null}
           </Card>
-        ) : analyses.length === 0 || uploads.length > 0 ? (
+        ) : !readOnly && (analyses.length === 0 || uploads.length > 0) ? (
+          <div data-advisor-action>
           <ContractUploader
             documents={uploads}
             addDocuments={addDocuments}
@@ -154,6 +162,7 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
             status={status}
             onAnalyze={analyze}
           />
+          </div>
         ) : null}
 
         {displayReport && (
@@ -162,9 +171,9 @@ export default function ContractAnalysisTab({ clientId, clientName }: Props) {
             fileName={displayFileName}
             clientName={clientName}
             onNewAnalysis={clearAll}
-            onDelete={activeAnalysis ? () => setDeleteOpen(true) : undefined}
-            adminMode
-            onReportUpdated={handleReportUpdated}
+            onDelete={!readOnly && activeAnalysis ? () => setDeleteOpen(true) : undefined}
+            adminMode={!readOnly}
+            onReportUpdated={!readOnly ? handleReportUpdated : undefined}
           />
         )}
       </div>

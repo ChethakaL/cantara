@@ -1,4 +1,5 @@
 'use client'
+import { ClientApprovedEmptyState } from '@/components/client-portal/AgentClientPortalFrame'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -7,6 +8,7 @@ import {
 } from 'lucide-react'
 import { Badge, Button, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildOwnerGmReportHtml } from '@/lib/report-export/build-owner-gm-report'
 import type {
   OwnerGmAssessment,
@@ -90,9 +92,11 @@ function detectMediaType(file: File): string {
 export default function OwnerGmAssessmentTab({
   clientId,
   clientName = 'Client',
+  readOnly = false,
 }: {
   clientId: string
   clientName?: string
+  readOnly?: boolean
 }) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
@@ -186,6 +190,10 @@ export default function OwnerGmAssessmentTab({
     )
   }
 
+  if (readOnly && !assessment) {
+    return <ClientApprovedEmptyState agentName="Owner & GM Assessment" />
+  }
+
   return (
     <div className="space-y-5">
       {/* Header bar */}
@@ -204,7 +212,7 @@ export default function OwnerGmAssessmentTab({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <AdvisorActions className="flex items-center gap-2">
             {assessment && (
               <Button
                 size="sm"
@@ -216,7 +224,7 @@ export default function OwnerGmAssessmentTab({
                 {deleting ? 'Deleting...' : 'Reset'}
               </Button>
             )}
-          </div>
+          </AdvisorActions>
         </div>
       </div>
 
@@ -228,7 +236,7 @@ export default function OwnerGmAssessmentTab({
       )}
 
       {/* Upload area (no assessment yet) */}
-      {!assessment && !running && (
+      {!readOnly && !assessment && !running && (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center space-y-3">
           <FileText className="w-8 h-8 text-slate-300 mx-auto" />
           <p className="text-sm font-medium text-slate-600">No transcript uploaded yet</p>
@@ -282,12 +290,12 @@ export default function OwnerGmAssessmentTab({
           </div>
 
           {/* Export button */}
-          <div className="flex justify-end">
+          <AdvisorActions className="flex justify-end">
             <ExportReportButton
               html={buildOwnerGmReportHtml(assessment, clientName)}
               fileName={`owner-gm-assessment-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             />
-          </div>
+          </AdvisorActions>
 
           {/* Executive Summary */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
