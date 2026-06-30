@@ -4,7 +4,7 @@ import { ClientApprovedEmptyState } from '@/components/client-portal/AgentClient
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bot, CheckCircle, FileText, Loader2, RefreshCw, Trash2, Upload,
-  AlertTriangle, ShieldCheck, Info, Users2,
+  AlertTriangle, ShieldCheck, Info, Users2, Pencil, Save,
 } from 'lucide-react'
 import { Badge, Button, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
@@ -102,8 +102,13 @@ export default function OwnerGmAssessmentTab({
   const [running, setRunning] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [assessment, setAssessment] = useState<OwnerGmAssessment | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSavedSnapshotRef = useRef('')
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -132,6 +137,49 @@ export default function OwnerGmAssessmentTab({
 
   useEffect(() => { void load() }, [load])
 
+  useEffect(() => {
+    if (assessment) lastSavedSnapshotRef.current = JSON.stringify(assessment)
+  }, [assessment?.generatedAt])
+
+  const persistAssessment = useCallback(async (nextAssessment: OwnerGmAssessment, options: { silent?: boolean } = {}) => {
+    if (!options.silent) setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/owner-gm-assessment', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, assessment: nextAssessment }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setAssessment(data.assessment)
+      lastSavedSnapshotRef.current = JSON.stringify(data.assessment)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save assessment')
+    } finally {
+      if (!options.silent) setSaving(false)
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    if (!editMode || !assessment) return
+    const snapshot = JSON.stringify(assessment)
+    if (snapshot === lastSavedSnapshotRef.current) return
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      void persistAssessment(assessment, { silent: true })
+    }, 800)
+    return () => {
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    }
+  }, [assessment, editMode, persistAssessment])
+
+  const updateAssessment = (updates: Partial<OwnerGmAssessment>) => {
+    setAssessment(current => current ? { ...current, ...updates } : current)
+  }
+
   // ── Upload & analyze ──
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -152,7 +200,10 @@ export default function OwnerGmAssessmentTab({
         throw new Error(text || 'Analysis failed')
       }
       const data = await res.json()
-      if (mountedRef.current) setAssessment(data.assessment)
+      if (mountedRef.current) {
+        setAssessment(data.assessment)
+        lastSavedSnapshotRef.current = JSON.stringify(data.assessment)
+      }
     } catch (err: any) {
       if (mountedRef.current) setError(err?.message ?? 'Analysis failed')
     } finally {
@@ -274,27 +325,54 @@ export default function OwnerGmAssessmentTab({
           {/* Ratings strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { label: 'Owner Dependency', value: assessment.ownerDependencyRating },
-              { label: 'GM Retention Risk', value: assessment.gmRetentionRisk },
-              { label: 'Bench Strength', value: assessment.benchStrength },
-              { label: 'Transition Readiness', value: assessment.overallTransitionReadiness },
+              { label: 'Owner Dependency', value: assessment.ownerDependencyRating, key: 'ownerDependencyRating', options: ['High', 'Medium', 'Low'] },
+              { label: 'GM Retention Risk', value: assessment.gmRetentionRisk, key: 'gmRetentionRisk', options: ['High', 'Medium', 'Low'] },
+              { label: 'Bench Strength', value: assessment.benchStrength, key: 'benchStrength', options: ['Strong', 'Moderate', 'Thin'] },
+              { label: 'Transition Readiness', value: assessment.overallTransitionReadiness, key: 'overallTransitionReadiness', options: ['High', 'Medium', 'Low'] },
             ].map(item => (
               <div
                 key={item.label}
-                className={cn('rounded-xl border p-4 text-center', ratingBgClass(item.value))}
+                className={cn('rounded-xl border p-4 text-center flex flex-col justify-between items-center min-h-[90px]', ratingBgClass(item.value))}
               >
                 <p className="text-[11px] uppercase tracking-wide opacity-70 font-medium">{item.label}</p>
-                <p className="text-lg font-bold mt-1">{item.value}</p>
+                {editMode ? (
+                  <select
+                    value={item.value}
+                    onChange={e => updateAssessment({ [item.key]: e.target.value })}
+                    className="mt-1 text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-semibold text-slate-700"
+                  >
+                    {item.options.map(opt => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-lg font-bold mt-1">{item.value}</p>
+                )}
               </div>
             ))}
           </div>
 
           {/* Export button */}
           <AdvisorActions className="flex justify-end">
+            {!readOnly && (
+              <Button
+                size="sm"
+                variant={editMode ? 'primary' : 'outline'}
+                onClick={() => {
+                  if (editMode && assessment) void persistAssessment(assessment)
+                  setEditMode(!editMode)
+                }}
+                disabled={saving}
+              >
+                {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                {saving ? 'Saving...' : editMode ? 'Done Editing' : 'Edit Output'}
+              </Button>
+            )}
             <ExportReportButton
               html={buildOwnerGmReportHtml(assessment, clientName)}
               fileName={`owner-gm-assessment-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             />
+            {saved && <span className="text-xs font-semibold text-emerald-600">Saved</span>}
           </AdvisorActions>
 
           {/* Executive Summary */}
@@ -303,97 +381,434 @@ export default function OwnerGmAssessmentTab({
               <CheckCircle className="w-4 h-4" />
               Executive Summary
             </div>
-            <p className="text-sm text-slate-700 leading-relaxed">{assessment.executiveSummary}</p>
+            {editMode ? (
+              <textarea
+                value={assessment.executiveSummary}
+                onChange={e => updateAssessment({ executiveSummary: e.target.value })}
+                rows={5}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+              />
+            ) : (
+              <p className="text-sm text-slate-700 leading-relaxed">{assessment.executiveSummary}</p>
+            )}
           </div>
 
           {/* Owner Profiles */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-            <h4 className="text-sm font-semibold text-slate-800">Owner Profiles</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-slate-800">Owner Profiles</h4>
+              {editMode && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const newOwner: OwnerProfile = {
+                      name: 'New Owner',
+                      title: 'Owner',
+                      role: '',
+                      hoursPerWeek: null,
+                      criticalHoursPerWeek: null,
+                      postCloseIntention: null,
+                      postCloseRole: '',
+                      postCloseDuration: '',
+                      stayRequired: null,
+                      criticalRelationships: [],
+                      replacementRoles: [],
+                      replacementExperience: '',
+                      replacementHours: null,
+                      internalSuccessor: '',
+                      externalHireCost: '',
+                      dependencyRating: 'Medium',
+                      dependencyNotes: '',
+                    }
+                    updateAssessment({ owners: [...assessment.owners, newOwner] })
+                  }}
+                >
+                  + Add Owner Profile
+                </Button>
+              )}
+            </div>
             {assessment.owners.map((owner, idx) => (
-              <OwnerCard key={idx} owner={owner} />
+              <OwnerCard
+                key={idx}
+                owner={owner}
+                editMode={editMode}
+                onChange={nextOwner => {
+                  const owners = [...assessment.owners]
+                  owners[idx] = nextOwner
+                  updateAssessment({ owners })
+                }}
+                onDelete={() => {
+                  const owners = assessment.owners.filter((_, i) => i !== idx)
+                  updateAssessment({ owners })
+                }}
+              />
             ))}
           </div>
 
           {/* GM Profile */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
             <h4 className="text-sm font-semibold text-slate-800">General Manager Profile</h4>
-            <GmCard gm={assessment.gm} />
+            <GmCard gm={assessment.gm} editMode={editMode} onChange={gm => updateAssessment({ gm })} />
           </div>
 
           {/* Senior Team */}
-          {assessment.seniorTeam.length > 0 && (
+          {(assessment.seniorTeam.length > 0 || editMode) && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-              <h4 className="text-sm font-semibold text-slate-800">Senior Management Bench</h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Name</th>
-                      <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Title</th>
-                      <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Tenure</th>
-                      <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Responsibilities</th>
-                      <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Type</th>
-                      <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Could Step Up</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {assessment.seniorTeam.map((member, idx) => (
-                      <tr key={idx} className="border-b border-slate-100">
-                        <td className="py-2 px-3 font-medium text-slate-700">{member.name || '—'}</td>
-                        <td className="py-2 px-3 text-slate-600">{member.title || '—'}</td>
-                        <td className="py-2 px-3 text-slate-600">{member.tenure || '—'}</td>
-                        <td className="py-2 px-3 text-slate-600">{member.responsibilities || '—'}</td>
-                        <td className="py-2 px-3 text-slate-600">{member.hourlyOrSalaried || '—'}</td>
-                        <td className="py-2 px-3">
-                          {member.couldStepUp === true ? (
-                            <Badge color="green">Yes</Badge>
-                          ) : member.couldStepUp === false ? (
-                            <Badge color="red">No</Badge>
-                          ) : (
-                            <Badge color="slate">Unknown</Badge>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-slate-800">Senior Management Bench</h4>
+                {editMode && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const newMember: SeniorTeamMember = {
+                        name: 'New Member',
+                        title: '',
+                        tenure: '',
+                        responsibilities: '',
+                        hourlyOrSalaried: null,
+                        couldStepUp: null,
+                      }
+                      updateAssessment({ seniorTeam: [...assessment.seniorTeam, newMember] })
+                    }}
+                  >
+                    + Add Member
+                  </Button>
+                )}
               </div>
+              {assessment.seniorTeam.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200">
+                        <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Name</th>
+                        <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Title</th>
+                        <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Tenure</th>
+                        <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Responsibilities</th>
+                        <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Type</th>
+                        <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Could Step Up</th>
+                        {editMode && <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Actions</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {assessment.seniorTeam.map((member, idx) => (
+                        <tr key={idx} className="border-b border-slate-100">
+                          <td className="py-2 px-3 font-medium text-slate-700">
+                            {editMode ? (
+                              <InlineInput
+                                value={member.name}
+                                onChange={value => {
+                                  const seniorTeam = [...assessment.seniorTeam]
+                                  seniorTeam[idx] = { ...member, name: value }
+                                  updateAssessment({ seniorTeam })
+                                }}
+                              />
+                            ) : member.name || '—'}
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">
+                            {editMode ? (
+                              <InlineInput
+                                value={member.title}
+                                onChange={value => {
+                                  const seniorTeam = [...assessment.seniorTeam]
+                                  seniorTeam[idx] = { ...member, title: value }
+                                  updateAssessment({ seniorTeam })
+                                }}
+                              />
+                            ) : member.title || '—'}
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">
+                            {editMode ? (
+                              <InlineInput
+                                value={member.tenure}
+                                onChange={value => {
+                                  const seniorTeam = [...assessment.seniorTeam]
+                                  seniorTeam[idx] = { ...member, tenure: value }
+                                  updateAssessment({ seniorTeam })
+                                }}
+                              />
+                            ) : member.tenure || '—'}
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">
+                            {editMode ? (
+                              <InlineInput
+                                value={member.responsibilities}
+                                onChange={value => {
+                                  const seniorTeam = [...assessment.seniorTeam]
+                                  seniorTeam[idx] = { ...member, responsibilities: value }
+                                  updateAssessment({ seniorTeam })
+                                }}
+                              />
+                            ) : member.responsibilities || '—'}
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">
+                            {editMode ? (
+                              <select
+                                value={member.hourlyOrSalaried || ''}
+                                onChange={e => {
+                                  const seniorTeam = [...assessment.seniorTeam]
+                                  seniorTeam[idx] = { ...member, hourlyOrSalaried: (e.target.value || null) as any }
+                                  updateAssessment({ seniorTeam })
+                                }}
+                                className="text-xs rounded border border-slate-200 bg-white px-1 py-0.5 outline-none font-medium text-slate-700"
+                              >
+                                <option value="">—</option>
+                                <option value="Hourly">Hourly</option>
+                                <option value="Salaried">Salaried</option>
+                              </select>
+                            ) : member.hourlyOrSalaried || '—'}
+                          </td>
+                          <td className="py-2 px-3">
+                            {editMode ? (
+                              <select
+                                value={member.couldStepUp === true ? 'true' : member.couldStepUp === false ? 'false' : ''}
+                                onChange={e => {
+                                  const seniorTeam = [...assessment.seniorTeam]
+                                  seniorTeam[idx] = { ...member, couldStepUp: e.target.value === 'true' ? true : e.target.value === 'false' ? false : null }
+                                  updateAssessment({ seniorTeam })
+                                }}
+                                className="text-xs rounded border border-slate-200 bg-white px-1 py-0.5 outline-none font-medium text-slate-700"
+                              >
+                                <option value="">—</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                              </select>
+                            ) : member.couldStepUp === true ? (
+                              <Badge color="green">Yes</Badge>
+                            ) : member.couldStepUp === false ? (
+                              <Badge color="red">No</Badge>
+                            ) : (
+                              <Badge color="slate">Unknown</Badge>
+                            )}
+                          </td>
+                          {editMode && (
+                            <td className="py-2 px-3">
+                              <button
+                                type="button"
+                                className="text-rose-500 hover:text-rose-700"
+                                onClick={() => {
+                                  const seniorTeam = assessment.seniorTeam.filter((_, i) => i !== idx)
+                                  updateAssessment({ seniorTeam })
+                                }}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">No senior team members defined. Click "+ Add Member" to add one.</p>
+              )}
             </div>
           )}
 
           {/* Flags */}
-          {assessment.flags.length > 0 && (
+          {(assessment.flags.length > 0 || editMode) && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
-              <h4 className="text-sm font-semibold text-slate-800">Assessment Flags</h4>
-              <div className="space-y-2">
-                {assessment.flags.map((flag) => (
-                  <FlagItem key={flag.id} flag={flag} />
-                ))}
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-slate-800">Assessment Flags</h4>
+                {editMode && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const newFlag: AssessmentFlag = {
+                        id: `flag-${Date.now()}`,
+                        section: 'General',
+                        severity: 'informational',
+                        title: 'New Flag',
+                        description: 'Flag description',
+                      }
+                      updateAssessment({ flags: [...assessment.flags, newFlag] })
+                    }}
+                  >
+                    + Add Flag
+                  </Button>
+                )}
               </div>
+              {assessment.flags.length > 0 ? (
+                <div className="space-y-2">
+                  {assessment.flags.map((flag, idx) => (
+                    <div key={flag.id} className="relative">
+                      {editMode ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1 grid grid-cols-2 gap-2">
+                              <select
+                                value={flag.section}
+                                onChange={e => {
+                                  const flags = [...assessment.flags]
+                                  flags[idx] = { ...flag, section: e.target.value as any }
+                                  updateAssessment({ flags })
+                                }}
+                                className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-medium text-slate-700"
+                              >
+                                <option value="Owner">Owner</option>
+                                <option value="GM">GM</option>
+                                <option value="Bench">Bench</option>
+                                <option value="General">General</option>
+                              </select>
+                              <select
+                                value={flag.severity}
+                                onChange={e => {
+                                  const flags = [...assessment.flags]
+                                  flags[idx] = { ...flag, severity: e.target.value as any }
+                                  updateAssessment({ flags })
+                                }}
+                                className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-medium text-slate-700"
+                              >
+                                <option value="deal-risk">Deal Risk</option>
+                                <option value="negotiation">Negotiation</option>
+                                <option value="positive">Positive</option>
+                                <option value="informational">Info</option>
+                              </select>
+                            </div>
+                            <button
+                              type="button"
+                              className="text-rose-500 hover:text-rose-700"
+                              onClick={() => {
+                                const flags = assessment.flags.filter((_, i) => i !== idx)
+                                updateAssessment({ flags })
+                              }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <InlineInput
+                            value={flag.title}
+                            onChange={value => {
+                              const flags = [...assessment.flags]
+                              flags[idx] = { ...flag, title: value }
+                              updateAssessment({ flags })
+                            }}
+                          />
+                          <InlineTextarea
+                            value={flag.description}
+                            onChange={value => {
+                              const flags = [...assessment.flags]
+                              flags[idx] = { ...flag, description: value }
+                              updateAssessment({ flags })
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <FlagItem flag={flag} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">No assessment flags. Click "+ Add Flag" to add one.</p>
+              )}
             </div>
           )}
 
           {/* Recommendations */}
-          {assessment.recommendations.length > 0 && (
+          {(assessment.recommendations.length > 0 || editMode) && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
-              <h4 className="text-sm font-semibold text-slate-800">Recommendations</h4>
-              <ol className="list-decimal list-inside space-y-2">
-                {assessment.recommendations.map((rec, idx) => (
-                  <li key={idx} className="text-sm text-slate-700 leading-relaxed">{rec}</li>
-                ))}
-              </ol>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-slate-800">Recommendations</h4>
+                {editMode && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      updateAssessment({ recommendations: [...assessment.recommendations, 'New Recommendation'] })
+                    }}
+                  >
+                    + Add Recommendation
+                  </Button>
+                )}
+              </div>
+              {assessment.recommendations.length > 0 ? (
+                <ol className="list-decimal list-inside space-y-2">
+                  {assessment.recommendations.map((rec, idx) => (
+                    <li key={idx} className="text-sm text-slate-700 leading-relaxed">
+                      {editMode ? (
+                        <div className="inline-flex items-center gap-2 w-[90%]">
+                          <InlineInput
+                            value={rec}
+                            onChange={value => {
+                              const recommendations = [...assessment.recommendations]
+                              recommendations[idx] = value
+                              updateAssessment({ recommendations })
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="text-rose-500 hover:text-rose-700 flex-shrink-0"
+                            onClick={() => {
+                              const recommendations = assessment.recommendations.filter((_, i) => i !== idx)
+                              updateAssessment({ recommendations })
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : rec}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-xs text-slate-400">No recommendations. Click "+ Add Recommendation" to add one.</p>
+              )}
             </div>
           )}
 
           {/* Counsel Items */}
-          {assessment.counselItems.length > 0 && (
+          {(assessment.counselItems.length > 0 || editMode) && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
-              <h4 className="text-sm font-semibold text-slate-800">Counsel Items</h4>
-              <ul className="list-disc list-inside space-y-1">
-                {assessment.counselItems.map((item, idx) => (
-                  <li key={idx} className="text-sm text-slate-600">{item}</li>
-                ))}
-              </ul>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-slate-800">Counsel Items</h4>
+                {editMode && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      updateAssessment({ counselItems: [...assessment.counselItems, 'New Counsel Item'] })
+                    }}
+                  >
+                    + Add Counsel Item
+                  </Button>
+                )}
+              </div>
+              {assessment.counselItems.length > 0 ? (
+                <ul className="list-disc list-inside space-y-1">
+                  {assessment.counselItems.map((item, idx) => (
+                    <li key={idx} className="text-sm text-slate-600">
+                      {editMode ? (
+                        <div className="inline-flex items-center gap-2 w-[90%]">
+                          <InlineInput
+                            value={item}
+                            onChange={value => {
+                              const counselItems = [...assessment.counselItems]
+                              counselItems[idx] = value
+                              updateAssessment({ counselItems })
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="text-rose-500 hover:text-rose-700 flex-shrink-0"
+                            onClick={() => {
+                              const counselItems = assessment.counselItems.filter((_, i) => i !== idx)
+                              updateAssessment({ counselItems })
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : item}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-slate-400">No counsel items. Click "+ Add Counsel Item" to add one.</p>
+              )}
             </div>
           )}
 
@@ -419,62 +834,502 @@ export default function OwnerGmAssessmentTab({
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-function OwnerCard({ owner }: { owner: OwnerProfile }) {
+function InlineInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+    <input
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value)}
+      className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+    />
+  )
+}
+
+function InlineTextarea({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <textarea
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value)}
+      rows={3}
+      className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs leading-5 text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+    />
+  )
+}
+
+function OwnerCard({
+  owner,
+  editMode = false,
+  onChange,
+  onDelete,
+}: {
+  owner: OwnerProfile
+  editMode?: boolean
+  onChange?: (owner: OwnerProfile) => void
+  onDelete?: () => void
+}) {
+  const patch = (updates: Partial<OwnerProfile>) => onChange?.({ ...owner, ...updates })
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-3 relative">
+      {editMode && onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="absolute top-2 right-2 text-rose-500 hover:text-rose-700"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      )}
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-800">{owner.name || 'Owner'}</p>
-          <p className="text-xs text-slate-500">{owner.title}{owner.role ? ` — ${owner.role}` : ''}</p>
+        <div className="w-[70%]">
+          {editMode ? (
+            <div className="space-y-1">
+              <InlineInput value={owner.name} onChange={value => patch({ name: value })} />
+              <InlineInput value={owner.title} onChange={value => patch({ title: value })} />
+            </div>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-slate-800">{owner.name || 'Owner'}</p>
+              <p className="text-xs text-slate-500">{owner.title}{owner.role ? ` — ${owner.role}` : ''}</p>
+            </>
+          )}
         </div>
-        <Badge color={ratingColor(owner.dependencyRating)}>{owner.dependencyRating} Dependency</Badge>
+        <div className="flex-shrink-0">
+          {editMode ? (
+            <select
+              value={owner.dependencyRating}
+              onChange={e => patch({ dependencyRating: e.target.value as any })}
+              className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-medium text-slate-700"
+            >
+              <option value="High">High Dependency</option>
+              <option value="Medium">Medium Dependency</option>
+              <option value="Low">Low Dependency</option>
+            </select>
+          ) : (
+            <Badge color={ratingColor(owner.dependencyRating)}>{owner.dependencyRating} Dependency</Badge>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <InfoCell label="Hours/Week" value={owner.hoursPerWeek != null ? `${owner.hoursPerWeek}` : '—'} />
-        <InfoCell label="Critical Hours" value={owner.criticalHoursPerWeek != null ? `${owner.criticalHoursPerWeek}` : '—'} />
-        <InfoCell label="Post-Close" value={owner.postCloseIntention || '—'} />
-        <InfoCell label="Stay Required" value={owner.stayRequired === true ? 'Yes' : owner.stayRequired === false ? 'No' : '—'} />
+        <InfoCell
+          label="Hours/Week"
+          value={owner.hoursPerWeek != null ? `${owner.hoursPerWeek}` : '—'}
+          editMode={editMode}
+          onChange={value => patch({ hoursPerWeek: value ? parseInt(value) || 0 : null })}
+        />
+        <InfoCell
+          label="Critical Hours"
+          value={owner.criticalHoursPerWeek != null ? `${owner.criticalHoursPerWeek}` : '—'}
+          editMode={editMode}
+          onChange={value => patch({ criticalHoursPerWeek: value ? parseInt(value) || 0 : null })}
+        />
+        <InfoCell
+          label="Post-Close"
+          value={owner.postCloseIntention || '—'}
+          editMode={editMode}
+        >
+          <select
+            value={owner.postCloseIntention || ''}
+            onChange={e => patch({ postCloseIntention: (e.target.value || null) as any })}
+            className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+          >
+            <option value="">—</option>
+            <option value="stay">Stay</option>
+            <option value="exit">Exit</option>
+            <option value="undecided">Undecided</option>
+          </select>
+        </InfoCell>
+        <InfoCell
+          label="Stay Required"
+          value={owner.stayRequired === true ? 'Yes' : owner.stayRequired === false ? 'No' : '—'}
+          editMode={editMode}
+        >
+          <select
+            value={owner.stayRequired === true ? 'true' : owner.stayRequired === false ? 'false' : ''}
+            onChange={e => patch({ stayRequired: e.target.value === 'true' ? true : e.target.value === 'false' ? false : null })}
+            className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+          >
+            <option value="">—</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </InfoCell>
       </div>
 
-      {owner.postCloseRole && (
+      {(owner.postCloseRole || editMode) && (
         <div className="grid grid-cols-2 gap-2">
-          <InfoCell label="Post-Close Role" value={owner.postCloseRole} />
-          <InfoCell label="Post-Close Duration" value={owner.postCloseDuration || '—'} />
+          <InfoCell label="Post-Close Role" value={owner.postCloseRole} editMode={editMode} onChange={value => patch({ postCloseRole: value })} />
+          <InfoCell label="Post-Close Duration" value={owner.postCloseDuration || '—'} editMode={editMode} onChange={value => patch({ postCloseDuration: value })} />
         </div>
       )}
 
-      {owner.criticalRelationships.length > 0 && (
+      {(owner.criticalRelationships.length > 0 || editMode) && (
         <div>
           <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1">Critical Relationships</p>
-          <div className="flex flex-wrap gap-1">
-            {owner.criticalRelationships.map((rel, i) => (
-              <span key={i} className="text-xs bg-white border border-slate-200 rounded px-2 py-0.5 text-slate-600">{rel}</span>
-            ))}
-          </div>
+          {editMode ? (
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap gap-1">
+                {owner.criticalRelationships.map((rel, i) => (
+                  <span key={i} className="text-xs bg-white border border-slate-200 rounded px-2 py-0.5 text-slate-600 flex items-center gap-1">
+                    {rel}
+                    <button
+                      type="button"
+                      className="text-red-500 hover:text-red-700 font-bold"
+                      onClick={() => {
+                        const criticalRelationships = owner.criticalRelationships.filter((_, idx) => idx !== i)
+                        patch({ criticalRelationships })
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <input
+                type="text"
+                placeholder="Add critical relationship (Press Enter)..."
+                className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none bg-white text-slate-700"
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const val = e.currentTarget.value.trim()
+                    if (val && !owner.criticalRelationships.includes(val)) {
+                      patch({ criticalRelationships: [...owner.criticalRelationships, val] })
+                      e.currentTarget.value = ''
+                    }
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {owner.criticalRelationships.map((rel, i) => (
+                <span key={i} className="text-xs bg-white border border-slate-200 rounded px-2 py-0.5 text-slate-600">{rel}</span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {owner.replacementRoles.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          <InfoCell label="Replacement Roles" value={owner.replacementRoles.join(', ')} />
-          <InfoCell label="Experience Needed" value={owner.replacementExperience || '—'} />
-          <InfoCell label="External Hire Cost" value={owner.externalHireCost || '—'} />
+      {(owner.replacementRoles.length > 0 || editMode) && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <InfoCell
+            label="Replacement Roles (comma separated)"
+            value={owner.replacementRoles.join(', ')}
+            editMode={editMode}
+            onChange={value => patch({ replacementRoles: value.split(',').map(item => item.trim()).filter(Boolean) })}
+          />
+          <InfoCell
+            label="Experience Needed"
+            value={owner.replacementExperience || '—'}
+            editMode={editMode}
+            onChange={value => patch({ replacementExperience: value })}
+          />
+          <InfoCell
+            label="External Hire Cost"
+            value={owner.externalHireCost || '—'}
+            editMode={editMode}
+            onChange={value => patch({ externalHireCost: value })}
+          />
         </div>
       )}
 
-      {owner.internalSuccessor && (
-        <InfoCell label="Internal Successor" value={owner.internalSuccessor} />
+      {(owner.internalSuccessor || editMode) && (
+        <InfoCell
+          label="Internal Successor"
+          value={owner.internalSuccessor || '—'}
+          editMode={editMode}
+          onChange={value => patch({ internalSuccessor: value })}
+        />
       )}
 
-      {owner.dependencyNotes && (
-        <p className="text-xs text-slate-500 italic">{owner.dependencyNotes}</p>
+      {(owner.dependencyNotes || editMode) && (
+        editMode
+          ? <InlineTextarea value={owner.dependencyNotes} onChange={value => patch({ dependencyNotes: value })} />
+          : <p className="text-xs text-slate-500 italic">{owner.dependencyNotes}</p>
       )}
     </div>
   )
 }
 
-function GmCard({ gm }: { gm: GmProfile }) {
+function GmCard({ gm, editMode = false, onChange }: { gm: GmProfile; editMode?: boolean; onChange?: (gm: GmProfile) => void }) {
+  const patch = (updates: Partial<GmProfile>) => onChange?.({ ...gm, ...updates })
+
+  if (editMode) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+          <label className="text-xs font-semibold text-slate-700">General Manager in Place?</label>
+          <select
+            value={gm.inPlace ? 'true' : 'false'}
+            onChange={e => patch({ inPlace: e.target.value === 'true' })}
+            className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-semibold text-slate-700"
+          >
+            <option value="true">Yes</option>
+            <option value="false">No (Vacant/Risk)</option>
+          </select>
+        </div>
+
+        {gm.inPlace && (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="w-[70%]">
+                <InlineInput value={gm.name} onChange={value => patch({ name: value })} />
+              </div>
+              <select
+                value={gm.retentionRiskRating}
+                onChange={e => patch({ retentionRiskRating: e.target.value as any })}
+                className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-medium text-slate-700"
+              >
+                <option value="High">High Retention Risk</option>
+                <option value="Medium">Medium Retention Risk</option>
+                <option value="Low">Low Retention Risk</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <InfoCell label="Total Tenure" value={gm.totalTenure || '—'} editMode={editMode} onChange={value => patch({ totalTenure: value })} />
+              <InfoCell label="GM Tenure" value={gm.gmTenure || '—'} editMode={editMode} onChange={value => patch({ gmTenure: value })} />
+              <InfoCell label="Compensation" value={gm.compensation || '—'} editMode={editMode} onChange={value => patch({ compensation: value })} />
+              <InfoCell label="Market Aligned" value={gm.marketAligned || '—'} editMode={editMode}>
+                <select
+                  value={gm.marketAligned || 'Unknown'}
+                  onChange={e => patch({ marketAligned: e.target.value as any })}
+                  className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+                >
+                  <option value="Unknown">Unknown</option>
+                  <option value="Above">Above</option>
+                  <option value="At Market">At Market</option>
+                  <option value="Below">Below</option>
+                </select>
+              </InfoCell>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <InfoCell label="Employment Type" value={gm.fullOrPartTime || '—'} editMode={editMode}>
+                <select
+                  value={gm.fullOrPartTime || ''}
+                  onChange={e => patch({ fullOrPartTime: (e.target.value || null) as any })}
+                  className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+                >
+                  <option value="">—</option>
+                  <option value="Full-Time">Full-Time</option>
+                  <option value="Part-Time">Part-Time</option>
+                </select>
+              </InfoCell>
+              <InfoCell label="Pay Type" value={gm.hourlyOrSalaried || '—'} editMode={editMode}>
+                <select
+                  value={gm.hourlyOrSalaried || ''}
+                  onChange={e => patch({ hourlyOrSalaried: (e.target.value || null) as any })}
+                  className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+                >
+                  <option value="">—</option>
+                  <option value="Hourly">Hourly</option>
+                  <option value="Salaried">Salaried</option>
+                </select>
+              </InfoCell>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Independence Score (1-10)</p>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={gm.independenceScore ?? ''}
+                onChange={e => patch({ independenceScore: e.target.value ? parseInt(e.target.value) : null })}
+                className="w-20 rounded border border-slate-200 px-2 py-1 text-xs outline-none bg-white text-slate-700"
+              />
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1">Day-to-Day Ownership</p>
+              <InlineTextarea value={gm.dayToDayOwnership} onChange={value => patch({ dayToDayOwnership: value })} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-emerald-500 font-semibold mb-1">Strengths</p>
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-1">
+                    {gm.strengths.map((s, i) => (
+                      <span key={i} className="text-xs bg-white border border-slate-200 rounded px-2 py-0.5 text-slate-600 flex items-center gap-1">
+                        {s}
+                        <button
+                          type="button"
+                          className="text-red-500 hover:text-red-700 font-bold"
+                          onClick={() => {
+                            const strengths = gm.strengths.filter((_, idx) => idx !== i)
+                            patch({ strengths })
+                          }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Add strength (Press Enter)..."
+                    className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none bg-white text-slate-700"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const val = e.currentTarget.value.trim()
+                        if (val && !gm.strengths.includes(val)) {
+                          patch({ strengths: [...gm.strengths, val] })
+                          e.currentTarget.value = ''
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-amber-500 font-semibold mb-1">Development Areas</p>
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-1">
+                    {gm.gaps.map((g, i) => (
+                      <span key={i} className="text-xs bg-white border border-slate-200 rounded px-2 py-0.5 text-slate-600 flex items-center gap-1">
+                        {g}
+                        <button
+                          type="button"
+                          className="text-red-500 hover:text-red-700 font-bold"
+                          onClick={() => {
+                            const gaps = gm.gaps.filter((_, idx) => idx !== i)
+                            patch({ gaps })
+                          }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Add development area (Press Enter)..."
+                    className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none bg-white text-slate-700"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const val = e.currentTarget.value.trim()
+                        if (val && !gm.gaps.includes(val)) {
+                          patch({ gaps: [...gm.gaps, val] })
+                          e.currentTarget.value = ''
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1">Solo Operation Experience</p>
+              <div className="space-y-1.5">
+                <InlineInput value={gm.soloExperience} onChange={value => patch({ soloExperience: value })} />
+                <InlineInput value={gm.soloOutcome} onChange={value => patch({ soloOutcome: value })} />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sale Awareness & Retention</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <InfoCell label="Aware of Sale" value={gm.awareOfSale === true ? 'Yes' : gm.awareOfSale === false ? 'No' : '—'} editMode={editMode}>
+                  <select
+                    value={gm.awareOfSale === true ? 'true' : gm.awareOfSale === false ? 'false' : ''}
+                    onChange={e => patch({ awareOfSale: e.target.value === 'true' ? true : e.target.value === 'false' ? false : null })}
+                    className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+                  >
+                    <option value="">—</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </InfoCell>
+                <InfoCell label="Retention Conv." value={gm.retentionConversation === true ? 'Yes' : gm.retentionConversation === false ? 'No' : '—'} editMode={editMode}>
+                  <select
+                    value={gm.retentionConversation === true ? 'true' : gm.retentionConversation === false ? 'false' : ''}
+                    onChange={e => patch({ retentionConversation: e.target.value === 'true' ? true : e.target.value === 'false' ? false : null })}
+                    className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+                  >
+                    <option value="">—</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </InfoCell>
+                <InfoCell label="Supportive" value={gm.supportive === true ? 'Yes' : gm.supportive === false ? 'No' : '—'} editMode={editMode}>
+                  <select
+                    value={gm.supportive === true ? 'true' : gm.supportive === false ? 'false' : ''}
+                    onChange={e => patch({ supportive: e.target.value === 'true' ? true : e.target.value === 'false' ? false : null })}
+                    className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+                  >
+                    <option value="">—</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </InfoCell>
+                <InfoCell label="Commitment" value={gm.retentionCommitment || '—'} editMode={editMode}>
+                  <select
+                    value={gm.retentionCommitment || ''}
+                    onChange={e => patch({ retentionCommitment: (e.target.value || 'Unknown') as any })}
+                    className="w-full text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none mt-0.5"
+                  >
+                    <option value="Unknown">Unknown</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </InfoCell>
+              </div>
+
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-amber-500 font-semibold mb-1">Hesitations</p>
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-1">
+                    {gm.hesitations.map((h, i) => (
+                      <span key={i} className="text-xs bg-white border border-slate-200 rounded px-2 py-0.5 text-slate-600 flex items-center gap-1">
+                        {h}
+                        <button
+                          type="button"
+                          className="text-red-500 hover:text-red-700 font-bold"
+                          onClick={() => {
+                            const hesitations = gm.hesitations.filter((_, idx) => idx !== i)
+                            patch({ hesitations })
+                          }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Add hesitation (Press Enter)..."
+                    className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none bg-white text-slate-700"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const val = e.currentTarget.value.trim()
+                        if (val && !gm.hesitations.includes(val)) {
+                          patch({ hesitations: [...gm.hesitations, val] })
+                          e.currentTarget.value = ''
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1">Retention Notes</p>
+                <InlineTextarea value={gm.retentionNotes} onChange={value => patch({ retentionNotes: value })} />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   if (!gm.inPlace) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center">
@@ -502,7 +1357,6 @@ function GmCard({ gm }: { gm: GmProfile }) {
         <InfoCell label="Market Aligned" value={gm.marketAligned || '—'} />
       </div>
 
-      {/* Independence score gauge */}
       {gm.independenceScore != null && (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Independence Score</p>
@@ -619,11 +1473,27 @@ function FlagItem({ flag }: { flag: AssessmentFlag }) {
   )
 }
 
-function InfoCell({ label, value }: { label: string; value: string }) {
+function InfoCell({
+  label,
+  value,
+  editMode = false,
+  onChange,
+  children
+}: {
+  label: string
+  value: string
+  editMode?: boolean
+  onChange?: (value: string) => void
+  children?: React.ReactNode
+}) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-2">
+    <div className="rounded-lg border border-slate-200 bg-white p-2 w-full">
       <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">{label}</p>
-      <p className="text-xs text-slate-700 font-medium mt-0.5">{value}</p>
+      {editMode ? (
+        children ? children : (onChange ? <InlineInput value={value === '—' ? '' : value} onChange={onChange} /> : null)
+      ) : (
+        <p className="text-xs text-slate-700 font-medium mt-0.5">{value}</p>
+      )}
     </div>
   )
 }

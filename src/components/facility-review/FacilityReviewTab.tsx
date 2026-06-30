@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { AlertTriangle, Camera, CheckCircle, FileText, Loader2, Printer, RefreshCw, Save, Upload, X } from 'lucide-react'
+import { AlertTriangle, Camera, CheckCircle, FileText, Loader2, Pencil, Printer, RefreshCw, Save, Upload, X } from 'lucide-react'
 import { Badge, Card, Input, Textarea, cn } from '@/components/ui'
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
-import type { FacilityRating, FacilityReviewReport } from '@/lib/facility-review/types'
+import type { FacilityRating, FacilityReviewReport, FacilityImpact, FacilityEffort } from '@/lib/facility-review/types'
 import { buildFacilityReviewReportHtml } from '@/lib/report-export/build-facility-review-report'
 
 const ACCEPTED_TYPES = {
@@ -238,11 +238,14 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   const [sectionFiles, setSectionFiles] = useState<SectionFiles>(() => emptySectionFiles())
   const [existingSectionImages, setExistingSectionImages] = useState<ExistingSectionImages>(() => emptyExistingSectionImages())
   const [report, setReport] = useState<FacilityReviewReport | null>(null)
+  const [editMode, setEditMode] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSavedSnapshotRef = useRef('')
 
   useEffect(() => {
     const loadSaved = async () => {
@@ -270,6 +273,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
           const data = await res.json()
           if (data?.overallScore) {
             setReport(data)
+            lastSavedSnapshotRef.current = JSON.stringify(data)
             if (data.reportVersion?.includes('Advisor Visit')) {
               setReportRunMode('advisor')
               setRunMode('advisor')
@@ -450,6 +454,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
         body: JSON.stringify({ section: 'facilityReview', data: report }),
       })
       if (!res.ok) throw new Error('Save failed')
+      lastSavedSnapshotRef.current = JSON.stringify(report)
       setSaved(true)
       setTimeout(() => setSaved(false), 1800)
     } catch (err: any) {
@@ -457,6 +462,41 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
     } finally {
       setSaving(false)
     }
+  }
+
+  useEffect(() => {
+    if (!editMode || !report) return
+    const snapshot = JSON.stringify(report)
+    if (snapshot === lastSavedSnapshotRef.current) return
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      void save()
+    }, 800)
+    return () => {
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    }
+  }, [editMode, report])
+
+  const updateReport = (updates: Partial<FacilityReviewReport>) => {
+    setReport(current => current ? { ...current, ...updates } : current)
+  }
+
+  const updateZone = (index: number, updates: Partial<FacilityReviewReport['zones'][number]>) => {
+    setReport(current => {
+      if (!current) return current
+      const zones = [...current.zones]
+      zones[index] = { ...zones[index], ...updates }
+      return { ...current, zones }
+    })
+  }
+
+  const updateImprovement = (index: number, updates: Partial<FacilityReviewReport['prioritizedImprovements'][number]>) => {
+    setReport(current => {
+      if (!current) return current
+      const prioritizedImprovements = [...current.prioritizedImprovements]
+      prioritizedImprovements[index] = { ...prioritizedImprovements[index], ...updates }
+      return { ...current, prioritizedImprovements }
+    })
   }
 
   const openReport = () => {
@@ -545,7 +585,18 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
             <p className="text-xs text-slate-400 mt-1">{report.businessName} - Generated {new Date(report.generatedAt).toLocaleString()}</p>
           </div>
           <AdvisorActions className="flex flex-wrap items-center gap-2">
-            <button onClick={() => { setReport(null); setReportRunMode(null) }} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"><RefreshCw className="w-3.5 h-3.5" />New Run</button>
+            <button onClick={() => { setReport(null); setReportRunMode(null); setEditMode(false) }} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"><RefreshCw className="w-3.5 h-3.5" />New Run</button>
+            <button
+              onClick={() => {
+                if (editMode) void save()
+                setEditMode(!editMode)
+              }}
+              disabled={saving}
+              className={cn('flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg disabled:opacity-50', editMode ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
+            >
+              {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+              {editMode ? 'Done Editing' : 'Edit Output'}
+            </button>
             <button onClick={save} disabled={saving} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-900 text-white disabled:opacity-50"><Save className="w-3.5 h-3.5" />{saving ? 'Saving...' : 'Save'}</button>
             <button onClick={openReport} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"><Printer className="w-3.5 h-3.5" />Export PDF</button>
             {saved && <span className="text-xs font-semibold text-emerald-600">Saved</span>}
@@ -555,13 +606,41 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
         <Card className="p-6">
           <div className="grid gap-5 lg:grid-cols-[180px_1fr]">
             <div className="text-center border-r border-slate-100 pr-0 lg:pr-5">
-              <div className="text-5xl font-bold text-slate-900">{report.overallScore}</div>
+              {editMode ? (
+                <input
+                  type="number"
+                  value={report.overallScore}
+                  onChange={e => updateReport({ overallScore: Number(e.target.value) })}
+                  className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-center text-4xl font-bold text-slate-900 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+                />
+              ) : (
+                <div className="text-5xl font-bold text-slate-900">{report.overallScore}</div>
+              )}
               <p className="text-xs text-slate-400">out of 100</p>
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Overall Rating</p>
-              <h3 className="text-xl font-semibold text-slate-800 mt-1">{report.overallRating}</h3>
-              <p className="text-sm text-slate-600 mt-3 leading-6">{report.overallNarrative}</p>
+              {editMode ? (
+                <select
+                  value={report.overallRating}
+                  onChange={e => updateReport({ overallRating: e.target.value as FacilityRating })}
+                  className="mt-1 rounded-lg border border-slate-200 px-2 py-1 text-sm text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+                >
+                  {Object.keys(RATING_BADGE).map(rating => <option key={rating} value={rating}>{rating}</option>)}
+                </select>
+              ) : (
+                <h3 className="text-xl font-semibold text-slate-800 mt-1">{report.overallRating}</h3>
+              )}
+              {editMode ? (
+                <textarea
+                  value={report.overallNarrative}
+                  onChange={e => updateReport({ overallNarrative: e.target.value })}
+                  rows={5}
+                  className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 text-slate-600 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+                />
+              ) : (
+                <p className="text-sm text-slate-600 mt-3 leading-6">{report.overallNarrative}</p>
+              )}
             </div>
           </div>
         </Card>
@@ -570,31 +649,261 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
           <div className="px-5 py-4 border-b border-slate-100"><h3 className="text-sm font-semibold text-slate-800">Zone Scores at a Glance</h3></div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs text-slate-400"><tr><th className="text-left px-5 py-3">Assessment Zone</th><th className="text-left px-5 py-3">Weight</th><th className="text-left px-5 py-3">Score</th><th className="text-left px-5 py-3">Rating</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">{report.zones.map(zone => <tr key={zone.zone}><td className="px-5 py-3 font-medium text-slate-700">{zone.zone}</td><td className="px-5 py-3 text-slate-500">{zone.weight}%</td><td className="px-5 py-3 text-slate-700">{zone.score} / 100</td><td className="px-5 py-3"><Badge color={RATING_BADGE[zone.rating]}>{zone.rating}</Badge></td></tr>)}</tbody>
+              <thead className="bg-slate-50 text-xs text-slate-400">
+                <tr>
+                  <th className="text-left px-5 py-3">Assessment Zone</th>
+                  <th className="text-left px-5 py-3">Weight</th>
+                  <th className="text-left px-5 py-3">Score</th>
+                  <th className="text-left px-5 py-3">Rating</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {report.zones.map((zone, index) => (
+                  <tr key={zone.zone}>
+                    <td className="px-5 py-3 font-medium text-slate-700">{zone.zone}</td>
+                    <td className="px-5 py-3 text-slate-500">{zone.weight}%</td>
+                    <td className="px-5 py-3 text-slate-700">
+                      {editMode ? (
+                        <input
+                          type="number"
+                          value={zone.score}
+                          onChange={e => updateZone(index, { score: Number(e.target.value) })}
+                          className="w-20 rounded border border-slate-200 px-2 py-1 text-xs"
+                        />
+                      ) : (
+                        `${zone.score} / 100`
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
+                      {editMode ? (
+                        <select
+                          value={zone.rating}
+                          onChange={e => updateZone(index, { rating: e.target.value as FacilityRating })}
+                          className="text-xs rounded border border-slate-200 bg-white px-1.5 py-0.5 outline-none font-medium text-slate-700"
+                        >
+                          {Object.keys(RATING_BADGE).map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Badge color={RATING_BADGE[zone.rating]}>{zone.rating}</Badge>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </Card>
 
         <div className="space-y-4">
-          {sortedZones.map(zone => (
-            <Card key={zone.zone} className="p-5">
-              <div className="flex flex-wrap items-center gap-2 mb-3">
-                <h3 className="text-base font-semibold text-slate-800">{zone.zone} - {zone.score}/100</h3>
-                <Badge color={RATING_BADGE[zone.rating]}>{zone.rating}</Badge>
-              </div>
-              <p className="text-sm text-slate-600 leading-6">{zone.commentary}</p>
-              <ul className="mt-4 space-y-2">{zone.keyFindings.map(item => <li key={item} className="flex gap-2 text-sm text-slate-600"><CheckCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />{item}</li>)}</ul>
-            </Card>
-          ))}
+          {sortedZones.map(zone => {
+            const zoneIndex = report.zones.findIndex(item => item.zone === zone.zone)
+            return (
+              <Card key={zone.zone} className="p-5">
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <h3 className="text-base font-semibold text-slate-800">{zone.zone} - {zone.score}/100</h3>
+                  {editMode ? (
+                    <select
+                      value={zone.rating}
+                      onChange={e => updateZone(zoneIndex, { rating: e.target.value as FacilityRating })}
+                      className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-medium text-slate-700"
+                    >
+                      {Object.keys(RATING_BADGE).map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Badge color={RATING_BADGE[zone.rating]}>{zone.rating}</Badge>
+                  )}
+                </div>
+                {editMode ? (
+                  <textarea
+                    value={zone.commentary}
+                    onChange={e => updateZone(zoneIndex, { commentary: e.target.value })}
+                    rows={4}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 text-slate-600 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+                  />
+                ) : (
+                  <p className="text-sm text-slate-600 leading-6">{zone.commentary}</p>
+                )}
+
+                <div className="mt-4 space-y-2">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Key findings:</p>
+                  {editMode ? (
+                    <div className="space-y-2">
+                      {zone.keyFindings.map((finding, findIdx) => (
+                        <div key={findIdx} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={finding}
+                            onChange={e => {
+                              const keyFindings = [...zone.keyFindings]
+                              keyFindings[findIdx] = e.target.value
+                              updateZone(zoneIndex, { keyFindings })
+                            }}
+                            className="flex-1 rounded border border-slate-200 px-2 py-1 text-xs outline-none bg-white text-slate-700"
+                          />
+                          <button
+                            type="button"
+                            className="text-rose-500 hover:text-rose-700"
+                            onClick={() => {
+                              const keyFindings = zone.keyFindings.filter((_, idx) => idx !== findIdx)
+                              updateZone(zoneIndex, { keyFindings })
+                            }}
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const keyFindings = [...zone.keyFindings, 'New Key Finding']
+                          updateZone(zoneIndex, { keyFindings })
+                        }}
+                        className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                      >
+                        + Add Finding
+                      </button>
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {zone.keyFindings.map(item => (
+                        <li key={item} className="flex gap-2 text-sm text-slate-600">
+                          <CheckCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
         </div>
 
         <Card className="overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100"><h3 className="text-sm font-semibold text-slate-800">Prioritized Improvement Plan</h3></div>
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800">Prioritized Improvement Plan</h3>
+            {editMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  const newItem = {
+                    improvement: 'New Improvement',
+                    zone: report.zones[0]?.zone || 'Exterior & Curb Appeal',
+                    valueImpact: 'Medium' as FacilityImpact,
+                    effort: 'Medium' as FacilityEffort,
+                    timing: '1-3 months',
+                  }
+                  updateReport({ prioritizedImprovements: [...report.prioritizedImprovements, newItem] })
+                }}
+                className="px-3 py-1.5 text-xs font-medium rounded border border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+              >
+                + Add Improvement
+              </button>
+            )}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs text-slate-400"><tr><th className="text-left px-5 py-3">Improvement</th><th className="text-left px-5 py-3">Zone</th><th className="text-left px-5 py-3">Impact</th><th className="text-left px-5 py-3">Effort</th><th className="text-left px-5 py-3">Timing</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">{report.prioritizedImprovements.map(item => <tr key={`${item.improvement}-${item.timing}`}><td className="px-5 py-3 font-medium text-slate-700">{item.improvement}</td><td className="px-5 py-3 text-slate-500">{item.zone}</td><td className="px-5 py-3 text-slate-600">{item.valueImpact}</td><td className="px-5 py-3 text-slate-600">{item.effort}</td><td className="px-5 py-3 text-slate-600">{item.timing}</td></tr>)}</tbody>
+              <thead className="bg-slate-50 text-xs text-slate-400">
+                <tr>
+                  <th className="text-left px-5 py-3">Improvement</th>
+                  <th className="text-left px-5 py-3">Zone</th>
+                  <th className="text-left px-5 py-3">Impact</th>
+                  <th className="text-left px-5 py-3">Effort</th>
+                  <th className="text-left px-5 py-3">Timing</th>
+                  {editMode && <th className="text-left px-5 py-3">Actions</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {report.prioritizedImprovements.map((item, index) => (
+                  <tr key={index}>
+                    <td className="px-5 py-3 font-medium text-slate-700">
+                      {editMode ? (
+                        <input
+                          value={item.improvement}
+                          onChange={e => updateImprovement(index, { improvement: e.target.value })}
+                          className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none"
+                        />
+                      ) : (
+                        item.improvement
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-slate-500">
+                      {editMode ? (
+                        <select
+                          value={item.zone}
+                          onChange={e => updateImprovement(index, { zone: e.target.value })}
+                          className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-medium text-slate-700"
+                        >
+                          {report.zones.map(z => (
+                            <option key={z.zone} value={z.zone}>{z.zone}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        item.zone
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {editMode ? (
+                        <select
+                          value={item.valueImpact}
+                          onChange={e => updateImprovement(index, { valueImpact: e.target.value as FacilityImpact })}
+                          className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-medium text-slate-700"
+                        >
+                          <option value="High">High</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Low">Low</option>
+                        </select>
+                      ) : (
+                        item.valueImpact
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {editMode ? (
+                        <select
+                          value={item.effort}
+                          onChange={e => updateImprovement(index, { effort: e.target.value as FacilityEffort })}
+                          className="text-xs rounded border border-slate-200 bg-white px-2 py-1 outline-none font-medium text-slate-700"
+                        >
+                          <option value="High">High</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Low">Low</option>
+                        </select>
+                      ) : (
+                        item.effort
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {editMode ? (
+                        <input
+                          value={item.timing}
+                          onChange={e => updateImprovement(index, { timing: e.target.value })}
+                          className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none"
+                        />
+                      ) : (
+                        item.timing
+                      )}
+                    </td>
+                    {editMode && (
+                      <td className="px-5 py-3">
+                        <button
+                          type="button"
+                          className="text-rose-500 hover:text-rose-700"
+                          onClick={() => {
+                            const prioritizedImprovements = report.prioritizedImprovements.filter((_, i) => i !== index)
+                            updateReport({ prioritizedImprovements })
+                          }}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </Card>

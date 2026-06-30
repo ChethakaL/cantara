@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
-import EditableMarkdownReportView from '@/components/report-export/EditableMarkdownReportView'
+import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildAssessmentReportHtml } from '@/lib/report-export/build-assessment-report'
 
 type AssessmentReport = {
@@ -161,9 +161,8 @@ export default function AssessmentReportTab({
       )}
 
       {report ? (
-        <EditableMarkdownReportView
+        <InlineEditableMarkdownReport
           report={report}
-          accentClassName="border-amber-200 focus:ring-amber-400"
           markdownComponents={markdownComponents}
           onSave={async (markdown) => {
             const res = await fetch('/api/assessment-report', {

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from "@/lib/secure-settings"
-import type { CompetitorPricingInput, PricingAnalysisReport } from './types'
+import type { CompetitorPricingInput, PriceMatrixRow, PricingAnalysisReport, PricingSummaryRow } from './types'
 import { normalizePricingReport } from './normalize-report'
 import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
 
@@ -10,6 +10,151 @@ function extractText(result: Anthropic.Messages.Message): string {
     .map((block) => ('text' in block ? block.text : ''))
     .join('')
     .trim()
+}
+
+type SellerDaycarePrice = {
+  service: 'Daycare - Full Day' | 'Daycare - Half Day'
+  basis: 'Full Day' | 'Half Day'
+  rawPrice: string
+  normalizedPrice: string
+  normalizedNumeric: number
+}
+
+function formatDollar(value: number): string {
+  return Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`
+}
+
+function extractSellerDaycarePrices(manualPricingText?: string | null): SellerDaycarePrice[] {
+  if (!manualPricingText?.trim()) return []
+
+  const found = new Map<SellerDaycarePrice['basis'], SellerDaycarePrice>()
+  const lines = manualPricingText
+    .split(/\r?\n|;/)
+    .map(line => line.trim())
+    .filter(Boolean)
+
+  for (const line of lines) {
+    const lower = line.toLowerCase()
+    if (!/(daycare|day care|day camp)/.test(lower)) continue
+
+    const priceMatch = line.match(/\$\s*(\d+(?:\.\d{1,2})?)/)
+    if (!priceMatch) continue
+
+    const price = Number(priceMatch[1])
+    if (!Number.isFinite(price)) continue
+
+    if (/(full\s*-?\s*day|full\s+day)/.test(lower)) {
+      found.set('Full Day', {
+        service: 'Daycare - Full Day',
+        basis: 'Full Day',
+        rawPrice: `${formatDollar(price)}/day`,
+        normalizedPrice: formatDollar(price),
+        normalizedNumeric: price,
+      })
+    }
+
+    if (/(half\s*-?\s*day|half\s+day)/.test(lower)) {
+      found.set('Half Day', {
+        service: 'Daycare - Half Day',
+        basis: 'Half Day',
+        rawPrice: `${formatDollar(price)}/half day`,
+        normalizedPrice: formatDollar(price * 2),
+        normalizedNumeric: price * 2,
+      })
+    }
+  }
+
+  return Array.from(found.values())
+}
+
+function findDaycareRowIndex<T extends { service: string; basis?: string }>(
+  rows: T[],
+  daycarePrice: SellerDaycarePrice,
+): number {
+  const service = daycarePrice.service.toLowerCase()
+  const basis = daycarePrice.basis.toLowerCase()
+  return rows.findIndex(row => {
+    const rowService = String(row.service ?? '').toLowerCase()
+    const rowBasis = String(row.basis ?? '').toLowerCase()
+    return (
+      rowService === service ||
+      (/daycare|day care/.test(rowService) &&
+        (rowService.includes(basis) || rowBasis.includes(basis)))
+    )
+  })
+}
+
+function applySellerManualPricingEvidence(
+  report: PricingAnalysisReport,
+  manualPricingText?: string | null,
+): PricingAnalysisReport {
+  const daycarePrices = extractSellerDaycarePrices(manualPricingText)
+  if (!daycarePrices.length) return report
+
+  const priceMatrix = [...(report.priceMatrix ?? [])]
+  const pricingSummary = [...(report.pricingSummary ?? [])]
+  const competitorTemplate = priceMatrix[0]?.competitors ?? []
+
+  for (const daycarePrice of daycarePrices) {
+    const matrixIndex = findDaycareRowIndex(priceMatrix, daycarePrice)
+    const nextMatrixRow: PriceMatrixRow =
+      matrixIndex >= 0
+        ? {
+            ...priceMatrix[matrixIndex],
+            service: daycarePrice.service,
+            basis: daycarePrice.basis,
+            sellerPrice: daycarePrice.rawPrice,
+            sellerNormalized: daycarePrice.normalizedPrice,
+            sellerNormalizedNumeric: daycarePrice.normalizedNumeric,
+          }
+        : {
+            service: daycarePrice.service,
+            basis: daycarePrice.basis,
+            sellerPrice: daycarePrice.rawPrice,
+            sellerNormalized: daycarePrice.normalizedPrice,
+            sellerNormalizedNumeric: daycarePrice.normalizedNumeric,
+            competitors: competitorTemplate.map(competitor => ({
+              ...competitor,
+              listedPrice: '',
+              normalized: '',
+              normalizedNumeric: null,
+              normalizationNote: '',
+            })),
+          }
+
+    if (matrixIndex >= 0) priceMatrix[matrixIndex] = nextMatrixRow
+    else priceMatrix.push(nextMatrixRow)
+
+    const summaryIndex = findDaycareRowIndex(pricingSummary, daycarePrice)
+    const summaryPrice =
+      daycarePrice.basis === 'Half Day'
+        ? `${daycarePrice.normalizedPrice}/day normalized (${daycarePrice.rawPrice})`
+        : daycarePrice.normalizedPrice
+    const nextSummaryRow: PricingSummaryRow =
+      summaryIndex >= 0
+        ? {
+            ...pricingSummary[summaryIndex],
+            service: daycarePrice.service,
+            sellerPrice: summaryPrice,
+            sellerPriceNumeric: daycarePrice.normalizedNumeric,
+          }
+        : {
+            service: daycarePrice.service,
+            sellerPrice: summaryPrice,
+            sellerPriceNumeric: daycarePrice.normalizedNumeric,
+            competitorAvg: '',
+            competitorAvgNumeric: null,
+            variance: '',
+            variancePercent: null,
+            status: 'unknown',
+            estAnnualUplift: '',
+          }
+
+    if (summaryIndex >= 0) pricingSummary[summaryIndex] = nextSummaryRow
+    else pricingSummary.push(nextSummaryRow)
+  }
+
+  return { ...report, priceMatrix, pricingSummary }
 }
 
 export async function analyzePricing(args: {
@@ -127,5 +272,8 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
   if (!normalized) {
     throw new Error('AI returned an invalid pricing report. Please run the analysis again.')
   }
-  return normalized
+  return applySellerManualPricingEvidence(
+    normalized,
+    args.sellerPricingResearch?.manualPricingText,
+  )
 }

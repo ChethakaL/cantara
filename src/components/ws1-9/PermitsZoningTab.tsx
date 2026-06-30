@@ -2,7 +2,7 @@
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, Button, cn } from '@/components/ui'
 import { useWS19Analysis } from '@/hooks/useWS19Analysis'
 import WS19Uploader from './WS19Uploader'
@@ -118,6 +118,8 @@ export default function PermitsZoningTab({
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<WS19Report | null>(null)
   const [savingMarkdown, setSavingMarkdown] = useState(false)
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastAutoSavedMarkdownRef = useRef('')
 
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS19Analysis({ clientId, clientName, state, dba, propertyAddress, municipality })
@@ -242,14 +244,23 @@ export default function PermitsZoningTab({
 
   const startEditing = () => {
     setDraftReport(structuredClone(report))
+    lastAutoSavedMarkdownRef.current = savedReport?.markdown ?? ''
     setEditMode(true)
   }
 
-  const saveEditedMarkdown = async () => {
+  const saveEditedMarkdown = async (options: { closeAfterSave?: boolean; silent?: boolean } = {}) => {
     if (!savedReport || !draftReport) return
-    setSavingMarkdown(true)
+    const { closeAfterSave = true, silent = false } = options
+    if (!silent) setSavingMarkdown(true)
     try {
       const editedMarkdown = serializeWS19Report(draftReport, flags)
+      if (editedMarkdown === lastAutoSavedMarkdownRef.current) {
+        if (closeAfterSave) {
+          setEditMode(false)
+          setDraftReport(null)
+        }
+        return
+      }
       const response = await fetch(`/api/permits-zoning/reports?clientId=${clientId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -264,17 +275,33 @@ export default function PermitsZoningTab({
         setSavedReport(data.report)
         const { flags: pFlags } = parseWS19Markdown(data.report.markdown, clientName)
         setFlags(mergeFlagStatuses(pFlags || [], data.report.metadata))
+        lastAutoSavedMarkdownRef.current = data.report.markdown
       }
-      setEditMode(false)
-      setDraftReport(null)
-      showToast('Final report saved')
+      if (closeAfterSave) {
+        setEditMode(false)
+        setDraftReport(null)
+        showToast('Final report saved')
+      }
     } catch (err) {
       console.error('Failed to save edited report:', err)
-      showToast('Failed to save final report.', 'error')
+      if (!silent) showToast('Failed to save final report.', 'error')
     } finally {
-      setSavingMarkdown(false)
+      if (!silent) setSavingMarkdown(false)
     }
   }
+
+  useEffect(() => {
+    if (!editMode || !savedReport || !draftReport) return
+    const editedMarkdown = serializeWS19Report(draftReport, flags)
+    if (editedMarkdown === lastAutoSavedMarkdownRef.current) return
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      void saveEditedMarkdown({ closeAfterSave: false, silent: true })
+    }, 900)
+    return () => {
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    }
+  }, [editMode, savedReport, draftReport, flags])
 
   const handleDeleteConfirmed = async () => {
     setDeleting(true)
@@ -372,7 +399,7 @@ export default function PermitsZoningTab({
               >
                 Cancel
               </Button>
-              <Button onClick={saveEditedMarkdown} disabled={savingMarkdown}>
+              <Button onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>
                 {savingMarkdown ? 'Saving...' : 'Save Final Version'}
               </Button>
             </>

@@ -79,6 +79,36 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// ── PATCH: save edited assessment ───────────────────────────────────────────
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const { clientId, assessment } = await req.json();
+
+    if (!clientId || !assessment) {
+      return new Response("Missing clientId or assessment", { status: 400 });
+    }
+
+    const client = await (prisma as any).clientProfile.findUnique({
+      where: { id: clientId },
+      select: { sectionSubmissions: true },
+    });
+
+    const existing = (client?.sectionSubmissions as Record<string, any>) ?? {};
+    existing[SECTION_KEY] = assessment;
+
+    await (prisma as any).clientProfile.update({
+      where: { id: clientId },
+      data: { sectionSubmissions: existing },
+    });
+
+    return NextResponse.json({ assessment });
+  } catch (error) {
+    console.error("[owner-gm-assessment] PATCH error:", error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+}
+
 // ── DELETE: reset assessment ─────────────────────────────────────────────────
 
 export async function DELETE(req: NextRequest) {

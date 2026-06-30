@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FileText, Loader2, RefreshCw, Upload, X } from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
-import EditableMarkdownReportView from '@/components/report-export/EditableMarkdownReportView'
+import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildLoiReviewReportHtml } from '@/lib/report-export/build-loi-review-report'
 
 type LoiReport = {
@@ -174,9 +174,8 @@ export default function LoiReviewTab({
 
         {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
-        <EditableMarkdownReportView
+        <InlineEditableMarkdownReport
           report={report}
-          accentClassName="border-rose-200 focus:ring-rose-400"
           markdownComponents={markdownComponents}
           onSave={async (markdown) => {
             const res = await fetch('/api/loi-review', {

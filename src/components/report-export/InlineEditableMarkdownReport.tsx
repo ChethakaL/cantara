@@ -197,6 +197,25 @@ export default function InlineEditableMarkdownReport({
     }
   }, [draftMarkdown, editMode, onSave])
 
+  useEffect(() => {
+    const flush = () => {
+      if (!editMode || draftMarkdown === lastSavedRef.current) return
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+      onSave(draftMarkdown)
+        .then(() => {
+          lastSavedRef.current = draftMarkdown
+        })
+        .catch(() => {})
+    }
+
+    document.addEventListener('visibilitychange', flush)
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', flush)
+      window.removeEventListener('beforeunload', flush)
+    }
+  }, [draftMarkdown, editMode, onSave])
+
   const lastSavedLabel = useMemo(() => {
     const stamp = report.updatedAt || report.generatedAt
     return stamp ? new Date(stamp).toLocaleString() : '—'
