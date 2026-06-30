@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
-import EditableMarkdownReportView from '@/components/report-export/EditableMarkdownReportView'
+import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildOccupancyReviewReportHtml } from '@/lib/report-export/build-occupancy-review-report'
 
 type OccupancyReport = {
@@ -186,9 +186,8 @@ export default function OccupancyReviewTab({
 
         {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
-        <EditableMarkdownReportView
+        <InlineEditableMarkdownReport
           report={report}
-          accentClassName="border-indigo-200 focus:ring-indigo-400"
           markdownComponents={markdownComponents}
           onSave={async (markdown) => {
             const res = await fetch('/api/occupancy-review', {

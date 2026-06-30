@@ -10,9 +10,52 @@ import type { WS110Persistence, WS110Flag } from '@/types/ws1-10-types'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildLegalEntitySearchReportHtml } from '@/lib/report-export/build-legal-entity-search-report'
 import { Upload, FileText, X, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
+
+const markdownComponents = {
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="mb-5 border-b-2 border-stone-200 pb-3 text-2xl font-bold tracking-tight text-stone-900">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="mb-3 mt-10 border-b border-stone-200 pb-2 text-lg font-bold tracking-tight text-stone-900">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="mb-2 mt-6 text-sm font-bold text-stone-800">{children}</h3>
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="mb-4 text-sm leading-7 text-stone-700">{children}</p>
+  ),
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="font-bold text-stone-900">{children}</strong>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="mb-5 list-disc space-y-2 pl-5 text-sm text-stone-700 marker:text-amber-500">{children}</ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="mb-5 list-decimal space-y-2 pl-5 text-sm text-stone-700 marker:text-amber-500">{children}</ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="leading-7">{children}</li>
+  ),
+  hr: () => <hr className="my-8 border-stone-200" />,
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="my-6 overflow-x-auto rounded-xl border border-stone-200">
+      <table className="min-w-full divide-y divide-stone-200 text-sm">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => (
+    <thead className="bg-stone-50">{children}</thead>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-stone-500">{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border-t border-stone-100 px-4 py-3 align-top text-sm leading-6 text-stone-700">{children}</td>
+  ),
+}
 
 // ── Document Uploader ───────────────────────────────────────────────────────
 
@@ -236,6 +279,21 @@ export default function LegalEntitySearchTab({
     }
   }
 
+  const handleSaveMarkdown = async (markdown: string) => {
+    const res = await fetch(`/api/legal-entity-search/reports?clientId=${clientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Failed to save legal entity search report.')
+
+    setSavedReport(data.report)
+    const { flags: parsedFlags } = parseWS110Markdown(data.report.markdown, clientName)
+    const savedStatuses = new Map(((data.report.metadata as any)?.flags ?? []).map((f: any) => [f.id, f.status]))
+    setFlags(parsedFlags.map(f => ({ ...f, status: (savedStatuses.get(f.id) as any) ?? 'pending' })))
+  }
+
   const handleNewAnalysis = () => {
     setSavedReport(null)
     setFlags([])
@@ -381,9 +439,11 @@ export default function LegalEntitySearchTab({
 
         <div className="min-h-[500px] p-6">
           {activeTab === 'report' && savedReport?.markdown && (
-            <div className="prose prose-stone prose-sm max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{savedReport.markdown}</ReactMarkdown>
-            </div>
+            <InlineEditableMarkdownReport
+              report={savedReport}
+              markdownComponents={markdownComponents}
+              onSave={handleSaveMarkdown}
+            />
           )}
           {activeTab === 'flags' && !readOnly && (
             <FlagReviewPanel

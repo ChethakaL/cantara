@@ -72,7 +72,17 @@ function EditableCell({
   align?: 'left' | 'right'
 }) {
   if (!editMode) {
-    return <span className={cn('text-slate-700', className)}>{formatPriceDisplay(value)}</span>
+    return (
+      <span
+        className={cn(
+          'block max-w-[18rem] whitespace-normal break-words text-slate-700',
+          align === 'right' && 'ml-auto text-right',
+          className,
+        )}
+      >
+        {formatPriceDisplay(value)}
+      </span>
+    )
   }
   return (
     <input
@@ -81,7 +91,7 @@ function EditableCell({
       placeholder={EMPTY_PRICE_DISPLAY}
       onChange={e => onChange(e.target.value)}
       className={cn(
-        'w-full min-w-[4.5rem] bg-white border border-amber-300 text-xs text-slate-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400',
+        'w-full min-w-[8rem] bg-white border border-amber-300 text-xs text-slate-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400',
         align === 'right' && 'text-right',
         className,
       )}

@@ -2,7 +2,7 @@
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, Button, cn } from '@/components/ui'
 import { useWS16Analysis } from '@/hooks/useWS16Analysis'
 import WS16Uploader from './WS16Uploader'
@@ -483,6 +483,8 @@ export default function EmployeeObligationsTab({
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<WS16Report | null>(null)
   const [savingMarkdown, setSavingMarkdown] = useState(false)
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastAutoSavedMarkdownRef = useRef('')
 
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS16Analysis({ clientId, clientName, state, dba, totalEmployeesSelfReported: totalEmployeesSelfReported ?? undefined, employmentTypeBreakdown: employmentTypeBreakdown ?? undefined })
@@ -580,14 +582,23 @@ export default function EmployeeObligationsTab({
 
   const startEditing = () => {
     setDraftReport(structuredClone(report))
+    lastAutoSavedMarkdownRef.current = savedReport?.markdown ?? ''
     setEditMode(true)
   }
 
-  const saveEditedMarkdown = async () => {
+  const saveEditedMarkdown = async (options: { closeAfterSave?: boolean; silent?: boolean } = {}) => {
     if (!savedReport || !draftReport) return
-    setSavingMarkdown(true)
+    const { closeAfterSave = true, silent = false } = options
+    if (!silent) setSavingMarkdown(true)
     try {
       const editedMarkdown = serializeWS16Report(draftReport, flags)
+      if (editedMarkdown === lastAutoSavedMarkdownRef.current) {
+        if (closeAfterSave) {
+          setEditMode(false)
+          setDraftReport(null)
+        }
+        return
+      }
       const response = await fetch(`/api/employee-obligations/reports?clientId=${clientId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -602,17 +613,33 @@ export default function EmployeeObligationsTab({
         setSavedReport(data.report)
         const { flags: pFlags } = parseWS16Markdown(data.report.markdown, clientName)
         setFlags(mergeFlagStatuses(pFlags || [], data.report.metadata))
+        lastAutoSavedMarkdownRef.current = data.report.markdown
       }
-      setEditMode(false)
-      setDraftReport(null)
-      showToast('Final report saved')
+      if (closeAfterSave) {
+        setEditMode(false)
+        setDraftReport(null)
+        showToast('Final report saved')
+      }
     } catch (err) {
       console.error('Failed to save edited report:', err)
-      showToast('Failed to save final report.', 'error')
+      if (!silent) showToast('Failed to save final report.', 'error')
     } finally {
-      setSavingMarkdown(false)
+      if (!silent) setSavingMarkdown(false)
     }
   }
+
+  useEffect(() => {
+    if (!editMode || !savedReport || !draftReport) return
+    const editedMarkdown = serializeWS16Report(draftReport, flags)
+    if (editedMarkdown === lastAutoSavedMarkdownRef.current) return
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      void saveEditedMarkdown({ closeAfterSave: false, silent: true })
+    }, 900)
+    return () => {
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    }
+  }, [editMode, savedReport, draftReport, flags])
 
   const persistReviewState = async (nextFlags: Flag[], releasedAt?: string | null) => {
     const markdown = savedReport?.markdown
@@ -758,7 +785,7 @@ export default function EmployeeObligationsTab({
           {editMode ? (
             <>
               <Button variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown}>Cancel</Button>
-              <Button onClick={saveEditedMarkdown} disabled={savingMarkdown}>{savingMarkdown ? 'Saving...' : 'Save Final Version'}</Button>
+              <Button onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>{savingMarkdown ? 'Saving...' : 'Save Final Version'}</Button>
             </>
           ) : (
             <Button variant="outline" onClick={startEditing}>Edit Output</Button>
