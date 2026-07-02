@@ -98,6 +98,11 @@ export default function PricingByVerticalTab({
   const [reanalyzeNotice, setReanalyzeNotice] = useState<string | null>(null)
   const [websiteUrl, setWebsiteUrl] = useState('')
 
+  useEffect(() => {
+    if (!readOnly) return
+    setEditMode(false)
+  }, [readOnly])
+
   const enrichedResult = useMemo(
     () => (result ? enrichVerticalSummariesInReport(result) : null),
     [result],
@@ -357,19 +362,21 @@ export default function PricingByVerticalTab({
             </p>
           </div>
           <AdvisorActions className="flex items-center gap-3">
-            <button
-              onClick={() => setEditMode(e => !e)}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors',
-                editMode
-                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-              )}
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              {editMode ? 'Editing' : 'Edit'}
-            </button>
-            {editMode && (
+            {!readOnly && (
+              <button
+                onClick={() => setEditMode(e => !e)}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors',
+                  editMode
+                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                )}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                {editMode ? 'Editing' : 'Edit'}
+              </button>
+            )}
+            {!readOnly && editMode && (
               <div className="relative">
                 <button
                   onClick={handleSave}

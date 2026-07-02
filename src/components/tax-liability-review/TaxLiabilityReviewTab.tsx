@@ -13,7 +13,8 @@ import { ExportReportButton } from '@/components/report-export/ExportReportButto
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildTaxLiabilityReportHtml } from '@/lib/report-export/build-tax-liability-report'
-import { Upload, FileText, X, AlertTriangle } from 'lucide-react'
+import { TAX_READINESS_DOCUMENT_GROUPS, buildTaxReadinessReferenceHtml } from '@/lib/tax-readiness'
+import { Upload, FileText, X, AlertTriangle, CheckCircle2 } from 'lucide-react'
 
 const markdownComponents = {
   h1: ({ children }: { children?: React.ReactNode }) => (
@@ -57,18 +58,109 @@ const markdownComponents = {
   ),
 }
 
+// ── Tax Readiness Checklist Panel ───────────────────────────────────────────
+
+function TaxReadinessChecklist({
+  clientName,
+  groups,
+  loading,
+  error,
+}: {
+  clientName: string
+  groups: TaxDocumentGroupStatus[]
+  loading: boolean
+  error: string | null
+}) {
+  const [open, setOpen] = useState(true)
+  const requiredGroups = groups.filter(group => group.required)
+  const uploadedRequired = requiredGroups.filter(group => group.uploaded).length
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/60 overflow-hidden mb-6">
+      <div className="w-full flex items-center justify-between gap-3 px-5 py-3.5">
+        <button type="button" onClick={() => setOpen(o => !o)} className="min-w-0 flex flex-1 items-center gap-2.5 text-left">
+          <FileText className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <span className="text-sm font-semibold text-stone-800">Tax Readiness Checklist</span>
+          <span className="text-[10px] font-medium text-amber-700 bg-amber-100 border border-amber-200 rounded-full px-2 py-0.5">
+            {uploadedRequired}/{requiredGroups.length} uploaded
+          </span>
+        </button>
+        <div className="flex items-center gap-3">
+          <ExportReportButton
+            html={buildTaxReadinessReferenceHtml(clientName)}
+            fileName={`${clientName} - Tax Readiness Document Reference.pdf`}
+            label="Download PDF"
+          />
+          <button type="button" onClick={() => setOpen(o => !o)} className="text-stone-400 text-xs">{open ? '▲' : '▼'}</button>
+        </div>
+      </div>
+      {open && (
+        <div className="border-t border-amber-200 divide-y divide-amber-100 bg-white/40">
+          {loading ? (
+            <div className="px-5 py-4 text-xs text-stone-400">Loading uploaded tax documents...</div>
+          ) : error ? (
+            <div className="px-5 py-4 text-xs text-red-600">{error}</div>
+          ) : (
+            TAX_READINESS_DOCUMENT_GROUPS.map((group, index) => {
+              const status = groups.find(item => item.id === group.id)
+              const uploaded = Boolean(status?.uploaded)
+              return (
+                <div key={group.id} className="flex items-start gap-3 px-5 py-3">
+                  <span className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full bg-amber-200 flex items-center justify-center text-[10px] font-bold text-amber-800">
+                    {index + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold text-stone-800">{group.title}</p>
+                      {uploaded ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      ) : (
+                        <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                          Needed
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-stone-500 mt-0.5">{group.detail}</p>
+                    {uploaded && status && status.documents.length > 0 && (
+                      <p className="mt-1 text-[10px] font-medium text-emerald-700">
+                        {status.documents.length} file{status.documents.length === 1 ? '' : 's'} uploaded
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Document Uploader ───────────────────────────────────────────────────────
+
+type TaxDocumentGroupStatus = {
+  id: string
+  title: string
+  detail: string
+  bestSource: string
+  required: boolean
+  uploaded: boolean
+  documents: Array<{ id: string; fileName: string; mimeType: string; sizeBytes: number | null; uploadedAt: string }>
+}
 
 function DocumentUploader({
   documents,
   onDocumentsReady,
   onAnalyze,
   isLoading,
+  missingRequiredCount = 0,
 }: {
   documents: UploadedDoc[]
   onDocumentsReady: (docs: UploadedDoc[]) => void
   onAnalyze: () => void
   isLoading: boolean
+  missingRequiredCount?: number
 }) {
   const handleFiles = useCallback(async (fileList: FileList) => {
     const newDocs: UploadedDoc[] = []
@@ -79,7 +171,7 @@ function DocumentUploader({
         name: file.name,
         base64,
         mediaType: file.type || 'application/octet-stream',
-        slotKey: 'tax_docs',
+        slotKey: 'advisor_tax_upload',
         sizeBytes: file.size,
       })
     }
@@ -98,8 +190,7 @@ function DocumentUploader({
         </div>
         <h3 className="text-xl font-semibold text-stone-900 tracking-tight">Tax Liability Review</h3>
         <p className="text-stone-500 text-sm max-w-lg mx-auto">
-          Upload tax returns, IRS notices, payroll filings, sales tax records, audit correspondence, and
-          other tax documents for comprehensive AI-powered tax due diligence analysis.
+          Review the client-uploaded tax files below. Add advisor-only files here if needed before running analysis.
         </p>
       </div>
 
@@ -128,9 +219,19 @@ function DocumentUploader({
               </button>
             </div>
           ))}
-          <Button onClick={onAnalyze} disabled={isLoading} className="w-full mt-4">
+          {missingRequiredCount > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+              {missingRequiredCount} required tax document group{missingRequiredCount === 1 ? '' : 's'} still missing. Upload the missing files in Document Upload before running this agent.
+            </div>
+          )}
+          <Button onClick={onAnalyze} disabled={isLoading || missingRequiredCount > 0} className="w-full mt-4">
             {isLoading ? 'Analyzing...' : `Analyze ${documents.length} Document${documents.length !== 1 ? 's' : ''}`}
           </Button>
+        </div>
+      )}
+      {documents.length === 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          No tax files are attached yet. Ask the client to upload the required tax documents in Document Upload, or add files here.
         </div>
       )}
       {documents.length > 0 && (
@@ -316,12 +417,52 @@ export default function TaxLiabilityReviewTab({
   const [loadingReport, setLoadingReport] = useState(true)
   const [activeTab, setActiveTab] = useState<'report' | 'flags'>('report')
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [taxDocGroups, setTaxDocGroups] = useState<TaxDocumentGroupStatus[]>([])
+  const [loadingTaxDocs, setLoadingTaxDocs] = useState(true)
+  const [taxDocsError, setTaxDocsError] = useState<string | null>(null)
 
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS111Analysis({ clientId, clientName, state, entityType })
 
   const isRunning = status === 'uploading' || status === 'streaming'
   const [draftLoaded, setDraftLoaded] = useState(false)
+  const missingRequiredCount = taxDocGroups.filter(group => group.required && !group.uploaded).length
+
+  useEffect(() => {
+    let active = true
+    setLoadingTaxDocs(true)
+    setTaxDocsError(null)
+    fetch(`/api/tax-liability-review/client-documents?clientId=${encodeURIComponent(clientId)}&includeContent=true`, { cache: 'no-store' })
+      .then(async res => {
+        if (!res.ok) throw new Error(await res.text())
+        return res.json()
+      })
+      .then(data => {
+        if (!active) return
+        setTaxDocGroups((data.groups ?? []) as TaxDocumentGroupStatus[])
+        const clientDocs = (data.documents ?? []) as UploadedDoc[]
+        if (clientDocs.length > 0) {
+          setDocuments(current => {
+            const seen = new Set<string>()
+            const next: UploadedDoc[] = []
+            for (const doc of [...clientDocs, ...current]) {
+              const key = `${doc.slotKey}:${doc.name}`
+              if (seen.has(key)) continue
+              seen.add(key)
+              next.push(doc)
+            }
+            return next
+          })
+        }
+      })
+      .catch(err => {
+        if (active) setTaxDocsError(err instanceof Error ? err.message : 'Failed to load tax documents.')
+      })
+      .finally(() => {
+        if (active) setLoadingTaxDocs(false)
+      })
+    return () => { active = false }
+  }, [clientId, setDocuments])
 
   useEffect(() => {
     let active = true
@@ -449,7 +590,19 @@ export default function TaxLiabilityReviewTab({
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="p-10 border-stone-200 shadow-sm">
-            <DocumentUploader documents={documents} onDocumentsReady={setDocuments} onAnalyze={analyze} isLoading={isRunning} />
+            <TaxReadinessChecklist
+              clientName={clientName}
+              groups={taxDocGroups}
+              loading={loadingTaxDocs}
+              error={taxDocsError}
+            />
+            <DocumentUploader
+              documents={documents}
+              onDocumentsReady={setDocuments}
+              onAnalyze={analyze}
+              isLoading={isRunning}
+              missingRequiredCount={missingRequiredCount}
+            />
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
           </Card>
         </div>
@@ -521,8 +674,12 @@ export default function TaxLiabilityReviewTab({
           </div>
         </div>
         <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
-          <Button variant="outline" size="sm" onClick={handleNewAnalysis}>+ New Analysis</Button>
-          <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:text-red-700">Delete</Button>
+          {!readOnly && (
+            <>
+              <Button variant="outline" size="sm" onClick={handleNewAnalysis}>+ New Analysis</Button>
+              <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:text-red-700">Delete</Button>
+            </>
+          )}
           <ExportReportButton
             html={buildTaxLiabilityReportHtml(report, flags, clientName)}
             fileName={`tax-liability-review-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
@@ -563,6 +720,7 @@ export default function TaxLiabilityReviewTab({
               report={savedReport}
               markdownComponents={markdownComponents}
               onSave={handleSaveMarkdown}
+              readOnly={readOnly}
             />
           )}
           {activeTab === 'flags' && !readOnly && (

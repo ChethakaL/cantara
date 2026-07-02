@@ -3,7 +3,7 @@ import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
 import { useState, useEffect } from 'react'
-import { Bot, CheckCircle2, ChevronDown, ChevronRight, Circle, Download, Eye, FileText, Loader2, Plus, Printer, RotateCcw, Save, Sparkles, Trash2, AlertCircle } from 'lucide-react'
+import { Bot, CheckCircle2, ChevronDown, ChevronRight, Circle, Download, Eye, FileText, Loader2, Plus, Printer, RotateCcw, Save, Sparkles, Trash2, AlertCircle, X, Upload } from 'lucide-react'
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { CimInputData, DEFAULT_CIM_INPUT } from '@/lib/cim/types'
 import { generateCimHtml } from '@/lib/cim/generate-html'
@@ -453,6 +453,62 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
               onChange={e => set('dealReference', e.target.value)}
               placeholder="e.g. CD-2026-0142"
             />
+          </div>
+          
+          {/* Facility / Corporate Images */}
+          <div className="md:col-span-2 space-y-3 pt-3 border-t border-slate-100">
+            <div>
+              <span className="text-xs font-semibold text-slate-800">Facility / Corporate Images</span>
+              <p className="text-[10px] text-slate-400">Upload up to 2 high-quality photos of the facility or operations to include in the printed CIM gallery.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {[0, 1].map(idx => {
+                const img = (data.facilityImages || [])[idx]
+                return (
+                  <div key={idx} className="relative group">
+                    {img ? (
+                      <div className="relative rounded-xl overflow-hidden border border-slate-200 aspect-video bg-slate-50">
+                        <img src={img} alt={`Facility photo ${idx + 1}`} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const copy = [...(data.facilityImages || [])]
+                            copy.splice(idx, 1)
+                            set('facilityImages', copy)
+                          }}
+                          className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/50 hover:bg-black/75 text-white flex items-center justify-center transition-colors shadow-sm"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center aspect-video rounded-xl border-2 border-dashed border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/20 cursor-pointer transition-all">
+                        <Upload className="w-6 h-6 text-slate-300 mb-1" />
+                        <span className="text-xs font-medium text-slate-500">Upload Photo {idx + 1}</span>
+                        <span className="text-[9px] text-slate-400 mt-0.5">JPEG, PNG, WEBP</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async e => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            const reader = new FileReader()
+                            reader.onload = ev => {
+                              const b64 = ev.target?.result as string
+                              const copy = [...(data.facilityImages || [])]
+                              copy[idx] = b64
+                              set('facilityImages', copy)
+                            }
+                            reader.readAsDataURL(file)
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
         <p className="text-[11px] text-slate-500">When filled in, this reference is printed on the CIM cover (exported PDF).</p>

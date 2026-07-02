@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
-import { clientPortalApprovedAt, isClientPortalAgentApproved } from '@/lib/client-approved-agents'
+import { clientPortalReleasedAt, isClientPortalAgentReleased } from '@/lib/client-approved-agents'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +33,7 @@ const AGENT_OUTPUTS: Record<string, { label: string; source: 'table' | 'submissi
   vendorDirectory: { label: 'Software & Vendors', source: 'submission', key: 'vendorDirectory' },
   digitalPresence: { label: 'Digital Presence', source: 'submission', key: 'digitalPresence' },
   facilityReview: { label: 'Facility Review Agent', source: 'submission', key: 'facilityReview' },
+  occupancyReview: { label: 'Occupancy Review', source: 'submission', key: 'occupancyReview' },
   pricingAnalysis: { label: 'Competitive Pricing Analysis', source: 'submission', key: 'pricingAnalysis' },
   pricingVertical: { label: 'Pricing by Vertical', source: 'submission', key: 'pricingVertical' },
   salesProcessReview: { label: 'Sales Process Review', source: 'submission', key: 'salesProcessReview' },
@@ -40,6 +41,10 @@ const AGENT_OUTPUTS: Record<string, { label: string; source: 'table' | 'submissi
   cim: { label: 'CIM Generator', source: 'table', table: 'cimReport', field: 'data' },
   teaser: { label: 'Deal Teaser Generator', source: 'table', table: 'teaserReport', field: 'data' },
   net_proceeds: { label: 'Net Proceeds Calculator', source: 'submission', key: 'netProceeds' },
+  ws1Assessment: { label: 'WS1 Assessment Report', source: 'submission', key: 'assessmentReport_ws1' },
+  ws2Assessment: { label: 'WS2 Assessment Report', source: 'submission', key: 'assessmentReport_ws2' },
+  ws1Roadmap: { label: 'WS1 Sales Readiness Roadmap', source: 'submission', key: 'improvementRoadmap_ws1' },
+  ws2Roadmap: { label: 'WS2 Sales Readiness Roadmap', source: 'submission', key: 'improvementRoadmap_ws2' },
 }
 
 export async function GET(req: NextRequest) {
@@ -55,8 +60,8 @@ export async function GET(req: NextRequest) {
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
     ? client.sectionSubmissions
     : {}) as Record<string, any>
-  const approvals = (submissions.agentApprovals && typeof submissions.agentApprovals === 'object'
-    ? submissions.agentApprovals
+  const releases = (client.clientRelease && typeof client.clientRelease === 'object'
+    ? client.clientRelease
     : {}) as Record<string, any>
   const assignedAgents = getClientWorkstreamAgents({
     workstream: (client.workstream?.toLowerCase() as any) ?? null,
@@ -66,13 +71,33 @@ export async function GET(req: NextRequest) {
 
   const outputs: OutputItem[] = []
   const seen = new Set<string>()
+  const legalEntityAdvisorToRun = submissions.legalEntityAdvisorToRun === true
 
   for (const agent of assignedAgents) {
     const agentKey = normalizeAgentStatusKey(agent.agentId)
     if (seen.has(agentKey)) continue
     seen.add(agentKey)
-    const approval = approvals[agent.agentId] ?? approvals[agentKey]
-    if (!isClientPortalAgentApproved(approvals, agent.agentId)) continue
+
+    if (agentKey === 'legalEntitySearch' && legalEntityAdvisorToRun) {
+      const report = await prisma.legalEntitySearchReport.findFirst({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      })
+      if (!report) {
+        outputs.push({
+          agentId: agent.agentId,
+          agentKey,
+          agentName: AGENT_OUTPUTS.legalEntitySearch.label,
+          approvedAt: null,
+          markdown: 'Advisor is running this search.',
+          data: { type: 'advisorToRunPlaceholder' },
+        })
+      }
+      continue
+    }
+
+    if (!isClientPortalAgentReleased(releases, agent.agentId)) continue
 
     const config = AGENT_OUTPUTS[agentKey]
     if (!config) continue
@@ -90,7 +115,7 @@ export async function GET(req: NextRequest) {
       agentId: agent.agentId,
       agentKey,
       agentName: config.label || agent.agentName,
-      approvedAt: clientPortalApprovedAt(approvals, agent.agentId) ?? approval?.approvedAt ?? null,
+      approvedAt: clientPortalReleasedAt(releases, agent.agentId) ?? null,
       markdown: output.markdown,
       data: output.data,
     })

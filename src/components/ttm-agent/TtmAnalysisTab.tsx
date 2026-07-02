@@ -332,11 +332,13 @@ export function TtmAnalysisTab({
   clientName,
   adminName,
   documentStatuses,
+  readOnly = false,
 }: {
   clientId: string
   clientName: string
   adminName: string
   documentStatuses: Record<string, DocumentStatus>
+  readOnly?: boolean
 }) {
   const [analyses, setAnalyses] = useState<TtmAnalysisView[]>([])
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null)
@@ -725,7 +727,7 @@ export function TtmAnalysisTab({
             </div>
           )}
         </div>
-        {activeAnalysis && (
+        {activeAnalysis && !readOnly && (
           <Button variant="outline" size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
             <RefreshCw className="w-3.5 h-3.5" />
             {running ? 'Analyzing...' : 'Re-run Analysis'}
@@ -772,7 +774,7 @@ export function TtmAnalysisTab({
                 ))}
               </div>
             )}
-            <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running}>
+            <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running || readOnly}>
               {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Play className="w-3.5 h-3.5" /> Start Analysis</>}
             </Button>
           </div>
@@ -822,17 +824,19 @@ export function TtmAnalysisTab({
                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                   <p className="text-sm font-semibold text-emerald-800">Flags reviewed.</p>
                 </div>
-                <Button size="sm" onClick={() => setWizardStep(2)}>Continue to GL Mapping</Button>
+                {!readOnly && <Button size="sm" onClick={() => setWizardStep(2)}>Continue to GL Mapping</Button>}
               </div>
             </Card>
           ) : (
             <>
-              <Ws21ReviewWorkspace
-                analysis={activeAnalysis}
-                actorName={adminName}
-                onUpdated={handleUpdatedAnalysis}
-              />
-              {canApproveWs21 && (
+              {!readOnly && (
+                <Ws21ReviewWorkspace
+                  analysis={activeAnalysis}
+                  actorName={adminName}
+                  onUpdated={handleUpdatedAnalysis}
+                />
+              )}
+              {!readOnly && canApproveWs21 && (
                 <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex justify-end">
                   <Button size="sm" onClick={() => setWizardStep(2)}>
                     Continue to GL Mapping
@@ -850,20 +854,24 @@ export function TtmAnalysisTab({
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
             Review the GL code mappings below. Any unsaved changes will be saved when you continue.
           </div>
-          <GlMappingEditor
-            analysis={activeAnalysis}
-            onUpdated={handleUpdatedAnalysis}
-            onSaveStateChange={setGlMappingSaveState}
-          />
-          <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex items-center justify-between">
-            <Button variant="outline" size="sm" onClick={() => setWizardStep(1)}>
-              Back to Flags
-            </Button>
-            <Button size="sm" onClick={() => void continueToValuation()} disabled={continuingToValuation || glMappingSaveState?.saving}>
-              {continuingToValuation || glMappingSaveState?.saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-              Continue to Valuation Range
-            </Button>
-          </div>
+          {!readOnly && (
+            <>
+              <GlMappingEditor
+                analysis={activeAnalysis}
+                onUpdated={handleUpdatedAnalysis}
+                onSaveStateChange={setGlMappingSaveState}
+              />
+              <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur border-t border-slate-200 px-4 py-3 -mx-4 flex items-center justify-between">
+                <Button variant="outline" size="sm" onClick={() => setWizardStep(1)}>
+                  Back to Flags
+                </Button>
+                <Button size="sm" onClick={() => void continueToValuation()} disabled={continuingToValuation || glMappingSaveState?.saving}>
+                  {continuingToValuation || glMappingSaveState?.saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  Continue to Valuation Range
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -873,15 +881,17 @@ export function TtmAnalysisTab({
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
             Enter low, mid, and high EBITDA multiples. Then calculate and finalize the valuation.
           </div>
-          <Step3ValuationRange
-            analysis={activeAnalysis}
-            clientId={clientId}
-            adminName={adminName}
-            documentStatuses={documentStatuses}
-            onUpdated={handleUpdatedAnalysis}
-            baselineBuildError={baselineBuildState.error}
-            onBack={() => setWizardStep(2)}
-          />
+          {!readOnly && (
+            <Step3ValuationRange
+              analysis={activeAnalysis}
+              clientId={clientId}
+              adminName={adminName}
+              documentStatuses={documentStatuses}
+              onUpdated={handleUpdatedAnalysis}
+              baselineBuildError={baselineBuildState.error}
+              onBack={() => setWizardStep(2)}
+            />
+          )}
         </div>
       )}
 
@@ -896,6 +906,7 @@ export function TtmAnalysisTab({
             hideWorkflowChrome={true}
             collapsed={false}
             onToggleCollapse={() => {}}
+            readOnly={readOnly}
           />
         </div>
       )}

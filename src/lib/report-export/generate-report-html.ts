@@ -81,8 +81,14 @@ export function generateReportHtml(config: ReportConfig): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(config.clientName)} — ${escapeHtml(config.title)}</title>
 <style>
-  @page { size: A4; margin: 20mm 16mm 20mm 16mm; }
+  @page {
+    size: A4;
+    margin: 0; /* hides default browser headers (date/title) and footers (url) */
+  }
   @media print {
+    body {
+      margin: 20mm 16mm 20mm 16mm; /* applies page padding only to printed content */
+    }
     .no-print { display: none !important; }
     html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .page-break { page-break-before: always; }

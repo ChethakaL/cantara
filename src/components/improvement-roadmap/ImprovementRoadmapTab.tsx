@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { RefreshCw, MapPin, CheckCircle2, Circle } from 'lucide-react'
+import { RefreshCw, MapPin, CheckCircle2, Circle, ClipboardCheck } from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
@@ -14,6 +14,19 @@ type RoadmapReport = {
   generatedAt: string
   updatedAt?: string
   markdown: string
+  checklist?: SaleReadinessChecklistItem[]
+}
+
+type SaleReadinessChecklistItem = {
+  id: string
+  category: string
+  item: string
+  status: string
+  actionNeeded: string
+  advisorApproved: boolean
+  approvedAt?: string | null
+  clientCompleted: boolean
+  clientCompletedAt?: string | null
 }
 
 /** Map emoji status indicators to styled badges */
@@ -34,6 +47,133 @@ function StatusBadge({ text }: { text: string }) {
 function isStatusCell(text: string): boolean {
   const s = String(text ?? '').toUpperCase()
   return s.includes('🟢') || s.includes('🟡') || s.includes('🔴') || s.includes('GREEN') || s.includes('YELLOW') || s.includes('RED')
+}
+
+function ChecklistApprovalPanel({
+  clientId,
+  workstream,
+  items,
+  onUpdated,
+}: {
+  clientId: string
+  workstream: 'ws1' | 'ws2'
+  items: SaleReadinessChecklistItem[]
+  onUpdated: (items: SaleReadinessChecklistItem[]) => void
+}) {
+  const [updating, setUpdating] = useState<string | null>(null)
+  const approvedCount = items.filter(item => item.advisorApproved).length
+
+  const toggleApproved = async (item: SaleReadinessChecklistItem) => {
+    setUpdating(item.id)
+    try {
+      const res = await fetch('/api/sale-readiness-checklist', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          workstream,
+          itemId: item.id,
+          advisorApproved: !item.advisorApproved,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to update checklist item.')
+      onUpdated(data.checklist?.items ?? [])
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  const approveAll = async () => {
+    setUpdating('all')
+    try {
+      const res = await fetch('/api/sale-readiness-checklist', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          workstream,
+          itemId: 'all',
+          advisorApproved: true,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to approve all checklist items.')
+      onUpdated(data.checklist?.items ?? [])
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  if (!items.length) return null
+
+  return (
+    <Card className="overflow-hidden border-emerald-100">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-emerald-50/50 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <ClipboardCheck className="h-4 w-4 text-emerald-600" />
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Client Checklist Release</p>
+            <p className="text-[11px] text-slate-500">Approve rows Craig wants visible in the client portal checklist.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2.5">
+          {approvedCount < items.length && (
+            <button
+              type="button"
+              disabled={updating !== null}
+              onClick={approveAll}
+              className="text-[11px] font-semibold px-2.5 py-1 rounded-md border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50"
+            >
+              {updating === 'all' ? 'Approving...' : 'Approve All'}
+            </button>
+          )}
+          <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-700">
+            {approvedCount}/{items.length} approved
+          </span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-400">
+            <tr>
+              <th className="px-4 py-2 text-left font-semibold">Visible</th>
+              <th className="px-4 py-2 text-left font-semibold">Category</th>
+              <th className="px-4 py-2 text-left font-semibold">Item</th>
+              <th className="px-4 py-2 text-left font-semibold">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {items.map(item => (
+              <tr key={item.id} className="align-top">
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    disabled={updating === item.id}
+                    onClick={() => void toggleApproved(item)}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      item.advisorApproved
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                    }`}
+                  >
+                    {item.advisorApproved ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
+                    {item.advisorApproved ? 'Approved' : 'Approve'}
+                  </button>
+                </td>
+                <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.category}</td>
+                <td className="px-4 py-3">
+                  <p className="font-medium text-slate-800">{item.item}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{item.actionNeeded}</p>
+                </td>
+                <td className="px-4 py-3"><StatusBadge text={item.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
 }
 
 const markdownComponents = {
@@ -99,10 +239,12 @@ export default function ImprovementRoadmapTab({
   clientId,
   clientName,
   workstream,
+  readOnly = false,
 }: {
   clientId: string
   clientName: string
   workstream: 'ws1' | 'ws2'
+  readOnly?: boolean
 }) {
   const [report, setReport] = useState<RoadmapReport | null>(null)
   const [loading, setLoading] = useState(true)
@@ -163,10 +305,12 @@ export default function ImprovementRoadmapTab({
           <p className="text-xs text-slate-500 mt-1">{wsLabel} — Seller-Facing Sale Readiness Plan</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
-            <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
-            {report ? 'Regenerate' : 'Generate Roadmap'}
-          </Button>
+          {!readOnly && (
+            <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
+              <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
+              {report ? 'Regenerate' : 'Generate Roadmap'}
+            </Button>
+          )}
           {report && (
             <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Sales Readiness Roadmap.pdf`} label="Export PDF" />
           )}
@@ -195,20 +339,31 @@ export default function ImprovementRoadmapTab({
       )}
 
       {report ? (
-        <InlineEditableMarkdownReport
-          report={report}
-          markdownComponents={markdownComponents}
-          onSave={async (markdown) => {
-            const res = await fetch('/api/improvement-roadmap', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clientId, workstream, markdown }),
-            })
-            const data = await res.json()
-            if (!res.ok) throw new Error(data.error || 'Failed to save roadmap.')
-            setReport(data.report)
-          }}
-        />
+        <>
+          {!readOnly && (
+            <ChecklistApprovalPanel
+              clientId={clientId}
+              workstream={workstream}
+              items={report.checklist ?? []}
+              onUpdated={(items) => setReport(current => current ? { ...current, checklist: items } : current)}
+            />
+          )}
+          <InlineEditableMarkdownReport
+            report={report}
+            markdownComponents={markdownComponents}
+            readOnly={readOnly}
+            onSave={async (markdown) => {
+              const res = await fetch('/api/improvement-roadmap', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, workstream, markdown }),
+              })
+              const data = await res.json()
+              if (!res.ok) throw new Error(data.error || 'Failed to save roadmap.')
+              setReport(data.report)
+            }}
+          />
+        </>
       ) : !generating ? (
         <Card className="p-10 text-center">
           <div className="mx-auto w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">

@@ -156,10 +156,12 @@ export default function InlineEditableMarkdownReport({
   report,
   markdownComponents,
   onSave,
+  readOnly = false,
 }: {
   report: MarkdownReport
   markdownComponents: Record<string, React.ComponentType<any>>
   onSave: (markdown: string) => Promise<void>
+  readOnly?: boolean
 }) {
   const [editMode, setEditMode] = useState(false)
   const [blocks, setBlocks] = useState<MarkdownBlock[]>(() => parseMarkdownBlocks(report.markdown))
@@ -168,18 +170,19 @@ export default function InlineEditableMarkdownReport({
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedRef = useRef(report.markdown)
+  const effectiveEditMode = editMode && !readOnly
 
   useEffect(() => {
-    if (!editMode) {
+    if (!effectiveEditMode) {
       setBlocks(parseMarkdownBlocks(report.markdown))
       lastSavedRef.current = report.markdown
     }
-  }, [report.markdown, editMode])
+  }, [report.markdown, effectiveEditMode])
 
   const draftMarkdown = useMemo(() => serializeMarkdownBlocks(blocks), [blocks])
 
   useEffect(() => {
-    if (!editMode || draftMarkdown === lastSavedRef.current) return
+    if (!effectiveEditMode || draftMarkdown === lastSavedRef.current) return
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(async () => {
       try {
@@ -195,11 +198,11 @@ export default function InlineEditableMarkdownReport({
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     }
-  }, [draftMarkdown, editMode, onSave])
+  }, [draftMarkdown, effectiveEditMode, onSave])
 
   useEffect(() => {
     const flush = () => {
-      if (!editMode || draftMarkdown === lastSavedRef.current) return
+      if (!effectiveEditMode || draftMarkdown === lastSavedRef.current) return
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
       onSave(draftMarkdown)
         .then(() => {
@@ -214,7 +217,7 @@ export default function InlineEditableMarkdownReport({
       document.removeEventListener('visibilitychange', flush)
       window.removeEventListener('beforeunload', flush)
     }
-  }, [draftMarkdown, editMode, onSave])
+  }, [draftMarkdown, effectiveEditMode, onSave])
 
   const lastSavedLabel = useMemo(() => {
     const stamp = report.updatedAt || report.generatedAt
@@ -264,7 +267,7 @@ export default function InlineEditableMarkdownReport({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {editMode ? (
+          {!readOnly && (effectiveEditMode ? (
             <>
               <Button size="sm" variant="outline" onClick={cancelEditing} disabled={saving}>
                 <X className="h-3.5 w-3.5" /> Cancel
@@ -277,7 +280,7 @@ export default function InlineEditableMarkdownReport({
             <Button size="sm" variant="outline" onClick={() => setEditMode(true)}>
               <Pencil className="h-3.5 w-3.5" /> Edit Output
             </Button>
-          )}
+          ))}
         </div>
       </div>
 
@@ -286,7 +289,7 @@ export default function InlineEditableMarkdownReport({
       )}
 
       <div className="p-6">
-        {editMode ? (
+        {effectiveEditMode ? (
           <div className="space-y-4">
             <p className="text-[11px] text-slate-500">
               Edit directly in the report below. Tables can be changed cell by cell — add or remove rows as needed.

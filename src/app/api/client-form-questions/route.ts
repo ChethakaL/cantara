@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { ensureCompetitorFormFields } from '@/lib/competitor-form-fields'
+import { buildOccupancyReviewInputs, occupancyInputsToFormResponses } from '@/lib/occupancy-form-fields'
 import { syncStructuredToFormResponses, formatProfessionalAdvisors, formatVendorDirectory } from '@/lib/sync-form-responses'
 
 type AgentSelection = { agentId: string; agentName?: string | null }
@@ -41,6 +42,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<string, AgentSelection[]> = {
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent' },
     { agentId: 'digital_presence', agentName: 'Digital Presence Agent' },
     { agentId: 'facility_review', agentName: 'Facility Review Agent' },
+    { agentId: 'occupancy_review', agentName: 'Occupancy Review Agent' },
     { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent' },
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent' },
     { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent' },
@@ -64,6 +66,11 @@ function activeAgentIds(client: any): string[] {
   const systemAgents = customAgents.length ? customAgents : (SYSTEM_WORKSTREAM_AGENTS[workstreamKey] ?? [])
   const clientAgents = client.ClientWorkstreamAgents?.map((a: any) => ({ agentId: a.agentId, agentName: a.agentName })) ?? []
   return Array.from(new Set([...systemAgents, ...clientAgents].map(a => a.agentId).filter(id => id && id !== 'ttm')))
+}
+
+function isAdvisorFacilityReviewMode(client: any): boolean {
+  const submissions = (client.sectionSubmissions as Record<string, any>) ?? {}
+  return submissions.facilityReviewMode === 'advisor'
 }
 
 function dedupeQuestions(rows: FormQuestionRow[]): FormQuestionRow[] {
@@ -151,6 +158,7 @@ function buildPrefillResponses(client: any, existing: Record<string, any>): Reco
     businessAddress: existing.facilityReviewInputs?.location ?? existing.competitorAnalysisForm?.businessAddress ?? client.businessAddress ?? '',
     businessCategory: existing.competitorAnalysisForm?.businessCategory ?? client.businessCategory ?? '',
     facilityReviewNotes: existing.facilityReviewInputs?.notes ?? '',
+    ...occupancyInputsToFormResponses(existing.occupancyReviewInputs),
     professionalAdvisorsList: formatProfessionalAdvisors(existing.professionalAdvisors),
     vendorDirectoryList: formatVendorDirectory(existing.vendorDirectory),
     ...competitorResponses,
@@ -210,6 +218,16 @@ function compatibilitySections(client: any, existing: Record<string, any>, respo
 
   if ('vendorDirectoryList' in responses) {
     next.vendorDirectory = parseVendorDirectory(merged.vendorDirectoryList)
+  }
+
+  if (
+    'occupancyTotalDailyCapacity' in responses
+    || 'occupancyBoardingRuns' in responses
+    || 'occupancyDaycareSpots' in responses
+    || 'occupancyGroomingStations' in responses
+    || 'occupancyMonthlyData' in responses
+  ) {
+    next.occupancyReviewInputs = buildOccupancyReviewInputs(merged)
   }
 
   const filledCompetitors = competitors.filter(item => item.name || item.websiteUrl || item.address)
@@ -293,7 +311,9 @@ export async function GET(req: NextRequest) {
   })
   if (!client) return new Response('Not Found', { status: 404 })
 
-  const agentIds = activeAgentIds(client).filter(id => /^[a-z0-9_]+$/.test(id))
+  const agentIds = activeAgentIds(client)
+    .filter(id => !isAdvisorFacilityReviewMode(client) || id !== 'facility_review')
+    .filter(id => /^[a-z0-9_]+$/.test(id))
   if (!agentIds.length) return NextResponse.json({ questions: [], responses: {} })
 
   const inList = agentIds.map(id => `'${id}'`).join(',')

@@ -7,6 +7,7 @@ import Anthropic, {
 import { getAnthropicApiKey } from '@/lib/secure-settings'
 import { NextRequest, NextResponse } from 'next/server'
 import { WS111_SYSTEM_PROMPT, buildWS111ContextBlock } from '@/lib/ws1-11/prompt'
+import { TAX_READINESS_REFERENCE_CONTEXT } from '@/lib/tax-readiness'
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const mammoth: { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } = require('mammoth')
@@ -133,10 +134,11 @@ export async function POST(req: NextRequest) {
 
     const userContent: any[] = [
       { type: 'text', text: contextBlock },
+      { type: 'text', text: TAX_READINESS_REFERENCE_CONTEXT },
       ...contentBlocks,
       {
         type: 'text',
-        text: `Please analyze the ${documents.length} tax document(s) above for ${clientName}. Produce the full Tax Liability Review Report as specified in your instructions. Document names: ${documents.map((d: any) => d.name).join(', ')}`,
+        text: `Please analyze the ${documents.length} tax document(s) above for ${clientName}. Produce the full Tax Liability Review Report as specified in your instructions and use the tax readiness reference context to call out missing/incomplete document groups. Document names: ${documents.map((d: any) => d.name).join(', ')}`,
       },
     ]
 

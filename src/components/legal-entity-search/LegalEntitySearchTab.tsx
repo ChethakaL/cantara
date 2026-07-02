@@ -231,6 +231,8 @@ export default function LegalEntitySearchTab({
   const [loadingReport, setLoadingReport] = useState(true)
   const [activeTab, setActiveTab] = useState<'report' | 'flags'>('report')
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [advisorToRun, setAdvisorToRun] = useState(false)
+  const [warning, setWarning] = useState<string | null>(null)
 
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS110Analysis({ clientId, clientName, state, dba, entityType, businessAddress })
@@ -239,9 +241,12 @@ export default function LegalEntitySearchTab({
 
   useEffect(() => {
     setLoadingReport(true)
-    fetch(`/api/legal-entity-search/reports?clientId=${clientId}`)
-      .then(r => r.json())
-      .then(data => {
+    Promise.all([
+      fetch(`/api/legal-entity-search/reports?clientId=${clientId}`).then(r => r.json()),
+      fetch(`/api/client-data/${clientId}?section=legalEntityAdvisorToRun`).then(r => r.ok ? r.json() : false).catch(() => false),
+    ])
+      .then(([data, advisorFlag]) => {
+        setAdvisorToRun(advisorFlag === true)
         if (data.report) {
           setSavedReport(data.report)
           const { flags: pFlags } = parseWS110Markdown(data.report.markdown, clientName)
@@ -271,7 +276,7 @@ export default function LegalEntitySearchTab({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          metadata: { flags: nextFlags.map(f => ({ id: f.id, status: f.status })) },
+          metadata: { ...(savedReport?.metadata as any), flags: nextFlags.map(f => ({ id: f.id, status: f.status })) },
         }),
       })
     } catch {
@@ -312,6 +317,16 @@ export default function LegalEntitySearchTab({
     }
   }
 
+  const handleRunAnalysis = () => {
+    setWarning(null)
+    const hasUcc = documents.some(d => d.name.toLowerCase().includes('ucc'))
+    if (!hasUcc) {
+      setWarning('No UCC search documents detected. Please upload UCC search files before running.')
+      return
+    }
+    analyze()
+  }
+
   if (loadingReport) {
     return (
       <div className="h-48 flex items-center justify-center">
@@ -320,6 +335,15 @@ export default function LegalEntitySearchTab({
     )
   }
 
+  // Client view gate when advisor to run is active
+  if (advisorToRun && readOnly && !savedReport) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
+        <p className="text-sm font-semibold text-slate-700">Search in Progress</p>
+        <p className="text-xs text-slate-400 mt-2">Advisor is running this search.</p>
+      </div>
+    )
+  }
 
   const readOnlyGate = agentTabReadOnlyGate(readOnly, loadingReport, Boolean(savedReport?.markdown), 'Legal Reports & Entity Search')
   if (readOnlyGate) return readOnlyGate
@@ -327,9 +351,20 @@ export default function LegalEntitySearchTab({
   if (!savedReport && !isRunning) {
     return (
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
-        <div className="max-w-4xl mx-auto">
-          <Card className="p-10 border-stone-200 shadow-sm">
-            <DocumentUploader onDocumentsReady={setDocuments} onAnalyze={analyze} isLoading={isRunning} />
+        <div className="max-w-4xl mx-auto space-y-4">
+          {advisorToRun && !readOnly && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+              This search is marked Advisor to Run in Agent Status. Upload the UCC search results here before running analysis.
+            </div>
+          )}
+          <Card className="p-10 border-stone-200 shadow-sm bg-white">
+            <DocumentUploader onDocumentsReady={setDocuments} onAnalyze={handleRunAnalysis} isLoading={isRunning} />
+            {warning && (
+              <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                <span>{warning}</span>
+              </div>
+            )}
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
           </Card>
         </div>
@@ -401,8 +436,12 @@ export default function LegalEntitySearchTab({
           </div>
         </div>
         <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
-          <Button variant="outline" size="sm" onClick={handleNewAnalysis}>+ New Analysis</Button>
-          <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:text-red-700">Delete</Button>
+          {!readOnly && (
+            <>
+              <Button variant="outline" size="sm" onClick={handleNewAnalysis}>+ New Analysis</Button>
+              <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:text-red-700">Delete</Button>
+            </>
+          )}
           <ExportReportButton
             html={buildLegalEntitySearchReportHtml(report, flags, clientName)}
             fileName={`legal-entity-search-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
@@ -443,6 +482,7 @@ export default function LegalEntitySearchTab({
               report={savedReport}
               markdownComponents={markdownComponents}
               onSave={handleSaveMarkdown}
+              readOnly={readOnly}
             />
           )}
           {activeTab === 'flags' && !readOnly && (

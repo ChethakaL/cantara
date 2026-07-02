@@ -64,10 +64,12 @@ export default function AssessmentReportTab({
   clientId,
   clientName,
   workstream,
+  readOnly = false,
 }: {
   clientId: string
   clientName: string
   workstream: 'ws1' | 'ws2'
+  readOnly?: boolean
 }) {
   const [report, setReport] = useState<AssessmentReport | null>(null)
   const [loading, setLoading] = useState(true)
@@ -128,10 +130,12 @@ export default function AssessmentReportTab({
           <p className="text-xs text-slate-500 mt-1">{wsLabel} — Internal Due Diligence Assessment (Advisor Use Only)</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
-            <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
-            {report ? 'Regenerate' : 'Generate Report'}
-          </Button>
+          {!readOnly && (
+            <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
+              <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
+              {report ? 'Regenerate' : 'Generate Report'}
+            </Button>
+          )}
           {report && (
             <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Internal Assessment.pdf`} label="Export PDF" />
           )}
@@ -164,6 +168,7 @@ export default function AssessmentReportTab({
         <InlineEditableMarkdownReport
           report={report}
           markdownComponents={markdownComponents}
+          readOnly={readOnly}
           onSave={async (markdown) => {
             const res = await fetch('/api/assessment-report', {
               method: 'PATCH',

@@ -8,9 +8,10 @@ interface Props {
   html: string
   fileName: string
   label?: string
+  advisorAction?: boolean
 }
 
-export function ExportReportButton({ html, fileName, label }: Props) {
+export function ExportReportButton({ html, fileName, label, advisorAction = true }: Props) {
   const [saving, setSaving] = useState(false)
 
   const saveReportToDrive = async () => {
@@ -43,7 +44,7 @@ export function ExportReportButton({ html, fileName, label }: Props) {
   }
 
   return (
-    <div className="flex items-center gap-2" data-advisor-action>
+    <div className="flex items-center gap-2" data-advisor-action={advisorAction ? true : undefined}>
       <Button size="sm" onClick={handlePrint}>
         <Printer className="w-3.5 h-3.5" />
         {saving ? 'Saving...' : label || 'Export PDF'}

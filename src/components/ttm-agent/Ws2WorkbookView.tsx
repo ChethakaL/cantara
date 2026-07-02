@@ -1879,9 +1879,9 @@ export function Ws2WorkbookView({
             {multiple ? ` · Multiple: ${acctMult(multiple)}` : ''}
           </p>
         </div>
-        {!readOnly && (
-          <div className="flex items-center gap-2">
-            <Badge color="green">WS2-2 Approved</Badge>
+        <div className="flex items-center gap-2">
+          <Badge color="green">WS2-2 Approved</Badge>
+          {!readOnly && (
             <Button
               size="sm"
               variant={editMode ? 'primary' : 'outline'}
@@ -1890,18 +1890,18 @@ export function Ws2WorkbookView({
             >
               {savingEdits ? 'Saving...' : editMode ? 'Done Editing' : 'Edit all fields'}
             </Button>
-            <Button size="sm" variant="outline" onClick={exportPdf}>
-              <Printer className="mr-1.5 h-3.5 w-3.5" />
-              Export PDF
+          )}
+          <Button size="sm" variant="outline" onClick={exportPdf}>
+            <Printer className="mr-1.5 h-3.5 w-3.5" />
+            Export PDF
+          </Button>
+          {onExportXlsx && (
+            <Button size="sm" variant="outline" onClick={onExportXlsx}>
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              Export XLSX
             </Button>
-            {onExportXlsx && (
-              <Button size="sm" variant="outline" onClick={onExportXlsx}>
-                <Download className="mr-1.5 h-3.5 w-3.5" />
-                Export XLSX
-              </Button>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Tabs */}

@@ -1072,7 +1072,7 @@ function ReportView({
           </p>
         </div>
         <AdvisorActions className="flex items-center gap-2">
-          {isEditingSummaries ? (
+          {!readOnly && (isEditingSummaries ? (
             <>
               <Button size="sm" variant="outline" onClick={() => setIsEditingSummaries(false)} disabled={savingSummaries}>
                 Cancel
@@ -1085,14 +1085,14 @@ function ReportView({
             <Button size="sm" variant="outline" onClick={handleStartEditingSummaries}>
               Edit Report
             </Button>
-          )}
+          ))}
           <ExportReportButton
             html={buildCompetitorReportHtml(report)}
             fileName={`competitor-analysis-${report.businessName.replace(/\s+/g, '-').toLowerCase()}`}
           />
-          <Button variant="danger" onClick={onDelete} disabled={deleting}>
+          {!readOnly && <Button variant="danger" onClick={onDelete} disabled={deleting}>
             {deleting ? 'Deleting…' : 'Delete Report'}
-          </Button>
+          </Button>}
         </AdvisorActions>
       </div>
 

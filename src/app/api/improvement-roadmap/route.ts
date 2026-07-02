@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
+import { extractSaleReadinessChecklist } from '@/lib/sale-readiness-checklist'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -19,7 +20,16 @@ export async function GET(req: NextRequest) {
 
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
   const key = `improvementRoadmap_${workstream}`
-  const report = submissions[key] ?? null
+  const checklistKey = `saleReadinessChecklist_${workstream}`
+  let report = submissions[key] ?? null
+
+  if (report && submissions[checklistKey]) {
+    const checklistState = submissions[checklistKey]
+    report = {
+      ...report,
+      checklist: Array.isArray(checklistState.items) ? checklistState.items : report.checklist
+    }
+  }
 
   return NextResponse.json({ report })
 }
@@ -116,20 +126,24 @@ Create a comprehensive checklist organized by category. This should come before 
 Include at least 15-25 checklist items covering all categories. Mark status as 🟢 (have it), 🟡 (needs update), or 🔴 (missing).
 Do not recommend requiring a standalone Seller Non-Compete. If non-compete or restrictive covenant protection is relevant, frame it as a purchase agreement topic instead.
 
-## Sale-Readiness Improvement Roadmap
+## Red Flag Action Items
 
-### Phase 1: Immediate Actions (0-30 Days)
-For each action item, use this format:
+List ALL 🔴 RED items from the assessment, grouped by category. Use this exact format for each:
 
-**Action Item Name** — 🔴 RED / 🟡 YELLOW
-- **What**: Description of what needs to be done
-- **Why**: Plain-language explanation of why this matters to the seller
-- **Impact on Deal**: Specific impact (e.g., "Without this, buyers will request a 10-15% escrow holdback" or "This is a deal-breaker — no buyer will proceed without it")
+**[Category Name] — [Issue Name]** 🔴 RED
+- **What**: What specifically needs to be done
+- **Why**: Why this matters to the seller
+- **Impact on Deal**: Specific impact if left unresolved (e.g., "Buyer will request escrow holdback", "Could be a deal-breaker")
 - **How**: Step-by-step actions to resolve
-- **Owner**: Who should handle this (you, your accountant, your attorney, etc.)
-- **Timeline**: Realistic timeframe
+- **Owner**: Who handles this (you, your accountant, your attorney)
 
-### Phase 2: Short-Term Actions (30-90 Days)
+## Yellow Flag Action Items
+
+List ALL 🟡 YELLOW items from the assessment, grouped by category. Same format as above.
+
+## Deep Dive by Category
+
+Provide a thorough category-by-category breakdown with full context and detailed action guidance for all findings.
 ${workstream === 'ws1' ? `Organize by:
 #### Legal & Corporate Standing
 #### Ownership & Transfer Readiness
@@ -151,10 +165,7 @@ ${workstream === 'ws1' ? `Organize by:
 #### Customer Concentration
 #### Growth Trajectory`}
 
-Same format per item (What, Why, Impact on Deal, How, Owner, Timeline)
-
-### Phase 3: Medium-Term Actions (90-180 Days)
-Strategic improvements. Same format.
+For each item under each category: What, Why, Impact on Deal, How, Owner.
 
 ---
 
@@ -167,6 +178,9 @@ ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`)
   })
 
   const markdown = result.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim()
+  const checklistKey = `saleReadinessChecklist_${workstream}`
+  const existingChecklist = submissions[checklistKey]
+  const checklistItems = extractSaleReadinessChecklist(markdown, Array.isArray(existingChecklist?.items) ? existingChecklist.items : [])
 
   const report = {
     workstream,
@@ -174,6 +188,7 @@ ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`)
     clientName,
     generatedAt: new Date().toISOString(),
     markdown,
+    checklist: checklistItems,
   }
 
   const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
@@ -183,6 +198,12 @@ ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`)
       sectionSubmissions: {
         ...current,
         [`improvementRoadmap_${workstream}`]: report,
+        [checklistKey]: {
+          workstream,
+          clientName,
+          generatedAt: report.generatedAt,
+          items: checklistItems,
+        },
       },
     },
   })
@@ -210,14 +231,18 @@ export async function PATCH(req: NextRequest) {
     ? client.sectionSubmissions
     : {}) as Record<string, any>
   const key = `improvementRoadmap_${workstream}`
+  const checklistKey = `saleReadinessChecklist_${workstream}`
   const existing = current[key]
   if (!existing) {
     return new Response('Generate the improvement roadmap before editing.', { status: 404 })
   }
+  const existingChecklist = current[checklistKey]
+  const checklistItems = extractSaleReadinessChecklist(markdown, Array.isArray(existingChecklist?.items) ? existingChecklist.items : existing.checklist ?? [])
 
   const report = {
     ...existing,
     markdown,
+    checklist: checklistItems,
     updatedAt: new Date().toISOString(),
   }
 
@@ -227,6 +252,13 @@ export async function PATCH(req: NextRequest) {
       sectionSubmissions: {
         ...current,
         [key]: report,
+        [checklistKey]: {
+          workstream,
+          clientName: existing.clientName ?? 'Client',
+          generatedAt: existingChecklist?.generatedAt ?? existing.generatedAt ?? new Date().toISOString(),
+          updatedAt: report.updatedAt,
+          items: checklistItems,
+        },
       },
     },
   })

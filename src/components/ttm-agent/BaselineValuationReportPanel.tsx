@@ -24,6 +24,7 @@ export function BaselineValuationReportPanel({
   hideWorkflowChrome = false,
   collapsed = false,
   onToggleCollapse,
+  readOnly = false,
 }: {
   clientName: string
   analysis: TtmAnalysisView
@@ -32,6 +33,7 @@ export function BaselineValuationReportPanel({
   hideWorkflowChrome?: boolean
   collapsed?: boolean
   onToggleCollapse?: () => void
+  readOnly?: boolean
 }) {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -165,22 +167,26 @@ export function BaselineValuationReportPanel({
                 {collapsed ? 'Expand' : 'Collapse'}
               </Button>
             )}
-            <Button size="sm" onClick={() => void runReport()} disabled={disabled || running}>
-              {running ? 'Generating...' : report ? 'Refresh Report' : 'Generate Report'}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => workbookInputRef.current?.click()} disabled={!report || uploadingWorkbook}>
-              {uploadingWorkbook ? 'Reading XLSX...' : 'Import Edited XLSX'}
-            </Button>
-            <input
-              ref={workbookInputRef}
-              type="file"
-              accept=".xlsx"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) void handleWorkbookPicked(file)
-              }}
-            />
+            {!readOnly && (
+              <>
+                <Button size="sm" onClick={() => void runReport()} disabled={disabled || running}>
+                  {running ? 'Generating...' : report ? 'Refresh Report' : 'Generate Report'}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => workbookInputRef.current?.click()} disabled={!report || uploadingWorkbook}>
+                  {uploadingWorkbook ? 'Reading XLSX...' : 'Import Edited XLSX'}
+                </Button>
+                <input
+                  ref={workbookInputRef}
+                  type="file"
+                  accept=".xlsx"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    if (file) void handleWorkbookPicked(file)
+                  }}
+                />
+              </>
+            )}
           </div>
         </div>
 
@@ -197,6 +203,7 @@ export function BaselineValuationReportPanel({
           clientName={clientName}
           onExportXlsx={onExportXlsx}
           onWorkbookSaved={onUpdated}
+          readOnly={readOnly}
         />
       )}
 
