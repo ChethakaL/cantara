@@ -2667,6 +2667,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
         const docsToShow = cat.documents.filter(d => {
           const s = getStatus(d.id)
           if (s.hasDoc === false || s.notApplicable) return false
+          if (d.id === 'irs_tax_notices_3yr') return true
           return d.type === 'required' || s.hasDoc === true || Boolean(s.fileName)
         })
         if (docsToShow.length === 0) return null
