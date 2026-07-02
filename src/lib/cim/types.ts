@@ -104,6 +104,9 @@ export interface CimInputData {
   contactName: string
   contactTitle: string
   contactEmail: string
+
+  // New facility images
+  facilityImages?: string[]
 }
 
 export const DEFAULT_CIM_INPUT: CimInputData = {
@@ -155,4 +158,5 @@ export const DEFAULT_CIM_INPUT: CimInputData = {
   contactName: 'Craig Pollack',
   contactTitle: 'Chief Executive Officer \u00b7 Cantara Pet Advisors',
   contactEmail: 'craig@cantarapet.com',
+  facilityImages: [],
 }

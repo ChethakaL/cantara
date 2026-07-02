@@ -4,6 +4,43 @@ import { prisma } from '@/lib/prisma'
 import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 
 export const dynamic = 'force-dynamic'
+
+function computeOccupancyMetrics(
+  monthlyData: Array<{month: string; boardingDogs: number; daycareDogs: number}>,
+  capacityModel: { totalDailyCapacity?: number; boardingRuns?: number; daycareSpots?: number }
+) {
+  const totalCapacity = capacityModel.totalDailyCapacity ??
+    ((capacityModel.boardingRuns ?? 0) + (capacityModel.daycareSpots ?? 0))
+
+  const monthlyTotals = monthlyData.map(m => {
+    const total = m.boardingDogs + m.daycareDogs
+    return {
+      month: m.month,
+      boardingDogs: m.boardingDogs,
+      daycareDogs: m.daycareDogs,
+      total,
+      utilization: totalCapacity > 0 ? +(total / totalCapacity * 100).toFixed(1) : 0,
+      boardingMix: total > 0 ? +(m.boardingDogs / total * 100).toFixed(1) : 0,
+      daycareMix: total > 0 ? +(m.daycareDogs / total * 100).toFixed(1) : 0,
+    }
+  })
+
+  const sorted = [...monthlyTotals].sort((a, b) => b.utilization - a.utilization)
+  const peakMonths = sorted.slice(0, 3).map(m => m.month)
+  const troughMonths = sorted.slice(-3).reverse().map(m => m.month)
+  const avgUtilization = monthlyTotals.length > 0
+    ? +(monthlyTotals.reduce((s, m) => s + m.utilization, 0) / monthlyTotals.length).toFixed(1)
+    : 0
+  const resolvedDaycareSpots = capacityModel.daycareSpots ??
+    (capacityModel.totalDailyCapacity && capacityModel.boardingRuns
+      ? capacityModel.totalDailyCapacity - capacityModel.boardingRuns
+      : 0)
+  const daycareDisplacementPct = totalCapacity > 0
+    ? +(resolvedDaycareSpots / totalCapacity * 100).toFixed(1)
+    : 0
+
+  return { monthlyTotals, peakMonths, troughMonths, avgUtilization, daycareDisplacementPct, totalCapacity }
+}
 export const maxDuration = 120
 
 export async function GET(req: NextRequest) {
@@ -20,8 +57,9 @@ export async function GET(req: NextRequest) {
     ? client.sectionSubmissions
     : {}) as Record<string, any>
   const report = submissions.occupancyReview ?? null
+  const inputs = submissions.occupancyReviewInputs ?? null
 
-  return NextResponse.json({ report })
+  return NextResponse.json({ report, inputs })
 }
 
 export async function POST(req: NextRequest) {
@@ -29,10 +67,37 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData()
     const clientId = formData.get('clientId') as string
     const clientName = formData.get('clientName') as string
+    // Legacy fields (backwards compat)
     const totalBoardingRuns = formData.get('totalBoardingRuns') as string
     const totalDaycareSpots = formData.get('totalDaycareSpots') as string
     const totalGroomingStations = formData.get('totalGroomingStations') as string
     const analysisPeriod = formData.get('analysisPeriod') as string
+    // New capacity model fields
+    const totalDailyCapacityStr = formData.get('totalDailyCapacity') as string
+    const boardingRunsStr = formData.get('boardingRuns') as string
+    const daycareSpotsStr = formData.get('daycareSpots') as string
+    const groomingStationsStr = formData.get('groomingStations') as string
+    const monthlyDataStr = formData.get('monthlyData') as string
+
+    // Parse numeric capacity fields
+    const totalDailyCapacityNum = totalDailyCapacityStr ? parseInt(totalDailyCapacityStr) : 0
+    const boardingRunsNum = boardingRunsStr ? parseInt(boardingRunsStr) : 0
+    const daycareSpotsNum = daycareSpotsStr ? parseInt(daycareSpotsStr) : 0
+    const groomingStationsNum = groomingStationsStr ? parseInt(groomingStationsStr) : 0
+
+    // Parse monthly data
+    const parsedMonthlyData = monthlyDataStr ? JSON.parse(monthlyDataStr) as Array<{month: string; boardingDogs: number; daycareDogs: number}> : []
+
+    // Build capacity model
+    const capacityModel = {
+      totalDailyCapacity: totalDailyCapacityNum || undefined,
+      boardingRuns: boardingRunsNum || undefined,
+      daycareSpots: daycareSpotsNum || undefined,
+      groomingStations: groomingStationsNum || undefined,
+    }
+
+    // Compute metrics
+    const computed = parsedMonthlyData.length > 0 ? computeOccupancyMetrics(parsedMonthlyData, capacityModel) : null
 
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
@@ -100,49 +165,45 @@ export async function POST(req: NextRequest) {
     // Add the main analysis prompt
     contentBlocks.push({
       type: 'text',
-      text: `Analyze the occupancy and capacity data for **${clientName || client.businessName}**.${capacityContext}${documentContext}
+      text: `Generate a buyer-facing occupancy analysis report for **${clientName || client.businessName}**.
 
-Extract exact numbers from the documents provided. Calculate monthly occupancy = occupied units / total units. Compare to pet resort industry benchmarks.
+${computed ? `
+Capacity Model:
+- Total Daily Capacity: ${computed.totalCapacity} dogs
+${capacityModel.boardingRuns ? `- Boarding Runs: ${capacityModel.boardingRuns}` : ''}
+${capacityModel.daycareSpots != null ? `- Daycare Spots: ${capacityModel.daycareSpots}` : (capacityModel.totalDailyCapacity && capacityModel.boardingRuns ? `- Daycare Spots (residual): ${computed.totalCapacity - capacityModel.boardingRuns}` : '')}
 
-Produce a comprehensive occupancy review report with the following sections:
+24-Month Data Summary:
+- Average Utilization: ${computed.avgUtilization}%
+- Peak Months: ${computed.peakMonths.join(', ')}
+- Trough Months: ${computed.troughMonths.join(', ')}
+- Daycare Displacement: ${computed.daycareDisplacementPct}%
 
-## 1. Capacity Overview
-Total boarding runs/suites, daycare spots, grooming stations. Document the full capacity inventory.
+Full Monthly Data:
+${computed.monthlyTotals.map(m => `${m.month}: Boarding ${m.boardingDogs}, Daycare ${m.daycareDogs}, Total ${m.total}, Utilization ${m.utilization}%`).join('\n')}
+` : `Capacity inputs: ${capacityLines.join(', ')}`}
 
-## 2. Occupancy Rate Analysis
-Monthly occupancy rates for each service line. Identify peak vs trough periods. Calculate trailing 12-month average occupancy. Present data in a table format:
-| Month | Boarding Occupancy | Daycare Occupancy | Grooming Utilization |
+Generate the report in EXACTLY this order with EXACTLY these section headings:
 
-## 3. Seasonal Demand Patterns
-Holiday peaks (Thanksgiving, Christmas, Spring Break, July 4th), summer patterns, weekday vs weekend demand differences. Identify the top 5 highest-demand periods and the 5 lowest-demand periods.
+## 1. Methodology Note
+Explain how the capacity utilization model was built. Reference the owner-stated total capacity. Explain: utilization = total dogs (boarding + daycare combined) / total daily capacity per day.
 
-## 4. Revenue per Available Unit (RevPAU)
-Calculate RevPAU (like hotel RevPAR but for pet resorts): Revenue / Available Unit-Nights. Break down by boarding, daycare, and grooming. Compare month-over-month trends.
+## 2. Capacity Model Note
+Detail the specific capacity figures used: total daily capacity, boarding runs, daycare spots (note if daycare = residual capacity Total − Boarding Runs, or if stated directly). Include grooming stations if provided.
 
-## 5. Benchmark Comparison
-Compare against pet resort industry benchmarks:
-- Boarding average occupancy: 65-75%
-- Daycare average occupancy: 50-60%
-- Grooming utilization: 70-80%
-- Peak season boarding: 85-95%
-Present as a table with Metric | This Business | Industry Benchmark | Variance | Assessment
+## 3. Combined Capacity Utilization — 24-Month Trend
+Present the full monthly data in a formatted table:
+| Month | Boarding Dogs | Daycare Dogs | Total Dogs | Utilization % | Boarding Mix | Daycare Mix |
 
-## 6. Capacity Utilization Assessment
-Are they under-capacity or over-capacity? Is there room for growth? Calculate unused capacity value (vacant units x average rate). Identify bottlenecks.
+Summarize: peak months, trough months, average utilization, and notable patterns.
 
-## 7. Pricing Optimization Opportunities
-Peak pricing opportunities, package deal potential, off-peak discount strategies, dynamic pricing potential. Estimate revenue impact of each opportunity.
+## 4. Trade-off Commentary
+Analyze the boarding vs daycare trade-off. Daycare displacement percentage is ${computed?.daycareDisplacementPct ?? 'N/A'}% — discuss whether current service mix optimizes total revenue. Examine if a boarding-heavy night displacing a daycare slot is revenue-positive or negative based on typical pricing.
 
-## 8. Recommendations
-Specific, actionable recommendations to improve occupancy and revenue. Prioritize by impact and ease of implementation. Include estimated financial impact where possible.
+## 5. Growth Headroom Implication
+For a prospective buyer: at average utilization of ${computed?.avgUtilization ?? 'N/A'}%, how many additional dogs per day represent upside? What does trough-month capacity imply about growth potential? Provide specific numbers and implications for deal valuation.
 
-## 9. Flag Summary
-Categorize findings into:
-- **Deal-Risk Flags**: Issues that could materially affect valuation or deal structure
-- **Negotiation Flags**: Items that should be addressed in deal negotiations
-- **Informational Flags**: Notable findings for buyer awareness
-
-Format the entire report in clean markdown with tables, bold emphasis, and clear hierarchy. Include specific numbers and percentages from the documents wherever possible.`,
+Return markdown only. No preamble.`,
     })
 
     const anthropic = await requireAIClient()
@@ -176,6 +237,9 @@ Return markdown only. Do not include any preamble or meta-commentary.`,
       clientName: clientName || client.businessName,
       generatedAt: new Date().toISOString(),
       markdown,
+      capacityModel,
+      monthlyData: parsedMonthlyData,
+      computed,
       inputs: {
         totalBoardingRuns: totalBoardingRuns || null,
         totalDaycareSpots: totalDaycareSpots || null,

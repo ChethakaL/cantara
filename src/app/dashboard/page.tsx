@@ -27,6 +27,7 @@ import {
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
 import { DocumentUploadPanel, type DocumentUploadStatusSummary } from '@/components/documents/DocumentUploadPanel'
 import { DocumentUploadAccordion } from '@/components/documents/DocumentUploadAccordion'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { fetchClientDocumentsBatch, fileCountForDocumentIds, mergeUploadedFiles, type FilesByDocumentId } from '@/lib/client-document-files'
 import { getDocsForAgentSelections, getDocsForWorkstream, getValuationDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
 import {
@@ -47,6 +48,7 @@ import DigitalPresenceScorecard from '@/components/digital-presence/DigitalPrese
 import ClientApprovedAgentOutput, { type ClientApprovedClient } from '@/components/client-portal/ClientApprovedAgentOutput'
 import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
+import { buildTaxReadinessReferenceHtml } from '@/lib/tax-readiness'
 
 export type ClientPortalFormQuestion = {
   id: string
@@ -130,6 +132,7 @@ const PHASES = [
 const DEDICATED_REQUIRED_INFO_AGENTS = [
   'facility_review',
   'digital_presence',
+  'occupancy_review',
   'vendor_directory',
   'professional_advisors',
   'competitor_analysis',
@@ -148,6 +151,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
       ...(hasAgentForm('competitor_analysis') ? ['competitor_analysis'] : []),
       ...(hasAgentForm('pricing_analysis') ? ['pricing_analysis'] : []),
+      ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
       ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
       ...(formQuestions.some(q => !isDedicatedRequiredInfoAgent(q.agentId)) ? ['other_info'] : []),
@@ -157,6 +161,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       digital_presence: 'Digital Presence',
       competitor_analysis: 'Competitor Inputs',
       pricing_analysis: 'Competitor Pricing Inputs',
+      occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',
       professional_advisors: 'Professional Advisors',
       other_info: 'Other Required Info',
@@ -720,6 +725,7 @@ export default function ClientDashboard() {
                   getStatus={getDocStatus}
                   setStatus={setDocStatus}
                   clientId={client.id}
+                  clientName={client.company || client.name || 'Client'}
                   uploaderEmail={sessionEmail || client.email}
                   sectionSubmissions={client.sectionSubmissions ?? {}}
                   onSubmitSection={submitSection}
@@ -2373,12 +2379,13 @@ function documentUploadFileCount(docId: string, filesByDocId: FilesByDocumentId)
   return (filesByDocId[docId] ?? []).length
 }
 
-function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId, getDeadline, sectionDeadlines }: {
+function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, clientName, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId, getDeadline, sectionDeadlines }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
   setStatus: (id: string, u: Partial<DocumentStatus>) => void
   clientId: string
+  clientName: string
   uploaderEmail: string
   sectionSubmissions: Record<string, any>
   onSubmitSection: (sectionId: string) => Promise<void>
@@ -2513,7 +2520,9 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
-        Upload documents for each item your team confirmed in the Assign step. You can add files over time — each upload saves immediately. Target deadlines are set by your Cantara team.
+        <p>
+          Upload documents for each item your team confirmed in the Assign step. You can add files over time — each upload saves immediately. Target deadlines are set by your Cantara team.
+        </p>
       </div>
       {filesCatalogLoading && (
         <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
@@ -2674,6 +2683,14 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
               <h4 className="text-sm font-semibold text-slate-700">{cat.title}</h4>
               <div className="flex items-center gap-2 flex-wrap">
+                {cat.id === 'financial' && (
+                  <ExportReportButton
+                    html={buildTaxReadinessReferenceHtml(clientName, 'client')}
+                    fileName={`${clientName} - Tax Readiness Document Reference.pdf`}
+                    label="Tax Reference PDF"
+                    advisorAction={false}
+                  />
+                )}
                 {sectionDeadlines[cat.id] && (
                   <TargetDeadlineBadge deadline={sectionDeadlines[cat.id]} uploaded={sectionTotals.uploaded === sectionTotals.total && sectionTotals.total > 0} />
                 )}
@@ -3054,7 +3071,11 @@ type ApprovedOutput = {
   agentName: string
   approvedAt: string | null
   markdown: string
-  data?: unknown
+  data?: { type?: string } | unknown
+}
+
+function isAdvisorToRunPlaceholder(output: ApprovedOutput) {
+  return !!output.data && typeof output.data === 'object' && (output.data as { type?: string }).type === 'advisorToRunPlaceholder'
 }
 
 function RoadmapTab({ clientId, client }: { clientId: string; client: ClientApprovedClient }) {
@@ -3062,6 +3083,19 @@ function RoadmapTab({ clientId, client }: { clientId: string; client: ClientAppr
   const [activeOutputKey, setActiveOutputKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const [showSidebar, setShowSidebar] = useState(true)
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    'WS1 — Risk & Legal': true,
+    'WS2 — Performance': true,
+    'M&A Sale Process': true,
+    'Reports & Roadmaps': true,
+  })
+
+  const toggleGroup = (groupLabel: string) => {
+    setOpenGroups(prev => ({ ...prev, [groupLabel]: !prev[groupLabel] }))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -3095,7 +3129,7 @@ function RoadmapTab({ clientId, client }: { clientId: string; client: ClientAppr
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400">
         <Loader2 className="w-6 h-6 animate-spin text-slate-300 mx-auto mb-3" />
-        Loading approved outputs...
+        Loading released reports...
       </div>
     )
   }
@@ -3103,7 +3137,7 @@ function RoadmapTab({ clientId, client }: { clientId: string; client: ClientAppr
   if (error) {
     return (
       <div className="bg-rose-50 rounded-2xl border border-rose-200 p-6 text-sm text-rose-700">
-        {error}
+        Released reports load failed: {error}
       </div>
     )
   }
@@ -3112,9 +3146,9 @@ function RoadmapTab({ clientId, client }: { clientId: string; client: ClientAppr
     return (
       <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400">
         <MapIcon className="w-10 h-10 text-slate-300 mx-auto mb-4" />
-        <p className="font-medium text-slate-600 mb-2">Report Tabs</p>
+        <p className="font-medium text-slate-600 mb-2">Released Reports</p>
         <p className="text-xs leading-relaxed max-w-sm mx-auto">
-          Approved agent reports will appear here after your Cantara advisor completes review.
+          Reports released by your Cantara advisor will appear here.
         </p>
       </div>
     )
@@ -3122,63 +3156,157 @@ function RoadmapTab({ clientId, client }: { clientId: string; client: ClientAppr
 
   const activeOutput = outputs.find(output => output.agentKey === activeOutputKey) ?? outputs[0]
 
+
+
+  // Valuation Agent is filtered out from M&A Sale Process and placed on top
+  const valuationOutputs = outputs.filter(o => o.agentKey === 'ttmAnalysis')
+
+  const TOC_GROUPS = [
+    {
+      label: 'WS1 — Risk & Legal',
+      keys: ['employeeObligations','employeeComp','insuranceReview','lease','litigationSearch','contract','orgChart','ownerGmAssessment','ownershipVerification','permitsZoning','professionalAdvisors','vendorDirectory','legalEntitySearch','taxLiabilityReview'],
+    },
+    {
+      label: 'WS2 — Performance',
+      keys: ['competitor','digitalPresence','facilityReview','occupancyReview','pricingAnalysis','pricingVertical','salesProcessReview','clientLocationMap'],
+    },
+    {
+      label: 'M&A Sale Process',
+      keys: ['cim','teaser','net_proceeds'],
+    },
+    {
+      label: 'Reports & Roadmaps',
+      keys: ['ws1Assessment','ws2Assessment','ws1Roadmap','ws2Roadmap'],
+    },
+  ]
+
   return (
     <div className="space-y-4">
+      {outputs.length > 0 && (
+        <>
       <div className="bg-white rounded-2xl border border-slate-200 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Advisor-approved</p>
-            <h2 className="text-lg font-semibold text-slate-800 mt-1">Report Tabs</h2>
-            <p className="text-xs text-slate-500 mt-1">Review each approved agent report from your Cantara advisor.</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Released to You</p>
+            <h2 className="text-lg font-semibold text-slate-800 mt-1">Released Reports</h2>
+            <p className="text-xs text-slate-500 mt-1">Your Cantara advisor has released these reports for your review.</p>
           </div>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500">
-            {outputs.length} approved
-          </span>
-        </div>
-        <div className="mt-5 -mx-1 overflow-x-auto pb-1">
-          <div className="flex min-w-max gap-2 px-1">
-            {outputs.map(output => {
-              const active = output.agentKey === activeOutput.agentKey
-              return (
-                <button
-                  key={output.agentKey}
-                  type="button"
-                  onClick={() => setActiveOutputKey(output.agentKey)}
-                  className={`rounded-xl border px-4 py-3 text-left transition-all ${
-                    active
-                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className="block text-xs font-semibold">{output.agentName}</span>
-                  <span className={`mt-1 block text-[10px] ${active ? 'text-white/55' : 'text-slate-400'}`}>
-                    {output.approvedAt ? new Date(output.approvedAt).toLocaleDateString() : 'Approved'}
-                  </span>
-                </button>
-              )
-            })}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSidebar(!showSidebar)}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              {showSidebar ? 'Hide Report List' : 'Show Report List'}
+            </button>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500">
+              {outputs.filter(output => !isAdvisorToRunPlaceholder(output)).length} released
+            </span>
           </div>
         </div>
       </div>
+        </>
+      )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <p className="text-sm font-semibold text-slate-800">{activeOutput.agentName}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Approved {activeOutput.approvedAt ? new Date(activeOutput.approvedAt).toLocaleString() : 'by advisor'}
-          </p>
+      {outputs.length > 0 && <div className="flex flex-col lg:flex-row gap-4">
+        {showSidebar && (
+          <div className="lg:w-64 xl:w-72 flex-shrink-0">
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+              
+              {/* Valuation Agent - Always on top if present */}
+              {valuationOutputs.length > 0 && (
+                <div>
+                  {valuationOutputs.map(output => {
+                    const isActive = output.agentKey === activeOutput.agentKey
+                    return (
+                      <button
+                        key={output.agentKey}
+                        type="button"
+                        onClick={() => setActiveOutputKey(output.agentKey)}
+                        className={`w-full text-left px-4 py-3 transition-all ${isActive ? 'bg-[#0d1829] text-white' : 'hover:bg-slate-50 text-slate-600'}`}
+                      >
+                        <span className={`block text-xs font-bold ${isActive ? 'text-white' : 'text-slate-800'}`}>{output.agentName}</span>
+                        <span className={`mt-0.5 block text-[10px] ${isActive ? 'text-white/50' : 'text-slate-400'}`}>
+                          {output.approvedAt ? new Date(output.approvedAt).toLocaleDateString() : 'Released'}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Collapsible Accordion Groups */}
+              {TOC_GROUPS.map(group => {
+                const groupOutputs = outputs.filter(o => group.keys.includes(o.agentKey))
+                const isOpen = !!openGroups[group.label]
+                return (
+                  <div key={group.label} className="border-t border-slate-100 first:border-t-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.label)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-left hover:bg-slate-100/70 transition-colors"
+                    >
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{group.label}</p>
+                      <span className="text-slate-400 text-[9px] font-semibold">{isOpen ? '▼' : '▲'}</span>
+                    </button>
+                    {isOpen && (
+                      <div className="divide-y divide-slate-50">
+                        {groupOutputs.length === 0 ? (
+                          <div className="px-4 py-3">
+                            <p className="text-[11px] text-slate-300 italic">No reports released yet</p>
+                          </div>
+                        ) : (
+                          groupOutputs.map(output => {
+                            const isActive = output.agentKey === activeOutput.agentKey
+                            return (
+                              <button
+                                key={output.agentKey}
+                                type="button"
+                                onClick={() => setActiveOutputKey(output.agentKey)}
+                                className={`w-full text-left px-4 py-3 transition-all ${isActive ? 'bg-[#0d1829] text-white' : 'hover:bg-slate-50 text-slate-600'}`}
+                              >
+                                <span className={`block text-xs font-semibold ${isActive ? 'text-white' : 'text-slate-700'}`}>{output.agentName}</span>
+                                <span className={`mt-0.5 block text-[10px] ${isActive ? 'text-white/50' : 'text-slate-400'}`}>
+                                  {isAdvisorToRunPlaceholder(output)
+                                    ? 'Advisor is running this search'
+                                    : output.approvedAt
+                                      ? new Date(output.approvedAt).toLocaleDateString()
+                                      : 'Released'}
+                                </span>
+                              </button>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0">
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <p className="text-sm font-semibold text-slate-800">{activeOutput.agentName}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {isAdvisorToRunPlaceholder(activeOutput)
+                  ? 'Advisor is running this search'
+                  : `Released ${activeOutput.approvedAt ? new Date(activeOutput.approvedAt).toLocaleString() : 'by advisor'}`}
+              </p>
+            </div>
+            <div className="px-5 py-4">
+              <ClientApprovedAgentOutput
+                agentKey={activeOutput.agentKey}
+                agentName={activeOutput.agentName}
+                client={client}
+                prefetchedData={activeOutput.data}
+                fallbackMarkdown={activeOutput.markdown}
+              />
+            </div>
+          </div>
         </div>
-        <div className="px-5 py-4">
-          <ClientApprovedAgentOutput
-            agentKey={activeOutput.agentKey}
-            agentName={activeOutput.agentName}
-            client={client}
-            prefetchedData={activeOutput.data}
-            fallbackMarkdown={activeOutput.markdown}
-          />
-        </div>
-      </div>
+      </div>}
     </div>
   )
 }
-

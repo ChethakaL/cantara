@@ -486,6 +486,12 @@ export default function EmployeeObligationsTab({
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
 
+  useEffect(() => {
+    if (!readOnly) return
+    setEditMode(false)
+    setDraftReport(null)
+  }, [readOnly])
+
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS16Analysis({ clientId, clientName, state, dba, totalEmployeesSelfReported: totalEmployeesSelfReported ?? undefined, employmentTypeBreakdown: employmentTypeBreakdown ?? undefined })
 
@@ -782,14 +788,14 @@ export default function EmployeeObligationsTab({
           <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
         </div>
         <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
-          {editMode ? (
+          {!readOnly && (editMode ? (
             <>
               <Button variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown}>Cancel</Button>
               <Button onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>{savingMarkdown ? 'Saving...' : 'Save Final Version'}</Button>
             </>
           ) : (
             <Button variant="outline" onClick={startEditing}>Edit Output</Button>
-          )}
+          ))}
           <ExportReportButton
             html={buildEmployeeObligationsReportHtml(report, flags, clientName)}
             fileName={`employee-obligations-${clientName.replace(/\s+/g, '-').toLowerCase()}`}

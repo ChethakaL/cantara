@@ -315,6 +315,7 @@ model ClientProfile {
   createdAt                    DateTime                      @default(now())
   updatedAt                    DateTime                      @updatedAt
   sectionSubmissions           Json?
+  clientRelease                Json?
   approvedNormalizedEbitda     Float?
   approvedNormalizedEbitdaAt   DateTime?
   businessAddress              String?

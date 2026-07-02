@@ -632,12 +632,14 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
                   Saved
                 </span>
               )}
-              <Button
-                variant="outline"
-                onClick={() => setEditMode(!editMode)}
-              >
-                {editMode ? 'Preview Output' : 'Edit Output'}
-              </Button>
+              {!readOnly && (
+                <Button
+                  variant="outline"
+                  onClick={() => setEditMode(!editMode)}
+                >
+                  {editMode ? 'Preview Output' : 'Edit Output'}
+                </Button>
+              )}
               <ExportReportButton
                 html={reportHtml}
                 fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}

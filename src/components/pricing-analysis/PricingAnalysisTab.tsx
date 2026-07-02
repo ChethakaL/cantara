@@ -157,6 +157,11 @@ export default function PricingAnalysisTab({
   const lastSavedSnapshotRef = useRef<string>('')
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  useEffect(() => {
+    if (!readOnly) return
+    setEditMode(false)
+  }, [readOnly])
+
   const markSavedSnapshot = useCallback((report: PricingAnalysisReport) => {
     lastSavedSnapshotRef.current = JSON.stringify(report)
   }, [])
@@ -561,19 +566,21 @@ export default function PricingAnalysisTab({
                 Analysis updated
               </span>
             )}
-            <button
-              onClick={toggleEditMode}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors',
-                editMode
-                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-              )}
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              {editMode ? 'Editing' : 'Edit'}
-            </button>
-            {editMode && (
+            {!readOnly && (
+              <button
+                onClick={toggleEditMode}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors',
+                  editMode
+                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                )}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                {editMode ? 'Editing' : 'Edit'}
+              </button>
+            )}
+            {!readOnly && editMode && (
               <button
                 onClick={handleAnalyze}
                 disabled={analyzing}

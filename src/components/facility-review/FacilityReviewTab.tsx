@@ -248,8 +248,18 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   const lastSavedSnapshotRef = useRef('')
 
   useEffect(() => {
+    if (!readOnly) return
+    setEditMode(false)
+  }, [readOnly])
+
+  useEffect(() => {
     const loadSaved = async () => {
       try {
+        const modeRes = await fetch(`/api/client-data/${clientId}?section=facilityReviewMode`)
+        if (modeRes.ok) {
+          const mode = await modeRes.json()
+          setRunMode(mode === 'advisor' ? 'advisor' : 'standard')
+        }
         const inputsRes = await fetch(`/api/client-data/${clientId}?section=facilityReviewInputs`)
         if (inputsRes.ok) {
           const inputs = await inputsRes.json()
@@ -276,7 +286,6 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
             lastSavedSnapshotRef.current = JSON.stringify(data)
             if (data.reportVersion?.includes('Advisor Visit')) {
               setReportRunMode('advisor')
-              setRunMode('advisor')
             }
           }
         }
@@ -286,7 +295,6 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
           if (advisorInputs?.meetingNotes) setMeetingNotes(advisorInputs.meetingNotes)
           if (advisorInputs?.location) setLocation(advisorInputs.location)
           if (advisorInputs?.businessName) setBusinessName(advisorInputs.businessName)
-          if (advisorInputs?.runMode === 'advisor') setRunMode('advisor')
         }
         const imageEntries = await Promise.all(PHOTO_SECTIONS.map(async section => {
           const docs = await Promise.all((CLIENT_IMAGE_DOCUMENT_IDS[section.key] ?? []).map(async documentId => {
@@ -305,6 +313,25 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
     }
     void loadSaved()
   }, [clientId])
+
+  const updateRunMode = async (nextMode: 'standard' | 'advisor') => {
+    setRunMode(nextMode)
+    setError(null)
+    try {
+      const res = await fetch('/api/agent-runs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          agentId: 'facility_review',
+          facilityReviewMode: nextMode === 'advisor' ? 'advisor' : '360',
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+    } catch (err: any) {
+      setError(err.message || 'Could not update facility review mode.')
+    }
+  }
 
   const addSectionFiles = useCallback((key: PhotoSectionKey, accepted: File[]) => {
     setSectionFiles(current => ({
@@ -579,25 +606,29 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-slate-800">Facility Assessment Report</h2>
-              {reportRunMode === 'advisor' && <Badge color="blue">Advisor Run</Badge>}
+              {reportRunMode === 'advisor' && <Badge color="blue">Advisor Review</Badge>}
               <Badge color={RATING_BADGE[report.overallRating]}>{report.overallRating}</Badge>
             </div>
             <p className="text-xs text-slate-400 mt-1">{report.businessName} - Generated {new Date(report.generatedAt).toLocaleString()}</p>
           </div>
           <AdvisorActions className="flex flex-wrap items-center gap-2">
-            <button onClick={() => { setReport(null); setReportRunMode(null); setEditMode(false) }} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"><RefreshCw className="w-3.5 h-3.5" />New Run</button>
-            <button
-              onClick={() => {
-                if (editMode) void save()
-                setEditMode(!editMode)
-              }}
-              disabled={saving}
-              className={cn('flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg disabled:opacity-50', editMode ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
-            >
-              {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-              {editMode ? 'Done Editing' : 'Edit Output'}
-            </button>
-            <button onClick={save} disabled={saving} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-900 text-white disabled:opacity-50"><Save className="w-3.5 h-3.5" />{saving ? 'Saving...' : 'Save'}</button>
+            {!readOnly && (
+              <>
+                <button onClick={() => { setReport(null); setReportRunMode(null); setEditMode(false) }} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"><RefreshCw className="w-3.5 h-3.5" />New Run</button>
+                <button
+                  onClick={() => {
+                    if (editMode) void save()
+                    setEditMode(!editMode)
+                  }}
+                  disabled={saving}
+                  className={cn('flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg disabled:opacity-50', editMode ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
+                >
+                  {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                  {editMode ? 'Done Editing' : 'Edit Output'}
+                </button>
+                <button onClick={save} disabled={saving} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-slate-900 text-white disabled:opacity-50"><Save className="w-3.5 h-3.5" />{saving ? 'Saving...' : 'Save'}</button>
+              </>
+            )}
             <button onClick={openReport} className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"><Printer className="w-3.5 h-3.5" />Export PDF</button>
             {saved && <span className="text-xs font-semibold text-emerald-600">Saved</span>}
           </AdvisorActions>
@@ -921,24 +952,24 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
           <h2 className="text-lg font-semibold text-slate-800">Facility Review Agent</h2>
           <p className="text-xs text-slate-400 mt-1">
             {runMode === 'advisor'
-              ? 'Generate the standard facility assessment report using advisor visit notes and photos only.'
-              : 'Generate from the mandatory seller intake form. Facility photos are optional supporting evidence.'}
+              ? 'Generate the advisor review report using advisor visit notes and photos only.'
+              : 'Generate the 360 Review from the mandatory seller intake form. Facility photos are optional supporting evidence.'}
           </p>
         </div>
         <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
           <button
             type="button"
-            onClick={() => setRunMode('standard')}
+            onClick={() => void updateRunMode('standard')}
             className={cn('px-3 py-1.5 text-xs font-medium rounded-md transition-colors', runMode === 'standard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500')}
           >
-            Standard Review
+            360 Review
           </button>
           <button
             type="button"
-            onClick={() => setRunMode('advisor')}
+            onClick={() => void updateRunMode('advisor')}
             className={cn('px-3 py-1.5 text-xs font-medium rounded-md transition-colors', runMode === 'advisor' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500')}
           >
-            Advisor Run Facility Review
+            Advisor Review
           </button>
         </div>
       </div>

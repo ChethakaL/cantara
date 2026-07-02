@@ -6,7 +6,7 @@ import { VALUATION_DOCS, DOCUMENT_CATEGORIES } from '@/lib/documentData'
 
 export const dynamic = 'force-dynamic'
 
-export type AgentRunStatus = 'not_started' | 'docs_uploaded' | 'partial_docs' | 'docs_missing' | 'in_review' | 'approved'
+export type AgentRunStatus = 'not_started' | 'docs_uploaded' | 'partial_docs' | 'docs_missing' | 'advisor_to_run' | 'in_review' | 'approved'
 
 export type AgentRunRecord = {
   agentId: string
@@ -14,10 +14,14 @@ export type AgentRunRecord = {
   label: string
   category: string
   status: AgentRunStatus
+  clientReleased: boolean
+  clientReleasedAt: string | null
   assignedTo: string | null
   runAt: string | null
   tabKey: string | null
   missingDocs?: { id: string; name: string }[]
+  facilityReviewMode?: '360' | 'advisor'
+  advisorToRun?: boolean
 }
 
 export type AgentReviewer = {
@@ -63,6 +67,8 @@ const AGENT_LABELS: Record<string, { label: string; tabKey: string; category: st
   digitalPresence: { label: 'Digital Presence', tabKey: 'digital', category: 'WS2 — Performance' },
   facility_review: { label: 'Facility Review Agent', tabKey: 'facility-review', category: 'WS2 — Performance' },
   facilityReview: { label: 'Facility Review Agent', tabKey: 'facility-review', category: 'WS2 — Performance' },
+  occupancy_review: { label: 'Occupancy Review Agent', tabKey: 'occupancy-review', category: 'WS2 — Performance' },
+  occupancyReview: { label: 'Occupancy Review Agent', tabKey: 'occupancy-review', category: 'WS2 — Performance' },
   pricing_analysis: { label: 'Competitive Pricing Analysis', tabKey: 'pricing-analysis', category: 'WS2 — Performance' },
   pricingAnalysis: { label: 'Competitive Pricing Analysis', tabKey: 'pricing-analysis', category: 'WS2 — Performance' },
   pricing_vertical: { label: 'Pricing by Vertical', tabKey: 'pricing-vertical', category: 'WS2 — Performance' },
@@ -74,6 +80,14 @@ const AGENT_LABELS: Record<string, { label: string; tabKey: string; category: st
   cim: { label: 'CIM Generator', tabKey: 'cim', category: 'M&A Sale Process' },
   teaser: { label: 'Deal Teaser Generator', tabKey: 'teaser', category: 'M&A Sale Process' },
   net_proceeds: { label: 'Net Proceeds Calculator', tabKey: 'net-proceeds', category: 'M&A Sale Process' },
+  ws1_assessment: { label: 'WS1 Assessment Report', tabKey: 'ws1-assessment', category: 'Reports & Roadmaps' },
+  ws1Assessment: { label: 'WS1 Assessment Report', tabKey: 'ws1-assessment', category: 'Reports & Roadmaps' },
+  ws2_assessment: { label: 'WS2 Assessment Report', tabKey: 'ws2-assessment', category: 'Reports & Roadmaps' },
+  ws2Assessment: { label: 'WS2 Assessment Report', tabKey: 'ws2-assessment', category: 'Reports & Roadmaps' },
+  ws1_roadmap: { label: 'WS1 Sales Readiness Roadmap', tabKey: 'ws1-roadmap', category: 'Reports & Roadmaps' },
+  ws1Roadmap: { label: 'WS1 Sales Readiness Roadmap', tabKey: 'ws1-roadmap', category: 'Reports & Roadmaps' },
+  ws2_roadmap: { label: 'WS2 Sales Readiness Roadmap', tabKey: 'ws2-roadmap', category: 'Reports & Roadmaps' },
+  ws2Roadmap: { label: 'WS2 Sales Readiness Roadmap', tabKey: 'ws2-roadmap', category: 'Reports & Roadmaps' },
 }
 
 const DOCUMENT_NAMES: Record<string, string> = {}
@@ -96,6 +110,24 @@ function manualApproval(
   const entry = approvals?.[agentId] ?? approvals?.[statusKey]
   if (!entry || typeof entry !== 'object') return false
   return (entry as { status?: string }).status === 'approved'
+}
+
+function manualRelease(
+  releases: Record<string, unknown> | null | undefined,
+  agentId: string,
+  statusKey: string,
+): { released: boolean; releasedAt: string | null } {
+  const entry = releases?.[agentId] ?? releases?.[statusKey]
+  if (!entry || typeof entry !== 'object') return { released: false, releasedAt: null }
+  const release = entry as { released?: boolean; releasedAt?: string }
+  return {
+    released: release.released === true,
+    releasedAt: typeof release.releasedAt === 'string' ? release.releasedAt : null,
+  }
+}
+
+function normalizeFacilityReviewMode(value: unknown): '360' | 'advisor' {
+  return value === 'advisor' ? 'advisor' : '360'
 }
 
 function toStatus(
@@ -153,6 +185,9 @@ export async function GET(req: NextRequest) {
 
   const submissions = (client.sectionSubmissions as Record<string, unknown>) ?? {}
   const approvals = (submissions.agentApprovals as Record<string, unknown>) ?? {}
+  const releases = (client.clientRelease as Record<string, unknown>) ?? {}
+  const facilityReviewMode = normalizeFacilityReviewMode(submissions.facilityReviewMode)
+  const legalEntityAdvisorToRun = submissions.legalEntityAdvisorToRun === true
   const assignedAgents = getClientWorkstreamAgents({
     workstream: (client.workstream?.toLowerCase() as 'ws1' | 'ws2' | 'ma' | 'both' | null) ?? null,
     customWorkstream: client.customWorkstream as { agents?: { agentId: string; agentName: string; documentIds?: string[] }[] } | null,
@@ -283,6 +318,13 @@ export async function GET(req: NextRequest) {
       approved: manualApproval(approvals, 'facility_review', 'facilityReview'),
       runAt: (submissions.facilityReview as { generatedAt?: string })?.generatedAt ?? null,
     },
+    occupancyReview: {
+      hasRun: Boolean(submissions.occupancyReview),
+      approved: manualApproval(approvals, 'occupancy_review', 'occupancyReview'),
+      runAt: (submissions.occupancyReview as { updatedAt?: string; generatedAt?: string })?.updatedAt
+        ?? (submissions.occupancyReview as { generatedAt?: string })?.generatedAt
+        ?? null,
+    },
     pricingAnalysis: {
       hasRun: Boolean(submissions.pricingAnalysis),
       approved: manualApproval(approvals, 'pricing_analysis', 'pricingAnalysis'),
@@ -323,6 +365,34 @@ export async function GET(req: NextRequest) {
       approved: manualApproval(approvals, 'net_proceeds', 'net_proceeds'),
       runAt: null,
     },
+    ws1Assessment: {
+      hasRun: Boolean(submissions.assessmentReport_ws1),
+      approved: manualApproval(approvals, 'ws1_assessment', 'ws1Assessment'),
+      runAt: (submissions.assessmentReport_ws1 as { updatedAt?: string; generatedAt?: string })?.updatedAt
+        ?? (submissions.assessmentReport_ws1 as { generatedAt?: string })?.generatedAt
+        ?? null,
+    },
+    ws2Assessment: {
+      hasRun: Boolean(submissions.assessmentReport_ws2),
+      approved: manualApproval(approvals, 'ws2_assessment', 'ws2Assessment'),
+      runAt: (submissions.assessmentReport_ws2 as { updatedAt?: string; generatedAt?: string })?.updatedAt
+        ?? (submissions.assessmentReport_ws2 as { generatedAt?: string })?.generatedAt
+        ?? null,
+    },
+    ws1Roadmap: {
+      hasRun: Boolean(submissions.improvementRoadmap_ws1),
+      approved: manualApproval(approvals, 'ws1_roadmap', 'ws1Roadmap'),
+      runAt: (submissions.improvementRoadmap_ws1 as { updatedAt?: string; generatedAt?: string })?.updatedAt
+        ?? (submissions.improvementRoadmap_ws1 as { generatedAt?: string })?.generatedAt
+        ?? null,
+    },
+    ws2Roadmap: {
+      hasRun: Boolean(submissions.improvementRoadmap_ws2),
+      approved: manualApproval(approvals, 'ws2_roadmap', 'ws2Roadmap'),
+      runAt: (submissions.improvementRoadmap_ws2 as { updatedAt?: string; generatedAt?: string })?.updatedAt
+        ?? (submissions.improvementRoadmap_ws2 as { generatedAt?: string })?.generatedAt
+        ?? null,
+    },
   }
 
   const uploadedDocIds = new Set((uploadedDocs ?? []).map(d => d.documentId).filter(Boolean) as string[])
@@ -340,6 +410,7 @@ export async function GET(req: NextRequest) {
       category: 'Other',
     }
     const check = runChecks[statusKey] ?? { hasRun: false, approved: false, runAt: null }
+    const release = manualRelease(releases, agent.agentId, statusKey)
     const assignmentEntry = (approvals[agent.agentId] ?? approvals[statusKey]) as { assignedTo?: string | null } | undefined
 
     const requiredDocIds = agent.documentIds ?? []
@@ -352,16 +423,21 @@ export async function GET(req: NextRequest) {
     const hasRequiredDocs = hasDocRequirements && missingDocs.length === 0
     const isPartialDocs = hasDocRequirements && uploadedCount > 0 && missingDocs.length > 0
 
+    const baseStatus = toStatus(check.hasRun, check.approved, hasRequiredDocs, isPartialDocs, hasDocRequirements)
     runs.push({
       agentId: agent.agentId,
       agentKey: statusKey,
       label: meta.label,
       category: meta.category,
-      status: toStatus(check.hasRun, check.approved, hasRequiredDocs, isPartialDocs, hasDocRequirements),
+      status: statusKey === 'legalEntitySearch' && legalEntityAdvisorToRun && !check.hasRun ? 'advisor_to_run' : baseStatus,
+      clientReleased: release.released,
+      clientReleasedAt: release.releasedAt,
       assignedTo: assignmentEntry?.assignedTo ?? null,
       runAt: check.runAt,
       tabKey: meta.tabKey,
       missingDocs,
+      facilityReviewMode: statusKey === 'facilityReview' ? facilityReviewMode : undefined,
+      advisorToRun: statusKey === 'legalEntitySearch' ? legalEntityAdvisorToRun : undefined,
     })
   }
 
@@ -377,16 +453,22 @@ export async function GET(req: NextRequest) {
       category: 'Other',
     }
     const assignmentEntry = approvals[key] as { assignedTo?: string | null } | undefined
+    const release = manualRelease(releases, key, key)
 
+    const baseStatus = toStatus(check.hasRun, check.approved, false, false, false)
     runs.push({
       agentId: key,
       agentKey: key,
       label: meta.label,
       category: meta.category,
-      status: toStatus(check.hasRun, check.approved, false, false, false),
+      status: key === 'legalEntitySearch' && legalEntityAdvisorToRun && !check.hasRun ? 'advisor_to_run' : baseStatus,
+      clientReleased: release.released,
+      clientReleasedAt: release.releasedAt,
       assignedTo: assignmentEntry?.assignedTo ?? null,
       runAt: check.runAt,
       tabKey: meta.tabKey,
+      facilityReviewMode: key === 'facilityReview' ? facilityReviewMode : undefined,
+      advisorToRun: key === 'legalEntitySearch' ? legalEntityAdvisorToRun : undefined,
     })
   }
 
@@ -398,7 +480,7 @@ export async function GET(req: NextRequest) {
     'M&A Sale Process': 4,
     Other: 5,
   }
-  const statusOrder: Record<AgentRunStatus, number> = { docs_missing: 0, not_started: 1, docs_uploaded: 2, partial_docs: 3, in_review: 4, approved: 5 }
+  const statusOrder: Record<AgentRunStatus, number> = { advisor_to_run: 0, docs_missing: 1, not_started: 2, docs_uploaded: 3, partial_docs: 4, in_review: 5, approved: 6 }
   runs.sort((a, b) => {
     const byCategory = (categoryOrder[a.category] ?? 99) - (categoryOrder[b.category] ?? 99)
     if (byCategory !== 0) return byCategory
@@ -411,19 +493,42 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const { clientId, agentId, status, assignedTo } = await req.json()
+  const { clientId, agentId, status, assignedTo, clientReleased, facilityReviewMode, advisorToRun } = await req.json()
   if (!clientId || !agentId) return new Response('clientId and agentId required', { status: 400 })
   if (status && status !== 'approved' && status !== 'in_review') return new Response('status must be approved or in_review', { status: 400 })
+  if (typeof clientReleased !== 'undefined' && typeof clientReleased !== 'boolean') {
+    return new Response('clientReleased must be a boolean', { status: 400 })
+  }
+  if (typeof facilityReviewMode !== 'undefined' && facilityReviewMode !== '360' && facilityReviewMode !== 'advisor') {
+    return new Response('facilityReviewMode must be 360 or advisor', { status: 400 })
+  }
+  if (typeof advisorToRun !== 'undefined' && typeof advisorToRun !== 'boolean') {
+    return new Response('advisorToRun must be a boolean', { status: 400 })
+  }
 
   const client = await prisma.clientProfile.findUnique({
     where: { id: clientId },
-    select: { sectionSubmissions: true },
+    select: { sectionSubmissions: true, clientRelease: true },
   })
   if (!client) return new Response('Not Found', { status: 404 })
 
   const existing = (client.sectionSubmissions as Record<string, unknown>) ?? {}
   const approvals = { ...((existing.agentApprovals as Record<string, unknown>) ?? {}) }
+  const releases = { ...((client.clientRelease as Record<string, unknown>) ?? {}) }
   const statusKey = normalizeAgentStatusKey(agentId)
+
+  if (typeof facilityReviewMode !== 'undefined') {
+    if (statusKey !== 'facilityReview' && agentId !== 'facility_review') {
+      return new Response('facilityReviewMode can only be changed for Facility Review', { status: 400 })
+    }
+    existing.facilityReviewMode = facilityReviewMode
+  }
+  if (typeof advisorToRun !== 'undefined') {
+    if (statusKey !== 'legalEntitySearch' && agentId !== 'legal_entity_search') {
+      return new Response('advisorToRun can only be changed for Legal Entity Search', { status: 400 })
+    }
+    existing.legalEntityAdvisorToRun = advisorToRun
+  }
 
   const existingEntry = (approvals[agentId] ?? approvals[statusKey] ?? {}) as Record<string, unknown>
   const nextAssignedTo = typeof assignedTo === 'string' ? assignedTo.trim() || null : existingEntry.assignedTo ?? null
@@ -438,10 +543,27 @@ export async function PATCH(req: NextRequest) {
     delete reviewEntry.approvedAt
     approvals[agentId] = reviewEntry
     approvals[statusKey] = reviewEntry
+    delete releases[agentId]
+    delete releases[statusKey]
   } else {
     const assignmentEntry = { ...existingEntry, assignedTo: nextAssignedTo }
     approvals[agentId] = assignmentEntry
     approvals[statusKey] = assignmentEntry
+  }
+
+  if (typeof clientReleased === 'boolean') {
+    const currentStatus = status ?? existingEntry.status
+    if (clientReleased && currentStatus !== 'approved') {
+      return new Response('Agent output must be approved before client release', { status: 409 })
+    }
+    if (clientReleased) {
+      const releaseEntry = { released: true, releasedAt: new Date().toISOString() }
+      releases[agentId] = releaseEntry
+      releases[statusKey] = releaseEntry
+    } else {
+      delete releases[agentId]
+      delete releases[statusKey]
+    }
   }
 
   if (status === 'in_review' && !nextAssignedTo) {
@@ -453,7 +575,10 @@ export async function PATCH(req: NextRequest) {
 
   await prisma.clientProfile.update({
     where: { id: clientId },
-    data: { sectionSubmissions: existing as any },
+    data: {
+      sectionSubmissions: existing as any,
+      clientRelease: releases as any,
+    },
   })
 
   return NextResponse.json({ ok: true })

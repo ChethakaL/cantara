@@ -18,6 +18,29 @@ function formatContent(text: string): string {
 export function generateCimHtml(data: CimInputData): string {
   const currentDate = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 
+  const contactHtml = `
+<div class="contact-box">
+  <div class="name">${escapeHtml(data.contactName)}</div>
+  <div class="title">${escapeHtml(data.contactTitle)}</div>
+  <a class="email" href="mailto:${escapeHtml(data.contactEmail)}">${escapeHtml(data.contactEmail)}</a>
+</div>`
+
+  const imagesHtml = (data.facilityImages || []).length > 0 ? `
+<hr class="gold-rule">
+<div class="section page-break">
+  <div class="section-number">10</div>
+  <div class="section-header">Facility Gallery</div>
+  <h2>Facility & Real Estate Photos</h2>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 24px;">
+    ${data.facilityImages.map((img, idx) => `
+      <div style="border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #f8fafc; text-align: center; padding: 10px;">
+        <img src="${img}" alt="Facility image ${idx + 1}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px;" />
+        <p style="font-size: 11px; color: #64748b; margin-top: 8px; font-weight: 500;">Facility Photo ${idx + 1}</p>
+      </div>
+    `).join('')}
+  </div>
+</div>` : ''
+
   const thesisBullets = (data.investmentThesis || []).filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('')
   const financialBullets = (data.financialHighlights || []).filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('')
 
@@ -359,18 +382,10 @@ ${competitorRows ? `
     <tbody>${dataRoomRows}</tbody>
   </table>` : ''}
 
-  ${processStepHtml ? `
-  <h3>Process</h3>
-  <div class="process-grid">${processStepHtml}</div>` : ''}
-</div>
-
-<!-- Contact -->
-<div class="contact-box">
-  <div class="name">${escapeHtml(data.contactName)}</div>
-  <div class="title">${escapeHtml(data.contactTitle)}</div>
-  <a class="email" href="mailto:${escapeHtml(data.contactEmail)}">${escapeHtml(data.contactEmail)}</a>
-</div>
-
-</body>
-</html>`
+  ${imagesHtml}
+  
+  ${contactHtml}
+  
+  </body>
+  </html>`
 }

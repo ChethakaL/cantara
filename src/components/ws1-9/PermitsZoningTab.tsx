@@ -121,6 +121,12 @@ export default function PermitsZoningTab({
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
 
+  useEffect(() => {
+    if (!readOnly) return
+    setEditMode(false)
+    setDraftReport(null)
+  }, [readOnly])
+
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS19Analysis({ clientId, clientName, state, dba, propertyAddress, municipality })
 
@@ -387,7 +393,7 @@ export default function PermitsZoningTab({
           <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
         </div>
         <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
-          {editMode ? (
+          {!readOnly && (editMode ? (
             <>
               <Button
                 variant="outline"
@@ -407,7 +413,7 @@ export default function PermitsZoningTab({
             <Button variant="outline" onClick={startEditing}>
               Edit Output
             </Button>
-          )}
+          ))}
           <ExportReportButton
             html={buildPermitsZoningReportHtml(draftReport ?? report, flags, clientName)}
             fileName={`permits-zoning-${clientName.replace(/\s+/g, '-').toLowerCase()}`}

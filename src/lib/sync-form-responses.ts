@@ -25,6 +25,8 @@ export function formatVendorDirectory(value: unknown): string {
   ].join(' | ')).join('\n')
 }
 
+import { occupancyInputsToFormResponses } from '@/lib/occupancy-form-fields'
+
 export function syncStructuredToFormResponses(existing: Record<string, any>, client: any): Record<string, string> {
   const explicit = { ...(existing.agentFormResponses ?? {}) }
 
@@ -68,7 +70,12 @@ export function syncStructuredToFormResponses(existing: Record<string, any>, cli
     explicit.professionalAdvisorsList = formatProfessionalAdvisors(existing.professionalAdvisors)
   }
 
-  // 5. Competitor Pricing Inputs
+  // 5. Occupancy Review Inputs
+  if (existing.occupancyReviewInputs) {
+    Object.assign(explicit, occupancyInputsToFormResponses(existing.occupancyReviewInputs))
+  }
+
+  // 6. Competitor Pricing Inputs
   if (existing.competitorPricingInputs) {
     const cp = existing.competitorPricingInputs
     if (cp.sellerWebsiteUrl) explicit.businessWebsite = cp.sellerWebsiteUrl

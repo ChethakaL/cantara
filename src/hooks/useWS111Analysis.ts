@@ -94,6 +94,7 @@ export function useWS111Analysis({ clientId, clientName, state, entityType, fisc
           clientId,
           markdown: accumulated,
           documentNames: documents.map(d => d.name),
+          documentSlots: documents.map(d => d.slotKey),
         }),
       })
       if (!saveRes.ok) {
