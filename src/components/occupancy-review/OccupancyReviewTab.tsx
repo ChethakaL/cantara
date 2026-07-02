@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Loader2, RefreshCw, TrendingUp, Upload, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -166,6 +166,7 @@ export default function OccupancyReviewTab({
 
   // File uploads
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const csvInputRef = useRef<HTMLInputElement | null>(null)
 
   const computedDaycare = useMemo(() => {
     if (daycareSpotsInput) return null // user has entered manually
@@ -237,11 +238,13 @@ export default function OccupancyReviewTab({
       return
     }
     const text = await file.text()
-    const lines = text.trim().split('\n')
+    const lines = text.trim().split(/\r?\n/)
     if (lines.length < 2) { setError('CSV appears empty.'); return }
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+    const splitCsvLine = (line: string) =>
+      line.split(',').map(cell => cell.trim().replace(/^"|"$/g, ''))
+    const headers = splitCsvLine(lines[0]).map(h => h.trim().toLowerCase())
     const monthIdx = headers.findIndex(h => ['month', 'date', 'period'].includes(h))
-    const boardingIdx = headers.findIndex(h => ['boarding', 'boardingdogs', 'boarding_dogs', 'boardings'].includes(h))
+    const boardingIdx = headers.findIndex(h => ['boarding', 'boarding dogs', 'boardingdogs', 'boarding_dogs', 'boardings'].includes(h))
     const daycareIdx = headers.findIndex(h => ['daycare', 'daycare dogs', 'daycaredogs', 'daycare_dogs', 'daycares'].includes(h))
     if (monthIdx === -1 || boardingIdx === -1 || daycareIdx === -1) {
       setError('CSV must have columns: Month, Boarding, Daycare')
@@ -249,7 +252,7 @@ export default function OccupancyReviewTab({
     }
     const imported: Record<string, {boardingDogs: number; daycareDogs: number}> = {}
     for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(',')
+      const cols = splitCsvLine(lines[i])
       const rawMonth = cols[monthIdx]?.trim()
       if (!rawMonth) continue
       // Try to parse month
@@ -271,6 +274,7 @@ export default function OccupancyReviewTab({
       ? { ...entry, ...imported[entry.month] } 
       : entry
     ))
+    csvInputRef.current && (csvInputRef.current.value = '')
   }
 
   const updateMonthly = (month: string, field: 'boardingDogs' | 'daycareDogs', value: string) => {
@@ -464,20 +468,30 @@ export default function OccupancyReviewTab({
             <h3 className="text-sm font-semibold text-slate-800">24-Month Monthly Data</h3>
             <p className="text-xs text-slate-400 mt-0.5">Enter dogs per month. Boarding + daycare = total for that month.</p>
           </div>
-          <label className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 cursor-pointer transition-colors">
+          <button
+            type="button"
+            onClick={() => csvInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 transition-colors"
+          >
             <Upload className="w-3.5 h-3.5" />
             Import CSV
-            <input type="file" accept=".csv" className="hidden" onChange={e => e.target.files && void handleCsvImport(e.target.files)} />
-          </label>
+          </button>
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={e => e.target.files && void handleCsvImport(e.target.files)}
+          />
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[760px] text-sm table-fixed">
             <thead>
               <tr className="border-b border-slate-200">
-                <th className="text-left text-xs font-medium text-slate-500 py-2 pr-4">Month</th>
-                <th className="text-right text-xs font-medium text-indigo-600 py-2 px-2">Boarding Dogs</th>
-                <th className="text-right text-xs font-medium text-indigo-400 py-2 px-2">Daycare Dogs</th>
-                <th className="text-right text-xs font-medium text-slate-400 py-2 pl-2">Total</th>
+                <th className="w-[32%] text-left text-xs font-medium text-slate-500 py-2 pr-4">Month</th>
+                <th className="w-[28%] text-center text-xs font-medium text-indigo-600 py-2 px-2">Boarding Dogs</th>
+                <th className="w-[28%] text-center text-xs font-medium text-indigo-400 py-2 px-2">Daycare Dogs</th>
+                <th className="w-[12%] text-right text-xs font-medium text-slate-400 py-2 pl-2">Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -487,12 +501,26 @@ export default function OccupancyReviewTab({
                   <tr key={m.month}>
                     <td className="py-1.5 pr-4 text-xs text-slate-600 font-medium">{formatMonthLabel(m.month)}</td>
                     <td className="py-1.5 px-2">
-                      <input type="number" min="0" value={m.boardingDogs || ''} onChange={e => updateMonthly(m.month, 'boardingDogs', e.target.value)}
-                        className="w-20 text-right rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 outline-none focus:border-indigo-400" />
+                      <div className="flex justify-center">
+                        <input
+                          type="number"
+                          min="0"
+                          value={m.boardingDogs || ''}
+                          onChange={e => updateMonthly(m.month, 'boardingDogs', e.target.value)}
+                          className="w-full max-w-[96px] rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 outline-none text-center focus:border-indigo-400"
+                        />
+                      </div>
                     </td>
                     <td className="py-1.5 px-2">
-                      <input type="number" min="0" value={m.daycareDogs || ''} onChange={e => updateMonthly(m.month, 'daycareDogs', e.target.value)}
-                        className="w-20 text-right rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 outline-none focus:border-indigo-400" />
+                      <div className="flex justify-center">
+                        <input
+                          type="number"
+                          min="0"
+                          value={m.daycareDogs || ''}
+                          onChange={e => updateMonthly(m.month, 'daycareDogs', e.target.value)}
+                          className="w-full max-w-[96px] rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 outline-none text-center focus:border-indigo-400"
+                        />
+                      </div>
                     </td>
                     <td className="py-1.5 pl-2 text-right text-xs font-semibold text-slate-600">{total > 0 ? total : '—'}</td>
                   </tr>
