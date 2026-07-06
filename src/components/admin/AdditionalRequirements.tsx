@@ -16,6 +16,10 @@ const EMPTY_FORM = {
   priority: 'medium' as 'high' | 'medium' | 'low',
 }
 
+function isRequirementStillOpen(req: AdditionalRequirement) {
+  return req.status === 'open' && !req.respondedAt && !req.clientResponse && !req.responseFileName && !req.responseFileUrl
+}
+
 export default function AdditionalRequirementsAdmin({ clientId }: { clientId: string }) {
   const [reqs, setReqs] = useState<AdditionalRequirement[]>([])
   const [client, setClient] = useState<Client | null>(null)
@@ -59,8 +63,8 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
     await load()
   }
 
-  const open = reqs.filter(r => r.status === 'open')
-  const resolved = reqs.filter(r => r.status === 'resolved')
+  const open = reqs.filter(isRequirementStillOpen)
+  const resolved = reqs.filter(r => !isRequirementStillOpen(r))
 
   return (
     <div className="space-y-5">

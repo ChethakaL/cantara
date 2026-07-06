@@ -36,6 +36,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<string, AgentSelection[]> = {
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent' },
     { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent' },
     { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent' },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent' },
   ],
   ws2: [
     { agentId: 'ttm', agentName: 'Valuation Agent' },

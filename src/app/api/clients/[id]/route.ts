@@ -236,6 +236,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
             where: { clientId_documentId: { clientId: id, documentId } },
             update: {
               hasDoc: status.hasDoc ?? null,
+              unavailableDecision:
+                status.hasDoc === false
+                  ? (status.unavailableDecision ?? null)
+                  : null,
               assignedTo: status.assignedTo ?? null,
               uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
               fileName: status.fileName ?? null,
@@ -252,6 +256,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
               clientId: id,
               documentId,
               hasDoc: status.hasDoc ?? null,
+              unavailableDecision:
+                status.hasDoc === false
+                  ? (status.unavailableDecision ?? null)
+                  : null,
               assignedTo: status.assignedTo ?? null,
               uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
               fileName: status.fileName ?? null,

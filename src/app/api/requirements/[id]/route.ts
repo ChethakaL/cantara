@@ -6,6 +6,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const { id } = params;
   try {
     const body = await req.json();
+    const hasClientSubmission =
+      typeof body.clientResponse === 'string' && body.clientResponse.trim().length > 0
+      || typeof body.responseFileName === 'string' && body.responseFileName.trim().length > 0
+      || typeof body.responseFileUrl === 'string' && body.responseFileUrl.trim().length > 0
+
+    const nextStatus: 'OPEN' | 'RESOLVED' | undefined =
+      body.status === 'open'
+        ? 'OPEN'
+        : body.status === 'resolved'
+          ? 'RESOLVED'
+          : hasClientSubmission
+            ? 'RESOLVED'
+            : undefined
+
     const updated = await prisma.additionalRequirement.update({
       where: { id },
       data: {
@@ -27,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         responseFileUrl: body.responseFileUrl,
         respondedAt: body.respondedAt ? new Date(body.respondedAt) : body.clientResponse || body.responseFileName ? new Date() : undefined,
         priority: body.priority ? body.priority.toUpperCase() : undefined,
-        status: body.status ? body.status.toUpperCase() : undefined,
+        status: nextStatus,
       },
     });
 

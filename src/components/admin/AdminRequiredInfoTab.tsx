@@ -327,13 +327,9 @@ export default function AdminRequiredInfoTab({
     setError('')
   }
 
-  async function saveFormResponses(options?: { silent?: boolean }) {
+  async function saveFormResponses() {
     if (!formQuestions.length) return true
-    const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
-    if (missing.length && !options?.silent) {
-      setError(`Please complete required fields: ${missing.slice(0, 3).map(q => q.label).join(', ')}${missing.length > 3 ? '...' : ''}`)
-      return false
-    }
+    // Advisors may save partial answers; required flags are enforced on the client portal only.
     setSaving(true)
     setSaved(false)
     setError('')
@@ -350,7 +346,7 @@ export default function AdminRequiredInfoTab({
       setTimeout(() => setSaved(false), 2000)
       return true
     } catch (err) {
-      if (!options?.silent) setError(err instanceof Error ? err.message : 'Could not save information.')
+      setError(err instanceof Error ? err.message : 'Could not save information.')
       return false
     } finally {
       setSaving(false)
@@ -360,7 +356,7 @@ export default function AdminRequiredInfoTab({
   useEffect(() => {
     if (autoSaveSkipRef.current || !formQuestions.length) return
     const timeout = setTimeout(() => {
-      void saveFormResponses({ silent: true })
+      void saveFormResponses()
     }, 1200)
     return () => clearTimeout(timeout)
   }, [formResponses, formQuestions.length])
