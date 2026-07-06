@@ -1,21 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import crypto from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { sendEmailWithComposio } from '@/lib/composio'
+import { buildClientPortalInviteEmail } from '@/lib/client-invite-email'
 
 function generatePassword() {
-  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
-  const lower = 'abcdefghjkmnpqrstuvwxyz'
-  const digits = '23456789'
-  const symbols = '!@#$%&'
-  const all = upper + lower + digits + symbols
-  let pwd = ''
-  pwd += upper[Math.floor(Math.random() * upper.length)]
-  pwd += lower[Math.floor(Math.random() * lower.length)]
-  pwd += digits[Math.floor(Math.random() * digits.length)]
-  pwd += symbols[Math.floor(Math.random() * symbols.length)]
-  for (let i = 4; i < 12; i++) {
-    pwd += all[Math.floor(Math.random() * all.length)]
-  }
-  return pwd.split('').sort(() => Math.random() - 0.5).join('')
+  return crypto.randomBytes(9).toString('base64url')
 }
 
 function buildDisplayName(client: {
@@ -120,6 +110,30 @@ export async function POST(req: NextRequest) {
           ...(propertyOwnership ? { sectionSubmissions: { propertyOwnership } } : {}),
         },
       })
+
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || new URL(req.url).origin
+      const loginUrl = `${baseUrl}/login/client`
+      const settingsUrl = `${baseUrl}/dashboard/settings`
+      const inviteSubject = `Welcome to the Cantara portal — ${businessName}`
+      try {
+        await sendEmailWithComposio({
+          to: email,
+          displayName: displayName,
+          subject: inviteSubject,
+          body: buildClientPortalInviteEmail({
+            businessName,
+            contactName: displayName,
+            email,
+            password: plainPassword,
+            loginUrl,
+            settingsUrl,
+            businessCategories: client.businessCategory?.trim() || undefined,
+            advisorName: process.env.CANTARA_ADVISOR_NAME || 'Cantara Pet Advisors',
+          }),
+        })
+      } catch (emailError) {
+        console.error('MONDAY_CLIENT_INVITE_EMAIL_ERROR', { clientId: profile.id, email, error: emailError })
+      }
 
       results.push({
         name: displayName,

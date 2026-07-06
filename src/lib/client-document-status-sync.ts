@@ -40,6 +40,7 @@ export async function syncDocumentStatusForUpload(
   const statusUpdate = summary.fileCount
     ? {
         hasDoc: true,
+        unavailableDecision: null,
         fileName: summary.fileName,
         fileUrl: summary.fileUrl,
         uploadedAt: summary.uploadedAt ? new Date(summary.uploadedAt) : new Date(),
@@ -47,6 +48,7 @@ export async function syncDocumentStatusForUpload(
       }
     : {
         hasDoc: null,
+        unavailableDecision: null,
         fileName: null,
         fileUrl: null,
         uploadedAt: null,

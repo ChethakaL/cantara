@@ -19,6 +19,7 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
       {
         id: status.documentId,
         hasDoc: status.hasDoc,
+        unavailableDecision: status.unavailableDecision ?? null,
         assignedTo: status.assignedTo,
         uploadedAt: status.uploadedAt?.toISOString() ?? null,
         fileName: status.fileName ?? null,

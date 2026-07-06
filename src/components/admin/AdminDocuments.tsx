@@ -17,8 +17,9 @@ import {
 import { VALUATION_SECTION_ID } from '@/lib/document-deadlines'
 import { DocumentDeadlineField, SectionDeadlineField } from '@/components/admin/DocumentDeadlineControls'
 import { parseStoredInsuranceReview } from '@/lib/insurance-review-shared'
-import { getAdminEmail, saveRequirement } from '@/lib/store'
+import { getAdminEmail, saveClient, saveRequirement } from '@/lib/store'
 import type { Client, DocumentStatus } from '@/lib/store'
+import { getClientWorkstreamAgents, SYSTEM_WORKSTREAM_AGENTS } from '@/lib/workstream-agents'
 
 function AdminDocumentDelete({ clientId, documentId, recordId, fileName, onDeleted }: {
   clientId: string
@@ -92,6 +93,8 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
   const [refreshKey, setRefreshKey] = useState(0)
   const [filesByDocId, setFilesByDocId] = useState<FilesByDocumentId>({})
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
+  const [actingUnavailableDocId, setActingUnavailableDocId] = useState<string | null>(null)
+  const [reopenedUnavailableDocs, setReopenedUnavailableDocs] = useState<Record<string, boolean>>({})
 
   const loadFileCatalog = useCallback(async () => {
     try {
@@ -106,6 +109,43 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
   }, [loadFileCatalog, refreshKey])
 
   const getStatus = (docId: string) => documentStatuses[docId]
+  const assignedAgents = getClientWorkstreamAgents(client)
+
+  const getAgentsForDocument = (documentId: string) => {
+    const seen = new Set<string>()
+    return assignedAgents.filter(agent => {
+      if (seen.has(agent.agentId)) return false
+      if (!(agent.documentIds ?? []).includes(documentId)) return false
+      seen.add(agent.agentId)
+      return true
+    })
+  }
+
+  const getBaselineAgentsForDocument = (documentId: string) => {
+    const sourceAgents =
+      client.customWorkstream?.agents?.length
+        ? client.customWorkstream.agents
+        : client.workstream
+          ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? [])
+          : []
+    const seen = new Set<string>()
+    return sourceAgents.filter(agent => {
+      if (seen.has(agent.agentId)) return false
+      if (!(agent.documentIds ?? []).includes(documentId)) return false
+      seen.add(agent.agentId)
+      return true
+    })
+  }
+
+  const isAgentExcludedForDocument = (docId: string) => {
+    const status = getResolvedStatus(docId)
+    if (status.unavailableDecision === 'exclude_agent') return true
+    if (status.hasDoc !== false) return false
+    const baselineAgents = getBaselineAgentsForDocument(docId)
+    if (baselineAgents.length === 0) return false
+    const currentAgentIds = new Set(getAgentsForDocument(docId).map(agent => agent.agentId))
+    return baselineAgents.some(agent => !currentAgentIds.has(agent.agentId))
+  }
 
   const getFilesForSlot = (documentId: string, aliasIds: string[] = []): ClientUploadedFile[] => {
     const ids = aliasIds.length ? aliasIds : [documentId]
@@ -158,6 +198,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     return {
       id: docId,
       hasDoc: status?.hasDoc ?? (uploaded?.fileName || catalogFileName ? true : null),
+      unavailableDecision: status?.unavailableDecision ?? null,
       assignedTo: status?.assignedTo ?? null,
       uploadedAt: status?.uploadedAt ?? uploaded?.uploadedAt ?? null,
       fileName: status?.fileName ?? uploaded?.fileName ?? catalogFileName ?? null,
@@ -177,6 +218,99 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     onClientUpdated?.(refreshed)
     setRefreshKey(prev => prev + 1)
     await loadFileCatalog()
+  }
+
+  const saveUnavailableDecision = async (
+    docId: string,
+    decision: 'exclude_agent' | 'keep_agent',
+    affectedAgentIds: string[],
+  ) => {
+    if (actingUnavailableDocId) return
+    setActingUnavailableDocId(docId)
+    try {
+      const nextStatuses = {
+        ...client.documentStatuses,
+        [docId]: {
+          ...(client.documentStatuses[docId] ?? {}),
+          id: docId,
+          hasDoc: false,
+          unavailableDecision: decision,
+          assignedTo: null,
+          uploadedAt: null,
+          fileName: null,
+          fileUrl: null,
+          notApplicable: false,
+        },
+      }
+      const nextAgents =
+        decision === 'exclude_agent'
+          ? assignedAgents.filter(agent => !affectedAgentIds.includes(agent.agentId))
+          : assignedAgents
+      const saved = await saveClient({
+        id: client.id,
+        documentStatuses: nextStatuses,
+        workstreamAgents: nextAgents.map(agent => ({
+          id: `override-${agent.agentId}`,
+          agentId: agent.agentId,
+          agentName: agent.agentName,
+          documentIds: agent.documentIds ?? [],
+        })),
+      })
+      setReopenedUnavailableDocs(prev => ({ ...prev, [docId]: false }))
+      if (saved) onClientUpdated?.(saved)
+      else await refreshClientView()
+    } finally {
+      setActingUnavailableDocId(null)
+    }
+  }
+
+  const reopenUnavailableDecision = (docId: string) => {
+    setReopenedUnavailableDocs(prev => ({ ...prev, [docId]: !prev[docId] }))
+  }
+
+  const renderUnavailableWarning = (doc: { id: string; name: string }, status: DocumentStatus) => {
+    if (status.hasDoc !== false) return null
+    const reopened = Boolean(reopenedUnavailableDocs[doc.id])
+    const decision = status.unavailableDecision ?? null
+    const excluded = isAgentExcludedForDocument(doc.id)
+    const affectedAgents = getAgentsForDocument(doc.id)
+    const baselineAgents = getBaselineAgentsForDocument(doc.id)
+    const lastKnownAgents = client.workstreamAgents?.filter(agent => (agent.documentIds ?? []).includes(doc.id)) ?? []
+    const agentPool = affectedAgents.length > 0 ? affectedAgents : baselineAgents.length > 0 ? baselineAgents : lastKnownAgents
+    if (!reopened && excluded) return null
+    if (!reopened && decision === 'keep_agent') return null
+    const loading = actingUnavailableDocId === doc.id
+    if (agentPool.length === 0) return null
+    const agentLabel =
+      agentPool.length === 1
+        ? agentPool[0].agentName
+        : `${agentPool.length} agents (${agentPool.map(agent => agent.agentName).join(', ')})`
+
+    return (
+      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+        <p className="text-xs font-semibold text-amber-900">Client marked this required document as not available.</p>
+        <p className="mt-1 text-xs leading-relaxed text-amber-800">
+          Do you need to exclude {agentLabel} for this client?
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            onClick={() => void saveUnavailableDecision(doc.id, 'exclude_agent', agentPool.map(agent => agent.agentId))}
+            disabled={loading}
+          >
+            {loading ? 'Saving...' : 'Yes, exclude agent'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void saveUnavailableDecision(doc.id, 'keep_agent', agentPool.map(agent => agent.agentId))}
+            disabled={loading}
+          >
+            {loading ? 'Saving...' : 'No, keep agent'}
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   const openFollowUp = (docId: string, docName: string) => {
@@ -229,11 +363,24 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     const s = getResolvedStatus(docId)
     const hasFiles = countFiles(docId) > 0
     if (s.notApplicable) return <Badge color="slate">N/A</Badge>
-    if (s.hasDoc === false) return <Badge color="red">Client: No</Badge>
+    if (s.hasDoc === false) return <Badge color="amber">Client does not have</Badge>
     if (hasFiles) return null
     if (s.hasDoc === true && !s.fileName) return <Badge color="gold">Awaiting upload</Badge>
     if (s.assignedTo) return <Badge color="gold">{s.assignedTo}</Badge>
     return <Badge color="gray">Not started</Badge>
+  }
+
+  const renderUnavailableDecisionTag = (docId: string) => {
+    if (!isAgentExcludedForDocument(docId)) return null
+    return (
+      <button
+        type="button"
+        onClick={() => reopenUnavailableDecision(docId)}
+        className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
+      >
+        Agent excluded
+      </button>
+    )
   }
 
   const renderAdminToolbar = (
@@ -254,6 +401,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         {!isHeader && (
           <p className="w-full text-[10px] font-semibold uppercase tracking-wide text-slate-400">Advisor actions</p>
         )}
+        {isHeader && renderUnavailableDecisionTag(doc.id)}
         {adminEmail ? (
           <ClientDocumentUpload
             clientId={client.id}
@@ -308,6 +456,8 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string },
     sectionId: string,
   ) => {
+    const resolvedStatus = getResolvedStatus(doc.id)
+    const shouldForceOpen = resolvedStatus.hasDoc === false && (!resolvedStatus.unavailableDecision || Boolean(reopenedUnavailableDocs[doc.id]))
     const progress = getMultiYearUploadProgress(doc.id, id => getResolvedStatus(id))
     const combinedId = getMultiYearCombinedId(doc.id)
     const labels = MULTI_YEAR_UPLOAD_SLOTS[doc.id] ?? []
@@ -322,6 +472,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         tone="admin"
         title={doc.name}
         description={doc.description}
+        defaultOpen={shouldForceOpen}
         fileCount={totalFiles}
         isComplete={progress.completed === progress.total && progress.total > 0}
         statusBadge={
@@ -337,6 +488,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
             {doc.flagNote}
           </p>
         )}
+        {renderUnavailableWarning(doc, getResolvedStatus(doc.id))}
         {doc.description && (
           <p className="mb-3 text-xs leading-relaxed text-slate-600">{doc.description}</p>
         )}
@@ -428,7 +580,9 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     }
 
     const files = getFilesForSlot(doc.id)
-    const isComplete = files.length > 0 || Boolean(getResolvedStatus(doc.id).fileName)
+    const resolvedStatus = getResolvedStatus(doc.id)
+    const isComplete = files.length > 0 || Boolean(resolvedStatus.fileName)
+    const shouldForceOpen = resolvedStatus.hasDoc === false && (!resolvedStatus.unavailableDecision || Boolean(reopenedUnavailableDocs[doc.id]))
 
     return (
       <DocumentUploadAccordion
@@ -436,6 +590,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         tone="admin"
         title={doc.name}
         description={doc.description}
+        defaultOpen={shouldForceOpen}
         fileCount={files.length}
         isComplete={isComplete}
         statusBadge={renderAdminStatusBadge(doc.id)}
@@ -447,6 +602,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
             {doc.flagNote}
           </p>
         )}
+        {renderUnavailableWarning(doc, getResolvedStatus(doc.id))}
         {doc.description && (
           <p className="mb-3 text-xs leading-relaxed text-slate-600">{doc.description}</p>
         )}

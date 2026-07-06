@@ -283,6 +283,7 @@ model ClientDocumentStatus {
   clientId       String
   documentId     String
   hasDoc         Boolean?
+  unavailableDecision String?
   assignedTo     String?
   uploadedAt     DateTime?
   fileName       String?

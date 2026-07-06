@@ -32,7 +32,7 @@ export function Button({ variant = 'primary', size = 'md', className, children, 
 }
 
 // ── Badge ───────────────────────────────────────────────────────────────────
-interface BadgeProps { children: React.ReactNode; color?: 'gold' | 'green' | 'red' | 'blue' | 'slate' | 'gray'; className?: string }
+interface BadgeProps { children: React.ReactNode; color?: 'gold' | 'green' | 'red' | 'blue' | 'slate' | 'gray' | 'amber'; className?: string }
 export function Badge({ children, color = 'slate', className }: BadgeProps) {
   const colors = {
     gold: 'border-cantara-gold/30 text-cantara-navy',
@@ -41,6 +41,7 @@ export function Badge({ children, color = 'slate', className }: BadgeProps) {
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
     slate: 'bg-slate-100 text-slate-600 border-slate-200',
     gray: 'bg-slate-50 text-slate-400 border-slate-100',
+    amber: 'bg-amber-50 text-amber-800 border-amber-200',
   }
   return (
     <span className={cn('inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border', colors[color], color === 'gold' && 'bg-[#CAA15F]/10', className)}>
@@ -119,12 +120,28 @@ export function Textarea({ label, className, ...props }: TextareaProps) {
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-export function Modal({ open, onClose, title, children, sizeClassName, hideCloseButton = false, disableOverlayClose = false }: {
-  open: boolean; onClose: () => void; title: string; children: React.ReactNode; sizeClassName?: string; hideCloseButton?: boolean; disableOverlayClose?: boolean
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  sizeClassName,
+  hideCloseButton = false,
+  disableOverlayClose = false,
+  zIndexClassName = 'z-50'
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+  sizeClassName?: string;
+  hideCloseButton?: boolean;
+  disableOverlayClose?: boolean;
+  zIndexClassName?: string;
 }) {
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className={cn("fixed inset-0 flex items-center justify-center p-4", zIndexClassName)}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={disableOverlayClose ? undefined : onClose} />
       <div className={cn('relative bg-cantara-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-y-auto', sizeClassName ?? 'max-w-lg')}>
         <div className="flex items-center justify-between p-6 border-b border-slate-100">

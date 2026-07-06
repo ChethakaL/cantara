@@ -65,6 +65,16 @@ export type ClientPortalFormQuestion = {
   sortOrder?: number
 }
 
+function isRequirementStillOpen(requirement: AdditionalRequirement) {
+  return (
+    requirement.status === 'open'
+    && !requirement.respondedAt
+    && !requirement.clientResponse
+    && !requirement.responseFileName
+    && !requirement.responseFileUrl
+  )
+}
+
 // ── Nav ──────────────────────────────────────────────────────────────────────
 function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSettings, highlightSettings = false }: {
   workstreamTitle: string | null
@@ -75,7 +85,7 @@ function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSet
 }) {
   const router = useRouter()
   return (
-    <header className="sticky top-0 z-40" style={{ background: '#0d1829' }}>
+    <header className={`sticky top-0 ${highlightSettings ? 'z-[61]' : 'z-40'}`} style={{ background: '#0d1829' }}>
       <div className="max-w-4xl mx-auto px-4 md:px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-white cantara-serif tracking-[0.18em] text-sm shrink-0">Cantara</span>
@@ -103,7 +113,11 @@ function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSet
           <button
             id="account-settings-button"
             onClick={onAccountSettings}
-            className={`p-2 rounded transition-colors ${highlightSettings ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/40 hover:bg-amber-500/20' : 'text-white/30 hover:bg-white/5 hover:text-white/70'}`}
+            className={`p-2 rounded transition-colors ${
+              highlightSettings
+                ? 'relative z-[62] bg-amber-500/15 text-amber-300 ring-2 ring-amber-300/70 shadow-[0_0_0_6px_rgba(251,191,36,0.12)]'
+                : 'text-white/30 hover:bg-white/5 hover:text-white/70'
+            }`}
             aria-label="Account settings"
           >
             <Settings className="w-4 h-4" />
@@ -130,6 +144,99 @@ const PHASES = [
   { id: 'requirements', label: 'Action Items' },
   { id: 'roadmap', label: 'Report Tabs' },
 ]
+
+const TOUR_STEPS = [
+  {
+    step: 1,
+    title: "Welcome to Cantara",
+    desc: "Welcome to your Client Portal! This dashboard gives you a high-level view of your business, advisor chat updates, and overall progress.",
+  },
+  {
+    step: 2,
+    title: "Invite your Team",
+    desc: "Click 'Add Team Member' here to invite other members of your company who will help you collect and upload documents.",
+  },
+  {
+    step: 3,
+    title: "Assigned Workstream",
+    desc: "This card shows your active workstream and advisor notes on what to focus on next.",
+  },
+  {
+    step: 4,
+    title: "Onboarding Process",
+    desc: "This list maps out the complete roadmap from document collection to questionnaires and advisor feedback.",
+  },
+  {
+    step: 5,
+    title: "1 — Tell us which documents you have",
+    desc: "In the Assign tab, select Yes/No/NA for optional items to indicate which documents your business currently has. Advisors use this to update your checklist.",
+  },
+  {
+    step: 6,
+    title: "2 — Assign documents",
+    desc: "Once documents are confirmed, switch to the second sub-tab to designate who is responsible for uploading each item.",
+  },
+  {
+    step: 7,
+    title: "Assigning Document Owners",
+    desc: "Use the dropdown select box next to each item to assign the task to yourself ('Me') or an invited team member.",
+  },
+  {
+    step: 8,
+    title: "3 — Assigned documents",
+    desc: "Review a summary of all assigned documents and their designated owners for progress tracking.",
+  },
+  {
+    step: 9,
+    title: "Document Upload Checklist",
+    desc: "Expand checklist categories here to view detailed advisor instructions, upload your files, and track approval status.",
+  },
+  {
+    step: 10,
+    title: "Submitting Sections",
+    desc: "Once you have uploaded all files in a checklist category, click the 'Mark Section Ready' button to submit that section for advisor review.",
+  },
+  {
+    step: 11,
+    title: "Required Info Forms",
+    desc: "Complete custom info-gathering forms requested by your advisor's custom analysis tools here. Answers save automatically.",
+  },
+  {
+    step: 12,
+    title: "Action Items & Feedback",
+    desc: "Review tasks, comments, and specific feedback from your advisor team that require your direct action.",
+  },
+  {
+    step: 13,
+    title: "Reports & Roadmaps",
+    desc: "Access final roadmaps, draft deliverables, and generated reports released by your Cantara advisor team.",
+  },
+  {
+    step: 14,
+    title: "Change Temporary Password",
+    desc: "Finally, click the highlighted gear icon here to open Account Settings and update your temporary password to secure your account.",
+  }
+]
+
+const getTourTargetId = (step: number) => {
+  switch (step) {
+    case 1: return 'tour-welcome-banner'
+    case 2: return 'tour-add-team-member'
+    case 3: return 'tour-workstream-card'
+    case 4: return 'tour-process-card'
+    case 5: return 'tour-assign-switcher'
+    case 6: return 'tour-assign-switcher'
+    case 7: return 'tour-assign-dropdown-first'
+    case 8: return 'tour-assign-switcher'
+    case 9: return 'tour-collection-container'
+    case 10: return 'tour-submit-section-button'
+    case 11: return 'tour-information-container'
+    case 12: return 'tour-requirements-container'
+    case 13: return 'tour-roadmap-container'
+    case 14: return 'account-settings-button'
+    default: return null
+  }
+}
 
 const DEDICATED_REQUIRED_INFO_AGENTS = [
   'facility_review',
@@ -200,6 +307,8 @@ function applyDocumentUploadSummary(
 ) {
   const patch = summary.fileCount
     ? {
+        hasDoc: true,
+        unavailableDecision: null,
         fileName: summary.fileName,
         fileUrl: summary.fileUrl,
         uploadedAt: summary.uploadedAt,
@@ -236,19 +345,57 @@ export default function ClientDashboard() {
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
   const [mustChangePassword, setMustChangePassword] = useState(false)
-  const [showPasswordTour, setShowPasswordTour] = useState(false)
-  const [settingsBtnPos, setSettingsBtnPos] = useState<{ x: number; y: number } | null>(null)
+  const [tourStep, setTourStep] = useState<number | null>(null)
+  const [tourTargetPos, setTourTargetPos] = useState<{ x: number; top: number; bottom: number } | null>(null)
+  const showPasswordTour = tourStep !== null
 
   useEffect(() => {
-    if (!showPasswordTour || !mustChangePassword || !client) return
+    if (tourStep === null || !client) return
+
+    if (tourStep >= 1 && tourStep <= 4) {
+      setPhase('overview')
+    } else if (tourStep >= 5 && tourStep <= 8) {
+      setPhase('assign')
+    } else if (tourStep === 9 || tourStep === 10) {
+      setPhase('collection')
+    } else if (tourStep === 11) {
+      setPhase('information')
+    } else if (tourStep === 12) {
+      setPhase('requirements')
+    } else if (tourStep === 13) {
+      setPhase('roadmap')
+    } else if (tourStep === 14) {
+      setPhase('overview')
+    }
+
+    const id = getTourTargetId(tourStep)
+    if (id) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(id)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        }
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [tourStep, client])
+
+  useEffect(() => {
+    if (tourStep === null || !mustChangePassword || !client) return
 
     const updatePosition = () => {
-      const el = document.getElementById('account-settings-button')
+      const id = getTourTargetId(tourStep)
+      if (!id) {
+        setTourTargetPos(null)
+        return
+      }
+      const el = document.getElementById(id)
       if (el) {
         const rect = el.getBoundingClientRect()
-        setSettingsBtnPos({
+        setTourTargetPos({
           x: rect.left + rect.width / 2,
-          y: rect.bottom,
+          top: rect.top,
+          bottom: rect.bottom,
         })
       }
     }
@@ -256,11 +403,13 @@ export default function ClientDashboard() {
     updatePosition()
     const rafId = requestAnimationFrame(updatePosition)
     window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, { passive: true })
     return () => {
       cancelAnimationFrame(rafId)
       window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition)
     }
-  }, [showPasswordTour, mustChangePassword, client])
+  }, [tourStep, mustChangePassword, client])
   const chat = useChatRoom({
     clientId: client?.id ?? '',
     viewer: 'client',
@@ -276,7 +425,7 @@ export default function ClientDashboard() {
       const requiresPasswordChange = typeof window !== 'undefined' ? Boolean(JSON.parse(localStorage.getItem('cantara_client_must_change_password') || 'false')) : false
       setSessionEmail(email || '')
       setMustChangePassword(requiresPasswordChange)
-      setShowPasswordTour(requiresPasswordChange)
+      setTourStep(requiresPasswordChange ? 1 : null)
       const all = await getClients()
       const found =
         (clientId ? all.find(c => c.id === clientId) : null) ??
@@ -378,7 +527,7 @@ export default function ClientDashboard() {
     setDirtyStatusIds(prev => new Set(prev).add(docId))
     setDocStatuses(prev => ({
       ...prev,
-      [docId]: { id: docId, hasDoc: null, assignedTo: null, uploadedAt: null, fileName: null, notApplicable: false, ...prev[docId], ...update },
+      [docId]: { id: docId, hasDoc: null, unavailableDecision: null, assignedTo: null, uploadedAt: null, fileName: null, notApplicable: false, ...prev[docId], ...update },
     }))
   }
 
@@ -539,7 +688,13 @@ export default function ClientDashboard() {
         memberAssignedTo.some(value => value.toLowerCase() === requirement.assignedTo?.toLowerCase())
       ))
     : requirements
-  const openReqs = visibleRequirements.filter(r => r.status === 'open')
+  const openReqs = visibleRequirements.filter(r => (
+    r.status === 'open'
+    && !r.respondedAt
+    && !r.clientResponse
+    && !r.responseFileName
+    && !r.responseFileUrl
+  ))
 
   const submitChat = async () => {
     if (!chatDraft.trim()) return
@@ -565,16 +720,19 @@ export default function ClientDashboard() {
         workstreamTitle={workstreamTitle}
         unreadCount={unreadMsgs + openReqs.length}
         onNotifications={() => router.push('/dashboard/notifications')}
-        onAccountSettings={() => router.push(showPasswordTour ? '/dashboard/settings?tour=password' : '/dashboard/settings')}
-        highlightSettings={showPasswordTour}
+        onAccountSettings={() => router.push(tourStep === 14 ? '/dashboard/settings?tour=password' : '/dashboard/settings')}
+        highlightSettings={tourStep === 14}
       />
 
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-8">
         {/* Welcome banner */}
         <motion.div
+          id="tour-welcome-banner"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative rounded-2xl p-6 md:p-8 mb-6 overflow-hidden"
+          className={`relative rounded-2xl p-6 md:p-8 mb-6 overflow-hidden transition-all ${
+            tourStep === 1 ? 'z-[61] ring-2 ring-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.2)]' : ''
+          }`}
           style={{ background: 'linear-gradient(135deg, #0d1829 0%, #111e35 100%)' }}
         >
           <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" style={{ background: 'rgba(184,146,42,0.06)' }} />
@@ -647,9 +805,11 @@ export default function ClientDashboard() {
                 const isActive = phase === p.id
                 const hasBadge = (p.id === 'requirements' && openReqs.length > 0) || p.id === 'information'
                 const disabled = Boolean((p as any).disabled)
+                const isStepHighlighted = false
                 return (
                   <button
                     key={p.id}
+                    id={`tour-tab-${p.id}`}
                     onClick={() => !disabled && setPhase(p.id)}
                     disabled={disabled}
                     className={`w-full relative flex items-center justify-between gap-2 px-3 py-3 rounded-xl text-sm font-medium transition-all ${
@@ -658,7 +818,7 @@ export default function ClientDashboard() {
                         : isActive
                         ? 'text-white shadow-sm'
                         : 'text-slate-500 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-700'
-                    }`}
+                    } ${isStepHighlighted ? 'z-[61] ring-2 ring-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.25)] bg-white!' : ''}`}
                     style={disabled ? {} : isActive ? { background: 'linear-gradient(135deg, #0d1829, #111e35)', border: '1px solid rgba(184,146,42,0.3)' } : {}}
                   >
                     <span className="flex items-center gap-2 min-w-0">
@@ -707,6 +867,7 @@ export default function ClientDashboard() {
                   }}
                   deletingTeamMemberId={deletingTeamMemberId}
                   isTeamMemberSession={isTeamMemberSession}
+                  tourStep={tourStep}
                 />
               )}
               {phase === 'assign' && (
@@ -737,6 +898,8 @@ export default function ClientDashboard() {
                   sectionDeadlines={sectionDeadlines}
                   formQuestions={formQuestions}
                   setClient={setClient}
+                  tourStep={tourStep}
+                  onSubViewChange={() => {}}
                 />
               )}
               {phase === 'information' && (
@@ -763,6 +926,7 @@ export default function ClientDashboard() {
                   submittingSectionId={submittingSectionId}
                   getDeadline={getDeadline}
                   sectionDeadlines={sectionDeadlines}
+                  tourStep={tourStep}
                 />
               )}
               {phase === 'requirements' && (
@@ -838,22 +1002,46 @@ export default function ClientDashboard() {
         </div>
       )}
 
-      {showPasswordTour && mustChangePassword && settingsBtnPos && (() => {
+      {tourStep !== null && mustChangePassword && tourTargetPos && (() => {
+        const currentStepData = TOUR_STEPS.find(s => s.step === tourStep)
+        if (!currentStepData) return null
+
         const tooltipWidth = typeof window !== 'undefined' ? Math.min(320, window.innerWidth - 32) : 320
+        const tooltipEstimatedHeight = 180
         const margin = 16
-        let left = settingsBtnPos.x - tooltipWidth / 2
+        let left = tourTargetPos.x - tooltipWidth / 2
         const minLeft = margin
         const maxLeft = typeof window !== 'undefined' ? window.innerWidth - tooltipWidth - margin : 0
         if (left < minLeft) left = minLeft
         if (left > maxLeft) left = maxLeft
 
-        const top = settingsBtnPos.y + 12
-        const arrowLeft = settingsBtnPos.x - left
+        const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800
+        const spaceBelow = viewportHeight - tourTargetPos.bottom
+        const placeAbove = spaceBelow < (tooltipEstimatedHeight + 20) || tourTargetPos.bottom > (viewportHeight * 0.6)
+
+        let top = 0
+        if (placeAbove) {
+          top = tourTargetPos.top - tooltipEstimatedHeight - 12
+          if (top < margin) {
+            top = margin
+          }
+        } else {
+          top = tourTargetPos.bottom + 12
+        }
+
+        const arrowLeft = tourTargetPos.x - left
+
+        const dismissTour = () => {
+          setTourStep(null)
+          setMustChangePassword(false)
+          localStorage.setItem('cantara_client_must_change_password', JSON.stringify(false))
+        }
 
         return (
           <>
-            <div className="fixed inset-x-0 bottom-0 top-14 z-[55] bg-slate-950/45" />
+            <div className="fixed inset-0 z-[55] bg-slate-950/45" />
             <motion.div
+              key={tourStep}
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               style={{
@@ -863,27 +1051,58 @@ export default function ClientDashboard() {
               }}
               className="fixed z-[60] rounded-2xl border border-amber-200 bg-white shadow-2xl"
             >
-              <div 
-                style={{ left: `${arrowLeft}px` }}
-                className="absolute -top-2 h-4 w-4 -translate-x-1/2 rotate-45 border-l border-t border-amber-200 bg-white" 
-              />
+              {placeAbove ? (
+                <div 
+                  style={{ left: `${arrowLeft}px` }}
+                  className="absolute -bottom-2 h-4 w-4 -translate-x-1/2 rotate-45 border-r border-b border-amber-200 bg-white" 
+                />
+              ) : (
+                <div 
+                  style={{ left: `${arrowLeft}px` }}
+                  className="absolute -top-2 h-4 w-4 -translate-x-1/2 rotate-45 border-l border-t border-amber-200 bg-white" 
+                />
+              )}
               <div className="p-4">
-                <p className="text-sm font-semibold text-slate-900">Change your temporary password</p>
+                <div className="flex items-center justify-between gap-2 border-b border-slate-50 pb-1.5">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-amber-600">
+                    Step {tourStep} of {TOUR_STEPS.length}
+                  </span>
+                </div>
+                <p className="text-sm font-semibold text-slate-900 mt-2">{currentStepData.title}</p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                  Click the highlighted gear icon here to open Account Settings, then update your password there.
+                  {currentStepData.desc}
                 </p>
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowPasswordTour(false)
-                      setMustChangePassword(false)
-                      localStorage.setItem('cantara_client_must_change_password', JSON.stringify(false))
-                    }}
+                    onClick={dismissTour}
                     className="text-xs font-medium text-slate-500 hover:text-slate-700"
                   >
-                    Skip this tour
+                    Skip tour
                   </button>
+                  <div className="flex items-center gap-2">
+                    {tourStep > 1 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setTourStep(prev => prev !== null ? prev - 1 : null)}
+                      >
+                        Back
+                      </Button>
+                    )}
+                    {tourStep < TOUR_STEPS.length ? (
+                      <Button 
+                        size="sm" 
+                        onClick={() => setTourStep(prev => prev !== null ? prev + 1 : null)}
+                      >
+                        Next
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-amber-600 font-medium animate-pulse">
+                        Click the gear icon
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -907,6 +1126,7 @@ function TeamMembersPanel({
   deleteTeamMember,
   cancelEditingTeamMember,
   isTeamMemberSession,
+  tourStep,
 }: {
   client: Client
   newTeamMember: { name: string; email: string; role: string }
@@ -919,6 +1139,7 @@ function TeamMembersPanel({
   deleteTeamMember: (memberId: string) => Promise<void>
   cancelEditingTeamMember: () => void
   isTeamMemberSession: boolean
+  tourStep?: number | null
 }) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
@@ -969,7 +1190,14 @@ function TeamMembersPanel({
             Add people who will help collect and upload documents. New team members receive portal login details by email.
           </p>
         </div>
-        <Button size="sm" onClick={openAddModal} className="w-full justify-center md:w-auto">
+        <Button 
+          id="tour-add-team-member"
+          size="sm" 
+          onClick={openAddModal} 
+          className={`w-full justify-center md:w-auto transition-all ${
+            tourStep === 2 ? 'relative z-[61] ring-2 ring-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.25)]' : ''
+          }`}
+        >
           <Plus className="w-4 h-4" />
           Add Team Member
         </Button>
@@ -1091,6 +1319,7 @@ function OverviewTab({
   deleteTeamMember,
   cancelEditingTeamMember,
   isTeamMemberSession,
+  tourStep,
 }: {
   client: Client
   wsLabel: Record<string, string>
@@ -1104,6 +1333,7 @@ function OverviewTab({
   deleteTeamMember: (memberId: string) => Promise<void>
   cancelEditingTeamMember: () => void
   isTeamMemberSession: boolean
+  tourStep?: number | null
 }) {
   const steps = [
     { title: 'Assign Documents', desc: 'Tell us which documents you have, and then assign each document to yourself or a team member who will upload it.' },
@@ -1113,7 +1343,12 @@ function OverviewTab({
   ]
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+      <div 
+        id="tour-workstream-card"
+        className={`bg-white rounded-2xl p-6 border border-slate-200 transition-all ${
+          tourStep === 3 ? 'relative z-[61] ring-2 ring-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.2)]' : ''
+        }`}
+      >
         <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-3">Assigned Workstream</p>
         <h3 className="text-xl font-semibold text-slate-800 cantara-serif">
           {client.workstream ? wsLabel[client.workstream] : 'Awaiting Workstream Assignment'}
@@ -1122,7 +1357,7 @@ function OverviewTab({
           Your advisor team will guide you through the process. If you have questions at any point, use the chat button in the bottom right corner.
         </p>
       </div>
-
+ 
       <TeamMembersPanel
         client={client}
         newTeamMember={newTeamMember}
@@ -1135,9 +1370,15 @@ function OverviewTab({
         deleteTeamMember={deleteTeamMember}
         cancelEditingTeamMember={cancelEditingTeamMember}
         isTeamMemberSession={isTeamMemberSession}
+        tourStep={tourStep}
       />
-
-      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+ 
+      <div 
+        id="tour-process-card"
+        className={`bg-white rounded-2xl p-6 border border-slate-200 transition-all ${
+          tourStep === 4 ? 'relative z-[61] ring-2 ring-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.2)]' : ''
+        }`}
+      >
         <h3 className="text-lg font-semibold text-slate-800 cantara-serif mb-4">The Process</h3>
         <div className="space-y-4">
           {steps.map((step, index) => (
@@ -1321,6 +1562,8 @@ function AssignTab({
   sectionDeadlines,
   formQuestions,
   setClient,
+  onSubViewChange,
+  tourStep,
 }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
@@ -1345,8 +1588,20 @@ function AssignTab({
   sectionDeadlines: Record<string, string>
   formQuestions: ClientPortalFormQuestion[]
   setClient: Dispatch<SetStateAction<Client | null>>
+  onSubViewChange?: (v: 'yesno' | 'assign' | 'assigned') => void
+  tourStep?: number | null
 }) {
   const [subView, setSubView] = useState<'yesno' | 'assign' | 'assigned'>('yesno')
+
+  useEffect(() => {
+    if (tourStep === 5) {
+      setSubView('yesno')
+    } else if (tourStep === 6 || tourStep === 7) {
+      setSubView('assign')
+    } else if (tourStep === 8) {
+      setSubView('assigned')
+    }
+  }, [tourStep])
   const diligenceDocs = categories.flatMap(c => c.documents)
   const allDocs = [...valuationDocs, ...diligenceDocs]
   const assignableDocs = allDocs.filter(d => d.type === 'required' || valuationDocs.some(v => v.id === d.id) || getStatus(d.id).hasDoc === true)
@@ -1378,11 +1633,19 @@ function AssignTab({
   return (
     <div className="space-y-4">
       {/* Step switcher */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-1 flex gap-1">
+      <div 
+        id="tour-assign-switcher" 
+        className={`bg-white rounded-2xl border border-slate-200 p-1 flex gap-1 transition-all ${
+          (tourStep === 5 || tourStep === 6 || tourStep === 8) ? 'relative z-[61] ring-2 ring-amber-400 shadow-lg' : ''
+        }`}
+      >
         {(['yesno', 'assign', 'assigned'] as const).map(v => (
           <button
             key={v}
-            onClick={() => setSubView(v)}
+            onClick={() => {
+              setSubView(v)
+              onSubViewChange?.(v)
+            }}
             className={`flex-1 py-2.5 rounded-xl text-xs font-medium transition-all ${subView === v ? 'text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
             style={subView === v ? { background: '#0d1829' } : {}}
           >
@@ -1510,7 +1773,7 @@ function AssignTab({
                   )}
                 </div>
                 <div className="divide-y divide-amber-100/80">
-                  {valuationDocs.map(doc => {
+                  {valuationDocs.map((doc, index) => {
                     const s = getStatus(doc.id)
                     const options = [
                       { value: 'me', label: 'Me' },
@@ -1522,6 +1785,7 @@ function AssignTab({
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-medium text-slate-800">{doc.name}</p>
                             <Badge color="gold">Required</Badge>
+                            {s.hasDoc === false && <Badge color="amber">Not available with client</Badge>}
                           </div>
                           {doc.description && <p className="text-xs text-slate-500 mt-1">{doc.description}</p>}
                           {DOCUMENT_ASSIGN_HELP[doc.id] && (
@@ -1529,15 +1793,39 @@ function AssignTab({
                           )}
                           <DocumentReferenceLink docId={doc.id} />
                         </div>
-                        <select
-                          className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all"
-                          value={s.assignedTo ?? ''}
-                          onChange={e => setStatus(doc.id, { assignedTo: e.target.value || null })}
-                        >
-                          <option value="">— Assign to —</option>
-                          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                        {s.assignedTo && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setStatus(doc.id, { hasDoc: true, unavailableDecision: null, notApplicable: false })}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                              s.hasDoc !== false ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400 hover:border-emerald-300'
+                            }`}
+                          >
+                            Available
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStatus(doc.id, { hasDoc: s.hasDoc === false ? true : false, assignedTo: null, unavailableDecision: null, notApplicable: false })}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                              s.hasDoc === false ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-400 hover:border-amber-300'
+                            }`}
+                          >
+                            Not available
+                          </button>
+                          <select
+                            id={index === 0 ? 'tour-assign-dropdown-first' : undefined}
+                            className={`text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 ${
+                              (index === 0 && tourStep === 7) ? 'relative z-[61] ring-2 ring-amber-400 shadow-lg' : ''
+                            }`}
+                            value={s.assignedTo ?? ''}
+                            disabled={s.hasDoc === false}
+                            onChange={e => setStatus(doc.id, { assignedTo: e.target.value || null })}
+                          >
+                            <option value="">— Assign to —</option>
+                            {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                          {s.assignedTo && s.hasDoc !== false && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                        </div>
                       </div>
                     )
                   })}
@@ -1562,6 +1850,7 @@ function AssignTab({
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-medium text-slate-800">{doc.name}</p>
                         {doc.type === 'required' && <Badge color="gold">Required</Badge>}
+                        {s.hasDoc === false && <Badge color="amber">Not available with client</Badge>}
                       </div>
                       {doc.description && <p className="text-xs text-slate-500 mt-1">{doc.description}</p>}
                       {DOCUMENT_ASSIGN_HELP[doc.id] && (
@@ -1569,15 +1858,40 @@ function AssignTab({
                       )}
                       <DocumentReferenceLink docId={doc.id} />
                     </div>
-                    <select
-                      className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all"
-                      value={s.assignedTo ?? ''}
-                      onChange={e => setStatus(doc.id, { assignedTo: e.target.value || null })}
-                    >
-                      <option value="">— Assign to —</option>
-                      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                    {s.assignedTo && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {doc.type === 'required' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setStatus(doc.id, { hasDoc: true, unavailableDecision: null, notApplicable: false })}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                              s.hasDoc !== false ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400 hover:border-emerald-300'
+                            }`}
+                          >
+                            Available
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStatus(doc.id, { hasDoc: s.hasDoc === false ? true : false, assignedTo: null, unavailableDecision: null, notApplicable: false })}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                              s.hasDoc === false ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-400 hover:border-amber-300'
+                            }`}
+                          >
+                            Not available
+                          </button>
+                        </>
+                      )}
+                      <select
+                        className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                        value={s.assignedTo ?? ''}
+                        disabled={s.hasDoc === false}
+                        onChange={e => setStatus(doc.id, { assignedTo: e.target.value || null })}
+                      >
+                        <option value="">— Assign to —</option>
+                        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      {s.assignedTo && s.hasDoc !== false && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                    </div>
                   </div>
                 )
               }))}
@@ -2329,7 +2643,7 @@ function AgentInformationTab({
   const otherFormQuestions = formQuestions.filter(q => !isDedicatedRequiredInfoAgent(q.agentId))
 
   return (
-    <div className="space-y-4">
+    <div id="tour-information-container" className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-1 flex flex-wrap gap-1">
         {visibleFormKeys.map(key => (
           <button
@@ -2463,7 +2777,7 @@ function documentUploadFileCount(docId: string, filesByDocId: FilesByDocumentId)
   return (filesByDocId[docId] ?? []).length
 }
 
-function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, clientName, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId, getDeadline, sectionDeadlines }: {
+function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, clientName, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId, getDeadline, sectionDeadlines, tourStep }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
@@ -2476,6 +2790,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   submittingSectionId: string | null
   getDeadline: (docId: string, sectionId: string) => string | null
   sectionDeadlines: Record<string, string>
+  tourStep?: number | null
 }) {
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
@@ -2590,10 +2905,14 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
           {' '}Submit when you would like Cantara to review this section (you do not need every slot filled first).
         </p>
         <Button
+          id="tour-submit-section-button"
           size="sm"
           variant={uploadedCount === totalCount && totalCount > 0 ? 'primary' : 'outline'}
           onClick={() => void onSubmitSection(sectionId)}
           disabled={!canSubmit || submittingSectionId === sectionId}
+          className={`transition-all ${
+            tourStep === 10 ? 'relative z-[61] ring-2 ring-amber-400 shadow-lg' : ''
+          }`}
         >
           {submittingSectionId === sectionId ? 'Submitting...' : 'Mark Section Ready'}
         </Button>
@@ -2602,7 +2921,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   }
 
   return (
-    <div className="space-y-4">
+    <div id="tour-collection-container" className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
         <p>
           Upload documents for each item your team confirmed in the Assign step. You can add files over time — each upload saves immediately. Target deadlines are set by your Cantara team.
@@ -2982,7 +3301,6 @@ function RequirementsClientTab({
         responseFileName: draft.fileName || req.responseFileName || null,
         responseFileUrl: draft.fileUrl || req.responseFileUrl || null,
         respondedAt: new Date().toISOString(),
-        status: 'open',
       })
       window.location.reload()
     } finally {
@@ -3000,10 +3318,10 @@ function RequirementsClientTab({
     }
   }
 
-  const open = requirements.filter(r => r.status === 'open')
-  const resolved = requirements.filter(r => r.status === 'resolved')
+  const open = requirements.filter(isRequirementStillOpen)
+  const resolved = requirements.filter(r => !isRequirementStillOpen(r))
   return (
-    <div className="space-y-4">
+    <div id="tour-requirements-container" className="space-y-4">
       <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs text-slate-500 leading-relaxed">
         Items your Cantara advisor flagged for follow-up — questions, clarifications, or extra uploads. Complete each item and submit your response; resolved items stay visible for reference.
       </div>
@@ -3266,7 +3584,7 @@ function RoadmapTab({ clientId, client }: { clientId: string; client: ClientAppr
   ]
 
   return (
-    <div className="space-y-4">
+    <div id="tour-roadmap-container" className="space-y-4">
       {outputs.length > 0 && (
         <>
       <div className="bg-white rounded-2xl border border-slate-200 p-5">

@@ -48,6 +48,7 @@ export interface Branch {
 export interface DocumentStatus {
   id: string
   hasDoc: boolean | null
+  unavailableDecision?: 'exclude_agent' | 'keep_agent' | null
   assignedTo: string | null
   uploadedAt: string | null
   fileName: string | null

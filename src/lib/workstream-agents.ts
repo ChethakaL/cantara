@@ -21,6 +21,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
     { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
     { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: [] },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
     { agentId: 'legal_entity_search', agentName: 'Legal Reports & Entity Search Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure', 'business_licenses'] },
     { agentId: 'tax_liability_review', agentName: 'Tax Liability Review Agent', documentIds: ['tax_returns_3yr', 'irs_941_940_3yr', 'contractor_1099_agreements', 'sales_use_tax_3yr', 'irs_tax_notices_3yr'] },
     { agentId: 'ws1_assessment', agentName: 'WS1 Assessment Report', documentIds: [] },
@@ -59,8 +60,8 @@ export function getClientWorkstreamAgents(client: {
   customWorkstream?: { agents?: WorkstreamAgentSelection[] } | null
   workstreamAgents?: WorkstreamAgentSelection[] | null
 }) {
-  if (client.customWorkstream?.agents?.length) return client.customWorkstream.agents
   if (client.workstreamAgents?.length) return client.workstreamAgents
+  if (client.customWorkstream?.agents?.length) return client.customWorkstream.agents
   return client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
 }
 

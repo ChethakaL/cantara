@@ -13,6 +13,7 @@ import { PROPERTY_OWNERSHIP_OPTIONS } from '@/lib/pet-business-categories'
 import { deleteWorkstreamTemplate, deleteClient, getWorkstreamTemplates, saveClient, saveWorkstreamTemplate } from '@/lib/store'
 import { type AgentDocumentSelection } from '@/lib/documentData'
 import type { Client, Workstream, BusinessType, WorkstreamTemplate } from '@/lib/store'
+import { getClientWorkstreamAgents } from '@/lib/workstream-agents'
 
 interface Owner2Data {
   name: string
@@ -116,6 +117,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentS
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
     { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
     { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: ['vendor_contracts', 'material_contracts', 'software_subscriptions'] },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
   ],
   ws2: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
@@ -157,6 +159,13 @@ function agentsEqual(left: AgentDocumentSelection[], right: AgentDocumentSelecti
 
 function getBaseAgentsForClient(client: Client, customDraftMode: boolean): AgentDocumentSelection[] {
   if (customDraftMode) return []
+  if (client.workstreamAgents?.length) {
+    return client.workstreamAgents.map(agent => ({
+      agentId: agent.agentId,
+      agentName: agent.agentName,
+      documentIds: agent.documentIds,
+    }))
+  }
   if (client.customWorkstream) {
     return client.customWorkstream.agents.map(agent => ({
       agentId: agent.agentId,
@@ -236,6 +245,15 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
   useEffect(() => {
     if (customDraftMode) return
+    if (client.workstreamAgents?.length) {
+      setDraftWorkstreamName(client.customWorkstream?.name ?? '')
+      setDraftAgents(getClientWorkstreamAgents(client).map(agent => ({
+        agentId: agent.agentId,
+        agentName: agent.agentName,
+        documentIds: agent.documentIds ?? [],
+      })))
+      return
+    }
     const clientSpecificAgents = client.workstreamAgents?.map(agent => ({
       agentId: agent.agentId,
       agentName: agent.agentName,

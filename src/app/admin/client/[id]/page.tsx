@@ -73,11 +73,11 @@ const AGENT_TABS = [
   { key: 'permits-zoning', label: 'Permits & Zoning', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
   { key: 'advisors', label: 'Professional Advisors', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
+  { key: 'client-location-map', label: 'Client Location Map', badge: null, icon: MapPin, group: 'WS1 — Risk & Legal' },
   { key: 'legal-entity-search', label: 'Legal Reports & Entity Search', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
   { key: 'tax-liability-review', label: 'Tax Liability Review', badge: null, icon: FileSpreadsheet, group: 'WS1 — Risk & Legal' },
   // WS2 — Performance
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
-  { key: 'client-location-map', label: 'Client Location Map', badge: null, icon: MapPin, group: 'WS2 — Performance' },
   { key: 'pricing-analysis', label: 'Competitive Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
@@ -146,6 +146,39 @@ const TAB_AGENT_APPROVAL_KEYS: Partial<Record<TabKey, string>> = {
   cim: 'cim',
 }
 
+const AGENT_ID_TO_TAB_KEY: Record<string, AgentKey> = {
+  ttm: 'ttm',
+  lease_analysis: 'lease',
+  employee_obligations: 'employee-obligations',
+  contract_analysis: 'contract',
+  digital_presence: 'digital',
+  competitor_analysis: 'competitor',
+  facility_review: 'facility-review',
+  insurance_review: 'insurance',
+  professional_advisors: 'advisors',
+  vendor_directory: 'vendor-directory',
+  org_chart_review: 'org-chart',
+  litigation_search: 'litigation',
+  employee_comp: 'employee-comp',
+  ownership_verification: 'ownership-verification',
+  permits_zoning: 'permits-zoning',
+  owner_gm_assessment: 'owner-gm-assessment',
+  occupancy_review: 'occupancy-review',
+  client_location_map: 'client-location-map',
+  pricing_analysis: 'pricing-analysis',
+  pricing_vertical: 'pricing-vertical',
+  sales_process_review: 'sales-process-review',
+  legal_entity_search: 'legal-entity-search',
+  tax_liability_review: 'tax-liability-review',
+  ws1_assessment: 'ws1-assessment',
+  ws2_assessment: 'ws2-assessment',
+  ws1_roadmap: 'ws1-roadmap',
+  ws2_roadmap: 'ws2-roadmap',
+  net_proceeds: 'net-proceeds',
+  teaser: 'teaser',
+  cim: 'cim',
+}
+
 function isApprovedForReview(client: Client, tab: TabKey): boolean {
   const key = TAB_AGENT_APPROVAL_KEYS[tab]
   if (!key) return false
@@ -165,16 +198,18 @@ function isApprovedForReview(client: Client, tab: TabKey): boolean {
 function AgentsDropdown({
   activeTab,
   onSelect,
+  availableAgentTabs,
 }: {
   activeTab: TabKey
   onSelect: (key: AgentKey) => void
+  availableAgentTabs: Array<(typeof AGENT_TABS)[number]>
 }) {
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const [mounted, setMounted] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
-  const isAgentActive = AGENT_TABS.some(t => t.key === activeTab)
-  const activeAgent = AGENT_TABS.find(t => t.key === activeTab)
+  const isAgentActive = availableAgentTabs.some(t => t.key === activeTab)
+  const activeAgent = availableAgentTabs.find(t => t.key === activeTab)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -224,7 +259,7 @@ function AgentsDropdown({
       >
         {(() => {
           let lastGroup = ''
-          return AGENT_TABS.map(agent => {
+          return availableAgentTabs.map(agent => {
             const Icon = agent.icon
             const isActive = activeTab === agent.key
             const showHeader = agent.group !== lastGroup
@@ -307,6 +342,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const activeAgentReadOnly = client
     ? isApprovedForReview(client, activeTab) || Boolean(activeApprovalKey && agentApprovalLocks[activeApprovalKey])
     : false
+  const availableAgentTabs = client
+    ? AGENT_TABS.filter(tab =>
+        getClientWorkstreamAgents(client).some(agent => AGENT_ID_TO_TAB_KEY[agent.agentId] === tab.key),
+      )
+    : []
 
   useEffect(() => {
     if (getCurrentRole() !== 'admin') { router.push('/login/admin'); return }
@@ -369,6 +409,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       clearInterval(timer)
     }
   }, [client?.id])
+
+  useEffect(() => {
+    if (!client) return
+    if (!AGENT_TABS.some(tab => tab.key === activeTab)) return
+    const isStillAvailable = availableAgentTabs.some(tab => tab.key === activeTab)
+    if (!isStillAvailable) setActiveTab('manage')
+  }, [client, activeTab, availableAgentTabs])
 
   useEffect(() => {
     if (!client) return
@@ -540,6 +587,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             <AgentsDropdown
               activeTab={activeTab}
               onSelect={key => setActiveTab(key)}
+              availableAgentTabs={availableAgentTabs}
             />
 
             {/* Remaining standard tabs */}

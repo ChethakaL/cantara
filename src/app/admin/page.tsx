@@ -891,6 +891,7 @@ export default function AdminDashboard() {
             onClose={closeDrivePicker}
             title={drivePickerTarget === 'parent' || drivePickerTarget === 'new-parent' ? 'Choose Parent Folder' : 'Choose Client Folder'}
             sizeClassName="max-w-2xl"
+            zIndexClassName="z-[60]"
           >
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { Send, MessageSquare } from 'lucide-react'
-import { Button, Textarea } from '@/components/ui'
+import { Button } from '@/components/ui'
 import type { ChatMessage } from '@/lib/store'
 import { isOwnMessage, type ChatViewerRole } from '@/lib/chat-utils'
 
@@ -29,15 +29,30 @@ export function ChatThread({
   composeRows?: number
   maxHeightClass?: string
 }) {
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const timer = setTimeout(() => {
+      const el = containerRef.current
+      if (el) {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      }
+    }, 50)
+    return () => clearTimeout(timer)
   }, [messages])
+
+  useEffect(() => {
+    const node = composerRef.current
+    if (!node) return
+    node.style.height = '0px'
+    const nextHeight = Math.min(Math.max(node.scrollHeight, 44), 140)
+    node.style.height = `${nextHeight}px`
+  }, [draft])
 
   return (
     <>
-      <div className={`flex-1 overflow-y-auto space-y-3 mb-4 pr-1 ${maxHeightClass}`}>
+      <div ref={containerRef} className={`flex-1 overflow-y-auto space-y-3 mb-4 pr-1 ${maxHeightClass}`}>
         {messages.length === 0 ? (
           <div className="py-12 text-center text-sm text-slate-400">
             <MessageSquare className="w-8 h-8 text-slate-200 mx-auto mb-3" />
@@ -70,11 +85,12 @@ export function ChatThread({
             )
           })
         )}
-        <div ref={bottomRef} />
+
       </div>
 
-      <div className="border-t border-slate-100 pt-4">
-        <Textarea
+      <div className="border-t border-slate-100 pt-3">
+        <textarea
+          ref={composerRef}
           placeholder={placeholder}
           value={draft}
           onChange={e => onDraftChange(e.target.value)}
@@ -85,8 +101,9 @@ export function ChatThread({
               onSend()
             }
           }}
+          className="min-h-[44px] w-full resize-none overflow-y-auto rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
         />
-        <div className="flex items-center justify-between mt-2">
+        <div className="mt-2 flex items-center justify-between">
           <span className="text-xs text-slate-400">Enter to send · Shift+Enter for new line</span>
           <Button size="sm" onClick={onSend} disabled={!draft.trim() || sending}>
             <Send className="w-3.5 h-3.5" />

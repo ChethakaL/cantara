@@ -175,13 +175,14 @@ function groupRemindersBySendKey(items: OutstandingDocumentReminder[]) {
   return Array.from(groups.values())
 }
 
-function mapDocumentStatuses(rows: Array<{ documentId: string; hasDoc: boolean | null; assignedTo: string | null; uploadedAt: Date | null; fileName: string | null; fileUrl: string | null; notApplicable: boolean; targetDeadline: Date | null }>): Record<string, DocumentStatus> {
+function mapDocumentStatuses(rows: Array<{ documentId: string; hasDoc: boolean | null; unavailableDecision?: string | null; assignedTo: string | null; uploadedAt: Date | null; fileName: string | null; fileUrl: string | null; notApplicable: boolean; targetDeadline: Date | null }>): Record<string, DocumentStatus> {
   return Object.fromEntries(
     rows.map(row => [
       row.documentId,
       {
         id: row.documentId,
         hasDoc: row.hasDoc,
+        unavailableDecision: (row.unavailableDecision as 'exclude_agent' | 'keep_agent' | null | undefined) ?? null,
         assignedTo: row.assignedTo,
         uploadedAt: row.uploadedAt?.toISOString() ?? null,
         fileName: row.fileName ?? null,

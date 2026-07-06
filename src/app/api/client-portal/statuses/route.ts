@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
         string,
         {
           hasDoc?: boolean | null;
+          unavailableDecision?: "exclude_agent" | "keep_agent" | null;
           assignedTo?: string | null;
           uploadedAt?: string | null;
           fileName?: string | null;
@@ -45,6 +46,10 @@ export async function POST(req: NextRequest) {
               },
               update: {
                 hasDoc: status.hasDoc ?? null,
+                unavailableDecision:
+                  status.hasDoc === false
+                    ? (status.unavailableDecision ?? null)
+                    : null,
                 assignedTo: status.assignedTo ?? null,
                 uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
                 fileName: status.fileName ?? null,
@@ -55,6 +60,10 @@ export async function POST(req: NextRequest) {
                 clientId,
                 documentId,
                 hasDoc: status.hasDoc ?? null,
+                unavailableDecision:
+                  status.hasDoc === false
+                    ? (status.unavailableDecision ?? null)
+                    : null,
                 assignedTo: status.assignedTo ?? null,
                 uploadedAt: status.uploadedAt ? new Date(status.uploadedAt) : null,
                 fileName: status.fileName ?? null,
