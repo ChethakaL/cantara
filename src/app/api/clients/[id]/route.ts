@@ -139,12 +139,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           update: {
             name: member.name,
             passwordHash: password,
+            mustChangePassword: true,
             role: "CLIENT",
           },
           create: {
             name: member.name,
             email: normalizedEmail,
             passwordHash: password,
+            mustChangePassword: true,
             role: "CLIENT",
           },
         });

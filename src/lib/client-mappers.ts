@@ -138,6 +138,7 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
     createdAt: client.createdAt.toISOString(),
     provisionedAt: client.provisionedAt?.toISOString() ?? null,
     lastLogin: client.lastLogin?.toISOString() ?? null,
+    mustChangePassword: Boolean(client.User?.mustChangePassword),
     notes: client.notes || "",
     valuationDocUploaded: client.valuationDocUploaded,
     unreadCount,

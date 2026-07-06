@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, Loader2, Lock, Mail } from 'lucide-react'
@@ -29,6 +29,9 @@ export default function ClientSettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null)
   const [passwordSaving, setPasswordSaving] = useState(false)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
+  const [showPasswordTour, setShowPasswordTour] = useState(false)
+  const passwordCardRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -39,6 +42,8 @@ export default function ClientSettingsPage() {
       }
       setClient(found)
       setSessionEmail(email)
+      setMustChangePassword(Boolean(JSON.parse(localStorage.getItem('cantara_client_must_change_password') || 'false')))
+      setShowPasswordTour(typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tour') === 'password')
       const res = await fetch(`/api/client-portal/notifications?clientId=${encodeURIComponent(found.id)}`, { cache: 'no-store' })
       if (res.ok) {
         const data = await res.json()
@@ -47,6 +52,14 @@ export default function ClientSettingsPage() {
       setLoading(false)
     })()
   }, [router])
+
+  useEffect(() => {
+    if (!showPasswordTour) return
+    const timer = window.setTimeout(() => {
+      passwordCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 150)
+    return () => window.clearTimeout(timer)
+  }, [showPasswordTour])
 
   const savePreferences = async () => {
     if (!client) return
@@ -115,6 +128,8 @@ export default function ClientSettingsPage() {
       setNewPassword('')
       setConfirmPassword('')
       setOtpSent(false)
+      setMustChangePassword(false)
+      localStorage.setItem('cantara_client_must_change_password', JSON.stringify(false))
       setPasswordMessage('Password updated successfully.')
     } catch (error) {
       setPasswordMessage(error instanceof Error ? error.message : 'Failed to update password.')
@@ -133,9 +148,12 @@ export default function ClientSettingsPage() {
 
   return (
     <div className="min-h-screen" style={{ background: 'hsl(220,18%,96%)' }}>
-      <ClientPortalHeader pageLabel="Account Settings" active="settings" />
+      {showPasswordTour && (
+        <div className="fixed inset-x-0 bottom-0 top-14 z-[55] bg-slate-950/45" />
+      )}
+      <ClientPortalHeader pageLabel="Account Settings" active="settings" highlightSettings={showPasswordTour} />
 
-      <main className="max-w-3xl mx-auto px-4 md:px-6 py-8 space-y-6">
+      <main className="relative max-w-3xl mx-auto px-4 md:px-6 py-8 space-y-6">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Account settings</h1>
           <p className="text-sm text-slate-500 mt-1">Manage email notifications and your portal password.</p>
@@ -180,11 +198,17 @@ export default function ClientSettingsPage() {
           </div>
         </Card>
 
-        <Card className="p-5 space-y-4">
+        <div ref={passwordCardRef} className="relative z-[61]">
+        <Card className={`p-5 space-y-4 ${showPasswordTour ? 'ring-2 ring-amber-300 shadow-2xl' : ''}`}>
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4 text-slate-500" />
             <h2 className="text-sm font-semibold text-slate-800">Change password</h2>
           </div>
+          {mustChangePassword && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+              You are still using a temporary password. Change it here to finish securing this portal login.
+            </div>
+          )}
           <p className="text-xs text-slate-500">
             We&apos;ll email a one-time verification code to <span className="font-medium text-slate-700">{sessionEmail}</span>.
           </p>
@@ -211,6 +235,31 @@ export default function ClientSettingsPage() {
             <p className={`text-xs ${passwordMessage.includes('success') ? 'text-emerald-600' : 'text-slate-600'}`}>{passwordMessage}</p>
           )}
         </Card>
+        {showPasswordTour && (
+          <div className="absolute -top-32 right-0 z-[62] w-[min(88vw,320px)] rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl">
+            <div className="absolute -bottom-7 right-10 h-7 w-0.5 bg-amber-300" />
+            <div className="absolute -bottom-2 right-8 h-4 w-4 rotate-45 border-r border-b border-amber-200 bg-white" />
+            <p className="text-sm font-semibold text-slate-900">Update it here</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-600">
+              Use this exact password section here to send the verification code and set the new password for this portal login.
+            </p>
+            <div className="mt-4 flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setShowPasswordTour(false)
+                  setMustChangePassword(false)
+                  localStorage.setItem('cantara_client_must_change_password', JSON.stringify(false))
+                  router.replace('/dashboard/settings')
+                }}
+              >
+                Got it
+              </Button>
+            </div>
+          </div>
+        )}
+        </div>
 
         <div className="flex justify-center">
           <Link href="/dashboard" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700">

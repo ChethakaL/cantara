@@ -31,6 +31,7 @@ export default function ClientLoginPage() {
       localStorage.setItem('cantara_role', JSON.stringify('client'))
       localStorage.setItem('cantara_client_email', JSON.stringify(email))
       if (data.clientId) localStorage.setItem('cantara_client_id', JSON.stringify(data.clientId))
+      localStorage.setItem('cantara_client_must_change_password', JSON.stringify(Boolean(data.mustChangePassword)))
       router.push('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in')
