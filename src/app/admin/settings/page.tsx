@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { KeyRound, Loader2, ShieldCheck, Database, Sliders, CheckCircle2 } from 'lucide-react'
+import { KeyRound, Loader2, ShieldCheck, Database, Sliders, CheckCircle2, Lock } from 'lucide-react'
 import { AdminPortalHeader } from '@/components/admin/AdminPortalHeader'
 import { Button, Input } from '@/components/ui'
 import { useAdminInboxUnread } from '@/hooks/useChatRoom'
 import { MONDAY_ITEM_NAME_COLUMN_ID, MONDAY_ITEM_NAME_COLUMN_LABEL } from '@/lib/monday-client-import'
+import { getAdminEmail } from '@/lib/store'
 import {
   emptyMondayGlobalMappingForm,
   MONDAY_GLOBAL_MAPPING_FIELDS,
@@ -49,6 +50,14 @@ export default function AdminSettingsPage() {
   const [availableColumns, setAvailableColumns] = useState<MondayColumn[]>([])
   const [loadingMondayMeta, setLoadingMondayMeta] = useState(false)
   const [mondayStatusMessage, setMondayStatusMessage] = useState<string | null>(null)
+  const [adminEmail, setAdminEmail] = useState('')
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpSending, setOtpSending] = useState(false)
+  const [otpCode, setOtpCode] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null)
+  const [passwordSaving, setPasswordSaving] = useState(false)
 
   const loadStatus = async () => {
     setLoading(true)
@@ -124,9 +133,57 @@ export default function AdminSettingsPage() {
   }, [mondayBoardId])
 
   useEffect(() => {
+    setAdminEmail(getAdminEmail())
     void loadStatus()
     void loadMondayMetadata()
   }, [])
+
+  const requestOtp = async () => {
+    if (!adminEmail) return
+    setOtpSending(true)
+    setPasswordMessage(null)
+    try {
+      const res = await fetch('/api/auth/admin/request-password-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminEmail }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setOtpSent(true)
+      setPasswordMessage('Verification code sent to your email.')
+    } catch (err) {
+      setPasswordMessage(err instanceof Error ? err.message : 'Failed to send verification code.')
+    } finally {
+      setOtpSending(false)
+    }
+  }
+
+  const verifyOtpAndReset = async () => {
+    if (!adminEmail) return
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage('Passwords do not match.')
+      return
+    }
+    setPasswordSaving(true)
+    setPasswordMessage(null)
+    try {
+      const res = await fetch('/api/auth/admin/verify-password-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminEmail, code: otpCode, newPassword }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setOtpCode('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setOtpSent(false)
+      setPasswordMessage('Password updated successfully.')
+    } catch (err) {
+      setPasswordMessage(err instanceof Error ? err.message : 'Failed to update password.')
+    } finally {
+      setPasswordSaving(false)
+    }
+  }
 
   const saveKey = async () => {
     setSaving(true)
@@ -292,6 +349,48 @@ export default function AdminSettingsPage() {
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {saving ? 'Saving...' : 'Save Monday Mapping'}
             </Button>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Change password</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Send a one-time verification code and update your advisor portal password.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              We&apos;ll email a one-time verification code to <span className="font-medium text-slate-700">{adminEmail || 'your advisor email'}</span>.
+            </p>
+            {!otpSent ? (
+              <Button size="sm" variant="outline" onClick={() => void requestOtp()} disabled={otpSending || !adminEmail}>
+                {otpSending ? 'Sending code…' : 'Send verification code'}
+              </Button>
+            ) : (
+              <div className="space-y-3">
+                <Input label="Verification code" value={otpCode} onChange={e => setOtpCode(e.target.value)} placeholder="6-digit code" />
+                <Input label="New password" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                <Input label="Confirm new password" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+                <div className="flex items-center gap-3">
+                  <Button size="sm" onClick={() => void verifyOtpAndReset()} disabled={passwordSaving || !otpCode || !newPassword}>
+                    {passwordSaving ? 'Updating…' : 'Update password'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => void requestOtp()} disabled={otpSending}>
+                    Resend code
+                  </Button>
+                </div>
+              </div>
+            )}
+            {passwordMessage && (
+              <p className={`text-xs ${passwordMessage.includes('success') ? 'text-emerald-600' : 'text-slate-600'}`}>{passwordMessage}</p>
+            )}
           </div>
         </section>
       </main>
