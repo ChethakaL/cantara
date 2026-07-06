@@ -48,6 +48,7 @@ import BuyerReportTab from '@/components/buyer-report/BuyerReportTab'
 import OccupancyReviewTab from '@/components/occupancy-review/OccupancyReviewTab'
 import LoiReviewTab from '@/components/loi-review/LoiReviewTab'
 import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
+import AdminRequiredInfoTab from '@/components/admin/AdminRequiredInfoTab'
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
@@ -104,6 +105,7 @@ type AgentKey = typeof AGENT_TABS[number]['key']
 const STANDARD_TABS = [
   { key: 'manage', label: 'Client Management', icon: Settings },
   { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'required-info', label: 'Required Info', icon: FileText },
   { key: 'agent-runs', label: 'Agent Status', icon: Bot },
   { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
@@ -595,6 +597,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               />
             )}
             {activeTab === 'documents' && <AdminDocumentsView client={client} onClientUpdated={setClient} />}
+            {activeTab === 'required-info' && (
+              <AdminRequiredInfoTab client={client} setClient={setClient} />
+            )}
             {activeTab === 'agent-runs' && (
               <AgentRunsTab
                 clientId={client.id}

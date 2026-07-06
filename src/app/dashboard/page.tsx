@@ -240,7 +240,7 @@ export default function ClientDashboard() {
   const [settingsBtnPos, setSettingsBtnPos] = useState<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
-    if (!showPasswordTour || !mustChangePassword) return
+    if (!showPasswordTour || !mustChangePassword || !client) return
 
     const updatePosition = () => {
       const el = document.getElementById('account-settings-button')
@@ -260,7 +260,7 @@ export default function ClientDashboard() {
       cancelAnimationFrame(rafId)
       window.removeEventListener('resize', updatePosition)
     }
-  }, [showPasswordTour, mustChangePassword])
+  }, [showPasswordTour, mustChangePassword, client])
   const chat = useChatRoom({
     clientId: client?.id ?? '',
     viewer: 'client',
