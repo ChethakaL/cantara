@@ -268,7 +268,8 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     setReopenedUnavailableDocs(prev => ({ ...prev, [docId]: !prev[docId] }))
   }
 
-  const renderUnavailableWarning = (doc: { id: string; name: string }, status: DocumentStatus) => {
+  const renderUnavailableWarning = (doc: { id: string; name: string; type?: string }, status: DocumentStatus) => {
+    if (doc.type !== 'required') return null
     if (status.hasDoc !== false) return null
     const reopened = Boolean(reopenedUnavailableDocs[doc.id])
     const decision = status.unavailableDecision ?? null
@@ -453,11 +454,14 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
   const refreshFromSave = (saved: Client) => onClientUpdated?.(saved)
 
   const renderMultiYearRow = (
-    doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string },
+    doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string; type?: string },
     sectionId: string,
   ) => {
     const resolvedStatus = getResolvedStatus(doc.id)
-    const shouldForceOpen = resolvedStatus.hasDoc === false && (!resolvedStatus.unavailableDecision || Boolean(reopenedUnavailableDocs[doc.id]))
+    const shouldForceOpen =
+      doc.type === 'required' &&
+      resolvedStatus.hasDoc === false &&
+      (!isAgentExcludedForDocument(doc.id) || Boolean(reopenedUnavailableDocs[doc.id]))
     const progress = getMultiYearUploadProgress(doc.id, id => getResolvedStatus(id))
     const combinedId = getMultiYearCombinedId(doc.id)
     const labels = MULTI_YEAR_UPLOAD_SLOTS[doc.id] ?? []
@@ -574,7 +578,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     )
   }
 
-  const renderRow = (doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string }, sectionId: string) => {
+  const renderRow = (doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string; type?: string }, sectionId: string) => {
     if (MULTI_YEAR_UPLOAD_SLOTS[doc.id]) {
       return renderMultiYearRow(doc, sectionId)
     }
@@ -582,7 +586,10 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     const files = getFilesForSlot(doc.id)
     const resolvedStatus = getResolvedStatus(doc.id)
     const isComplete = files.length > 0 || Boolean(resolvedStatus.fileName)
-    const shouldForceOpen = resolvedStatus.hasDoc === false && (!resolvedStatus.unavailableDecision || Boolean(reopenedUnavailableDocs[doc.id]))
+    const shouldForceOpen =
+      doc.type === 'required' &&
+      resolvedStatus.hasDoc === false &&
+      (!isAgentExcludedForDocument(doc.id) || Boolean(reopenedUnavailableDocs[doc.id]))
 
     return (
       <DocumentUploadAccordion
