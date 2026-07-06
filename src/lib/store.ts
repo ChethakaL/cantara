@@ -164,6 +164,7 @@ export interface Client {
   createdAt: string
   provisionedAt: string | null
   lastLogin: string | null
+  mustChangePassword?: boolean
   notes: string
   valuationDocUploaded: boolean
   unreadCount?: number

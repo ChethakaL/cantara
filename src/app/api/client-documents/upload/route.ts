@@ -112,6 +112,7 @@ async function resolveUploaderUser(uploaderEmail: string, clientId: string) {
         name: teamMember.name,
         email: normalizedEmail,
         passwordHash: randomBytes(18).toString("base64url"),
+        mustChangePassword: false,
         role: "CLIENT",
       },
     });
@@ -128,6 +129,7 @@ async function resolveUploaderUser(uploaderEmail: string, clientId: string) {
         name: client.businessName || normalizedEmail,
         email: normalizedEmail,
         passwordHash: randomBytes(18).toString("base64url"),
+        mustChangePassword: false,
         role: "CLIENT",
       },
     });

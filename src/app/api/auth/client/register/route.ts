@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
         name,
         email,
         passwordHash: password,
+        mustChangePassword: false,
         role: "CLIENT",
       },
     });

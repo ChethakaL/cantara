@@ -11,11 +11,13 @@ export function ClientPortalHeader({
   unreadCount = 0,
   showBack = true,
   active,
+  highlightSettings = false,
 }: {
   pageLabel: string
   unreadCount?: number
   showBack?: boolean
   active?: 'notifications' | 'settings'
+  highlightSettings?: boolean
 }) {
   const router = useRouter()
 
@@ -48,7 +50,13 @@ export function ClientPortalHeader({
           </Link>
           <Link
             href="/dashboard/settings"
-            className={`p-2 rounded transition-colors ${active === 'settings' ? 'bg-white/10 text-white/80' : 'text-white/30 hover:bg-white/5 hover:text-white/70'}`}
+            className={`relative z-[61] p-2 rounded transition-colors ${
+              highlightSettings
+                ? 'bg-amber-500/15 text-amber-300 ring-2 ring-amber-300/70 shadow-[0_0_0_6px_rgba(251,191,36,0.12)]'
+                : active === 'settings'
+                  ? 'bg-white/10 text-white/80'
+                  : 'text-white/30 hover:bg-white/5 hover:text-white/70'
+            }`}
             aria-label="Account settings"
           >
             <Settings className="w-4 h-4" />

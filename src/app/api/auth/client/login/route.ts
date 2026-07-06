@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
       clientId: clientProfile.id,
       email: user.email,
       name: user.name,
+      mustChangePassword: Boolean(user.mustChangePassword),
     });
 
     response.cookies.set("cantara_role", "client", { httpOnly: false, sameSite: "lax", path: "/" });

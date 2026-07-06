@@ -66,11 +66,12 @@ export type ClientPortalFormQuestion = {
 }
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
-function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSettings }: {
+function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSettings, highlightSettings = false }: {
   workstreamTitle: string | null
   unreadCount: number
   onNotifications: () => void
   onAccountSettings: () => void
+  highlightSettings?: boolean
 }) {
   const router = useRouter()
   return (
@@ -100,8 +101,9 @@ function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSet
             )}
           </button>
           <button
+            id="account-settings-button"
             onClick={onAccountSettings}
-            className="p-2 rounded transition-colors text-white/30 hover:bg-white/5 hover:text-white/70"
+            className={`p-2 rounded transition-colors ${highlightSettings ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/40 hover:bg-amber-500/20' : 'text-white/30 hover:bg-white/5 hover:text-white/70'}`}
             aria-label="Account settings"
           >
             <Settings className="w-4 h-4" />
@@ -233,6 +235,32 @@ export default function ClientDashboard() {
   const [sessionEmail, setSessionEmail] = useState('')
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
+  const [mustChangePassword, setMustChangePassword] = useState(false)
+  const [showPasswordTour, setShowPasswordTour] = useState(false)
+  const [settingsBtnPos, setSettingsBtnPos] = useState<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (!showPasswordTour || !mustChangePassword) return
+
+    const updatePosition = () => {
+      const el = document.getElementById('account-settings-button')
+      if (el) {
+        const rect = el.getBoundingClientRect()
+        setSettingsBtnPos({
+          x: rect.left + rect.width / 2,
+          y: rect.bottom,
+        })
+      }
+    }
+
+    updatePosition()
+    const rafId = requestAnimationFrame(updatePosition)
+    window.addEventListener('resize', updatePosition)
+    return () => {
+      cancelAnimationFrame(rafId)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [showPasswordTour, mustChangePassword])
   const chat = useChatRoom({
     clientId: client?.id ?? '',
     viewer: 'client',
@@ -245,7 +273,10 @@ export default function ClientDashboard() {
     const load = async () => {
       const email = typeof window !== 'undefined' ? (JSON.parse(localStorage.getItem('cantara_client_email') || 'null')) : null
       const clientId = typeof window !== 'undefined' ? (JSON.parse(localStorage.getItem('cantara_client_id') || 'null')) : null
+      const requiresPasswordChange = typeof window !== 'undefined' ? Boolean(JSON.parse(localStorage.getItem('cantara_client_must_change_password') || 'false')) : false
       setSessionEmail(email || '')
+      setMustChangePassword(requiresPasswordChange)
+      setShowPasswordTour(requiresPasswordChange)
       const all = await getClients()
       const found =
         (clientId ? all.find(c => c.id === clientId) : null) ??
@@ -534,11 +565,11 @@ export default function ClientDashboard() {
         workstreamTitle={workstreamTitle}
         unreadCount={unreadMsgs + openReqs.length}
         onNotifications={() => router.push('/dashboard/notifications')}
-        onAccountSettings={() => router.push('/dashboard/settings')}
+        onAccountSettings={() => router.push(showPasswordTour ? '/dashboard/settings?tour=password' : '/dashboard/settings')}
+        highlightSettings={showPasswordTour}
       />
 
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-8">
-
         {/* Welcome banner */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -806,6 +837,59 @@ export default function ClientDashboard() {
           </div>
         </div>
       )}
+
+      {showPasswordTour && mustChangePassword && settingsBtnPos && (() => {
+        const tooltipWidth = typeof window !== 'undefined' ? Math.min(320, window.innerWidth - 32) : 320
+        const margin = 16
+        let left = settingsBtnPos.x - tooltipWidth / 2
+        const minLeft = margin
+        const maxLeft = typeof window !== 'undefined' ? window.innerWidth - tooltipWidth - margin : 0
+        if (left < minLeft) left = minLeft
+        if (left > maxLeft) left = maxLeft
+
+        const top = settingsBtnPos.y + 12
+        const arrowLeft = settingsBtnPos.x - left
+
+        return (
+          <>
+            <div className="fixed inset-x-0 bottom-0 top-14 z-[55] bg-slate-950/45" />
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              style={{
+                left: `${left}px`,
+                top: `${top}px`,
+                width: `${tooltipWidth}px`,
+              }}
+              className="fixed z-[60] rounded-2xl border border-amber-200 bg-white shadow-2xl"
+            >
+              <div 
+                style={{ left: `${arrowLeft}px` }}
+                className="absolute -top-2 h-4 w-4 -translate-x-1/2 rotate-45 border-l border-t border-amber-200 bg-white" 
+              />
+              <div className="p-4">
+                <p className="text-sm font-semibold text-slate-900">Change your temporary password</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                  Click the highlighted gear icon here to open Account Settings, then update your password there.
+                </p>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPasswordTour(false)
+                      setMustChangePassword(false)
+                      localStorage.setItem('cantara_client_must_change_password', JSON.stringify(false))
+                    }}
+                    className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                  >
+                    Skip this tour
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )
+      })()}
     </div>
   )
 }
@@ -1429,7 +1513,7 @@ function AssignTab({
                   {valuationDocs.map(doc => {
                     const s = getStatus(doc.id)
                     const options = [
-                      { value: 'me', label: 'Me (I\'ll upload it)' },
+                      { value: 'me', label: 'Me' },
                       ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
                     ]
                     return (
@@ -1469,7 +1553,7 @@ function AssignTab({
                   .map(doc => {
                 const s = getStatus(doc.id)
                 const options = [
-                  { value: 'me', label: 'Me (I\'ll upload it)' },
+                  { value: 'me', label: 'Me' },
                   ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
                 ]
                 return (
@@ -1514,7 +1598,7 @@ function AssignTab({
                         const formAssignments = (client.sectionSubmissions as any)?.formAssignments ?? {}
                         const assignedTo = formAssignments[formKey] ?? ''
                         const options = [
-                          { value: 'me', label: "Me (I'll fill it)" },
+                          { value: 'me', label: 'Me' },
                           ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
                         ]
                         return (
@@ -2295,7 +2379,7 @@ function AgentInformationTab({
                   }}
                 >
                   <option value="">— Assign to —</option>
-                  <option value="me">Me (I'll fill it)</option>
+                  <option value="me">Me</option>
                   {client.teamMembers.map(m => (
                     <option key={m.name} value={m.name}>{m.name} · {m.role}</option>
                   ))}

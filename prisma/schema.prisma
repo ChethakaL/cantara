@@ -500,6 +500,7 @@ model User {
   name                      String
   email                     String            @unique
   passwordHash              String
+  mustChangePassword        Boolean           @default(false)
   role                      Role              @default(CLIENT)
   googleAccessToken         String?
   googleRefreshToken        String?

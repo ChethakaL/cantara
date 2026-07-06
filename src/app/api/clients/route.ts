@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
         name,
         email,
         passwordHash: password,
+        mustChangePassword: true,
         role: "CLIENT",
       },
     });

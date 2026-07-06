@@ -63,7 +63,10 @@ export async function POST(req: NextRequest) {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: password },
+      data: {
+        passwordHash: password,
+        mustChangePassword: false,
+      },
     })
 
     const { passwordOtp: _removed, ...rest } = submissions
