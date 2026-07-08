@@ -159,21 +159,24 @@ function agentsEqual(left: AgentDocumentSelection[], right: AgentDocumentSelecti
 
 function getBaseAgentsForClient(client: Client, customDraftMode: boolean): AgentDocumentSelection[] {
   if (customDraftMode) return []
+  const excludeLeaseAgent = client.propertyOwnership === 'owns'
   if (client.workstreamAgents?.length) {
     return client.workstreamAgents.map(agent => ({
       agentId: agent.agentId,
       agentName: agent.agentName,
       documentIds: agent.documentIds,
-    }))
+    })).filter(agent => !excludeLeaseAgent || agent.agentId !== 'lease_analysis')
   }
   if (client.customWorkstream) {
     return client.customWorkstream.agents.map(agent => ({
       agentId: agent.agentId,
       agentName: agent.agentName,
       documentIds: agent.documentIds,
-    }))
+    })).filter(agent => !excludeLeaseAgent || agent.agentId !== 'lease_analysis')
   }
-  return client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
+  return client.workstream
+    ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []).filter(agent => !excludeLeaseAgent || agent.agentId !== 'lease_analysis')
+    : []
 }
 
 function ProvisioningBadge({ client, customDraftMode }: { client: Client; customDraftMode: boolean }) {
@@ -271,8 +274,11 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     }
     setDraftWorkstreamName('')
     const systemAgents = client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
-    setDraftAgents(mergeAgents(systemAgents, clientSpecificAgents))
-  }, [client.customWorkstreamId, client.customWorkstream, client.workstream, client.workstreamAgents, customDraftMode])
+    const filteredSystemAgents = propertyOwnership === 'owns'
+      ? systemAgents.filter(agent => agent.agentId !== 'lease_analysis')
+      : systemAgents
+    setDraftAgents(mergeAgents(filteredSystemAgents, clientSpecificAgents))
+  }, [client.customWorkstreamId, client.customWorkstream, client.workstream, client.workstreamAgents, customDraftMode, propertyOwnership])
 
   const workstreamOptions = useMemo(() => [
     ...WS_OPTIONS,
@@ -385,14 +391,20 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
       delete mergedSectionSubmissions.propertyOwnership
     }
 
-    const baseAgents = getBaseAgentsForClient(client, customDraftMode)
-    const clientSpecificAgents = agentsEqual(baseAgents, draftAgents) ? [] : draftAgents
-    const updated = {
+    const nextPropertyOwnership: Client['propertyOwnership'] = propertyOwnership || ''
+    const nextClient = {
       ...client,
-      provisionedAt: isFirstProvision ? now : client.provisionedAt,
+      propertyOwnership: nextPropertyOwnership,
       sectionSubmissions: mergedSectionSubmissions as Client['sectionSubmissions'],
-      propertyOwnership,
-      workstreamAgents: clientSpecificAgents.map(agent => ({ id: agent.agentId, ...agent })),
+    }
+    const baseAgents = getBaseAgentsForClient(nextClient, customDraftMode)
+    const normalizedDraftAgents = nextPropertyOwnership === 'owns'
+      ? draftAgents.filter(agent => agent.agentId !== 'lease_analysis')
+      : draftAgents
+    const updated = {
+      ...nextClient,
+      provisionedAt: isFirstProvision ? now : client.provisionedAt,
+      workstreamAgents: (agentsEqual(baseAgents, normalizedDraftAgents) ? [] : normalizedDraftAgents).map(agent => ({ id: agent.agentId, ...agent })),
     }
     saveClient(updated)
     setSaved(true)

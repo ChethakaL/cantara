@@ -91,6 +91,11 @@ async function buildOverviewState(clientId: string) {
     workstream: (client.workstream?.toLowerCase() as any) ?? null,
     customWorkstream: client.customWorkstream as any,
     workstreamAgents: client.ClientWorkstreamAgents as any,
+    propertyOwnership:
+      (client.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'lease' ||
+      (client.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'owns'
+        ? ((client.sectionSubmissions as Record<string, unknown>).propertyOwnership as 'lease' | 'owns')
+        : '',
   })
   const agents = await Promise.all(selectedAgents.map(agent => buildAgentStatus(clientId, agent.agentId, agent.agentName)))
   const incompleteAgents = agents.filter(agent => !agent.completed).map(agent => agent.agentName)

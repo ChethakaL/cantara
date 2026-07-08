@@ -19,6 +19,11 @@ export async function POST(req: NextRequest) {
     workstream: (fullClient.workstream?.toLowerCase() as any) ?? null,
     customWorkstream: fullClient.customWorkstream as any,
     workstreamAgents: fullClient.ClientWorkstreamAgents as any,
+    propertyOwnership:
+      (fullClient.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'lease' ||
+      (fullClient.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'owns'
+        ? ((fullClient.sectionSubmissions as Record<string, unknown>).propertyOwnership as 'lease' | 'owns')
+        : '',
   })
 
   const submissions = (fullClient.sectionSubmissions as Record<string, unknown>) ?? {}
