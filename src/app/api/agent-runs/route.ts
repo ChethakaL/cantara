@@ -192,6 +192,10 @@ export async function GET(req: NextRequest) {
     workstream: (client.workstream?.toLowerCase() as 'ws1' | 'ws2' | 'ma' | 'both' | null) ?? null,
     customWorkstream: client.customWorkstream as { agents?: { agentId: string; agentName: string; documentIds?: string[] }[] } | null,
     workstreamAgents: client.ClientWorkstreamAgents as { agentId: string; agentName: string; documentIds?: string[] }[] | null,
+    propertyOwnership:
+      (submissions.propertyOwnership === 'lease' || submissions.propertyOwnership === 'owns')
+        ? (submissions.propertyOwnership as 'lease' | 'owns')
+        : '',
   })
 
   const [

@@ -6,6 +6,8 @@ export type WorkstreamAgentSelection = {
   documentIds?: string[]
 }
 
+type PropertyOwnership = 'lease' | 'owns' | '' | null | undefined
+
 export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, WorkstreamAgentSelection[]> = {
   ws1: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
@@ -55,14 +57,33 @@ SYSTEM_WORKSTREAM_AGENTS.both = [...SYSTEM_WORKSTREAM_AGENTS.ws1, ...SYSTEM_WORK
   (agent, index, agents) => agents.findIndex(item => item.agentId === agent.agentId) === index,
 )
 
+function shouldIncludeLeaseAgent(propertyOwnership: PropertyOwnership) {
+  return propertyOwnership !== 'owns'
+}
+
+function filterLeaseAgentSelection(
+  agents: WorkstreamAgentSelection[],
+  propertyOwnership: PropertyOwnership,
+) {
+  if (shouldIncludeLeaseAgent(propertyOwnership)) return agents
+  return agents.filter(agent => agent.agentId !== 'lease_analysis')
+}
+
 export function getClientWorkstreamAgents(client: {
   workstream?: Workstream
   customWorkstream?: { agents?: WorkstreamAgentSelection[] } | null
   workstreamAgents?: WorkstreamAgentSelection[] | null
+  propertyOwnership?: PropertyOwnership
 }) {
-  if (client.workstreamAgents?.length) return client.workstreamAgents
-  if (client.customWorkstream?.agents?.length) return client.customWorkstream.agents
-  return client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
+  if (client.workstreamAgents?.length) {
+    return filterLeaseAgentSelection(client.workstreamAgents, client.propertyOwnership)
+  }
+  if (client.customWorkstream?.agents?.length) {
+    return filterLeaseAgentSelection(client.customWorkstream.agents, client.propertyOwnership)
+  }
+  return client.workstream
+    ? filterLeaseAgentSelection(SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? [], client.propertyOwnership)
+    : []
 }
 
 export function normalizeAgentStatusKey(agentId: string) {
