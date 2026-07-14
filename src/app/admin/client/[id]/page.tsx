@@ -9,48 +9,57 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
-import LeaseAnalysisTab from '@/components/admin/LeaseAnalysis'
-import ContractAnalysisTab from '@/components/admin/ContractAnalysis'
-import AdminChat from '@/components/admin/AdminChat'
-import AdditionalRequirementsAdmin from '@/components/admin/AdditionalRequirements'
+import dynamic from 'next/dynamic'
+
+const TabLoader = () => (
+  <div className="flex h-[400px] items-center justify-center">
+    <div className="w-8 h-8 border-4 border-slate-100 border-t-amber-500 rounded-full animate-spin" />
+  </div>
+)
+
+const LeaseAnalysisTab = dynamic(() => import('@/components/admin/LeaseAnalysis'), { loading: TabLoader })
+const RealEstateAppraisalTab = dynamic(() => import('@/components/admin/RealEstateAppraisalTab'), { loading: TabLoader })
+const ContractAnalysisTab = dynamic(() => import('@/components/admin/ContractAnalysis'), { loading: TabLoader })
+const AdminChat = dynamic(() => import('@/components/admin/AdminChat'), { loading: TabLoader })
+const AdditionalRequirementsAdmin = dynamic(() => import('@/components/admin/AdditionalRequirements'), { loading: TabLoader })
 import ClientManager from '@/components/admin/ClientManager'
-import AdminDocumentsView from '@/components/admin/AdminDocuments'
-import SalesProcessReviewTab from '@/components/sales-review/SalesProcessReviewTab'
+const AdminDocumentsView = dynamic(() => import('@/components/admin/AdminDocuments'), { loading: TabLoader })
+const SalesProcessReviewTab = dynamic(() => import('@/components/sales-review/SalesProcessReviewTab'), { loading: TabLoader })
 // Meeting notes agent is temporarily hidden from the client agents dropdown.
 // Keep the component code in place so it can be restored later.
-// import MeetingNotesTab from '@/components/meeting-notes/MeetingNotesTab'
-import { TtmAnalysisTab } from '@/components/ttm-agent/TtmAnalysisTab'
-import DigitalPresenceTab from '@/components/digital-presence/DigitalPresenceTab'
-import CompetitorAnalysisTab from '@/components/competitor-analysis/CompetitorAnalysisTab'
-import InsuranceReviewTab from '@/components/admin/InsuranceReviewTab'
-import EmployeeObligationsTab from '@/components/ws1-6/EmployeeObligationsTab'
-import NetProceedsCalculator from '@/components/net-proceeds/NetProceedsCalculator'
-import TeaserGeneratorTab from '@/components/teaser/TeaserGeneratorTab'
-import CimGeneratorTab from '@/components/cim/CimGeneratorTab'
-import ProfessionalAdvisorsTab from '@/components/advisors/ProfessionalAdvisorsTab'
-import VendorDirectoryTab from '@/components/vendor-directory/VendorDirectoryTab'
-import OrgChartReviewTab from '@/components/org-chart/OrgChartReviewTab'
-import LitigationSearchTab from '@/components/litigation-search/LitigationSearchTab'
-import EmployeeCompTab from '@/components/employee-comp/EmployeeCompTab'
-import FacilityReviewTab from '@/components/facility-review/FacilityReviewTab'
-import OwnershipVerificationTab from '@/components/ws1-8/OwnershipVerificationTab'
-import PricingAnalysisTab from '@/components/pricing-analysis/PricingAnalysisTab'
-import PricingByVerticalTab from '@/components/pricing-vertical/PricingByVerticalTab'
-import PermitsZoningTab from '@/components/ws1-9/PermitsZoningTab'
-import OwnerGmAssessmentTab from '@/components/owner-gm-assessment/OwnerGmAssessmentTab'
-import AgentOverviewTab from '@/components/admin/AgentOverviewTab'
-import AgentRunsTab from '@/components/admin/AgentRunsTab'
-import LegalEntitySearchTab from '@/components/legal-entity-search/LegalEntitySearchTab'
-import TaxLiabilityReviewTab from '@/components/tax-liability-review/TaxLiabilityReviewTab'
-import AssessmentReportTab from '@/components/assessment-report/AssessmentReportTab'
-import ImprovementRoadmapTab from '@/components/improvement-roadmap/ImprovementRoadmapTab'
-import BuyerReportTab from '@/components/buyer-report/BuyerReportTab'
-import OccupancyReviewTab from '@/components/occupancy-review/OccupancyReviewTab'
-import LoiReviewTab from '@/components/loi-review/LoiReviewTab'
-import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
-import AdminRequiredInfoTab from '@/components/admin/AdminRequiredInfoTab'
+// const MeetingNotesTab = dynamic(() => import('@/components/meeting-notes/MeetingNotesTab'), { loading: TabLoader })
+const TtmAnalysisTab = dynamic(() => import('@/components/ttm-agent/TtmAnalysisTab').then(mod => mod.TtmAnalysisTab), { loading: TabLoader })
+const DigitalPresenceTab = dynamic(() => import('@/components/digital-presence/DigitalPresenceTab'), { loading: TabLoader })
+const CompetitorAnalysisTab = dynamic(() => import('@/components/competitor-analysis/CompetitorAnalysisTab'), { loading: TabLoader })
+const InsuranceReviewTab = dynamic(() => import('@/components/admin/InsuranceReviewTab'), { loading: TabLoader })
+const EmployeeObligationsTab = dynamic(() => import('@/components/ws1-6/EmployeeObligationsTab'), { loading: TabLoader })
+const NetProceedsCalculator = dynamic(() => import('@/components/net-proceeds/NetProceedsCalculator'), { loading: TabLoader })
+const TeaserGeneratorTab = dynamic(() => import('@/components/teaser/TeaserGeneratorTab'), { loading: TabLoader })
+const CimGeneratorTab = dynamic(() => import('@/components/cim/CimGeneratorTab'), { loading: TabLoader })
+const ProfessionalAdvisorsTab = dynamic(() => import('@/components/advisors/ProfessionalAdvisorsTab'), { loading: TabLoader })
+const VendorDirectoryTab = dynamic(() => import('@/components/vendor-directory/VendorDirectoryTab'), { loading: TabLoader })
+const OrgChartReviewTab = dynamic(() => import('@/components/org-chart/OrgChartReviewTab'), { loading: TabLoader })
+const LitigationSearchTab = dynamic(() => import('@/components/litigation-search/LitigationSearchTab'), { loading: TabLoader })
+const EmployeeCompTab = dynamic(() => import('@/components/employee-comp/EmployeeCompTab'), { loading: TabLoader })
+const FacilityReviewTab = dynamic(() => import('@/components/facility-review/FacilityReviewTab'), { loading: TabLoader })
+const OwnershipVerificationTab = dynamic(() => import('@/components/ws1-8/OwnershipVerificationTab'), { loading: TabLoader })
+const PricingAnalysisTab = dynamic(() => import('@/components/pricing-analysis/PricingAnalysisTab'), { loading: TabLoader })
+const PricingByVerticalTab = dynamic(() => import('@/components/pricing-vertical/PricingByVerticalTab'), { loading: TabLoader })
+const PermitsZoningTab = dynamic(() => import('@/components/ws1-9/PermitsZoningTab'), { loading: TabLoader })
+const OwnerGmAssessmentTab = dynamic(() => import('@/components/owner-gm-assessment/OwnerGmAssessmentTab'), { loading: TabLoader })
+const AgentOverviewTab = dynamic(() => import('@/components/admin/AgentOverviewTab'), { loading: TabLoader })
+const AgentRunsTab = dynamic(() => import('@/components/admin/AgentRunsTab'), { loading: TabLoader })
+const LegalEntitySearchTab = dynamic(() => import('@/components/legal-entity-search/LegalEntitySearchTab'), { loading: TabLoader })
+const TaxLiabilityReviewTab = dynamic(() => import('@/components/tax-liability-review/TaxLiabilityReviewTab'), { loading: TabLoader })
+const AssessmentReportTab = dynamic(() => import('@/components/assessment-report/AssessmentReportTab'), { loading: TabLoader })
+const ImprovementRoadmapTab = dynamic(() => import('@/components/improvement-roadmap/ImprovementRoadmapTab'), { loading: TabLoader })
+const BuyerReportTab = dynamic(() => import('@/components/buyer-report/BuyerReportTab'), { loading: TabLoader })
+const OccupancyReviewTab = dynamic(() => import('@/components/occupancy-review/OccupancyReviewTab'), { loading: TabLoader })
+const LoiReviewTab = dynamic(() => import('@/components/loi-review/LoiReviewTab'), { loading: TabLoader })
+const ClientLocationMapTab = dynamic(() => import('@/components/client-location-map/ClientLocationMapTab'), { loading: TabLoader })
+const AdminRequiredInfoTab = dynamic(() => import('@/components/admin/AdminRequiredInfoTab'), { loading: TabLoader })
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
-import { getClient, getAdminName, getCurrentRole } from '@/lib/store'
+import { getClient, getAdminName, getAdminEmail, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
 import { useChatUnread } from '@/hooks/useChatUnread'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
@@ -65,6 +74,7 @@ const AGENT_TABS = [
   { key: 'employee-comp', label: 'Employee Staffing & Compensation', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'insurance', label: 'Insurance Review', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
   { key: 'lease', label: 'Lease Analysis', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
+  { key: 'real-estate-appraisal', label: 'Real Estate Appraisal', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
   { key: 'litigation', label: 'Litigation & Liens', badge: null, icon: AlertCircle, group: 'WS1 — Risk & Legal' },
   { key: 'contract', label: 'Material Contracts', badge: null, icon: Briefcase, group: 'WS1 — Risk & Legal' },
   { key: 'org-chart', label: 'Org Chart Review', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
@@ -149,6 +159,7 @@ const TAB_AGENT_APPROVAL_KEYS: Partial<Record<TabKey, string>> = {
 const AGENT_ID_TO_TAB_KEY: Record<string, AgentKey> = {
   ttm: 'ttm',
   lease_analysis: 'lease',
+  real_estate_appraisal: 'real-estate-appraisal',
   employee_obligations: 'employee-obligations',
   contract_analysis: 'contract',
   digital_presence: 'digital',
@@ -343,9 +354,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     ? isApprovedForReview(client, activeTab) || Boolean(activeApprovalKey && agentApprovalLocks[activeApprovalKey])
     : false
   const availableAgentTabs = client
-    ? AGENT_TABS.filter(tab =>
-        getClientWorkstreamAgents(client).some(agent => AGENT_ID_TO_TAB_KEY[agent.agentId] === tab.key),
-      )
+    ? AGENT_TABS.filter(tab => {
+        if (tab.key === 'lease') return client.propertyOwnership !== 'owns'
+        if (tab.key === 'real-estate-appraisal') return client.propertyOwnership === 'owns'
+        return true
+      })
     : []
 
   useEffect(() => {
@@ -357,6 +370,24 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     }
     load()
   }, [id])
+
+  // Preload commonly used heavy tabs in the background to make navigation feel instant
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const preload = () => {
+      // Preload standard tabs
+      import('@/components/admin/AdminDocuments')
+      import('@/components/admin/AdminRequiredInfoTab')
+      import('@/components/admin/AgentRunsTab')
+      import('@/components/admin/AgentOverviewTab')
+      import('@/components/admin/AdditionalRequirements')
+    }
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(preload, { timeout: 2000 })
+    } else {
+      setTimeout(preload, 1000)
+    }
+  }, [])
 
   useEffect(() => {
     if (!client) return
@@ -665,6 +696,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             )}
             {activeTab === 'lease' && (
               <LeaseAnalysisTab clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
+            )}
+            {activeTab === 'real-estate-appraisal' && (
+              <RealEstateAppraisalTab clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
             )}
             {activeTab === 'employee-obligations' && (
               <EmployeeObligationsTab

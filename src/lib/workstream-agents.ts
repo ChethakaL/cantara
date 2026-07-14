@@ -15,6 +15,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: [] },
     { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
     { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] },
+    { agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
     { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: [] },
     { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: [] },
@@ -65,8 +66,12 @@ function filterLeaseAgentSelection(
   agents: WorkstreamAgentSelection[],
   propertyOwnership: PropertyOwnership,
 ) {
-  if (shouldIncludeLeaseAgent(propertyOwnership)) return agents
-  return agents.filter(agent => agent.agentId !== 'lease_analysis')
+  if (shouldIncludeLeaseAgent(propertyOwnership)) {
+    return agents.filter(agent => agent.agentId !== 'real_estate_appraisal')
+  }
+  const filtered = agents.filter(agent => agent.agentId !== 'lease_analysis')
+  if (filtered.some(agent => agent.agentId === 'real_estate_appraisal')) return filtered
+  return [...filtered, { agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] }]
 }
 
 export function getClientWorkstreamAgents(client: {
@@ -90,6 +95,7 @@ export function normalizeAgentStatusKey(agentId: string) {
   const aliases: Record<string, string> = {
     ttm: 'ttmAnalysis',
     lease_analysis: 'lease',
+    real_estate_appraisal: 'realEstateAppraisal',
     contract_analysis: 'contract',
     competitor_analysis: 'competitor',
     employee_obligations: 'employeeObligations',

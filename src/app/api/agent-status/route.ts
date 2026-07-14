@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
 
   // Lease Analysis — has its own table
   try { checks.lease = !!(await prisma.leaseAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.lease = false }
+  try { checks.realEstateAppraisal = !!(await (prisma as any).realEstateAppraisalReport.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.realEstateAppraisal = false }
 
   // Competitor Analysis — has its own table
   try { checks.competitor = !!(await prisma.competitorAnalysis.findFirst({ where: { clientId }, select: { id: true } })) } catch { checks.competitor = false }

@@ -28,6 +28,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<string, AgentSelection[]> = {
     { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent' },
     { agentId: 'insurance_review', agentName: 'Insurance Review Agent' },
     { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent' },
+    { agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent' },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent' },
     { agentId: 'contract_analysis', agentName: 'Material Contracts Agent' },
     { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent' },

@@ -17,6 +17,7 @@ type OutputItem = {
 const AGENT_OUTPUTS: Record<string, { label: string; source: 'table' | 'submission'; table?: string; field?: string; key?: string }> = {
   ttmAnalysis: { label: 'Valuation Agent', source: 'table', table: 'ttmAnalysis', field: 'reportMarkdown' },
   lease: { label: 'Lease Analysis', source: 'table', table: 'leaseAnalysis', field: 'report' },
+  realEstateAppraisal: { label: 'Real Estate Appraisal', source: 'table', table: 'realEstateAppraisalReport', field: 'markdown' },
   contract: { label: 'Material Contracts', source: 'table', table: 'contractAnalysis', field: 'report' },
   competitor: { label: 'Competitor Analysis', source: 'table', table: 'competitorAnalysis', field: 'report' },
   employeeObligations: { label: 'Employee Obligations', source: 'table', table: 'employeeObligationsReport', field: 'markdown' },
