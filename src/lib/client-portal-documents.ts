@@ -30,6 +30,7 @@ export const DOCUMENT_ASSIGN_HELP: Partial<Record<string, string>> = {
   tax_returns_3yr: 'In Document Upload: one file for all three years, or one file per year — whichever matches what you have.',
   accountant_statements: 'In Document Upload: one file for all three fiscal years, or one file per year.',
   leases: 'Include the base lease and every amendment, addendum, or rider.',
+  real_estate_appraisal: 'Upload one current appraisal document for the real estate owned by the business.',
   material_contracts: 'Contracts or vendor agreements over $5,000 per year.',
 }
 

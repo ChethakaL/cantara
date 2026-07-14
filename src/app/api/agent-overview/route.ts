@@ -140,6 +140,7 @@ async function latestAgentRecord(clientId: string, key: string): Promise<{ creat
     if (ttm) return ttm
   }
   if (key === 'lease') return latest((prisma as any).leaseAnalysis, { createdAt: true, report: true, parsed: true }, 'Lease Analysis', 'report')
+  if (key === 'realEstateAppraisal') return latest((prisma as any).realEstateAppraisalReport, { createdAt: true, markdown: true, metadata: true }, 'Real Estate Appraisal', 'markdown')
   if (key === 'contract') return latest((prisma as any).contractAnalysis, { createdAt: true, report: true, parsed: true }, 'Material Contracts', 'report')
   if (key === 'competitor') return latest((prisma as any).competitorAnalysis, { createdAt: true, report: true, parsed: true }, 'Competitor Analysis', 'report')
   if (key === 'employeeObligations') return latest((prisma as any).employeeObligationsReport, { createdAt: true, markdown: true, metadata: true }, 'Employee Obligations', 'markdown')

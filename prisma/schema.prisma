@@ -59,6 +59,19 @@ model EmployeeObligationsReport {
   @@index([clientId, createdAt])
 }
 
+model RealEstateAppraisalReport {
+  id            String        @id @default(cuid())
+  clientId      String
+  markdown      String
+  documentNames String[]      @default([])
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
 model TtmAnalysis {
   id                String              @id @default(cuid())
   clientId          String
@@ -340,6 +353,7 @@ model ClientProfile {
   ContractAnalysis             ContractAnalysis[]
   DocumentRequest              DocumentRequest[]
   EmployeeObligationsReports   EmployeeObligationsReport[]
+  RealEstateAppraisalReports   RealEstateAppraisalReport[]
   LeaseAnalysis                LeaseAnalysis[]
   OwnershipVerificationReports OwnershipVerificationReport[]
   PermitsZoningReports         PermitsZoningReport[]

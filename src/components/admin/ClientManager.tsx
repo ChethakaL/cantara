@@ -78,6 +78,7 @@ function getAgentIcon(agentId: string) {
 const AGENT_CATALOG = [
   { id: 'ttm', name: 'Valuation Agent', defaultDocumentIds: [] },
   { id: 'lease_analysis', name: 'Lease Analysis Agent', defaultDocumentIds: ['leases'] },
+  { id: 'real_estate_appraisal', name: 'Real Estate Appraisal Agent', defaultDocumentIds: ['real_estate_appraisal'] },
   { id: 'contract_analysis', name: 'Material Contracts Agent', defaultDocumentIds: [] },
   { id: 'insurance_review', name: 'Insurance Review Agent', defaultDocumentIds: ['insurance_policies', 'insurance_claims_12m'] },
   { id: 'employee_obligations', name: 'Employee Obligations Agent', defaultDocumentIds: ['employee_list', 'key_employee_contracts', 'employee_comp_payroll'] },
@@ -160,22 +161,26 @@ function agentsEqual(left: AgentDocumentSelection[], right: AgentDocumentSelecti
 function getBaseAgentsForClient(client: Client, customDraftMode: boolean): AgentDocumentSelection[] {
   if (customDraftMode) return []
   const excludeLeaseAgent = client.propertyOwnership === 'owns'
+  const excludeAppraisalAgent = client.propertyOwnership !== 'owns'
+  const keepPropertyAgent = (agent: { agentId: string }) =>
+    (!excludeLeaseAgent || agent.agentId !== 'lease_analysis') &&
+    (!excludeAppraisalAgent || agent.agentId !== 'real_estate_appraisal')
   if (client.workstreamAgents?.length) {
     return client.workstreamAgents.map(agent => ({
       agentId: agent.agentId,
       agentName: agent.agentName,
       documentIds: agent.documentIds,
-    })).filter(agent => !excludeLeaseAgent || agent.agentId !== 'lease_analysis')
+    })).filter(keepPropertyAgent)
   }
   if (client.customWorkstream) {
     return client.customWorkstream.agents.map(agent => ({
       agentId: agent.agentId,
       agentName: agent.agentName,
       documentIds: agent.documentIds,
-    })).filter(agent => !excludeLeaseAgent || agent.agentId !== 'lease_analysis')
+    })).filter(keepPropertyAgent)
   }
   return client.workstream
-    ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []).filter(agent => !excludeLeaseAgent || agent.agentId !== 'lease_analysis')
+    ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []).filter(keepPropertyAgent)
     : []
 }
 
@@ -250,11 +255,15 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     if (customDraftMode) return
     if (client.workstreamAgents?.length) {
       setDraftWorkstreamName(client.customWorkstream?.name ?? '')
-      setDraftAgents(getClientWorkstreamAgents(client).map(agent => ({
+      const selected = getClientWorkstreamAgents(client).map(agent => ({
         agentId: agent.agentId,
         agentName: agent.agentName,
         documentIds: agent.documentIds ?? [],
-      })))
+      }))
+      if (propertyOwnership === 'owns' && !selected.some(agent => agent.agentId === 'real_estate_appraisal')) {
+        selected.push({ agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] })
+      }
+      setDraftAgents(selected)
       return
     }
     const clientSpecificAgents = client.workstreamAgents?.map(agent => ({
@@ -274,9 +283,11 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     }
     setDraftWorkstreamName('')
     const systemAgents = client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
-    const filteredSystemAgents = propertyOwnership === 'owns'
-      ? systemAgents.filter(agent => agent.agentId !== 'lease_analysis')
-      : systemAgents
+    const filteredSystemAgents = systemAgents.filter(agent =>
+      propertyOwnership === 'owns'
+        ? agent.agentId !== 'lease_analysis'
+        : agent.agentId !== 'real_estate_appraisal'
+    )
     setDraftAgents(mergeAgents(filteredSystemAgents, clientSpecificAgents))
   }, [client.customWorkstreamId, client.customWorkstream, client.workstream, client.workstreamAgents, customDraftMode, propertyOwnership])
 
@@ -399,8 +410,13 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     }
     const baseAgents = getBaseAgentsForClient(nextClient, customDraftMode)
     const normalizedDraftAgents = nextPropertyOwnership === 'owns'
-      ? draftAgents.filter(agent => agent.agentId !== 'lease_analysis')
-      : draftAgents
+      ? [
+          ...draftAgents.filter(agent => agent.agentId !== 'lease_analysis'),
+          ...(draftAgents.some(agent => agent.agentId === 'real_estate_appraisal')
+            ? []
+            : [{ agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] }]),
+        ]
+      : draftAgents.filter(agent => agent.agentId !== 'real_estate_appraisal')
     const updated = {
       ...nextClient,
       provisionedAt: isFirstProvision ? now : client.provisionedAt,

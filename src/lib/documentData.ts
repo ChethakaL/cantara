@@ -101,6 +101,7 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
       { id: 'violations', name: 'Violations / Citations (last 36 months)', description: 'Disclose violations. If yes, upload supporting documents.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
       { id: 'sales_tax_permit', name: 'Sales Tax / Seller\'s Permit', description: 'Applicable if retail services apply at this location.', type: 'conditional', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
       { id: 'leases', name: 'Lease(s) + All Addendums', description: 'All leases with every addendum and amendment.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
+      { id: 'real_estate_appraisal', name: 'Real Estate Appraisal', description: 'Upload the current real estate appraisal for the property owned by the business.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
     ],
   },
   {

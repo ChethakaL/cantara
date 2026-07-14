@@ -634,7 +634,9 @@ export default function ClientDashboard() {
   ])
     .map(category => ({
       ...category,
-      documents: filterClientPortalDocuments(category.documents),
+      documents: filterClientPortalDocuments(category.documents).filter(doc =>
+        client.propertyOwnership === 'owns' ? doc.id !== 'leases' : doc.id !== 'real_estate_appraisal'
+      ),
     }))
     .filter(category => category.documents.length > 0)
   const valuationDocs = getValuationDocsForWorkstream(client.workstream)

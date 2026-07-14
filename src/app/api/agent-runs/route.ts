@@ -41,6 +41,8 @@ const AGENT_LABELS: Record<string, { label: string; tabKey: string; category: st
   insuranceReview: { label: 'Insurance Review', tabKey: 'insurance', category: 'WS1 — Risk & Legal' },
   lease_analysis: { label: 'Lease Analysis', tabKey: 'lease', category: 'WS1 — Risk & Legal' },
   lease: { label: 'Lease Analysis', tabKey: 'lease', category: 'WS1 — Risk & Legal' },
+  real_estate_appraisal: { label: 'Real Estate Appraisal', tabKey: 'real-estate-appraisal', category: 'WS1 — Risk & Legal' },
+  realEstateAppraisal: { label: 'Real Estate Appraisal', tabKey: 'real-estate-appraisal', category: 'WS1 — Risk & Legal' },
   litigation_search: { label: 'Litigation & Liens', tabKey: 'litigation', category: 'WS1 — Risk & Legal' },
   litigationSearch: { label: 'Litigation & Liens', tabKey: 'litigation', category: 'WS1 — Risk & Legal' },
   contract_analysis: { label: 'Material Contracts', tabKey: 'contract', category: 'WS1 — Risk & Legal' },
@@ -212,6 +214,7 @@ export async function GET(req: NextRequest) {
     teaserReport,
     insuranceDoc,
     salesDoc,
+    realEstateAppraisal,
     uploadedDocs,
   ] = await Promise.all([
     safeFind(() => prisma.ttmAnalysis.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' }, select: { status: true, createdAt: true, approvedAt: true } })),
@@ -227,6 +230,7 @@ export async function GET(req: NextRequest) {
     safeFind(() => prisma.teaserReport.findUnique({ where: { clientId }, select: { updatedAt: true, data: true } })),
     safeFind(() => prisma.clientDocument.findFirst({ where: { clientId, documentId: 'insurance_claims_12m' }, orderBy: { createdAt: 'desc' }, select: { aiReviewSummary: true, aiReviewStatus: true, createdAt: true } })),
     safeFind(() => prisma.clientDocument.findFirst({ where: { clientId, documentId: 'sales_process_transcript' }, orderBy: { createdAt: 'desc' }, select: { aiReviewSummary: true, aiReviewStatus: true, aiReviewedAt: true, createdAt: true } })),
+    safeFind(() => (prisma as any).realEstateAppraisalReport.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } })),
     safeFind(() => prisma.clientDocument.findMany({ where: { clientId }, select: { documentId: true } })),
   ])
 
@@ -241,6 +245,11 @@ export async function GET(req: NextRequest) {
       hasRun: Boolean(lease),
       approved: manualApproval(approvals, 'lease_analysis', 'lease'),
       runAt: lease?.createdAt?.toISOString() ?? null,
+    },
+    realEstateAppraisal: {
+      hasRun: Boolean(realEstateAppraisal),
+      approved: manualApproval(approvals, 'real_estate_appraisal', 'realEstateAppraisal'),
+      runAt: (realEstateAppraisal as { createdAt?: Date } | null)?.createdAt?.toISOString() ?? null,
     },
     contract: {
       hasRun: Boolean(contract),
