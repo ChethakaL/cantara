@@ -5,18 +5,19 @@ import { Printer } from 'lucide-react'
 import { Button } from '@/components/ui'
 
 interface Props {
-  html: string
+  html?: string
+  prepareHtml?: () => Promise<string>
   fileName: string
   label?: string
   advisorAction?: boolean
   waitForImages?: boolean
 }
 
-export function ExportReportButton({ html, fileName, label, advisorAction = true, waitForImages }: Props) {
+export function ExportReportButton({ html, prepareHtml, fileName, label, advisorAction = true, waitForImages }: Props) {
   const [saving, setSaving] = useState(false)
   const [loadingImages, setLoadingImages] = useState(false)
 
-  const saveReportToDrive = async () => {
+  const saveReportToDrive = async (reportHtml: string) => {
     if (typeof window === 'undefined') return
     const match = window.location.pathname.match(/\/admin\/client\/([^/]+)/)
     const clientId = match?.[1]
@@ -27,7 +28,7 @@ export function ExportReportButton({ html, fileName, label, advisorAction = true
       await fetch('/api/drive/save-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, fileName, html }),
+        body: JSON.stringify({ clientId, fileName, html: reportHtml }),
       })
     } catch {
       // Drive archival is best-effort; printing should still proceed.
@@ -37,8 +38,9 @@ export function ExportReportButton({ html, fileName, label, advisorAction = true
   }
 
   const handlePrint = async () => {
-    void saveReportToDrive()
-    const printableHtml = html
+    const sourceHtml = prepareHtml ? await prepareHtml() : (html ?? '')
+    void saveReportToDrive(sourceHtml)
+    const printableHtml = sourceHtml
       .replaceAll('src="/brand/', `src="${window.location.origin}/brand/`)
       .replaceAll('src="/api/', `src="${window.location.origin}/api/`)
 

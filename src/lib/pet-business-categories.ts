@@ -30,15 +30,15 @@ export function parsePetBusinessCategories(raw: string | null | undefined): PetB
 }
 
 export function getPetBusinessOtherDescription(raw: string | null | undefined): string {
-  const match = raw?.match(/(?:^|,)\s*other\s*:\s*([^,].*?)(?=\s*,\s*(?:boarding|daycare|grooming|bathing|training|retail|other)\s*$|$)/i)
-  return match?.[1]?.trim() ?? ''
+  const match = raw?.match(/(?:^|,)\s*other\s*:\s*([^,]*?)(?=\s*,\s*(?:boarding|daycare|grooming|bathing|training|retail|other)\s*$|$)/i)
+  return match?.[1] ?? ''
 }
 
 export function setPetBusinessOtherDescription(raw: string, description: string): string {
   const categories: string[] = parsePetBusinessCategories(raw).filter(value => value !== 'other')
   if (description.trim()) categories.push('other' as PetBusinessCategoryValue)
   const base = serializePetBusinessCategories(categories)
-  return description.trim() ? [base, `other: ${description.trim()}`].filter(Boolean).join(', ') : base
+  return description ? [base, `other: ${description}`].filter(Boolean).join(', ') : base
 }
 
 export function serializePetBusinessCategories(values: Iterable<string>): string {
