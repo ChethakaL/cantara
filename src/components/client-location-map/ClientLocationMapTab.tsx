@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapPin, Upload, X, Loader2, Eye, EyeOff, AlertCircle, CheckCircle2, RotateCcw, Pencil, Save, Trash2, Plus } from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import { generateReportHtml, buildHtmlTable } from '@/lib/report-export/generate-report-html'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ interface MapData {
   facilityLng?: number
   clients: ClientPin[]
   generatedAt: string
+  statsOverrides?: Record<string, Record<number, number>>
 }
 
 interface Props {
@@ -132,8 +134,10 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     () => new Set<ServiceType>(['boarding', 'daycare', 'grooming', 'both', 'other']),
   )
   const [mapsError, setMapsError] = useState<string | null>(null)
+  const [staticMapUrl, setStaticMapUrl] = useState<string | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | 'new' | null>(null)
   const [entryDraft, setEntryDraft] = useState<ClientPin | null>(null)
+  const [editMode, setEditMode] = useState(false)
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const googleMapRef = useRef<google.maps.Map | null>(null)
@@ -162,6 +166,16 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     }
     load()
   }, [clientId, businessAddress])
+
+  useEffect(() => {
+    if (!mapData?.facilityLat || !mapData.facilityLng) {
+      setStaticMapUrl(null)
+      return
+    }
+    // Use a same-origin server proxy so the print window can load the image
+    // reliably without depending on the browser map SDK or export timing.
+    setStaticMapUrl(`/api/client-location-map/static?clientId=${encodeURIComponent(clientId)}`)
+  }, [clientId, mapData])
 
   // ── Initialize map when phase changes to 'map' ─────────────────────────
 
@@ -555,7 +569,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   // ── Stats computation ──────────────────────────────────────────────────
 
   const stats = computeStats(mapData)
-  const reportHtml = buildLocationMapReportHtml(clientName, mapData, stats)
+  const reportHtml = buildLocationMapReportHtml(clientName, mapData, stats, staticMapUrl)
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -770,20 +784,23 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
           {!readOnly && (
             <>
               <Button
-                onClick={() => document.getElementById('client-location-entries')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-4 py-2 rounded-lg flex items-center gap-2"
+                size="sm"
+                onClick={() => {
+                  setEditMode(!editMode)
+                }}
               >
-                <Pencil className="w-3.5 h-3.5" />
-                Edit entries
+                {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                {editMode ? 'Save' : 'Edit'}
               </Button>
               <ExportReportButton
                 html={reportHtml}
                 fileName={`${clientName} - Client Location Map.pdf`}
                 label="Export PDF"
+                waitForImages={true}
               />
               <Button
+                size="sm"
                 onClick={handleReset}
-                className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-4 py-2 rounded-lg flex items-center gap-2"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 Re-upload
@@ -816,7 +833,34 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
             const count = stats.countWithinRadius[ring.miles] ?? 0
             return (
               <Card key={ring.miles} className="p-4 text-center">
-                <div className="text-2xl font-bold text-slate-800">{pct}%</div>
+                <div className="text-2xl font-bold text-slate-800">
+                  {editMode && !readOnly ? (
+                    <div className="flex items-center justify-center gap-0.5">
+                      <input 
+                        type="number"
+                        className="w-16 text-center border border-amber-300 rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-amber-400 bg-amber-50"
+                        value={pct}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0
+                          const overrides = mapData?.statsOverrides || {}
+                          const generalOverrides = overrides['general'] || {}
+                          if (mapData) {
+                            persistMapData({ 
+                              ...mapData, 
+                              statsOverrides: {
+                                ...overrides,
+                                'general': { ...generalOverrides, [ring.miles]: Math.min(100, Math.max(0, val)) }
+                              }
+                            })
+                          }
+                        }}
+                      />
+                      <span className="text-lg">%</span>
+                    </div>
+                  ) : (
+                    <>{pct}%</>
+                  )}
+                </div>
                 <div className="text-[11px] text-slate-500 mt-1">
                   within {ring.miles} miles
                 </div>
@@ -849,12 +893,61 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                       <div className="flex items-center gap-2 mb-2">
                         <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SERVICE_COLORS[type] }} />
                         <span className="text-xs font-semibold text-slate-700">{SERVICE_LABELS[type]}</span>
-                        <span className="ml-auto text-[10px] text-slate-400">{serviceStats.total} clients</span>
+                        <span className="ml-auto text-[10px] text-slate-400">
+                          {editMode && !readOnly ? (
+                            <input 
+                              type="number"
+                              className="w-10 text-right border border-amber-300 rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-amber-400 bg-amber-50"
+                              value={mapData?.statsOverrides?.[type]?.total ?? serviceStats.total}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0
+                                const overrides = mapData?.statsOverrides || {}
+                                const typeOverrides = overrides[type] || {}
+                                if (mapData) {
+                                  persistMapData({ 
+                                    ...mapData, 
+                                    statsOverrides: {
+                                      ...overrides,
+                                      [type]: { ...typeOverrides, total: val }
+                                    }
+                                  })
+                                }
+                              }}
+                            />
+                          ) : (
+                            <>{serviceStats.total}</>
+                          )} clients
+                        </span>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
                         {RADIUS_RINGS.map(ring => (
                           <div key={ring.miles} className="rounded-md bg-white border border-slate-100 px-2 py-2 text-center">
-                            <div className="text-sm font-bold text-slate-800">{serviceStats.withinRadius[ring.miles] ?? 0}%</div>
+                            <div className="text-sm font-bold text-slate-800">
+                              {editMode && !readOnly ? (
+                                <div className="flex items-center justify-center gap-0.5">
+                                  <input
+                                    type="number"
+                                    className="w-10 text-center border border-amber-300 rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-amber-400 bg-amber-50"
+                                    value={serviceStats.withinRadius[ring.miles] ?? 0}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value) || 0
+                                      const overrides = mapData?.statsOverrides || {}
+                                      const typeOverrides = overrides[type] || {}
+                                      const nextOverrides = {
+                                        ...overrides,
+                                        [type]: { ...typeOverrides, [ring.miles]: Math.min(100, Math.max(0, val)) }
+                                      }
+                                      if (mapData) {
+                                        persistMapData({ ...mapData, statsOverrides: nextOverrides })
+                                      }
+                                    }}
+                                  />
+                                  <span className="text-xs">%</span>
+                                </div>
+                              ) : (
+                                <>{serviceStats.withinRadius[ring.miles] ?? 0}%</>
+                              )}
+                            </div>
                             <div className="text-[10px] text-slate-400">{ring.miles} mi</div>
                           </div>
                         ))}
@@ -952,7 +1045,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Client Entries</h3>
-            <p className="mt-0.5 text-[11px] text-slate-400">Edit names, addresses, service type, and geocoding status for this map.</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">Update client names, addresses, or service types; the percentages and service counts recalculate after saving.</p>
           </div>
           <Button
             size="sm"
@@ -1169,7 +1262,9 @@ function computeStats(mapData: MapData | null) {
       haversineDistance(mapData.facilityLat!, mapData.facilityLng!, c.lat!, c.lng!) <= ring.miles
     ).length
     countWithinRadius[ring.miles] = count
-    withinRadius[ring.miles] = Math.round((count / total) * 100)
+    const computed = Math.round((count / total) * 100)
+    const override = mapData.statsOverrides?.['general']?.[ring.miles]
+    withinRadius[ring.miles] = override !== undefined ? override : computed
   })
 
   const byService = (['daycare', 'boarding', 'grooming'] as const).reduce((acc, type) => {
@@ -1181,6 +1276,8 @@ function computeStats(mapData: MapData | null) {
           : c.serviceType === 'grooming',
     )
     const serviceTotal = serviceClients.length
+    const overriddenTotal = mapData.statsOverrides?.[type]?.total
+    const effectiveTotal = overriddenTotal !== undefined ? overriddenTotal : serviceTotal
     const serviceWithin: Record<number, number> = {}
     const serviceCounts: Record<number, number> = {}
     RADIUS_RINGS.forEach(ring => {
@@ -1188,9 +1285,11 @@ function computeStats(mapData: MapData | null) {
         haversineDistance(mapData.facilityLat!, mapData.facilityLng!, c.lat!, c.lng!) <= ring.miles
       ).length
       serviceCounts[ring.miles] = count
-      serviceWithin[ring.miles] = serviceTotal > 0 ? Math.round((count / serviceTotal) * 100) : 0
+      const computed = serviceTotal > 0 ? Math.round((count / serviceTotal) * 100) : 0
+      const override = mapData.statsOverrides?.[type]?.[ring.miles]
+      serviceWithin[ring.miles] = override !== undefined ? override : computed
     })
-    acc[type] = { total: serviceTotal, withinRadius: serviceWithin, countWithinRadius: serviceCounts }
+    acc[type] = { total: effectiveTotal, withinRadius: serviceWithin, countWithinRadius: serviceCounts }
     return acc
   }, {} as Record<'daycare' | 'boarding' | 'grooming', { total: number; withinRadius: Record<number, number>; countWithinRadius: Record<number, number> }>)
 
@@ -1207,23 +1306,29 @@ function buildLocationMapReportHtml(
   clientName: string,
   mapData: MapData | null,
   stats: ReturnType<typeof computeStats>,
+  staticMapUrl: string | null,
 ): string {
-  const safeName = escapeHtml(clientName)
-  const generated = mapData?.generatedAt ? new Date(mapData.generatedAt).toLocaleDateString() : new Date().toLocaleDateString()
-  const statCards = stats
-    ? RADIUS_RINGS.map(ring => `<div class="stat"><div class="value">${stats.withinRadius[ring.miles]}%</div><div class="label">Within ${ring.miles} miles</div><div class="muted">${stats.countWithinRadius[ring.miles]} of ${stats.total} clients</div></div>`).join('')
-    : '<p class="muted">No geocoded client entries are available.</p>'
-  const serviceRows = stats
-    ? (['daycare', 'boarding', 'grooming'] as const).map(type => {
-        const service = stats.byService[type]
-        return `<tr><td>${SERVICE_LABELS[type]}</td><td>${service.total}</td>${RADIUS_RINGS.map(ring => `<td>${service.withinRadius[ring.miles]}%</td>`).join('')}</tr>`
-      }).join('')
-    : ''
-  const entries = (mapData?.clients ?? []).map(client => `<tr><td>${escapeHtml(client.name)}</td><td>${escapeHtml(client.address)}</td><td>${SERVICE_LABELS[client.serviceType]}</td><td>${client.geocodeStatus}</td></tr>`).join('')
-
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${safeName} - Client Location Map</title><style>
-    @page{size:letter;margin:0.55in}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}h1{font-size:22px;margin:0 0 4px}h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#53627a;margin:24px 0 9px;border-bottom:1px solid #dce2ea;padding-bottom:6px}.muted{color:#718096}.meta{color:#718096;margin-bottom:20px}.stats{display:flex;gap:10px}.stat{flex:1;border:1px solid #dce2ea;border-radius:8px;padding:12px;text-align:center}.value{font-size:22px;font-weight:700}.label{font-weight:700;margin-top:4px}.muted{font-size:10px;margin-top:3px}table{width:100%;border-collapse:collapse}th{text-align:left;background:#f3f6fa;color:#53627a;font-size:10px;text-transform:uppercase;letter-spacing:.05em}th,td{border:1px solid #dce2ea;padding:7px;vertical-align:top}tr{page-break-inside:avoid}.insight{background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px;margin-top:14px}footer{margin-top:28px;color:#8a94a6;font-size:9px}
-  </style></head><body><h1>${safeName} - Client Location Map</h1><div class="meta">Facility: ${escapeHtml(mapData?.facilityAddress || 'Not specified')} &nbsp; | &nbsp; Generated: ${generated}</div><h2>Geographic summary</h2><div class="stats">${statCards}</div><h2>Service breakdown</h2><table><thead><tr><th>Service</th><th>Clients</th><th>Within 5 mi</th><th>Within 10 mi</th><th>Within 20 mi</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="5">No service data available.</td></tr>'}</tbody></table>${stats?.insights.length ? `<div class="insight"><strong>Insights</strong><ul>${stats.insights.map(insight => `<li>${escapeHtml(insight)}</li>`).join('')}</ul></div>` : ''}<h2>Client entries</h2><table><thead><tr><th>Client</th><th>Address</th><th>Service</th><th>Geocode status</th></tr></thead><tbody>${entries || '<tr><td colspan="4">No client entries.</td></tr>'}</tbody></table><footer>Interactive map omitted from PDF export. Use the portal map for visual location analysis.</footer></body></html>`
+  const safe = (value: string) => escapeHtml(value)
+  const kpis = stats ? RADIUS_RINGS.map(ring => ({ label: `Within ${ring.miles} miles`, value: `${stats.withinRadius[ring.miles]}%` })) : []
+  const serviceRows = stats ? (['daycare', 'boarding', 'grooming'] as const).map(type => {
+    const service = stats.byService[type]
+    return [SERVICE_LABELS[type], String(service.total), ...RADIUS_RINGS.map(ring => `${service.withinRadius[ring.miles]}%`)]
+  }) : []
+  const entries = (mapData?.clients ?? []).map(client => [client.name, client.address, SERVICE_LABELS[client.serviceType], client.geocodeStatus])
+  const mapSection = staticMapUrl ? `<p><img src="${staticMapUrl}" alt="Client location map" style="width:100%;border-radius:12px;border:1px solid #dce2ea" /></p>` : '<p>Map image unavailable at export time.</p>'
+  return generateReportHtml({
+    title: 'Client Location Map',
+    subtitle: `Geographic distribution analysis · Facility: ${mapData?.facilityAddress || 'Not specified'}`,
+    clientName,
+    generatedAt: mapData?.generatedAt || new Date().toISOString(),
+    kpis,
+    summaryHtml: stats?.insights.length ? `<p>${safe(stats.insights.join(' '))}</p>` : '<p>No insights available.</p>',
+    sections: [
+      { title: 'Service Breakdown', content: buildHtmlTable(['Service', 'Clients', 'Within 5 mi', 'Within 10 mi', 'Within 20 mi'], serviceRows) },
+      ...(staticMapUrl ? [{ title: 'Location Map', content: mapSection, newPage: true }] : []),
+      { title: 'Client Entries', content: buildHtmlTable(['Client', 'Address', 'Service', 'Geocode Status'], entries) },
+    ],
+  })
 }
 
 function buildLocationInsights(
