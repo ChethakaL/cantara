@@ -19,13 +19,20 @@ interface ClientPin {
   geocodeStatus: 'pending' | 'success' | 'failed'
 }
 
+interface StatsOverride {
+  total?: number
+  5?: number
+  10?: number
+  20?: number
+}
+
 interface MapData {
   facilityAddress: string
   facilityLat?: number
   facilityLng?: number
   clients: ClientPin[]
   generatedAt: string
-  statsOverrides?: Record<string, Record<number, number>>
+  statsOverrides?: Record<string, StatsOverride>
 }
 
 interface Props {
