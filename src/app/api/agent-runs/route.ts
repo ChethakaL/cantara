@@ -138,6 +138,7 @@ function toStatus(
   hasRequiredDocs: boolean,
   isPartialDocs: boolean,
   hasDocRequirements: boolean,
+  hasAnyUploadedDocs: boolean,
 ): AgentRunStatus {
   if (!hasRun) {
     if (hasDocRequirements) {
@@ -145,7 +146,10 @@ function toStatus(
       if (isPartialDocs) return 'partial_docs'
       return 'docs_missing'
     }
-    return 'not_started'
+    // A newly provisioned client with no uploads must not look like an agent
+    // that was already evaluated and simply has not been run. Keep "Docs Not
+    // Run" for clients where document activity has actually started.
+    return hasAnyUploadedDocs ? 'not_started' : 'docs_missing'
   }
   if (approved) return 'approved'
   return 'in_review'
@@ -409,6 +413,7 @@ export async function GET(req: NextRequest) {
   }
 
   const uploadedDocIds = new Set((uploadedDocs ?? []).map(d => d.documentId).filter(Boolean) as string[])
+  const hasAnyUploadedDocs = uploadedDocIds.size > 0
   const seen = new Set<string>()
   const runs: AgentRunRecord[] = []
 
@@ -436,7 +441,7 @@ export async function GET(req: NextRequest) {
     const hasRequiredDocs = hasDocRequirements && missingDocs.length === 0
     const isPartialDocs = hasDocRequirements && uploadedCount > 0 && missingDocs.length > 0
 
-    const baseStatus = toStatus(check.hasRun, check.approved, hasRequiredDocs, isPartialDocs, hasDocRequirements)
+    const baseStatus = toStatus(check.hasRun, check.approved, hasRequiredDocs, isPartialDocs, hasDocRequirements, hasAnyUploadedDocs)
     runs.push({
       agentId: agent.agentId,
       agentKey: statusKey,
@@ -468,7 +473,7 @@ export async function GET(req: NextRequest) {
     const assignmentEntry = approvals[key] as { assignedTo?: string | null } | undefined
     const release = manualRelease(releases, key, key)
 
-    const baseStatus = toStatus(check.hasRun, check.approved, false, false, false)
+    const baseStatus = toStatus(check.hasRun, check.approved, false, false, false, hasAnyUploadedDocs)
     runs.push({
       agentId: key,
       agentKey: key,

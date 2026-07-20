@@ -29,9 +29,21 @@ export function parsePetBusinessCategories(raw: string | null | undefined): PetB
     .filter((part): part is PetBusinessCategoryValue => allowed.has(part as PetBusinessCategoryValue))
 }
 
+export function getPetBusinessOtherDescription(raw: string | null | undefined): string {
+  const match = raw?.match(/(?:^|,)\s*other\s*:\s*([^,].*?)(?=\s*,\s*(?:boarding|daycare|grooming|bathing|training|retail|other)\s*$|$)/i)
+  return match?.[1]?.trim() ?? ''
+}
+
+export function setPetBusinessOtherDescription(raw: string, description: string): string {
+  const categories: string[] = parsePetBusinessCategories(raw).filter(value => value !== 'other')
+  if (description.trim()) categories.push('other' as PetBusinessCategoryValue)
+  const base = serializePetBusinessCategories(categories)
+  return description.trim() ? [base, `other: ${description.trim()}`].filter(Boolean).join(', ') : base
+}
+
 export function serializePetBusinessCategories(values: Iterable<string>): string {
   const allowed = new Set(PET_BUSINESS_CATEGORY_OPTIONS.map(option => option.value))
-  const unique = Array.from(new Set(Array.from(values).map(value => value.trim().toLowerCase())))
+  const unique = Array.from(new Set(Array.from(values).map(value => value.trim().toLowerCase().replace(/^other\s*:\s*/, 'other'))))
   return unique.filter((value): value is PetBusinessCategoryValue => allowed.has(value as PetBusinessCategoryValue)).join(', ')
 }
 

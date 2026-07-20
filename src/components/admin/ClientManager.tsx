@@ -37,6 +37,20 @@ const WS_OPTIONS = [
   { value: 'ma', label: 'M&A Process' },
 ]
 
+const ADVISOR_OPTIONS = [
+  { value: 'Craig', label: 'Craig', imageUrl: 'https://i.pravatar.cc/160?img=12' },
+  { value: 'Gabriela', label: 'Gabriela', imageUrl: 'https://i.pravatar.cc/160?img=47' },
+]
+
+function advisorImageSrc(imageUrl: string) {
+  if (imageUrl.startsWith('/api/advisor-images/')) return imageUrl
+  const marker = '/clients/'
+  const index = imageUrl.indexOf(marker)
+  return index >= 0
+    ? `/api/advisor-images/upload?key=${encodeURIComponent(imageUrl.slice(index + 1))}`
+    : imageUrl
+}
+
 const STAGE_OPTIONS = [
   { value: 'onboarding', label: 'Onboarding' },
   { value: 'collection', label: 'Collection' },
@@ -590,6 +604,13 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     setAddingAdvisor(false)
   }
 
+  const selectAdvisor = (name: string) => {
+    const advisor = ADVISOR_OPTIONS.find(option => option.value === name)
+    const savedAdvisor = client.advisors.find(existing => existing.name.trim().toLowerCase() === name.trim().toLowerCase())
+    const imageUrl = savedAdvisor?.imageUrl ? advisorImageSrc(savedAdvisor.imageUrl) : advisor?.imageUrl || ''
+    setNewAdvisor({ name, imageUrl, previewUrl: imageUrl })
+  }
+
   const removeAdvisor = (id: string) => {
     const nextClient = { ...client, advisors: client.advisors.filter(a => a.id !== id) }
     setClient(nextClient)
@@ -626,7 +647,10 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
       if (!res.ok) {
         throw new Error(await res.text())
       }
-      await res.json()
+      const uploaded = await res.json() as { imageUrl?: string }
+      if (uploaded.imageUrl) {
+        setNewAdvisor(p => ({ ...p, imageUrl: uploaded.imageUrl }))
+      }
     } catch (error) {
       console.error(error)
     } finally {
@@ -921,7 +945,7 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
         <div className="space-y-2 mb-3">
           {client.advisors.map(a => (
             <div key={a.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <img src={a.imageUrl} alt={a.name} className="w-10 h-10 rounded-full object-cover bg-slate-200" />
+              <img src={advisorImageSrc(a.imageUrl)} alt={a.name} className="w-10 h-10 rounded-full object-cover bg-slate-200" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-800">{a.name}</p>
                 <p className="text-xs text-slate-400">Client-facing advisor</p>
@@ -936,10 +960,11 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
           <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 space-y-3">
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-[minmax(0,1fr)_220px] gap-3 items-start">
-                <Input
-                  placeholder="Advisor name"
+                <Select
+                  label="Advisor"
                   value={newAdvisor.name}
-                  onChange={e => setNewAdvisor(p => ({ ...p, name: e.target.value }))}
+                  onChange={e => selectAdvisor(e.target.value)}
+                  options={[{ value: '', label: 'Select an advisor...' }, ...ADVISOR_OPTIONS.map(option => ({ value: option.value, label: option.label }))]}
                 />
                 <div className="flex items-center justify-end gap-2 pt-0.5">
                   <Button variant="ghost" size="sm" onClick={() => setAddingAdvisor(false)}>Cancel</Button>

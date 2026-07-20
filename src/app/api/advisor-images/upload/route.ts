@@ -1,6 +1,6 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
-import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
+import { assertS3Configured, buildPresignedFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 
 const MAX_ADVISOR_IMAGE_SIZE = 5 * 1024 * 1024;
 
@@ -38,11 +38,26 @@ export async function POST(req: NextRequest) {
     );
 
     return NextResponse.json({
-      imageUrl: buildPublicFileUrl(key),
+      // Keep the bucket private and let the browser fetch the image through
+      // this route, which generates a fresh signed URL on every request.
+      imageUrl: `/api/advisor-images/upload?key=${encodeURIComponent(key)}`,
       key,
     });
   } catch (error) {
     console.error("Advisor image upload error:", error);
     return new Response("Internal Server Error", { status: 500 });
+  }
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    assertS3Configured();
+    const key = new URL(req.url).searchParams.get('key');
+    if (!key || !key.startsWith('clients/')) return new Response('Invalid image key', { status: 400 });
+    const signedUrl = await buildPresignedFileUrl(key, 60 * 60);
+    return NextResponse.redirect(signedUrl);
+  } catch (error) {
+    console.error('Advisor image retrieval error:', error);
+    return new Response('Unable to load advisor image', { status: 404 });
   }
 }

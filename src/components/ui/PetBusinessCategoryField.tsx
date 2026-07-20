@@ -1,6 +1,6 @@
 'use client'
 
-import { PET_BUSINESS_CATEGORY_OPTIONS, parsePetBusinessCategories, togglePetBusinessCategory } from '@/lib/pet-business-categories'
+import { PET_BUSINESS_CATEGORY_OPTIONS, getPetBusinessOtherDescription, parsePetBusinessCategories, setPetBusinessOtherDescription, togglePetBusinessCategory } from '@/lib/pet-business-categories'
 import { cn } from '@/components/ui'
 
 export default function PetBusinessCategoryField({
@@ -13,6 +13,7 @@ export default function PetBusinessCategoryField({
   className?: string
 }) {
   const selected = parsePetBusinessCategories(value)
+  const otherDescription = getPetBusinessOtherDescription(value)
 
   return (
     <div className={cn('space-y-2', className)}>
@@ -33,6 +34,15 @@ export default function PetBusinessCategoryField({
           )
         })}
       </div>
+      {selected.includes('other') && (
+        <input
+          value={otherDescription}
+          onChange={event => onChange(setPetBusinessOtherDescription(value, event.target.value))}
+          placeholder="Specify the service (e.g. cat grooming services)"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+          aria-label="Other pet business service"
+        />
+      )}
       <p className="text-xs text-slate-400">Used by Competitor Analysis and other WS2 agents.</p>
     </div>
   )

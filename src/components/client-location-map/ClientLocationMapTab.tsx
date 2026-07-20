@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, MapPin, Upload, X, Loader2, Eye, EyeOff, AlertCircle, CheckCircle2, RotateCcw, Pencil, Save, Trash2, Plus } from 'lucide-react'
+import { MapPin, Upload, X, Loader2, Eye, EyeOff, AlertCircle, CheckCircle2, RotateCcw, Pencil, Save, Trash2, Plus } from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
+import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -449,66 +450,6 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     }
   }
 
-  // ── Export snapshot ─────────────────────────────────────────────────────
-
-  const handleExportSnapshot = () => {
-    if (!mapContainerRef.current || !googleMapRef.current) return
-    const mapDiv = mapContainerRef.current
-
-    // Use the static maps API for a clean export
-    const map = googleMapRef.current
-    const center = map.getCenter()
-    const zoom = map.getZoom()
-    if (!center) return
-
-    // Build static map URL with markers
-    const params = new URLSearchParams()
-    params.set('center', `${center.lat()},${center.lng()}`)
-    params.set('zoom', String(zoom || 10))
-    params.set('size', '1200x800')
-    params.set('maptype', 'roadmap')
-    params.set('scale', '2')
-
-    // Add facility marker
-    if (mapData?.facilityLat && mapData?.facilityLng) {
-      params.append('markers', `color:black|label:F|${mapData.facilityLat},${mapData.facilityLng}`)
-    }
-
-    // Group client markers by service type color
-    const markerGroups: Record<string, string[]> = {}
-    mapData?.clients.forEach(c => {
-      if (c.geocodeStatus !== 'success' || !c.lat || !c.lng) return
-      if (!visibleTypes.has(c.serviceType)) return
-      const colorName = c.serviceType === 'boarding' ? 'blue'
-        : c.serviceType === 'daycare' ? 'green'
-        : c.serviceType === 'grooming' ? 'orange'
-        : c.serviceType === 'both' ? 'purple'
-        : 'gray'
-      if (!markerGroups[colorName]) markerGroups[colorName] = []
-      markerGroups[colorName].push(`${c.lat},${c.lng}`)
-    })
-
-    Object.entries(markerGroups).forEach(([color, positions]) => {
-      // Static maps API limits markers — batch if needed
-      const chunks = []
-      for (let i = 0; i < positions.length; i += 50) {
-        chunks.push(positions.slice(i, i + 50))
-      }
-      chunks.forEach(chunk => {
-        params.append('markers', `color:${color}|size:small|${chunk.join('|')}`)
-      })
-    })
-
-    // Open in a new tab (user can right-click Save As)
-    fetchBrowserGoogleMapsKey().then(apiKey => {
-      params.set('key', apiKey)
-      const url = `https://maps.googleapis.com/maps/api/staticmap?${params.toString()}`
-      window.open(url, '_blank')
-    }).catch(() => {
-      setError('Could not generate static map snapshot.')
-    })
-  }
-
   // ── Reset / Re-upload ──────────────────────────────────────────────────
 
   const handleReset = () => {
@@ -614,6 +555,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   // ── Stats computation ──────────────────────────────────────────────────
 
   const stats = computeStats(mapData)
+  const reportHtml = buildLocationMapReportHtml(clientName, mapData, stats)
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -828,12 +770,17 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
           {!readOnly && (
             <>
               <Button
-                onClick={handleExportSnapshot}
+                onClick={() => document.getElementById('client-location-entries')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                 className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-4 py-2 rounded-lg flex items-center gap-2"
               >
-                <Download className="w-3.5 h-3.5" />
-                Export Snapshot
+                <Pencil className="w-3.5 h-3.5" />
+                Edit entries
               </Button>
+              <ExportReportButton
+                html={reportHtml}
+                fileName={`${clientName} - Client Location Map.pdf`}
+                label="Export PDF"
+              />
               <Button
                 onClick={handleReset}
                 className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-4 py-2 rounded-lg flex items-center gap-2"
@@ -1001,7 +948,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       </div>
 
       {!readOnly && (
-      <Card className="p-4">
+      <Card id="client-location-entries" className="p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Client Entries</h3>
@@ -1250,6 +1197,33 @@ function computeStats(mapData: MapData | null) {
   const insights = buildLocationInsights(total, withinRadius, byService)
 
   return { total, withinRadius, countWithinRadius, byService, insights }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character)
+}
+
+function buildLocationMapReportHtml(
+  clientName: string,
+  mapData: MapData | null,
+  stats: ReturnType<typeof computeStats>,
+): string {
+  const safeName = escapeHtml(clientName)
+  const generated = mapData?.generatedAt ? new Date(mapData.generatedAt).toLocaleDateString() : new Date().toLocaleDateString()
+  const statCards = stats
+    ? RADIUS_RINGS.map(ring => `<div class="stat"><div class="value">${stats.withinRadius[ring.miles]}%</div><div class="label">Within ${ring.miles} miles</div><div class="muted">${stats.countWithinRadius[ring.miles]} of ${stats.total} clients</div></div>`).join('')
+    : '<p class="muted">No geocoded client entries are available.</p>'
+  const serviceRows = stats
+    ? (['daycare', 'boarding', 'grooming'] as const).map(type => {
+        const service = stats.byService[type]
+        return `<tr><td>${SERVICE_LABELS[type]}</td><td>${service.total}</td>${RADIUS_RINGS.map(ring => `<td>${service.withinRadius[ring.miles]}%</td>`).join('')}</tr>`
+      }).join('')
+    : ''
+  const entries = (mapData?.clients ?? []).map(client => `<tr><td>${escapeHtml(client.name)}</td><td>${escapeHtml(client.address)}</td><td>${SERVICE_LABELS[client.serviceType]}</td><td>${client.geocodeStatus}</td></tr>`).join('')
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${safeName} - Client Location Map</title><style>
+    @page{size:letter;margin:0.55in}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}h1{font-size:22px;margin:0 0 4px}h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#53627a;margin:24px 0 9px;border-bottom:1px solid #dce2ea;padding-bottom:6px}.muted{color:#718096}.meta{color:#718096;margin-bottom:20px}.stats{display:flex;gap:10px}.stat{flex:1;border:1px solid #dce2ea;border-radius:8px;padding:12px;text-align:center}.value{font-size:22px;font-weight:700}.label{font-weight:700;margin-top:4px}.muted{font-size:10px;margin-top:3px}table{width:100%;border-collapse:collapse}th{text-align:left;background:#f3f6fa;color:#53627a;font-size:10px;text-transform:uppercase;letter-spacing:.05em}th,td{border:1px solid #dce2ea;padding:7px;vertical-align:top}tr{page-break-inside:avoid}.insight{background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px;margin-top:14px}footer{margin-top:28px;color:#8a94a6;font-size:9px}
+  </style></head><body><h1>${safeName} - Client Location Map</h1><div class="meta">Facility: ${escapeHtml(mapData?.facilityAddress || 'Not specified')} &nbsp; | &nbsp; Generated: ${generated}</div><h2>Geographic summary</h2><div class="stats">${statCards}</div><h2>Service breakdown</h2><table><thead><tr><th>Service</th><th>Clients</th><th>Within 5 mi</th><th>Within 10 mi</th><th>Within 20 mi</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="5">No service data available.</td></tr>'}</tbody></table>${stats?.insights.length ? `<div class="insight"><strong>Insights</strong><ul>${stats.insights.map(insight => `<li>${escapeHtml(insight)}</li>`).join('')}</ul></div>` : ''}<h2>Client entries</h2><table><thead><tr><th>Client</th><th>Address</th><th>Service</th><th>Geocode status</th></tr></thead><tbody>${entries || '<tr><td colspan="4">No client entries.</td></tr>'}</tbody></table><footer>Interactive map omitted from PDF export. Use the portal map for visual location analysis.</footer></body></html>`
 }
 
 function buildLocationInsights(

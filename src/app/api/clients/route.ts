@@ -6,7 +6,6 @@ import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
 import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
 import { sendEmailWithComposio } from "@/lib/composio";
 import { buildClientPortalInviteEmail } from "@/lib/client-invite-email";
-import { serializePetBusinessCategories } from "@/lib/pet-business-categories";
 
 function generatePassword() {
   return crypto.randomBytes(9).toString("base64url");
@@ -63,9 +62,8 @@ export async function POST(req: NextRequest) {
     const email = String(body.email || "").trim().toLowerCase();
     const company = String(body.company || body.businessName || "").trim();
     const phone = String(body.phone || "").trim();
-    const businessCategory = serializePetBusinessCategories(
-      String(body.businessCategory || "").split(",").filter(Boolean),
-    );
+    const rawBusinessCategory = String(body.businessCategory || "").trim();
+    const businessCategory = rawBusinessCategory;
     const propertyOwnership = body.propertyOwnership === 'lease' || body.propertyOwnership === 'owns'
       ? body.propertyOwnership
       : null;
