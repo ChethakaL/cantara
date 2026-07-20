@@ -576,7 +576,35 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   // ── Stats computation ──────────────────────────────────────────────────
 
   const stats = computeStats(mapData)
-  const reportHtml = buildLocationMapReportHtml(clientName, mapData, stats, staticMapUrl)
+
+  const prepareExportHtml = useCallback(async () => {
+    let mapSrc = staticMapUrl
+    let mapCaption: string | undefined
+
+    if (staticMapUrl) {
+      try {
+        const res = await fetch(staticMapUrl, { cache: 'no-store' })
+        if (res.ok) {
+          const blob = await res.blob()
+          mapSrc = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(blob)
+          })
+          const total = Number(res.headers.get('X-Map-Markers-Total') || 0)
+          const shown = Number(res.headers.get('X-Map-Markers-Shown') || 0)
+          if (total > shown && shown > 0) {
+            mapCaption = `Showing ${shown} of ${total} unique geocoded client locations on the map.`
+          }
+        }
+      } catch {
+        // Fall back to the same-origin URL if embedding fails.
+      }
+    }
+
+    return buildLocationMapReportHtml(clientName, mapData, stats, mapSrc, mapCaption)
+  }, [clientName, mapData, staticMapUrl, stats])
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -800,7 +828,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                 {editMode ? 'Save' : 'Edit'}
               </Button>
               <ExportReportButton
-                html={reportHtml}
+                prepareHtml={prepareExportHtml}
                 fileName={`${clientName} - Client Location Map.pdf`}
                 label="Export PDF"
                 waitForImages={true}
@@ -1314,6 +1342,7 @@ function buildLocationMapReportHtml(
   mapData: MapData | null,
   stats: ReturnType<typeof computeStats>,
   staticMapUrl: string | null,
+  mapCaption?: string,
 ): string {
   const safe = (value: string) => escapeHtml(value)
   const kpis = stats ? RADIUS_RINGS.map(ring => ({ label: `Within ${ring.miles} miles`, value: `${stats.withinRadius[ring.miles]}%` })) : []
@@ -1322,7 +1351,9 @@ function buildLocationMapReportHtml(
     return [SERVICE_LABELS[type], String(service.total), ...RADIUS_RINGS.map(ring => `${service.withinRadius[ring.miles]}%`)]
   }) : []
   const entries = (mapData?.clients ?? []).map(client => [client.name, client.address, SERVICE_LABELS[client.serviceType], client.geocodeStatus])
-  const mapSection = staticMapUrl ? `<p><img src="${staticMapUrl}" alt="Client location map" style="width:100%;border-radius:12px;border:1px solid #dce2ea" /></p>` : '<p>Map image unavailable at export time.</p>'
+  const mapSection = staticMapUrl
+    ? `<p><img src="${staticMapUrl}" alt="Client location map" style="width:100%;border-radius:12px;border:1px solid #dce2ea" /></p>${mapCaption ? `<p style="font-size:12px;color:#64748b;margin-top:8px;">${safe(mapCaption)}</p>` : ''}`
+    : '<p>Map image unavailable at export time.</p>'
   return generateReportHtml({
     title: 'Client Location Map',
     subtitle: `Geographic distribution analysis · Facility: ${mapData?.facilityAddress || 'Not specified'}`,
