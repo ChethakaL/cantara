@@ -32,6 +32,7 @@ export default function ClientSettingsPage() {
   const [mustChangePassword, setMustChangePassword] = useState(false)
   const [showPasswordTour, setShowPasswordTour] = useState(false)
   const passwordCardRef = useRef<HTMLDivElement | null>(null)
+  const settingsTourRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -56,7 +57,7 @@ export default function ClientSettingsPage() {
   useEffect(() => {
     if (!showPasswordTour) return
     const timer = window.setTimeout(() => {
-      passwordCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      settingsTourRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, 150)
     return () => window.clearTimeout(timer)
   }, [showPasswordTour])
@@ -130,6 +131,7 @@ export default function ClientSettingsPage() {
       setOtpSent(false)
       setMustChangePassword(false)
       localStorage.setItem('cantara_client_must_change_password', JSON.stringify(false))
+      localStorage.removeItem('cantara_client_tour_step')
       setPasswordMessage('Password updated successfully.')
     } catch (error) {
       setPasswordMessage(error instanceof Error ? error.message : 'Failed to update password.')
@@ -159,7 +161,11 @@ export default function ClientSettingsPage() {
           <p className="text-sm text-slate-500 mt-1">Manage email notifications and your portal password.</p>
         </div>
 
-        <Card className="p-5 space-y-4">
+        <div
+          ref={settingsTourRef}
+          className="relative z-[61] space-y-6"
+        >
+        <Card className={`relative p-5 space-y-4 ${showPasswordTour ? 'ring-2 ring-amber-300 shadow-2xl' : ''}`}>
           <div className="flex items-center gap-2">
             <Mail className="w-4 h-4 text-slate-500" />
             <h2 className="text-sm font-semibold text-slate-800">Email notifications</h2>
@@ -196,9 +202,18 @@ export default function ClientSettingsPage() {
               <span className="text-xs text-slate-500">Email notifications are off — no reminder or message emails will be sent.</span>
             )}
           </div>
+          {showPasswordTour && (
+            <div className="absolute -top-32 left-0 z-[62] w-[min(88vw,300px)] rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl">
+              <p className="text-sm font-semibold text-slate-900">Email notifications</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                Turn email notifications on or off and choose where portal updates and reminders should be sent.
+              </p>
+              <div className="absolute -bottom-2 left-10 h-4 w-4 rotate-45 border-r border-b border-amber-200 bg-white" />
+            </div>
+          )}
         </Card>
 
-        <div ref={passwordCardRef} className="relative z-[61]">
+        <div ref={passwordCardRef} className="relative">
         <Card className={`p-5 space-y-4 ${showPasswordTour ? 'ring-2 ring-amber-300 shadow-2xl' : ''}`}>
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4 text-slate-500" />
@@ -239,26 +254,25 @@ export default function ClientSettingsPage() {
           <div className="absolute -top-32 right-0 z-[62] w-[min(88vw,320px)] rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl">
             <div className="absolute -bottom-7 right-10 h-7 w-0.5 bg-amber-300" />
             <div className="absolute -bottom-2 right-8 h-4 w-4 rotate-45 border-r border-b border-amber-200 bg-white" />
-            <p className="text-sm font-semibold text-slate-900">Update it here</p>
+            <p className="text-sm font-semibold text-slate-900">Change password</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-600">
-              Use this exact password section here to send the verification code and set the new password for this portal login.
+              Use this section to change your password and secure your portal login.
             </p>
             <div className="mt-4 flex justify-end">
               <Button
                 size="sm"
-                variant="outline"
                 onClick={() => {
                   setShowPasswordTour(false)
-                  setMustChangePassword(false)
-                  localStorage.setItem('cantara_client_must_change_password', JSON.stringify(false))
-                  router.replace('/dashboard/settings')
+                  localStorage.setItem('cantara_client_tour_step', '2')
+                  router.push('/dashboard')
                 }}
               >
-                Got it
+                Next
               </Button>
             </div>
           </div>
         )}
+        </div>
         </div>
 
         <div className="flex justify-center">

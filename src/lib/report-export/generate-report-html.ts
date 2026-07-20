@@ -12,6 +12,7 @@ import { applyInlineBoldToHtml, formatSummaryBodyText } from './format-report-ma
 export interface ReportSection {
   title: string
   content: string // HTML content for this section
+  newPage?: boolean // Force page break before this section
 }
 
 export interface ReportConfig {
@@ -68,8 +69,8 @@ export function generateReportHtml(config: ReportConfig): string {
       : ''
 
   const sectionBlocks = config.sections.map((section, idx) => `
-    ${idx > 0 ? '<div class="section-divider"></div>' : ''}
-    <div class="report-section">
+    ${idx > 0 && !section.newPage ? '<div class="section-divider"></div>' : ''}
+    <div class="report-section" ${section.newPage ? 'style="page-break-before: always;"' : ''}>
       <h2>${escapeHtml(section.title)}</h2>
       ${renderInlineMarkdown(section.content)}
     </div>`).join('\n')

@@ -1,0 +1,43 @@
+1.​ Initial client log in to portal
+         a.​ Step 1 of 14 should be password update - currently it’s #14
+         b.​ Omit this step as we do this with the client during the onboarding call
+
+
+
+
+       c.​ We can’t fill out the team member on the client side when we click Add Team
+           Member button - it’s greyed out
+2.​ Change the text below from “For each optional item,...” to “Please note that the
+    documents in this section are optional. Choose Yes if you have it…”
+
+
+
+
+3.​ Delete “File 5” references in the descriptions (note the File 5 reference shows up in two
+    sections of the portal
+4.​ Please omit PMS List from this description
+
+
+
+
+5.​ Pet business categories
+       a.​ when “Other” is selected, we need a space to specify what the service is i.e.
+           Hyline offers cat grooming services
+   6.​ Advisor
+          a.​ Have a drop down menu where the advisor team can be selected - include their
+              full name and head-shot
+                 i.​ Craig
+                ii.​ Gabriela
+   7.​ Required Info
+          a.​ Software & Vendors
+                 i.​ The client will not know this information during an on-boarding call - we
+                      need to re-think how to handle
+   8.​ Deleting a client
+          a.​ When we delete a client, wipe-out all information from the portal
+
+
+
+
+Aliya - Additional Comments from Gaby & Craig - Do not deal with these yet (we will update
+after our Friday call)
+

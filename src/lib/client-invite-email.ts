@@ -91,7 +91,7 @@ export function buildTeamInviteEmail(args: {
         <p style="margin:0 0 16px;"><strong>Login:</strong> <a href="${args.loginUrl}" style="color:#b8922a;">${args.loginUrl}</a><br/>
         <strong>Email:</strong> ${args.email}<br/>
         <strong>Password:</strong> ${args.password}</p>
-        <p style="margin:0 0 16px;">After signing in, you will see the document checklist and any items assigned to you.</p>
+        <p style="margin:0 0 16px;">To ensure you have access to the portal, please login prior to the on-boarding call with the Cantara team.<br/>We will review how the portal works in detail during our call.<br/>We&rsquo;re excited to work with you!<br/>Cantara Pet Team</p>
         <p style="margin:0;">Thank you,<br/><strong>${advisor}</strong></p>
         ${CANTARA_FOOTER}
       </td>

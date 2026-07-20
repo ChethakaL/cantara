@@ -89,9 +89,14 @@ export default function RealEstateAppraisalTab({ clientId, clientName }: { clien
   ]).then(([nextReport, nextDocument]) => {
     setReport(nextReport)
     setDocument(nextDocument?.document ?? null)
+  }).catch(error => {
+    console.error('[RealEstateAppraisalTab] load failed', error)
+    setRunError(error instanceof Error ? error.message : 'Failed to load appraisal data.')
   })
 
   useEffect(() => {
+    setLoading(true)
+    setRunError('')
     void load()
       .finally(() => setLoading(false))
   }, [clientId])

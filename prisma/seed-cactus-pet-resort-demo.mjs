@@ -5836,7 +5836,7 @@ const SNAPSHOT = {
         },
         "ttmSummary": {
           "endMonth": "2026-07",
-          "netIncome": 325000,
+          "netIncome": 392000,
           "totalCogs": 85000,
           "totalOpEx": 1223000,
           "startMonth": "2025-08",
@@ -5905,7 +5905,7 @@ const SNAPSHOT = {
         "annualModel": {
           "years": [
             {
-              "netIncome": 257000,
+              "netIncome": 310000,
               "periodEnd": "2024-07",
               "totalCogs": 74000,
               "totalOpEx": 1066000,
@@ -5973,7 +5973,7 @@ const SNAPSHOT = {
               ]
             },
             {
-              "netIncome": 291000,
+              "netIncome": 350000,
               "periodEnd": "2025-07",
               "totalCogs": 79000,
               "totalOpEx": 1141000,
@@ -6041,7 +6041,7 @@ const SNAPSHOT = {
               ]
             },
             {
-              "netIncome": 325000,
+              "netIncome": 392000,
               "periodEnd": "2026-07",
               "totalCogs": 85000,
               "totalOpEx": 1223000,
@@ -6216,7 +6216,7 @@ const SNAPSHOT = {
           "replacementSalary": 0,
           "relatedPartyOwnership": false
         },
-        "reportMarkdown": "# EBITDA Recast — The Cactus Pet Resort\n\n## EBITDA RECAST SCHEDULE\n\n| # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status |\n|---|---|---|---|---:|---:|---:|---:|---|\n| 1 | Personal Expenses | Owner vehicle and discretionary travel | 6900 | $21,000 | $21,000 | $18,000 | $16,000 | ACCEPTED |\n| 2 | One-Off Expenses | Kennel resurfacing project | 6900 | $24,000 | $24,000 | $0 | $0 | ACCEPTED |\n| 3 | One-Off Expenses | Non-recurring legal and accounting work | 6900 | $13,000 | $13,000 | $6,000 | $4,000 | ACCEPTED |\n\n**Total Add-Backs: $58,000**\n\n**Normalized EBITDA: $450,000**\n\n## VALUATION RANGE\n\n| Scenario | Multiple | Value |\n|---|---:|---:|\n| Low | 5.0x | $2,250,000 |\n| Mid | 6.0x | $2,700,000 |\n| High | 7.0x | $3,150,000 |\n\n## FLAG LIST FOR ADMIN REVIEW\n\nAll illustrative add-backs have been reviewed and accepted for the demo report.",
+        "reportMarkdown": "# EBITDA Recast — The Cactus Pet Resort\n\n## EBITDA RECAST SCHEDULE\n\n| # | Category | Item Description | GL Reference | LTM | FY3 | FY2 | FY1 | Status |\n|---|---|---|---|---:|---:|---:|---:|---|\n| 1 | Personal Expenses | Owner vehicle and discretionary travel | — | $21,000 | $21,000 | $18,000 | $16,000 | ACCEPTED |\n| 2 | One-Off Expenses | Kennel resurfacing project | — | $24,000 | $24,000 | $0 | $0 | ACCEPTED |\n| 3 | One-Off Expenses | Non-recurring legal and accounting work | — | $13,000 | $13,000 | $6,000 | $4,000 | ACCEPTED |\n\n**Total Add-Backs: $58,000**\n\n**Normalized EBITDA: $450,000**\n\n## VALUATION RANGE\n\n| Scenario | Multiple | Value |\n|---|---:|---:|\n| Low | 5.0x | $2,250,000 |\n| Mid | 6.0x | $2,700,000 |\n| High | 7.0x | $3,150,000 |\n\n## FLAG LIST FOR ADMIN REVIEW\n\nAll illustrative add-backs have been reviewed and accepted for the demo report.",
         "parsedReport": {
           "valuationLow": 2250000,
           "valuationMid": 2700000,
@@ -6224,6 +6224,30 @@ const SNAPSHOT = {
           "valuationHigh": 3150000,
           "normalizedEbitda": 450000,
           "llmValuationResult": {
+            "preRecast": {
+              "LTM": 392000,
+              "FY3": 392000,
+              "FY2": 350000,
+              "FY1": 310000
+            },
+            "normalizedEbitda": {
+              "LTM": 450000,
+              "FY3": 450000,
+              "FY2": 374000,
+              "FY1": 330000
+            },
+            "fourWallEbitda": {
+              "LTM": 450000,
+              "FY3": 450000,
+              "FY2": 374000,
+              "FY1": 330000
+            },
+            "valuation": {
+              "LTM": { "low": 2250000, "mid": 2700000, "high": 3150000 },
+              "FY3": { "low": 2250000, "mid": 2700000, "high": 3150000 },
+              "FY2": { "low": 1870000, "mid": 2244000, "high": 2618000 },
+              "FY1": { "low": 1650000, "mid": 1980000, "high": 2310000 }
+            },
             "low": {
               "value": 2250000,
               "multiple": 5

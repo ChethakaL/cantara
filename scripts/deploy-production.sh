@@ -83,6 +83,16 @@ docker run -d \
   -p "127.0.0.1:${PORT}:3000" \
   "$IMAGE"
 
+echo "=== Ensure RealEstateAppraisalReport table ==="
+# deploy.sh historically never ran Prisma migrations; app code can ship before schema exists.
+# Keep this migration SQL idempotent (IF NOT EXISTS) so re-runs are safe.
+REAL_ESTATE_SQL="${REPO}/prisma/migrations/20260714_add_real_estate_appraisal/migration.sql"
+if [[ -f "$REAL_ESTATE_SQL" ]]; then
+  docker exec -i cantara-postgres psql -U cantara -d cantara_next -v ON_ERROR_STOP=1 < "$REAL_ESTATE_SQL"
+else
+  echo "WARN: missing $REAL_ESTATE_SQL"
+fi
+
 sleep 12
 curl -sf -o /dev/null -w "local:%{http_code}\n" "http://127.0.0.1:${PORT}/" || echo "local:fail"
 curl -sf -o /dev/null -w "login:%{http_code}\n" "http://127.0.0.1:${PORT}/login/admin" || echo "login:fail"
