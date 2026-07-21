@@ -27,6 +27,7 @@ import {
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
 import { DocumentUploadPanel, type DocumentUploadStatusSummary } from '@/components/documents/DocumentUploadPanel'
 import { DocumentUploadAccordion } from '@/components/documents/DocumentUploadAccordion'
+import { RevenueBreakdownReview } from '@/components/client-portal/RevenueBreakdownReview'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { fetchClientDocumentsBatch, fileCountForDocumentIds, mergeUploadedFiles, type FilesByDocumentId } from '@/lib/client-document-files'
 import { getDocsForAgentSelections, getDocsForWorkstream, getValuationDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
@@ -263,8 +264,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
     activeFormKeys: [
       ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
       ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
-      ...(hasAgentForm('competitor_analysis') ? ['competitor_analysis'] : []),
-      ...(hasAgentForm('pricing_analysis') ? ['pricing_analysis'] : []),
+      ...(hasAgentForm('competitor_analysis') || hasAgentForm('pricing_analysis') ? ['competitor_analysis'] : []),
       ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
       ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
@@ -273,8 +273,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
     formLabels: {
       facility_review: 'Facility Review',
       digital_presence: 'Digital Presence',
-      competitor_analysis: 'Competitor Inputs',
-      pricing_analysis: 'Competitor Pricing Inputs',
+      competitor_analysis: 'Competitor & Pricing Inputs',
       occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',
       professional_advisors: 'Professional Advisors',
@@ -1713,7 +1712,7 @@ function AssignTab({
           <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-700 leading-relaxed">
             Please note that the documents in this section are optional. Choose <span className="font-semibold">Yes</span> if you have it, <span className="font-semibold">No</span> if you do not, or <span className="font-semibold">N/A</span> if it does not apply to your business. Required and valuation documents are handled in step 2.
           </div>
-          {categories.map(cat => (
+          {categories.filter(cat => cat.documents.some(doc => doc.type !== 'required')).map(cat => (
             <div key={cat.id} className="bg-white rounded-2xl border border-slate-200">
               <div className="px-5 py-3 border-b border-slate-100">
                 <h4 className="text-sm font-semibold text-slate-700">{cat.title}</h4>
@@ -1729,7 +1728,7 @@ function AssignTab({
                           {doc.type === 'required' && <Badge color="gold">Required</Badge>}
                           {doc.flagged && <Badge color="red">Flagged</Badge>}
                         </div>
-                        {doc.description && <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{doc.description}</p>}
+                        {doc.description && <p className="text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</p>}
                         <DocumentReferenceLink docId={doc.id} />
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -1836,10 +1835,7 @@ function AssignTab({
                             <Badge color="gold">Required</Badge>
                             {s.hasDoc === false && <Badge color="amber">Not available with client</Badge>}
                           </div>
-                          {doc.description && <p className="text-xs text-slate-500 mt-1">{doc.description}</p>}
-                          {DOCUMENT_ASSIGN_HELP[doc.id] && (
-                            <p className="text-xs text-slate-400 mt-0.5">{DOCUMENT_ASSIGN_HELP[doc.id]}</p>
-                          )}
+                          {doc.description && <p className="text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</p>}
                           <DocumentReferenceLink docId={doc.id} />
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -1901,10 +1897,7 @@ function AssignTab({
                         {doc.type === 'required' && <Badge color="gold">Required</Badge>}
                         {s.hasDoc === false && <Badge color="amber">Not available with client</Badge>}
                       </div>
-                      {doc.description && <p className="text-xs text-slate-500 mt-1">{doc.description}</p>}
-                      {DOCUMENT_ASSIGN_HELP[doc.id] && (
-                        <p className="text-xs text-slate-400 mt-0.5">{DOCUMENT_ASSIGN_HELP[doc.id]}</p>
-                      )}
+                      {doc.description && <p className="text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</p>}
                       <DocumentReferenceLink docId={doc.id} />
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -1959,7 +1952,7 @@ function AssignTab({
                     <div className="divide-y divide-slate-100">
                       {activeFormKeys.map(formKey => {
                         const formAssignments = (client.sectionSubmissions as any)?.formAssignments ?? {}
-                        const assignedTo = formAssignments[formKey] ?? ''
+                        const assignedTo = formAssignments[formKey] ?? (formKey === 'competitor_analysis' ? formAssignments.pricing_analysis : '') ?? ''
                         const options = [
                           { value: 'me', label: 'Me' },
                           ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
@@ -2076,6 +2069,7 @@ function AssignedDocumentStatusList({
               <div key={doc.id} className="flex items-center gap-4 px-5 py-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-800">{doc.name}</p>
+                  {doc.description && <p className="text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</p>}
                 </div>
                 <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
                   uploaded ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
@@ -2145,8 +2139,14 @@ function FormQuestionFields({
               {question.label}
               {question.required && <span className="text-amber-600"> *</span>}
             </span>
-            {question.description && (
-              <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>
+            {(question.fieldKey === 'vendorDirectoryList'
+              ? 'Two options to provide this information: 1. fill in the form below; 2. provide the information in an Excel file. Please note that we have provided a downloadable Excel template as a reference if required.'
+              : question.description) && (
+              <span className="block text-[11px] text-slate-400 mt-0.5">
+                {question.fieldKey === 'vendorDirectoryList'
+                  ? 'Two options to provide this information: 1. fill in the form below; 2. provide the information in an Excel file. Please note that we have provided a downloadable Excel template as a reference if required.'
+                  : question.description}
+              </span>
             )}
             {structured ? (
               <StructuredRowsInput
@@ -2253,8 +2253,10 @@ function StructuredRowsInput({
   onChange: (value: string) => void
   onError: (message: string) => void
 }) {
+  const NO_PROFESSIONAL_ADVISORS = '__NO_PROFESSIONAL_ADVISORS__'
   const fieldKey = question.fieldKey as StructuredFormFieldKey
   const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
+  const noProfessionalAdvisors = fieldKey === 'professionalAdvisorsList' && value === NO_PROFESSIONAL_ADVISORS
   const rows = parsePipeRows(value, fieldKey)
   const visibleRows = rows.length ? rows : [columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})]
   const [importing, setImporting] = useState(false)
@@ -2293,6 +2295,15 @@ function StructuredRowsInput({
         Download the Excel template, fill in your rows, then upload it here. You can still edit rows in the table below.
       </p>
       <div className="flex flex-wrap items-center gap-3">
+        {fieldKey === 'professionalAdvisorsList' && (
+          <button
+            type="button"
+            onClick={() => onChange(noProfessionalAdvisors ? '' : NO_PROFESSIONAL_ADVISORS)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {noProfessionalAdvisors ? 'Add professional advisors' : 'No professional advisors'}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -2329,7 +2340,7 @@ function StructuredRowsInput({
           <Plus className="w-3.5 h-3.5" /> Add Row
         </button>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-slate-200">
+      {!noProfessionalAdvisors && <div className="overflow-x-auto rounded-xl border border-slate-200">
         <table className="w-full min-w-[980px] text-xs">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
@@ -2359,7 +2370,7 @@ function StructuredRowsInput({
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -2723,11 +2734,11 @@ function AgentInformationTab({
           <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <h4 className="text-sm font-semibold text-slate-700">{FORM_LABELS[activeFormTab]}</h4>
-              <p className="text-xs text-slate-500 mt-1">
-                {activeFormTab === 'facility_review'
-                  ? 'Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.'
-                  : 'Complete the fields below. Answers save automatically.'}
-              </p>
+              {activeFormTab === 'facility_review' && (
+                <p className="text-xs text-slate-500 mt-1">
+                  Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.
+                </p>
+              )}
             </div>
             {!isTeamMemberSession && (
               <div className="flex items-center gap-2 shrink-0">
@@ -2764,25 +2775,30 @@ function AgentInformationTab({
                 if (activeFormTab === 'other_info') {
                   return !isDedicatedRequiredInfoAgent(q.agentId)
                 }
-                return q.agentId === activeFormTab
+                return activeFormTab === 'competitor_analysis'
+                  ? (q.agentId === 'competitor_analysis' || q.agentId === 'pricing_analysis')
+                  : q.agentId === activeFormTab
               })
             ).map((group, index) => (
               <div
                 key={group.groupLabel}
                 className="space-y-3 pt-2 border-t border-slate-100 first:border-t-0 first:pt-0"
               >
-                <h5 className="text-sm font-bold text-slate-800">
-                  {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
-                </h5>
-                {activeFormTab === 'competitor_analysis' || activeFormTab === 'pricing_analysis' ? (
+                {activeFormTab !== 'competitor_analysis' && (
+                  <h5 className="text-sm font-bold text-slate-800">
+                    {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
+                  </h5>
+                )}
+                {activeFormTab === 'competitor_analysis' ? (
                   <ClientCompetitorInputsFields
-                    mode={activeFormTab}
+                    mode="competitor_analysis"
                     questions={group.questions}
                     formResponses={formResponses}
                     onUpdate={updateFormResponse}
                     onCompetitorsChange={replaceFormResponses}
                     FormQuestionFields={FormQuestionFields}
                     onError={setFormError}
+                    showTopCompetitors={index === 0}
                   />
                 ) : (
                   <FormQuestionFields
@@ -2955,24 +2971,11 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
     }
 
     return (
-      <div className="px-5 py-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+      <div className="px-5 py-4 border-t border-slate-100">
         <p className="text-xs text-slate-400 max-w-xl leading-relaxed">
           Upload documents as you have them — each file saves automatically.
           {totalCount > 0 ? ` ${uploadedCount} of ${totalCount} file slot${totalCount === 1 ? '' : 's'} filled.` : ''}
-          {' '}Submit when you would like Cantara to review this section (you do not need every slot filled first).
         </p>
-        <Button
-          id="tour-submit-section-button"
-          size="sm"
-          variant={uploadedCount === totalCount && totalCount > 0 ? 'primary' : 'outline'}
-          onClick={() => void onSubmitSection(sectionId)}
-          disabled={!canSubmit || submittingSectionId === sectionId}
-          className={`transition-all ${
-            tourStep === 11 ? 'relative z-[61] ring-2 ring-amber-400 shadow-lg' : ''
-          }`}
-        >
-          {submittingSectionId === sectionId ? 'Submitting...' : 'Mark Section Ready'}
-        </Button>
       </div>
     )
   }
@@ -3179,6 +3182,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                     isComplete={slotUploaded}
                   >
                     <DocumentReferenceLink docId={doc.id} />
+                    {doc.id === 'revenue_breakdown' && <RevenueBreakdownReview clientId={clientId} />}
                     {doc.flagged && doc.flagNote && (
                       <p className="mb-2 text-xs text-amber-600">{doc.flagNote}</p>
                     )}

@@ -258,7 +258,7 @@ function parseProfessionalAdvisors(raw: string | undefined) {
     .map(line => line.trim())
     .filter(Boolean)
     .map(line => {
-      const [role = '', name = '', company = '', email = '', phone = '', willing = 'unknown', notes = ''] = line.split('|').map(part => part.trim())
+      const [role = '', name = '', company = '', email = '', phone = '', notes = ''] = line.split('|').map(part => part.trim())
       return {
         id: crypto.randomUUID(),
         role,
@@ -266,7 +266,6 @@ function parseProfessionalAdvisors(raw: string | undefined) {
         company,
         email,
         phone,
-        willingToParticipate: ['yes', 'no'].includes(willing.toLowerCase()) ? willing.toLowerCase() : 'unknown',
         notes,
       }
     })
