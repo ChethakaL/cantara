@@ -36,8 +36,8 @@ export function isStructuredFormFieldKey(fieldKey: string): fieldKey is Structur
 }
 
 export function getStructuredFormTemplateFilename(fieldKey: StructuredFormFieldKey): string {
-  if (fieldKey === 'professionalAdvisorsList') return 'Professional_Advisors_Template.xlsx'
-  return 'Software_Vendors_Template.xlsx'
+  if (fieldKey === 'professionalAdvisorsList') return 'Cantara Professional Advisors Template.xlsx'
+  return 'Cantara Software & Vendors Template.xlsx'
 }
 
 export function parsePipeRows(value: string, fieldKey: StructuredFormFieldKey): Record<string, string>[] {
