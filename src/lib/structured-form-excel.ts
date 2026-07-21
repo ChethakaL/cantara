@@ -17,7 +17,6 @@ export const STRUCTURED_FORM_COLUMNS: Record<
     { key: 'company', label: 'Company', placeholder: 'Rex Dog Hotel' },
     { key: 'email', label: 'Email', placeholder: 'email@example.com' },
     { key: 'phone', label: 'Phone', placeholder: '555-123-4567' },
-    { key: 'willing', label: 'Willing', placeholder: 'yes/no/unknown' },
     { key: 'notes', label: 'Notes', placeholder: 'Context' },
   ],
   vendorDirectoryList: [

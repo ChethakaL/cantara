@@ -17,6 +17,7 @@ import {
 import { VALUATION_SECTION_ID } from '@/lib/document-deadlines'
 import { DocumentDeadlineField, SectionDeadlineField } from '@/components/admin/DocumentDeadlineControls'
 import { parseStoredInsuranceReview } from '@/lib/insurance-review-shared'
+import { RevenueBreakdownReview } from '@/components/client-portal/RevenueBreakdownReview'
 import { getAdminEmail, saveClient, saveRequirement } from '@/lib/store'
 import type { Client, DocumentStatus } from '@/lib/store'
 import { getClientWorkstreamAgents, SYSTEM_WORKSTREAM_AGENTS } from '@/lib/workstream-agents'
@@ -614,6 +615,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
           <p className="mb-3 text-xs leading-relaxed text-slate-600">{doc.description}</p>
         )}
         {doc.id === 'insurance_claims_12m' && renderInsuranceSummary(doc.id)}
+        {doc.id === 'revenue_breakdown' && <RevenueBreakdownReview clientId={client.id} />}
 
         <div className="mb-3">
           <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Uploaded files</p>

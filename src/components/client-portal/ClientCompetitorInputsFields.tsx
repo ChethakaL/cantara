@@ -24,6 +24,7 @@ export function ClientCompetitorInputsFields({
   onCompetitorsChange,
   FormQuestionFields,
   onError,
+  showTopCompetitors = true,
 }: {
   mode: 'competitor_analysis' | 'pricing_analysis'
   questions: ClientPortalFormQuestion[]
@@ -32,6 +33,7 @@ export function ClientCompetitorInputsFields({
   onCompetitorsChange: (responses: Record<string, string>) => void
   onError: (message: string) => void
   FormQuestionFields: React.ComponentType<FormQuestionFieldsProps>
+  showTopCompetitors?: boolean
 }) {
   const businessQuestions = questions.filter(question => !isCompetitorSlotField(question.fieldKey))
   const competitors = readCompetitorSlots(formResponses)
@@ -50,12 +52,14 @@ export function ClientCompetitorInputsFields({
           onError={onError}
         />
       )}
-      <TopCompetitorsForm
-        competitors={competitors}
-        onChange={handleCompetitorsChange}
-        showAddress={mode === 'competitor_analysis'}
-        addressRequired={false}
-      />
+      {showTopCompetitors && (
+        <TopCompetitorsForm
+          competitors={competitors}
+          onChange={handleCompetitorsChange}
+          showAddress={mode === 'competitor_analysis'}
+          addressRequired={false}
+        />
+      )}
     </div>
   )
 }

@@ -49,13 +49,6 @@ export const VALUATION_DOCS: DocumentDef[] = [
     workstreams: ['ws1', 'ws2', 'both', 'ma'],
   },
   {
-    id: 'addback_disclosure',
-    name: 'Seller Add-Back Disclosure',
-    description: 'Consolidated add-back disclosure: owner/officer compensation, personal expenses, non-recurring expenses, and tenant improvements over 36 months with GL cross-references.',
-    type: 'required',
-    workstreams: ['ws2', 'both', 'ma'],
-  },
-  {
     id: 'shareholder_remuneration_36m',
     name: 'Shareholder List + Remuneration (36 months)',
     description: 'Owner/shareholder compensation detail for the last 36 months with GL cross-references.',
@@ -136,7 +129,6 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
       { id: 'material_contracts', name: 'Material Contracts (over $5K/yr)', description: 'All material contracts, vendor agreements, and supplier contracts exceeding $5,000 per year.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'sales_process_transcript', name: 'Sales Call Transcript / Recording', description: 'Cantara collects discovery/sales call transcripts for the Sales Process Review agent (admin upload).', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'meeting_notes', name: 'Meeting Notes / Call Notes', description: 'Cantara advisor meeting notes and call transcripts for the Meeting Notes agent (admin upload).', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
-      { id: 'employee_comp_payroll', name: 'Payroll / Compensation Report', description: 'Payroll export or compensation report with employee names, titles, rates, and benefit classes.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'litigation_search_docs', name: 'Lien Search / Court Records', description: 'Formal lien search results, title reports, or court record documents from attorney or title company.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
     ],
   },

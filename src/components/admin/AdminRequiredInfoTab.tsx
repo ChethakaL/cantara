@@ -50,8 +50,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
     activeFormKeys: [
       ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
       ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
-      ...(hasAgentForm('competitor_analysis') ? ['competitor_analysis'] : []),
-      ...(hasAgentForm('pricing_analysis') ? ['pricing_analysis'] : []),
+      ...(hasAgentForm('competitor_analysis') || hasAgentForm('pricing_analysis') ? ['competitor_analysis'] : []),
       ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
       ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
@@ -60,8 +59,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
     formLabels: {
       facility_review: 'Facility Review',
       digital_presence: 'Digital Presence',
-      competitor_analysis: 'Competitor Inputs',
-      pricing_analysis: 'Competitor Pricing Inputs',
+      competitor_analysis: 'Competitor & Pricing Inputs',
       occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',
       professional_advisors: 'Professional Advisors',
@@ -172,8 +170,10 @@ function StructuredRowsInput({
   onChange: (value: string) => void
   onError: (message: string) => void
 }) {
+  const NO_PROFESSIONAL_ADVISORS = '__NO_PROFESSIONAL_ADVISORS__'
   const fieldKey = question.fieldKey as StructuredFormFieldKey
   const columns = STRUCTURED_FORM_COLUMNS[fieldKey] ?? []
+  const noProfessionalAdvisors = fieldKey === 'professionalAdvisorsList' && value === NO_PROFESSIONAL_ADVISORS
   const rows = parsePipeRows(value, fieldKey)
   const visibleRows = rows.length ? rows : [columns.reduce<Record<string, string>>((row, column) => ({ ...row, [column.key]: '' }), {})]
   const [importing, setImporting] = useState(false)
@@ -212,6 +212,15 @@ function StructuredRowsInput({
         Download the Excel template, fill in rows, then upload or edit inline below.
       </p>
       <div className="flex flex-wrap items-center gap-3">
+        {fieldKey === 'professionalAdvisorsList' && (
+          <button
+            type="button"
+            onClick={() => onChange(noProfessionalAdvisors ? '' : NO_PROFESSIONAL_ADVISORS)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {noProfessionalAdvisors ? 'Add professional advisors' : 'No professional advisors'}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -248,7 +257,7 @@ function StructuredRowsInput({
           <Plus className="w-3.5 h-3.5" /> Add Row
         </button>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-slate-200">
+      {!noProfessionalAdvisors && <div className="overflow-x-auto rounded-xl border border-slate-200">
         <table className="w-full min-w-[980px] text-xs">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
@@ -278,7 +287,7 @@ function StructuredRowsInput({
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -417,21 +426,28 @@ export default function AdminRequiredInfoTab({
 
           <div className="space-y-5 p-5">
             {buildOrderedFormQuestionGroups(
-              formQuestions.filter(q => activeFormTab === 'other_info' ? !isDedicatedRequiredInfoAgent(q.agentId) : q.agentId === activeFormTab),
-            ).map(group => (
+              formQuestions.filter(q => {
+                if (activeFormTab === 'other_info') return !isDedicatedRequiredInfoAgent(q.agentId)
+                if (activeFormTab === 'competitor_analysis') return q.agentId === 'competitor_analysis' || q.agentId === 'pricing_analysis'
+                return q.agentId === activeFormTab
+              }),
+            ).map((group, index) => (
               <div key={group.groupLabel} className="space-y-3 border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
-                <h5 className="text-sm font-bold text-slate-800">
-                  {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
-                </h5>
-                {activeFormTab === 'competitor_analysis' || activeFormTab === 'pricing_analysis' ? (
+                {activeFormTab !== 'competitor_analysis' && (
+                  <h5 className="text-sm font-bold text-slate-800">
+                    {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
+                  </h5>
+                )}
+                {activeFormTab === 'competitor_analysis' ? (
                   <ClientCompetitorInputsFields
-                    mode={activeFormTab}
+                    mode="competitor_analysis"
                     questions={group.questions}
                     formResponses={formResponses}
                     onUpdate={updateFormResponse}
                     onCompetitorsChange={replaceFormResponses}
                     FormQuestionFields={FormQuestionFields}
                     onError={setError}
+                    showTopCompetitors={index === 0}
                   />
                 ) : (
                   <FormQuestionFields

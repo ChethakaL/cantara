@@ -11,8 +11,8 @@ type PropertyOwnership = 'lease' | 'owns' | '' | null | undefined
 export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, WorkstreamAgentSelection[]> = {
   ws1: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
-    { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts', 'employee_comp_payroll'] },
-    { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: [] },
+    { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts'] },
+    { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: ['employee_list'] },
     { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
     { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] },
     { agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] },

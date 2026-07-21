@@ -6,7 +6,6 @@ export function formatProfessionalAdvisors(value: unknown): string {
     advisor.company ?? '',
     advisor.email ?? '',
     advisor.phone ?? '',
-    advisor.willingToParticipate ?? 'unknown',
     advisor.notes ?? '',
   ].join(' | ')).join('\n')
 }

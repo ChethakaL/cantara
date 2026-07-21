@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { Badge } from '@/components/ui'
 
 type DocumentUploadAccordionProps = {
@@ -55,6 +55,7 @@ export function DocumentUploadAccordion({
               {assignedTo && <Badge color="slate">{assignedTo}</Badge>}
               {statusBadge}
               {deadlineBadge}
+              {isComplete && <CheckCircle className="h-4 w-4 text-emerald-500" aria-label="Complete" />}
               {fileCount > 0 ? (
                 <Badge color={isComplete ? 'green' : 'gold'}>
                   {fileCount === 1 ? '1 file' : `${fileCount} files`}
@@ -70,7 +71,7 @@ export function DocumentUploadAccordion({
             )}
             {!open && (
               <p className="mt-1 text-[11px] text-slate-400">
-                {fileCount > 0 ? 'Expand to manage files, deadlines, and uploads' : 'Expand for details — or use Admin upload on the right'}
+                {fileCount > 0 ? 'Expand to upload file(s)' : 'Expand to upload file(s)'}
               </p>
             )}
           </div>

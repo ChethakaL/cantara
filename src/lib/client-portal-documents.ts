@@ -5,11 +5,14 @@ import type { DocumentStatus } from './store'
  * Documents Cantara collects or produces internally — hidden from client Assign / Document Upload.
  * - sales_process_transcript / meeting_notes: discovery & advisor call notes (Sales Process / Meeting Notes agents)
  * - customer_count: not linked to any agent documentIds; revenue agents use revenue_breakdown + pricing_schedule
+ * - litigation_search_docs / online_reviews: sourced or handled by Cantara rather than requested from the client
  */
 export const CLIENT_PORTAL_HIDDEN_DOC_IDS = new Set([
   'sales_process_transcript',
   'meeting_notes',
   'customer_count',
+  'litigation_search_docs',
+  'online_reviews',
 ])
 
 export const MULTI_YEAR_UPLOAD_SLOTS: Record<string, string[]> = {
@@ -27,8 +30,6 @@ export const DOCUMENT_REFERENCE_TEMPLATES: Partial<Record<string, { label: strin
 export const DOCUMENT_ASSIGN_HELP: Partial<Record<string, string>> = {
   employee_list:
     'A spreadsheet listing each employee with job title, average weekly hours, and compensation (no SSNs). Use the template if helpful.',
-  tax_returns_3yr: 'In Document Upload: one file for all three years, or one file per year — whichever matches what you have.',
-  accountant_statements: 'In Document Upload: one file for all three fiscal years, or one file per year.',
   leases: 'Include the base lease and every amendment, addendum, or rider.',
   real_estate_appraisal: 'Upload one current appraisal document for the real estate owned by the business.',
   material_contracts: 'Contracts or vendor agreements over $5,000 per year.',
