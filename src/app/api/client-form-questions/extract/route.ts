@@ -5,7 +5,7 @@ import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 const FIELD_CONFIG: Record<string, { label: string; format: string }> = {
   professionalAdvisorsList: {
     label: 'professional advisors',
-    format: 'Role | Name | Company | Email | Phone | Willing yes/no/unknown | Notes',
+    format: 'Role | Name | Company | Email | Phone | Notes',
   },
   vendorDirectoryList: {
     label: 'software and vendors',

@@ -2139,13 +2139,9 @@ function FormQuestionFields({
               {question.label}
               {question.required && <span className="text-amber-600"> *</span>}
             </span>
-            {(question.fieldKey === 'vendorDirectoryList'
-              ? 'Two options to provide this information: 1. fill in the form below; 2. provide the information in an Excel file. Please note that we have provided a downloadable Excel template as a reference if required.'
-              : question.description) && (
+            {question.description && (
               <span className="block text-[11px] text-slate-400 mt-0.5">
-                {question.fieldKey === 'vendorDirectoryList'
-                  ? 'Two options to provide this information: 1. fill in the form below; 2. provide the information in an Excel file. Please note that we have provided a downloadable Excel template as a reference if required.'
-                  : question.description}
+                {question.description}
               </span>
             )}
             {structured ? (
