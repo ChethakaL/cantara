@@ -10,10 +10,10 @@ Lawyer | John Lee | Lee Law | john@example.com | 555-222-3333 | Lease counsel',
 WHERE "agentId" = 'professional_advisors'
   AND "fieldKey" = 'professionalAdvisorsList';
 
--- Software & Vendors: Excel options wording (this section only).
+-- Software & Vendors: Excel options wording on separate lines (this section only).
 UPDATE "AgentFormQuestion"
 SET
-  "description" = 'Two options to provide this information: 1. fill in the form below; 2. provide the information in an Excel file. Please note that we have provided a downloadable Excel template as a reference if required.',
+  "description" = E'Two options to provide this information:\n1. Fill in the form below\n2. Provide the information in an Excel file\n\nPlease note that we have provided a downloadable Excel template as a reference if required.',
   "updatedAt" = CURRENT_TIMESTAMP
 WHERE "agentId" = 'vendor_directory'
   AND "fieldKey" = 'vendorDirectoryList';

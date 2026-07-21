@@ -114,7 +114,7 @@ function FormQuestionFields({
               {question.required && <span className="text-amber-600"> *</span>}
             </span>
             {question.description && (
-              <span className="block text-[11px] text-slate-400 mt-0.5">{question.description}</span>
+              <span className="block text-[11px] text-slate-400 mt-0.5 whitespace-pre-line">{question.description}</span>
             )}
             {structured ? (
               <StructuredRowsInput
