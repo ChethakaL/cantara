@@ -2730,9 +2730,11 @@ function AgentInformationTab({
           <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <h4 className="text-sm font-semibold text-slate-700">{FORM_LABELS[activeFormTab]}</h4>
-              {activeFormTab === 'facility_review' && (
+              {activeFormTab !== 'vendor_directory' && activeFormTab !== 'professional_advisors' && (
                 <p className="text-xs text-slate-500 mt-1">
-                  Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.
+                  {activeFormTab === 'facility_review'
+                    ? 'Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.'
+                    : 'Complete the fields below. Answers save automatically.'}
                 </p>
               )}
             </div>
