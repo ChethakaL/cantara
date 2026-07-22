@@ -6,7 +6,7 @@ import type { ManualCompetitorEntry } from '@/lib/competitor-analysis/types'
 import type { ClientPortalFormQuestion } from '@/app/dashboard/page'
 
 function isCompetitorSlotField(fieldKey: string): boolean {
-  return /^competitor\d+(Name|Website|Address|Category)$/.test(fieldKey)
+  return /^competitor\d+(Name|Website|Address|Category)$/.test(fieldKey) || fieldKey === 'competitorSlotCount'
 }
 
 type FormQuestionFieldsProps = {

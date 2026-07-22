@@ -23,7 +23,12 @@ export function readCompetitorSlots(responses: Record<string, string>): ManualCo
     }
   })
 
-  const visibleCount = Math.max(1, lastFilled + 1)
+  const storedCount = responses.competitorSlotCount ? parseInt(responses.competitorSlotCount, 10) : NaN
+  const visibleCount = Math.min(
+    COMPETITOR_SLOT_COUNT,
+    Math.max(1, lastFilled + 1, !isNaN(storedCount) ? storedCount : 0),
+  )
+
   return slots.slice(0, visibleCount)
 }
 
@@ -38,5 +43,6 @@ export function writeCompetitorSlots(
     next[competitorFieldKey(index, 'Website')] = competitor?.websiteUrl?.trim() ?? ''
     next[competitorFieldKey(index, 'Address')] = competitor?.address?.trim() ?? ''
   }
+  next.competitorSlotCount = String(competitors.length)
   return next
 }
