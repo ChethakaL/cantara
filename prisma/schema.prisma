@@ -260,7 +260,7 @@ model TeamMember {
 }
 
 model ClientEmailNotification {
-  id                 String                      @id @default(cuid())
+  id                 String                        @id @default(cuid())
   clientId           String
   type               ClientEmailNotificationType
   recipientEmail     String
@@ -271,8 +271,8 @@ model ClientEmailNotification {
   payload            Json?
   status             ClientEmailNotificationStatus @default(SENT)
   errorMessage       String?
-  sentAt             DateTime                    @default(now())
-  client             ClientProfile               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sentAt             DateTime                      @default(now())
+  client             ClientProfile                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, type, recipientEmail, reminderDaysBefore, documentId, targetDeadline])
   @@index([clientId, sentAt])
@@ -292,20 +292,20 @@ model AdvisorProfile {
 }
 
 model ClientDocumentStatus {
-  id             String        @id @default(cuid())
-  clientId       String
-  documentId     String
-  hasDoc         Boolean?
+  id                  String        @id @default(cuid())
+  clientId            String
+  documentId          String
+  hasDoc              Boolean?
   unavailableDecision String?
-  assignedTo     String?
-  uploadedAt     DateTime?
-  fileName       String?
-  notApplicable  Boolean       @default(false)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  fileUrl        String?
-  targetDeadline DateTime?
-  client         ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  assignedTo          String?
+  uploadedAt          DateTime?
+  fileName            String?
+  notApplicable       Boolean       @default(false)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  fileUrl             String?
+  targetDeadline      DateTime?
+  client              ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, documentId])
   @@index([clientId, updatedAt])
@@ -529,6 +529,134 @@ model User {
   DocumentRequest           DocumentRequest[]
   Questions                 Question[]
   Sessions                  Session[]
+  salesLeads                SalesLead[]
+}
+
+enum SalesLeadStage {
+  NEW
+  EMAIL_1_DUE
+  EMAIL_1_SENT
+  CALL_1_DUE
+  EMAIL_2_DUE
+  EMAIL_2_SENT
+  CALL_2_DUE
+  BOOKED
+  NEEDS_FOLLOW_UP
+  RECONNECT_LATER
+  BAD_CONTACT
+  OPTED_OUT
+  CLOSED_SOLD
+  NOT_INTERESTED_TO_NURTURE
+  COMPLETED_NO_RESPONSE
+}
+
+enum SalesLeadCallResult {
+  NO_ANSWER
+  LEFT_VOICEMAIL
+  GATEKEEPER
+  SPOKE_WITH_OWNER
+  CALLBACK_REQUESTED
+  EMAIL_REQUESTED
+  WRONG_NUMBER
+  DISCONNECTED_NUMBER
+}
+
+enum SalesLeadContactType {
+  DIRECT
+  GENERAL
+}
+
+enum SalesLeadSyncStatus {
+  NOT_LINKED
+  SYNCED
+  PENDING
+  ERROR
+}
+
+enum SalesLeadEmailApprovalStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+  SENT
+}
+
+model SalesLead {
+  id                 String               @id @default(cuid())
+  businessName       String
+  assignedCallerId   String?
+  currentStage       SalesLeadStage       @default(NEW)
+  lastCallResult     SalesLeadCallResult?
+  nextActionDate     DateTime?
+  lastContactDate    DateTime?
+  state              String?
+  city               String?
+  websiteUrl         String?
+  googleRating       Float?
+  reviewCount        Int?
+  sqftIndoor         Int?
+  sqftOutdoor        Int?
+  sqftCombined       Int?
+  locationType       String?
+  preCallBriefUrl    String?
+  ownerFirstName     String?
+  ownerLastName      String?
+  ownerPhone         String?
+  phoneType          SalesLeadContactType @default(GENERAL)
+  sourceLinkPhone    String?
+  ownerEmail         String?
+  emailType          SalesLeadContactType @default(GENERAL)
+  sourceLinkEmail    String?
+  emailApprovalStatus SalesLeadEmailApprovalStatus @default(NONE)
+  pendingEmailTemplate Int?
+  emailDraftSubject  String?
+  emailDraftBody     String?
+  emailApprovedAt    DateTime?
+  emailApprovedBy    String?
+  emailSentAt        DateTime?
+  bookingDateTime    DateTime?
+  notes              String?
+  mondayBoardId      String?
+  mondayItemId       String?              @unique
+  mondayLastSyncedAt DateTime?
+  syncStatus         SalesLeadSyncStatus  @default(NOT_LINKED)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  assignedCaller     User?                @relation(fields: [assignedCallerId], references: [id], onDelete: SetNull)
+  activities         SalesLeadActivity[]
+  syncEvents         SalesLeadSyncEvent[]
+
+  @@index([currentStage, nextActionDate])
+  @@index([assignedCallerId, currentStage])
+  @@index([syncStatus, updatedAt])
+}
+
+model SalesLeadActivity {
+  id        String    @id @default(cuid())
+  leadId    String
+  type      String
+  summary   String
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  lead      SalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+}
+
+model SalesLeadSyncEvent {
+  id          String    @id @default(cuid())
+  leadId      String
+  direction   String
+  status      String
+  payload     Json?
+  error       String?
+  attempts    Int       @default(0)
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+  lead        SalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+  @@index([status, createdAt])
 }
 
 model CimReport {

@@ -115,14 +115,31 @@ function getComposioMailAuthConfigEnvKey(toolkit = getComposioMailToolkitSlug())
   return toolkit === "OUTLOOK" ? "COMPOSIO_OUTLOOK_AUTH_CONFIG_ID" : "COMPOSIO_GMAIL_AUTH_CONFIG_ID";
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatEmailBody(body: string) {
+  // Templates may intentionally contain HTML. Plain-text templates need
+  // explicit HTML breaks because the provider is told to send HTML.
+  if (/<(?:p|br|div|strong|em|ul|ol|li)\b/i.test(body)) return body;
+  return escapeHtml(body).replace(/\r?\n\r?\n/g, "<br><br>").replace(/\r?\n/g, "<br>");
+}
+
 function buildComposioMailArguments(args: { to: string; displayName?: string; subject: string; body: string }) {
   const toolkit = getComposioMailToolkitSlug();
+  const formattedBody = formatEmailBody(args.body);
   if (toolkit === "OUTLOOK") {
     return {
       to_email: args.to,
       to_name: args.displayName || args.to,
       subject: args.subject,
-      body: args.body,
+      body: formattedBody,
       is_html: true,
       save_to_sent_items: true,
     };
@@ -130,7 +147,7 @@ function buildComposioMailArguments(args: { to: string; displayName?: string; su
   return {
     recipient_email: args.to,
     subject: args.subject,
-    body: args.body,
+    body: formattedBody,
     is_html: true,
   };
 }
@@ -1552,6 +1569,85 @@ async function executeMondayGraphqlDirect(args: {
     return null;
   }
   return mondayJson;
+}
+
+export async function createMondayBoardItem(args: {
+  boardId: string;
+  itemName: string;
+  columnValues: Record<string, unknown>;
+}) {
+  try {
+    const toolResult = await executeMondayTool<any>("MONDAY_CREATE_ITEM", {
+      board_id: args.boardId,
+      item_name: args.itemName,
+      column_values: args.columnValues,
+    });
+    const toolId =
+      toolResult?.data?.id ||
+      toolResult?.data?.item?.id ||
+      toolResult?.data?.create_item?.id;
+    if (toolId) return String(toolId);
+  } catch (error) {
+    console.warn("[Monday] MONDAY_CREATE_ITEM failed; trying GraphQL.", error);
+  }
+
+  const result = await executeMondayGraphqlDirect({
+    query: `
+      mutation ($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
+        create_item(
+          board_id: $boardId
+          item_name: $itemName
+          column_values: $columnValues
+        ) { id }
+      }
+    `,
+    variables: {
+      boardId: args.boardId,
+      itemName: args.itemName,
+      columnValues: args.columnValues,
+    },
+  });
+  const itemId = (result?.data as any)?.create_item?.id;
+  if (!itemId) throw new Error("Monday item could not be created.");
+  return String(itemId);
+}
+
+export async function updateMondayBoardItem(args: {
+  boardId: string;
+  itemId: string;
+  columnValues: Record<string, unknown>;
+}) {
+  try {
+    const toolResult = await executeMondayTool<any>("MONDAY_UPDATE_ITEM", {
+      board_id: args.boardId,
+      item_id: args.itemId,
+      column_values: args.columnValues,
+    });
+    if (toolResult?.successful !== false) return true;
+  } catch (error) {
+    console.warn("[Monday] MONDAY_UPDATE_ITEM failed; trying GraphQL.", error);
+  }
+
+  const result = await executeMondayGraphqlDirect({
+    query: `
+      mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+        change_multiple_column_values(
+          board_id: $boardId
+          item_id: $itemId
+          column_values: $columnValues
+        ) { id }
+      }
+    `,
+    variables: {
+      boardId: args.boardId,
+      itemId: args.itemId,
+      columnValues: args.columnValues,
+    },
+  });
+  if (!(result?.data as any)?.change_multiple_column_values?.id) {
+    throw new Error("Monday item could not be updated.");
+  }
+  return true;
 }
 
 async function updateMondayLinkColumn(args: {

@@ -12,6 +12,12 @@ import {
   MONDAY_GLOBAL_MAPPING_FIELDS,
   type MondayGlobalMappingKey,
 } from '@/lib/monday-settings'
+import {
+  emptySalesLeadMondayMapping,
+  SALES_LEAD_MONDAY_MAPPING_FIELDS,
+  type SalesLeadMondayMappingForm,
+  type SalesLeadMondayMappingKey,
+} from '@/lib/sales-leads/monday-settings'
 
 type KeyStatus = {
   configured: boolean
@@ -50,6 +56,13 @@ export default function AdminSettingsPage() {
   const [availableColumns, setAvailableColumns] = useState<MondayColumn[]>([])
   const [loadingMondayMeta, setLoadingMondayMeta] = useState(false)
   const [mondayStatusMessage, setMondayStatusMessage] = useState<string | null>(null)
+  const [salesLeadBoardId, setSalesLeadBoardId] = useState('')
+  const [salesLeadMapping, setSalesLeadMapping] = useState<SalesLeadMondayMappingForm>(
+    emptySalesLeadMondayMapping(),
+  )
+  const [salesLeadColumns, setSalesLeadColumns] = useState<MondayColumn[]>([])
+  const [salesLeadMappingMessage, setSalesLeadMappingMessage] = useState<string | null>(null)
+  const [savingSalesLeadMapping, setSavingSalesLeadMapping] = useState(false)
   const [adminEmail, setAdminEmail] = useState('')
   const [otpSent, setOtpSent] = useState(false)
   const [otpSending, setOtpSending] = useState(false)
@@ -73,6 +86,14 @@ export default function AdminSettingsPage() {
         if (mData.boardId) setMondayBoardId(mData.boardId)
         if (mData.columnMapping) {
           setMondayMapping(prev => ({ ...prev, ...mData.columnMapping }))
+        }
+      }
+      const salesLeadRes = await fetch('/api/admin/settings/sales-leads-monday', { cache: 'no-store' })
+      if (salesLeadRes.ok) {
+        const salesLeadData = await salesLeadRes.json()
+        if (salesLeadData.boardId) setSalesLeadBoardId(salesLeadData.boardId)
+        if (salesLeadData.columnMapping) {
+          setSalesLeadMapping(previous => ({ ...previous, ...salesLeadData.columnMapping }))
         }
       }
     } catch (err) {
@@ -131,6 +152,34 @@ export default function AdminSettingsPage() {
     }
     void fetchCols()
   }, [mondayBoardId])
+
+  useEffect(() => {
+    if (!salesLeadBoardId) {
+      setSalesLeadColumns([])
+      return
+    }
+    let active = true
+    ;(async () => {
+      try {
+        const response = await fetch(
+          `/api/composio/monday/columns?boardId=${encodeURIComponent(salesLeadBoardId)}`,
+          { cache: 'no-store' },
+        )
+        if (!response.ok) throw new Error(await response.text())
+        const data = await response.json()
+        if (!active) return
+        const columns = Array.isArray(data.columns) ? data.columns : []
+        setSalesLeadColumns(columns.map((column: MondayColumn) => ({
+          id: column.id,
+          title: column.title || column.id,
+          type: column.type || 'text',
+        })))
+      } catch (fetchError) {
+        if (active) setError(fetchError instanceof Error ? fetchError.message : 'Failed to load Sales Lead columns')
+      }
+    })()
+    return () => { active = false }
+  }, [salesLeadBoardId])
 
   useEffect(() => {
     setAdminEmail(getAdminEmail())
@@ -229,6 +278,31 @@ export default function AdminSettingsPage() {
 
   const handleMappingChange = (field: MondayGlobalMappingKey, val: string) => {
     setMondayMapping(prev => ({ ...prev, [field]: val }))
+  }
+
+  const saveSalesLeadMondaySettings = async () => {
+    setSavingSalesLeadMapping(true)
+    setSalesLeadMappingMessage(null)
+    try {
+      const response = await fetch('/api/admin/settings/sales-leads-monday', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          boardId: salesLeadBoardId,
+          columnMapping: salesLeadMapping,
+        }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+      setSalesLeadMappingMessage('Sales Leads mapping saved successfully.')
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Failed to save Sales Leads mapping')
+    } finally {
+      setSavingSalesLeadMapping(false)
+    }
+  }
+
+  const handleSalesLeadMappingChange = (field: SalesLeadMondayMappingKey, value: string) => {
+    setSalesLeadMapping(previous => ({ ...previous, [field]: value }))
   }
 
   return (
@@ -348,6 +422,82 @@ export default function AdminSettingsPage() {
             <Button onClick={() => void saveMondaySettings()} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {saving ? 'Saving...' : 'Save Monday Mapping'}
+            </Button>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+              <Sliders className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Sales Leads Monday mapping</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Map the internal Sales Leads workflow fields to the selected Monday board. Reading and saving this
+                configuration does not modify the Monday board.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-5">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                Sales Leads Board
+              </label>
+              <select
+                className="w-full text-xs rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20"
+                value={salesLeadBoardId}
+                onChange={event => setSalesLeadBoardId(event.target.value)}
+              >
+                <option value="">Select a board</option>
+                {availableBoards.map(board => (
+                  <option key={board.id} value={board.id}>{board.name} ({board.id})</option>
+                ))}
+              </select>
+            </div>
+
+            {salesLeadBoardId && (
+              <>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-600">Workflow column mappings</span>
+                  <span className="text-slate-400">{salesLeadColumns.length} Monday columns found</span>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {SALES_LEAD_MONDAY_MAPPING_FIELDS.map(field => (
+                    <div key={field.key}>
+                      <label className="block text-[11px] font-medium text-slate-500 mb-1.5">{field.label}</label>
+                      <select
+                        className="w-full text-xs rounded-xl border border-slate-200 bg-white px-3 py-1.5 outline-none focus:border-blue-400"
+                        value={salesLeadMapping[field.key]}
+                        onChange={event => handleSalesLeadMappingChange(field.key, event.target.value)}
+                      >
+                        <option value="">Not mapped</option>
+                        {salesLeadColumns.map(column => (
+                          <option key={column.id} value={column.id}>
+                            {column.title} ({column.type}) - {column.id}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {salesLeadMappingMessage && (
+              <p className="text-xs text-emerald-700 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> {salesLeadMappingMessage}
+              </p>
+            )}
+            <Button
+              onClick={() => void saveSalesLeadMondaySettings()}
+              disabled={savingSalesLeadMapping || !salesLeadBoardId}
+            >
+              {savingSalesLeadMapping
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <ShieldCheck className="h-4 w-4" />}
+              {savingSalesLeadMapping ? 'Saving...' : 'Save Sales Leads Mapping'}
             </Button>
           </div>
         </section>

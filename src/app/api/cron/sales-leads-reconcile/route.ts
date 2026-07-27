@@ -1,0 +1,24 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getProjectEnv } from '@/lib/project-env'
+import { reconcileSalesLeadsFromMonday } from '@/lib/sales-leads/monday-sync'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300
+
+export async function GET(req: NextRequest) {
+  const secret = getProjectEnv('CRON_SECRET')
+  if (secret) {
+    const authorization = req.headers.get('authorization')
+    if (authorization !== `Bearer ${secret}` && req.headers.get('x-cron-secret') !== secret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+  try {
+    return NextResponse.json({ ok: true, ...(await reconcileSalesLeadsFromMonday()) })
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : 'Reconciliation failed.' },
+      { status: 500 },
+    )
+  }
+}

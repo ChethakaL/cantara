@@ -167,6 +167,9 @@ export async function getAnthropicClient() {
 
 const MONDAY_BOARD_ID_KEY = "monday_global_board_id";
 const MONDAY_MAPPING_KEY = "monday_global_column_mapping";
+const SALES_LEAD_MONDAY_BOARD_ID_KEY = "sales_lead_monday_board_id";
+const SALES_LEAD_MONDAY_MAPPING_KEY = "sales_lead_monday_column_mapping";
+const SALES_LEAD_MONDAY_CALLER_MAPPING_KEY = "sales_lead_monday_caller_mapping";
 
 export async function getStoredMondayBoardId() {
   const secret = await (prisma as any).appSecret.findUnique({
@@ -204,4 +207,51 @@ export async function saveStoredMondayColumnMapping(mapping: Record<string, stri
     update: { value: encryptSecret(jsonStr) },
     create: { key: MONDAY_MAPPING_KEY, value: encryptSecret(jsonStr) },
   });
+}
+
+async function getEncryptedSetting(key: string) {
+  const secret = await (prisma as any).appSecret.findUnique({ where: { key } });
+  if (!secret?.value) return null;
+  try {
+    return decryptSecret(secret.value);
+  } catch {
+    return null;
+  }
+}
+
+async function saveEncryptedSetting(key: string, value: string) {
+  await (prisma as any).appSecret.upsert({
+    where: { key },
+    update: { value: encryptSecret(value) },
+    create: { key, value: encryptSecret(value) },
+  });
+}
+
+export async function getStoredSalesLeadMondaySettings() {
+  const [boardId, mappingJson, callerJson] = await Promise.all([
+    getEncryptedSetting(SALES_LEAD_MONDAY_BOARD_ID_KEY),
+    getEncryptedSetting(SALES_LEAD_MONDAY_MAPPING_KEY),
+    getEncryptedSetting(SALES_LEAD_MONDAY_CALLER_MAPPING_KEY),
+  ]);
+  const parse = (value: string | null) => {
+    if (!value) return {};
+    try { return JSON.parse(value); } catch { return {}; }
+  };
+  return {
+    boardId: boardId || "",
+    columnMapping: parse(mappingJson),
+    callerMapping: parse(callerJson),
+  };
+}
+
+export async function saveStoredSalesLeadMondaySettings(args: {
+  boardId: string;
+  columnMapping: Record<string, string | undefined>;
+  callerMapping?: Record<string, string | number>;
+}) {
+  await Promise.all([
+    saveEncryptedSetting(SALES_LEAD_MONDAY_BOARD_ID_KEY, args.boardId.trim()),
+    saveEncryptedSetting(SALES_LEAD_MONDAY_MAPPING_KEY, JSON.stringify(args.columnMapping)),
+    saveEncryptedSetting(SALES_LEAD_MONDAY_CALLER_MAPPING_KEY, JSON.stringify(args.callerMapping || {})),
+  ]);
 }
