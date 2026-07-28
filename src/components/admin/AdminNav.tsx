@@ -35,7 +35,7 @@ export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) 
               <Globe2 className="w-3.5 h-3.5" />
               Digital Presence
             </Link>
-            {/* <Link
+            <Link
               href="/admin/sales-leads"
               className={cn(
                 'hidden md:flex items-center gap-1.5 text-xs transition-colors px-2 py-1 rounded',
@@ -46,7 +46,7 @@ export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) 
             >
               <BarChart3 className="w-3.5 h-3.5" />
               Sales Leads
-            </Link> */}
+            </Link>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-cantara-sun/40 text-xs hidden md:block">{name}</span>
