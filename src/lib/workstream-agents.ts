@@ -22,7 +22,6 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'owner_gm_assessment', agentName: 'Owner & GM Assessment Agent', documentIds: ['employee_list', 'org_chart', 'sop_manual'] },
     { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
-    { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
     { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: [] },
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
     { agentId: 'legal_entity_search', agentName: 'Legal Reports & Entity Search Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure', 'business_licenses'] },
@@ -35,7 +34,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent', documentIds: [] },
     { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
     { agentId: 'facility_review', agentName: 'Facility Review Agent', documentIds: ['health_safety', 'violations'] },
-    { agentId: 'occupancy_review', agentName: 'Occupancy Review Agent', documentIds: [] },
+    { agentId: 'occupancy_review', agentName: 'Occupancy Review Agent', documentIds: ['occupancy_review'] },
     { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent', documentIds: ['revenue_breakdown', 'pricing_schedule'] },
     { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent', documentIds: ['sales_process_transcript', 'pricing_schedule'] },
@@ -50,6 +49,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent', documentIds: [] },
     { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
+    { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
   ],
   both: [],
 }
@@ -80,15 +80,19 @@ export function getClientWorkstreamAgents(client: {
   workstreamAgents?: WorkstreamAgentSelection[] | null
   propertyOwnership?: PropertyOwnership
 }) {
+  let agents: WorkstreamAgentSelection[] = []
   if (client.workstreamAgents?.length) {
-    return filterLeaseAgentSelection(client.workstreamAgents, client.propertyOwnership)
+    agents = filterLeaseAgentSelection(client.workstreamAgents, client.propertyOwnership)
+  } else if (client.customWorkstream?.agents?.length) {
+    agents = filterLeaseAgentSelection(client.customWorkstream.agents, client.propertyOwnership)
+  } else if (client.workstream) {
+    agents = filterLeaseAgentSelection(SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? [], client.propertyOwnership)
   }
-  if (client.customWorkstream?.agents?.length) {
-    return filterLeaseAgentSelection(client.customWorkstream.agents, client.propertyOwnership)
+
+  if (client.workstream !== 'ma') {
+    return agents.filter(agent => agent.agentId !== 'professional_advisors')
   }
-  return client.workstream
-    ? filterLeaseAgentSelection(SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? [], client.propertyOwnership)
-    : []
+  return agents
 }
 
 export function normalizeAgentStatusKey(agentId: string) {

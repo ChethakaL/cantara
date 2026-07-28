@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink, Trello, LogOut, Download, FileText } from 'lucide-react'
+import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink, Trello, LogOut, Download, BarChart3 } from 'lucide-react'
 import AdminNav from '@/components/admin/AdminNav'
 import MondayImportModal from '@/components/monday/MondayImportModal'
 import PetBusinessCategoryField from '@/components/ui/PetBusinessCategoryField'
@@ -608,9 +608,14 @@ export default function AdminDashboard() {
               <h2 className="text-3xl font-light text-slate-800 cantara-serif" style={{ letterSpacing: '-0.01em' }}>Active Clients</h2>
               <div style={{ width: '1.75rem', height: '1.5px', background: '#b8922a', marginTop: '0.75rem' }} />
             </div>
+            <div className="flex items-center gap-2 flex-wrap">
+            {/* <Link href="/admin/sales-leads">
+              <Button variant="outline"><BarChart3 className="w-4 h-4" /> Go to Sales Leads Board <ChevronRight className="w-4 h-4" /></Button>
+            </Link> */}
             <Button onClick={() => setAdding(true)}>
               <Plus className="w-4 h-4" /> New Client
             </Button>
+            </div>
           </div>
 
           <Card className="p-5 mb-8 border-cantara-gold/20">

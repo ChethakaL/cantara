@@ -79,9 +79,9 @@ export function useChatRoom(args: {
     void markChatRead(clientId, viewer).then(() => refresh())
   }, [isActive, clientId, viewer, refresh])
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, attachment?: File | null) => {
     const trimmed = text.trim()
-    if (!trimmed || sending || !clientId) return false
+    if ((!trimmed && !attachment) || sending || !clientId) return false
 
     const optimisticId = `optimistic-${Date.now()}`
     const optimistic: ChatMessage = {
@@ -90,6 +90,9 @@ export function useChatRoom(args: {
       senderRole: viewer,
       senderName,
       message: trimmed,
+      attachmentName: attachment?.name,
+      attachmentMimeType: attachment?.type,
+      attachmentSize: attachment?.size,
       timestamp: new Date().toISOString(),
       readByAdmin: viewer === 'admin',
       readByClient: viewer === 'client',
@@ -99,15 +102,15 @@ export function useChatRoom(args: {
     setMessages(prev => [...prev, optimistic])
 
     try {
+      const form = new FormData()
+      form.append('clientId', clientId)
+      form.append('senderRole', viewer)
+      form.append('senderName', senderName)
+      form.append('message', trimmed)
+      if (attachment) form.append('attachment', attachment)
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId,
-          senderRole: viewer,
-          senderName,
-          message: trimmed,
-        }),
+        body: form,
       })
       if (!res.ok) throw new Error(await res.text())
       await refresh()

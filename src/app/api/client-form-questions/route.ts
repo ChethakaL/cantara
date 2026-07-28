@@ -35,7 +35,6 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<string, AgentSelection[]> = {
     { agentId: 'owner_gm_assessment', agentName: 'Owner & GM Assessment Agent' },
     { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent' },
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent' },
-    { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent' },
     { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent' },
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent' },
   ],
@@ -56,6 +55,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<string, AgentSelection[]> = {
     { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent' },
     { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent' },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent' },
+    { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent' },
   ],
 }
 SYSTEM_WORKSTREAM_AGENTS.both = [...SYSTEM_WORKSTREAM_AGENTS.ws1, ...SYSTEM_WORKSTREAM_AGENTS.ws2].filter(
@@ -67,7 +67,11 @@ function activeAgentIds(client: any): string[] {
   const workstreamKey = String(client.workstream ?? '').toLowerCase()
   const systemAgents = customAgents.length ? customAgents : (SYSTEM_WORKSTREAM_AGENTS[workstreamKey] ?? [])
   const clientAgents = client.ClientWorkstreamAgents?.map((a: any) => ({ agentId: a.agentId, agentName: a.agentName })) ?? []
-  return Array.from(new Set([...systemAgents, ...clientAgents].map(a => a.agentId).filter(id => id && id !== 'ttm')))
+  const ids = Array.from(new Set([...systemAgents, ...clientAgents].map(a => a.agentId).filter(id => id && id !== 'ttm')))
+  if (workstreamKey !== 'ma') {
+    return ids.filter(id => id !== 'professional_advisors')
+  }
+  return ids
 }
 
 function isAdvisorFacilityReviewMode(client: any): boolean {
@@ -332,10 +336,13 @@ export async function GET(req: NextRequest) {
     ...syncStructuredToFormResponses(existing, client),
   }
 
-  const questions = dedupeQuestions(ensureCompetitorFormFields(rows, agentIds)).map(question => ({
-    ...question,
-    options: Array.isArray(question.options) ? question.options : null,
-  }))
+  const questions = dedupeQuestions(ensureCompetitorFormFields(rows, agentIds))
+    // Commented out for now: Google Business locations
+    .filter(q => q.fieldKey !== 'googleBusinessLocations')
+    .map(question => ({
+      ...question,
+      options: Array.isArray(question.options) ? question.options : null,
+    }))
 
   return NextResponse.json({ questions, responses })
 }

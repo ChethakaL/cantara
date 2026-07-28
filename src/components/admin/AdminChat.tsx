@@ -11,6 +11,7 @@ export default function AdminChat({ clientId, clientName, adminName }: {
   adminName: string
 }) {
   const [draft, setDraft] = useState('')
+  const [attachment, setAttachment] = useState<File | null>(null)
   const { messages, unreadCount, sending, sendMessage } = useChatRoom({
     clientId,
     viewer: 'admin',
@@ -20,8 +21,8 @@ export default function AdminChat({ clientId, clientName, adminName }: {
 
   const send = async () => {
     if (!draft.trim()) return
-    const ok = await sendMessage(draft)
-    if (ok) setDraft('')
+    const ok = await sendMessage(draft, attachment)
+    if (ok) { setDraft(''); setAttachment(null) }
   }
 
   return (
@@ -50,6 +51,8 @@ export default function AdminChat({ clientId, clientName, adminName }: {
         draft={draft}
         onDraftChange={setDraft}
         onSend={() => void send()}
+        attachment={attachment}
+        onAttachmentChange={setAttachment}
         sending={sending}
         emptyHint={`No messages yet. Send a message to ${clientName}.`}
         placeholder={`Reply to ${clientName}...`}

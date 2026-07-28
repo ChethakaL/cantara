@@ -32,7 +32,7 @@ export const DOCUMENT_ASSIGN_HELP: Partial<Record<string, string>> = {
     'A spreadsheet listing each employee with job title, average weekly hours, and compensation (no SSNs). Use the template if helpful.',
   leases: 'Include the base lease and every amendment, addendum, or rider.',
   real_estate_appraisal: 'Upload one current appraisal document for the real estate owned by the business.',
-  material_contracts: 'Contracts or vendor agreements over $5,000 per year.',
+  material_contracts: 'Material contracts, vendor/supplier agreements, or software subscriptions exceeding $5,000 per year.',
 }
 
 export function isClientPortalDocument(doc: { id: string }): boolean {

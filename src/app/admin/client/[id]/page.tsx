@@ -434,7 +434,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       }
     }
     void loadChecks()
-    const timer = setInterval(() => void loadChecks(), 10000)
+    const timer = setInterval(() => void loadChecks(), 30000)
     return () => {
       cancelled = true
       clearInterval(timer)
@@ -468,7 +468,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       }
     }
     void loadApprovalLocks()
-    const timer = setInterval(() => void loadApprovalLocks(), 5000)
+    const timer = setInterval(() => void loadApprovalLocks(), 30000)
     return () => {
       cancelled = true
       clearInterval(timer)

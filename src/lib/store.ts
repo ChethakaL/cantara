@@ -85,6 +85,10 @@ export interface ChatMessage {
   timestamp: string
   readByAdmin: boolean
   readByClient: boolean
+  attachmentUrl?: string | null
+  attachmentName?: string | null
+  attachmentMimeType?: string | null
+  attachmentSize?: number | null
 }
 
 export interface AdditionalRequirement {

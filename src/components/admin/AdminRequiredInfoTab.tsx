@@ -54,7 +54,6 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
       ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
-      ...(formQuestions.some(q => !isDedicatedRequiredInfoAgent(q.agentId)) ? ['other_info'] : []),
     ],
     formLabels: {
       facility_review: 'Facility Review',
@@ -63,7 +62,6 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',
       professional_advisors: 'Professional Advisors',
-      other_info: 'Other Required Info',
     } as Record<string, string>,
   }
 }

@@ -185,12 +185,14 @@ export default function DigitalPresenceForm({ onSubmit, loading, initialData, cl
           value={form.googleBusinessProfileUrl}
           onChange={e => set('googleBusinessProfileUrl', e.target.value)}
         />
+        {/* Google Business locations commented out for now:
         <Input
           label="Additional Location Names (for multi-location businesses)"
           placeholder="e.g. Rex Dog Hotel - Downtown, Rex Dog Hotel - Burnaby"
           value={form.googleBusinessLocations}
           onChange={e => set('googleBusinessLocations', e.target.value)}
         />
+        */}
         <p className="text-xs text-slate-400">Paste the Google Maps / Business Profile link. For multi-location businesses, list additional location names separated by commas.</p>
       </FieldGroup>
 

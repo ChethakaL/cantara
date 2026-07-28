@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
-import { Bell, LogOut, Settings, Globe2 } from 'lucide-react'
+import { Bell, LogOut, Settings, Globe2, BarChart3 } from 'lucide-react'
 import { logout } from '@/lib/store'
 import { GoldLine, cn } from '@/components/ui'
 import { useAdminInboxUnread } from '@/hooks/useChatRoom'
@@ -35,6 +35,18 @@ export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) 
               <Globe2 className="w-3.5 h-3.5" />
               Digital Presence
             </Link>
+            {/* <Link
+              href="/admin/sales-leads"
+              className={cn(
+                'hidden md:flex items-center gap-1.5 text-xs transition-colors px-2 py-1 rounded',
+                pathname?.startsWith('/admin/sales-leads')
+                  ? 'text-cantara-gold'
+                  : 'text-cantara-sun/40 hover:text-cantara-sun/70'
+              )}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              Sales Leads
+            </Link> */}
           </div>
           <div className="flex items-center gap-3">
             <span className="text-cantara-sun/40 text-xs hidden md:block">{name}</span>

@@ -3,6 +3,18 @@
     {
       "path": "/api/drive/sync-all",
       "schedule": "0 3 * * 1"
+    },
+    {
+      "path": "/api/cron/sales-leads",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sales-leads-sync",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/sales-leads-reconcile",
+      "schedule": "0 * * * *"
     }
   ]
 }

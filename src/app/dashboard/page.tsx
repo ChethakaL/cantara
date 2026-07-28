@@ -49,6 +49,7 @@ import DigitalPresenceScorecard from '@/components/digital-presence/DigitalPrese
 import ClientApprovedAgentOutput, { type ClientApprovedClient } from '@/components/client-portal/ClientApprovedAgentOutput'
 import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
+import { readCompetitorSlots } from '@/lib/competitor-portal-form'
 import { buildTaxReadinessReferenceHtml } from '@/lib/tax-readiness'
 
 export type ClientPortalFormQuestion = {
@@ -268,7 +269,6 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
       ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
-      ...(formQuestions.some(q => !isDedicatedRequiredInfoAgent(q.agentId)) ? ['other_info'] : []),
     ],
     formLabels: {
       facility_review: 'Facility Review',
@@ -277,7 +277,6 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',
       professional_advisors: 'Professional Advisors',
-      other_info: 'Other Required Info',
     } as Record<string, string>,
   }
 }
@@ -337,6 +336,7 @@ export default function ClientDashboard() {
   const [docStatuses, setDocStatuses] = useState<Record<string, DocumentStatus>>({})
   const [assignPhaseComplete, setAssignPhaseComplete] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
+  const [chatAttachment, setChatAttachment] = useState<File | null>(null)
   const [requirements, setRequirements] = useState<AdditionalRequirement[]>([])
   const [savingStatuses, setSavingStatuses] = useState(false)
   const [dirtyStatusIds, setDirtyStatusIds] = useState<Set<string>>(new Set())
@@ -710,8 +710,8 @@ export default function ClientDashboard() {
 
   const submitChat = async () => {
     if (!chatDraft.trim()) return
-    const ok = await chat.sendMessage(chatDraft)
-    if (ok) setChatDraft('')
+    const ok = await chat.sendMessage(chatDraft, chatAttachment)
+    if (ok) { setChatDraft(''); setChatAttachment(null) }
   }
 
   const wsLabel: Record<string, string> = {
@@ -946,6 +946,8 @@ export default function ClientDashboard() {
                   getDeadline={getDeadline}
                   sectionDeadlines={sectionDeadlines}
                   tourStep={tourStep}
+                  teamMembers={client.teamMembers}
+                  isTeamMemberSession={isTeamMemberSession}
                 />
               )}
               {phase === 'requirements' && (
@@ -1011,6 +1013,8 @@ export default function ClientDashboard() {
               draft={chatDraft}
               onDraftChange={setChatDraft}
               onSend={() => void submitChat()}
+              attachment={chatAttachment}
+              onAttachmentChange={setChatAttachment}
               sending={chat.sending}
               emptyHint="Send a message to your Cantara advisor team. Replies appear here and update your notification badge."
               placeholder="Message your team…"
@@ -2129,10 +2133,10 @@ function FormQuestionFields({
     <div className="grid gap-3 md:grid-cols-2">
       {questions.map(question => {
         const commonClass =
-          'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
+          'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400 mt-auto'
         const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
         const Shell = structured ? 'div' : 'label'
-        const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2' : ''
+        const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2 flex flex-col justify-between' : 'flex flex-col justify-between'
         return (
           <Shell key={question.id} className={shellClass}>
             <span className="text-xs font-semibold text-slate-500">
@@ -2706,23 +2710,85 @@ function AgentInformationTab({
 
   const otherFormQuestions = formQuestions.filter(q => !isDedicatedRequiredInfoAgent(q.agentId))
 
+  const isFormTabComplete = (key: string) => {
+    // 1. Competitor & Pricing Inputs check
+    if (key === 'competitor_analysis') {
+      const competitors = readCompetitorSlots(formResponses)
+      const allCompetitorsValid = competitors.length > 0 && competitors.every(c => c.name.trim().length > 0)
+      if (!allCompetitorsValid) return false
+    }
+
+    // 2. Software & Vendors check
+    if (key === 'vendor_directory') {
+      const val = formResponses['vendorDirectoryList'] ?? ''
+      const rows = parsePipeRows(val, 'vendorDirectoryList')
+      if (rows.length === 0) return false
+      const allRowsValid = rows.every(r => (r.name ?? '').trim().length > 0 && (r.vendor ?? '').trim().length > 0)
+      if (!allRowsValid) return false
+    }
+
+    // 3. Professional Advisors check
+    if (key === 'professional_advisors') {
+      const val = formResponses['professionalAdvisorsList'] ?? ''
+      if (val !== '__NO_PROFESSIONAL_ADVISORS__') {
+        const rows = parsePipeRows(val, 'professionalAdvisorsList')
+        if (rows.length === 0) return false
+        const allRowsValid = rows.every(r => (r.role ?? '').trim().length > 0 && (r.name ?? '').trim().length > 0)
+        if (!allRowsValid) return false
+      }
+    }
+
+    // 4. Standard questions check
+    const tabQuestions = formQuestions.filter(q => {
+      if (key === 'other_info') {
+        return !isDedicatedRequiredInfoAgent(q.agentId)
+      }
+      return key === 'competitor_analysis'
+        ? (q.agentId === 'competitor_analysis' || q.agentId === 'pricing_analysis')
+        : q.agentId === key
+    })
+
+    const filterOutSpecialFields = (q: ClientPortalFormQuestion) =>
+      !/^competitor\d+(Name|Website|Address|Category)$/.test(q.fieldKey) &&
+      q.fieldKey !== 'vendorDirectoryList' &&
+      q.fieldKey !== 'professionalAdvisorsList'
+
+    const standardQuestions = tabQuestions.filter(filterOutSpecialFields)
+    if (standardQuestions.length > 0) {
+      const requiredQuestions = standardQuestions.filter(q => q.required)
+      const questionsToCheck = requiredQuestions.length > 0 ? requiredQuestions : standardQuestions
+
+      const allStandardFilled = questionsToCheck.every(q => {
+        const val = formResponses[q.fieldKey]
+        return val && val.trim().length > 0
+      })
+      if (!allStandardFilled) return false
+    }
+
+    return true
+  }
+
   return (
     <div id="tour-information-container" className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-1 flex flex-wrap gap-1">
-        {visibleFormKeys.map(key => (
-          <button
-            key={key}
-            onClick={() => setActiveFormTab(key)}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-              activeFormTab === key
-                ? 'text-white shadow-sm'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-            }`}
-            style={activeFormTab === key ? { background: '#0d1829' } : {}}
-          >
-            {FORM_LABELS[key]}
-          </button>
-        ))}
+        {visibleFormKeys.map(key => {
+          const isComplete = isFormTabComplete(key)
+          return (
+            <button
+              key={key}
+              onClick={() => setActiveFormTab(key)}
+              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeFormTab === key
+                  ? 'text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              }`}
+              style={activeFormTab === key ? { background: '#0d1829' } : {}}
+            >
+              {FORM_LABELS[key]}
+              {isComplete && <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />}
+            </button>
+          )
+        })}
       </div>
 
       {activeFormTab !== '' && (
@@ -2812,22 +2878,10 @@ function AgentInformationTab({
             <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
               <div className="flex items-center gap-3">
                 <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
-                  {savingFormResponses ? 'Saving...' : 'Save Information'}
+                  {savingFormResponses ? 'Saving...' : (hasNext ? 'Save Information' : 'Submit')}
                 </Button>
                 {formSaved && <span className="text-xs text-emerald-600 font-medium">Saved</span>}
               </div>
-              {hasNext && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex items-center gap-1.5 border-slate-200 hover:bg-slate-50 transition-all font-semibold text-xs text-slate-700"
-                  onClick={() => void handleNext()}
-                  disabled={savingFormResponses}
-                >
-                  Next Section
-                  <ChevronRight className="w-4 h-4 text-slate-500" />
-                </Button>
-              )}
             </div>
           </div>
         </div>
@@ -2848,7 +2902,7 @@ function documentUploadFileCount(docId: string, filesByDocId: FilesByDocumentId)
   return (filesByDocId[docId] ?? []).length
 }
 
-function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, clientName, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId, getDeadline, sectionDeadlines, tourStep }: {
+function CollectionTab({ valuationDocs, categories, getStatus, setStatus, clientId, clientName, uploaderEmail, sectionSubmissions, onSubmitSection, submittingSectionId, getDeadline, sectionDeadlines, tourStep, teamMembers, isTeamMemberSession }: {
   valuationDocs: ReturnType<typeof getValuationDocsForWorkstream>
   categories: ReturnType<typeof getDocsForWorkstream>
   getStatus: (id: string) => DocumentStatus
@@ -2862,6 +2916,8 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   getDeadline: (docId: string, sectionId: string) => string | null
   sectionDeadlines: Record<string, string>
   tourStep?: number | null
+  teamMembers?: Client['teamMembers']
+  isTeamMemberSession?: boolean
 }) {
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
@@ -2870,6 +2926,11 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   const [formError, setFormError] = useState('')
   const [filesByDocId, setFilesByDocId] = useState<FilesByDocumentId>({})
   const [filesCatalogLoading, setFilesCatalogLoading] = useState(true)
+
+  const assignOptions = [
+    { value: 'me', label: 'Me' },
+    ...(teamMembers ?? []).map(m => ({ value: m.name, label: `${m.name} · ${m.role}` })),
+  ]
 
   const refreshFileCatalog = useCallback(async () => {
     const batch = await fetchClientDocumentsBatch(clientId)
@@ -3090,6 +3151,24 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                   fileCount={fileCount}
                   isComplete={valuationComplete}
                   tone="valuation"
+                  headerActions={
+                    !isTeamMemberSession && (
+                      <select
+                        className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 font-medium text-slate-600 transition-all cursor-pointer hover:border-slate-300"
+                        value={s.assignedTo ?? ''}
+                        onChange={e => setStatus(doc.id, { assignedTo: e.target.value || null })}
+                        onClick={e => e.stopPropagation()}
+                        onMouseDown={e => e.stopPropagation()}
+                      >
+                        <option value="">— Assign to —</option>
+                        {assignOptions.map(o => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  }
                 >
                   <DocumentReferenceLink docId={doc.id} />
                   {MULTI_YEAR_UPLOAD_SLOTS[doc.id] ? (
@@ -3178,6 +3257,24 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                     assignedTo={s.assignedTo}
                     fileCount={fileCount}
                     isComplete={slotUploaded}
+                    headerActions={
+                      !isTeamMemberSession && (
+                        <select
+                          className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 font-medium text-slate-600 transition-all cursor-pointer hover:border-slate-300"
+                          value={s.assignedTo ?? ''}
+                          onChange={e => setStatus(doc.id, { assignedTo: e.target.value || null })}
+                          onClick={e => e.stopPropagation()}
+                          onMouseDown={e => e.stopPropagation()}
+                        >
+                          <option value="">— Assign to —</option>
+                          {assignOptions.map(o => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    }
                   >
                     <DocumentReferenceLink docId={doc.id} />
                     {doc.id === 'revenue_breakdown' && <RevenueBreakdownReview clientId={clientId} />}
