@@ -81,6 +81,14 @@ async function applyResult(lead: DbLead, result: WorkflowResult) {
       where: { id: lead.id },
       data: {
         ...result.patch,
+        ...(result.patch.currentStage && result.patch.currentStage !== lead.currentStage
+          ? {
+              emailApprovalStatus: 'NONE',
+              pendingEmailTemplate: null,
+              emailDraftSubject: null,
+              emailDraftBody: null,
+            }
+          : {}),
         syncStatus:
           lead.mondayItemId && lead.mondayBoardId
             ? SalesLeadSyncStatus.PENDING

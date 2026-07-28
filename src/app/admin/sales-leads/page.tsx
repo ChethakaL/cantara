@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import AdminNav from '@/components/admin/AdminNav'
 import { Badge, Button, Card, Input, Select } from '@/components/ui'
-import { CALL_RESULT_LABELS, STAGE_LABELS } from '@/lib/sales-leads/workflow'
+import { ACTIVE_STAGES, CALL_RESULT_LABELS, isIdleLead, STAGE_LABELS } from '@/lib/sales-leads/workflow'
 import MondayBoardConfigModal from '@/components/sales-leads/MondayBoardConfigModal'
 import ExcelImportModal from '@/components/sales-leads/ExcelImportModal'
 import LeadDetailDrawer from '@/components/sales-leads/LeadDetailDrawer'
@@ -56,6 +56,7 @@ export default function SalesLeadsPage() {
   const [callerId, setCallerId] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({ active: 0, due: 0, warm: 0, idle: 0 })
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [showDrawer, setShowDrawer] = useState(false)
@@ -78,6 +79,7 @@ export default function SalesLeadsPage() {
       const data = await res.json()
       setLeads(data.leads || [])
       setCallers(data.callers || [])
+      setStats(data.stats || { active: 0, due: 0, warm: 0, idle: 0 })
     } catch (e: any) {
       setError(e.message || 'Unable to load sales leads')
     } finally {
@@ -196,7 +198,7 @@ export default function SalesLeadsPage() {
           <Card className="p-4 bg-white shadow-xs border border-slate-200/80 flex items-center justify-between">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Active Queue</p>
-              <h3 className="text-2xl font-semibold text-slate-800 mt-1">{leads.length}</h3>
+              <h3 className="text-2xl font-semibold text-slate-800 mt-1">{stats.active}</h3>
               <p className="text-xs text-slate-500 mt-0.5">Leads in sequence</p>
             </div>
             <div className="p-3 rounded-xl bg-blue-50 text-blue-600">
@@ -208,7 +210,7 @@ export default function SalesLeadsPage() {
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Due Today / Overdue</p>
               <h3 className="text-2xl font-semibold text-amber-600 mt-1">
-                {leads.filter(l => l.nextActionDate && new Date(l.nextActionDate) <= new Date()).length}
+                {stats.due}
               </h3>
               <p className="text-xs text-amber-700/80 mt-0.5">Requires caller attempt</p>
             </div>
@@ -221,7 +223,7 @@ export default function SalesLeadsPage() {
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Warm Exceptions</p>
               <h3 className="text-2xl font-semibold text-slate-800 mt-1">
-                {leads.filter(l => ['NEEDS_FOLLOW_UP', 'RECONNECT_LATER', 'BOOKED'].includes(l.currentStage)).length}
+                {stats.warm}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">Callback / Booked meetings</p>
             </div>
@@ -234,7 +236,7 @@ export default function SalesLeadsPage() {
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Idle Warning</p>
               <h3 className="text-2xl font-semibold text-rose-600 mt-1">
-                {leads.filter(l => !l.lastContactDate || (new Date().getTime() - new Date(l.lastContactDate).getTime() > 10 * 86400000)).length}
+                {stats.idle}
               </h3>
               <p className="text-xs text-rose-700/80 mt-0.5">&gt;10d without contact</p>
             </div>

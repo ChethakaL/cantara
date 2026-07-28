@@ -16,6 +16,7 @@ import {
   setSalesLeadStage,
   updateSalesLeadFields,
 } from '@/lib/sales-leads/service'
+import { salesLeadMondayConfiguration } from '@/lib/sales-leads/monday-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,12 +73,37 @@ export async function GET(req: NextRequest) {
     orderBy,
   })
   const filtered = view === 'idle' ? leads.filter(lead => isIdleLead(lead.lastContactDate)) : leads
+  const now = new Date()
+  const globalActiveWhere = { currentStage: { in: [...ACTIVE_STAGES] } }
+  const [activeCount, dueCount, warmCount, activeForIdle] = await Promise.all([
+    prisma.salesLead.count({ where: globalActiveWhere }),
+    prisma.salesLead.count({
+      where: { ...globalActiveWhere, nextActionDate: { lte: now } },
+    }),
+    prisma.salesLead.count({
+      where: {
+        currentStage: {
+          in: [SalesLeadStage.NEEDS_FOLLOW_UP, SalesLeadStage.RECONNECT_LATER, SalesLeadStage.BOOKED],
+        },
+      },
+    }),
+    prisma.salesLead.findMany({
+      where: globalActiveWhere,
+      select: { lastContactDate: true },
+    }),
+  ])
+  const stats = {
+    active: activeCount,
+    due: dueCount,
+    warm: warmCount,
+    idle: activeForIdle.filter(lead => isIdleLead(lead.lastContactDate)).length,
+  }
   const callers = await prisma.user.findMany({
     where: { role: 'ADMIN' },
     select: { id: true, name: true, email: true },
     orderBy: { name: 'asc' },
   })
-  return NextResponse.json({ leads: filtered, callers })
+  return NextResponse.json({ leads: filtered, callers, stats })
 }
 
 export async function POST(req: NextRequest) {
@@ -130,6 +156,20 @@ export async function POST(req: NextRequest) {
       })
       return created
     })
+
+    // Queue creation of the corresponding Monday item. The sync worker will
+    // create the item when the configured board/mapping is available.
+    const mondayConfig = await salesLeadMondayConfiguration()
+    if (mondayConfig.boardId && Object.keys(mondayConfig.mapping).length > 0) {
+      await prisma.salesLeadSyncEvent.create({
+        data: {
+          leadId: lead.id,
+          direction: 'OUTBOUND_MONDAY',
+          status: 'PENDING',
+          payload: { reason: 'lead_created' },
+        },
+      })
+    }
     return NextResponse.json(lead, { status: 201 })
   } catch (error) {
     return errorResponse(error)
@@ -153,6 +193,14 @@ export async function PATCH(req: NextRequest) {
       )
     }
     if (body.currentStage) {
+      // The drawer saves stage and caller together. Persist the caller first so
+      // the workflow transition and the visible assignment stay consistent.
+      if (body.assignedCallerId !== undefined) {
+        const callerData: any = body.assignedCallerId === ''
+          ? { assignedCaller: { disconnect: true } }
+          : { assignedCaller: { connect: { id: body.assignedCallerId } } }
+        await updateSalesLeadFields(id, callerData)
+      }
       return NextResponse.json(
         await setSalesLeadStage({
           id,

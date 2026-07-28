@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getProjectEnv } from '@/lib/project-env'
-import { sendSalesLeadEmail } from '@/lib/sales-leads/email-provider'
 import { SalesLeadStage } from '@prisma/client'
-import { syncSalesLeadToMonday } from '@/lib/sales-leads/monday-sync'
+import { approveSalesLeadEmail, requestSalesLeadEmailApproval } from '@/lib/sales-leads/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,40 +71,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const templateNum = lead.currentStage === SalesLeadStage.EMAIL_2_DUE ? 2 : 1
 
-    const result = await sendSalesLeadEmail({
-      leadId: lead.id,
-      toEmail: lead.ownerEmail,
-      emailType: templateNum === 1 ? 'EMAIL_1' : 'EMAIL_2',
-    })
-
-    if (!result.success) {
-      return NextResponse.json({ error: result.error || 'Failed to dispatch email' }, { status: 500 })
+    await requestSalesLeadEmailApproval(lead.id, templateNum as 1 | 2)
+    if (subject !== undefined || bodyText !== undefined) {
+      await prisma.salesLead.update({
+        where: { id: lead.id },
+        data: {
+          emailDraftSubject: subject === undefined ? undefined : String(subject),
+          emailDraftBody: bodyText === undefined ? undefined : String(bodyText),
+        },
+      })
     }
-
-    const now = new Date()
-    const nextAction = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-    const nextStage = templateNum === 1 ? SalesLeadStage.EMAIL_1_SENT : SalesLeadStage.EMAIL_2_SENT
-
-    const updated = await prisma.salesLead.update({
-      where: { id: lead.id },
-      data: {
-        currentStage: nextStage,
-        lastContactDate: now,
-        nextActionDate: nextAction,
-      },
-    })
-
-    await prisma.salesLeadActivity.create({
-      data: {
-        leadId: lead.id,
-        type: 'email_sent',
-        summary: `Dispatched Email ${templateNum} to ${lead.ownerEmail}`,
-        metadata: { subject: subject || 'Standard template', templateNum },
-      },
-    })
-
-    await syncSalesLeadToMonday(lead.id).catch(() => {})
-
+    const updated = await approveSalesLeadEmail(lead.id, 'Admin')
     return NextResponse.json({ success: true, updated })
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Email sending failed' }, { status: 500 })

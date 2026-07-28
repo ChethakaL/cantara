@@ -15,7 +15,7 @@ import {
 } from '@/lib/sales-leads/service'
 
 export type MondayMapping = Partial<Record<
-  | 'assignedCaller' | 'currentStage' | 'lastCallResult' | 'nextActionDate' | 'lastContactDate'
+  | 'businessName' | 'assignedCaller' | 'currentStage' | 'lastCallResult' | 'nextActionDate' | 'lastContactDate'
   | 'state' | 'city' | 'websiteUrl' | 'googleRating' | 'reviewCount' | 'sqftIndoor'
   | 'sqftOutdoor' | 'sqftCombined' | 'locationType' | 'preCallBriefUrl' | 'ownerFirstName'
   | 'ownerLastName' | 'ownerPhone' | 'sourceLinkPhone' | 'ownerEmail' | 'sourceLinkEmail'
@@ -41,6 +41,14 @@ function dateValue(value: Date | null, includeTime = false) {
 
 function linkValue(value: string | null) {
   return value ? { url: value, text: value } : null
+}
+
+function emailValue(value: string | null) {
+  return value ? { email: value, text: value } : null
+}
+
+function phoneValue(value: string | null) {
+  return value ? { phone: value, countryShortName: 'US' } : null
 }
 
 export async function salesLeadMondayConfiguration() {
@@ -86,13 +94,13 @@ export function mondayColumnValues(
   put('sqftIndoor', lead.sqftIndoor)
   put('sqftOutdoor', lead.sqftOutdoor)
   put('sqftCombined', lead.sqftCombined)
-  put('locationType', lead.locationType || null)
+  put('locationType', lead.locationType ? { label: lead.locationType } : null)
   put('preCallBriefUrl', linkValue(lead.preCallBriefUrl))
   put('ownerFirstName', lead.ownerFirstName || null)
   put('ownerLastName', lead.ownerLastName || null)
-  put('ownerPhone', lead.ownerPhone || null)
+  put('ownerPhone', phoneValue(lead.ownerPhone))
   put('sourceLinkPhone', linkValue(lead.sourceLinkPhone))
-  put('ownerEmail', lead.ownerEmail || null)
+  put('ownerEmail', emailValue(lead.ownerEmail))
   put('sourceLinkEmail', linkValue(lead.sourceLinkEmail))
   put('bookingDateTime', dateValue(lead.bookingDateTime, true))
   put('notes', lead.notes || null)
@@ -122,7 +130,61 @@ export async function syncSalesLeadToMonday(leadId: string) {
   })
 }
 
+/**
+ * Backfill records created before Monday sync was configured. Existing items
+ * are matched by exact business name first so retries cannot create duplicates.
+ */
+async function backfillUnlinkedSalesLeads() {
+  const config = await salesLeadMondayConfiguration()
+  if (!config.boardId || Object.keys(config.mapping).length === 0) return { linked: 0, queued: 0 }
+
+  const unlinked = await prisma.salesLead.findMany({
+    where: { OR: [{ mondayItemId: null }, { mondayBoardId: null }] },
+    select: { id: true, businessName: true, mondayItemId: true, mondayBoardId: true },
+  })
+  if (!unlinked.length) return { linked: 0, queued: 0 }
+
+  const mondayItems = await getMondayBoardItems(config.boardId)
+  const itemByName = new Map(mondayItems.map(item => [item.name.trim().toLowerCase(), item]))
+  let linked = 0
+  let queued = 0
+
+  for (const lead of unlinked) {
+    const existing = itemByName.get(lead.businessName.trim().toLowerCase())
+    if (existing?.id) {
+      await prisma.salesLead.update({
+        where: { id: lead.id },
+        data: {
+          mondayBoardId: config.boardId,
+          mondayItemId: existing.id,
+          syncStatus: SalesLeadSyncStatus.PENDING,
+        },
+      })
+      linked += 1
+      continue
+    }
+
+    const existingEvent = await prisma.salesLeadSyncEvent.findFirst({
+      where: { leadId: lead.id, direction: 'OUTBOUND_MONDAY' },
+      select: { id: true },
+    })
+    if (!existingEvent) {
+      await prisma.salesLeadSyncEvent.create({
+        data: {
+          leadId: lead.id,
+          direction: 'OUTBOUND_MONDAY',
+          status: 'PENDING',
+          payload: { reason: 'configured_board_backfill' },
+        },
+      })
+      queued += 1
+    }
+  }
+  return { linked, queued }
+}
+
 export async function processSalesLeadSyncOutbox(limit = 50) {
+  const backfill = await backfillUnlinkedSalesLeads()
   const events = await prisma.salesLeadSyncEvent.findMany({
     where: { status: { in: ['PENDING', 'ERROR'] }, direction: 'OUTBOUND_MONDAY', attempts: { lt: 5 } },
     orderBy: { createdAt: 'asc' },
@@ -153,7 +215,7 @@ export async function processSalesLeadSyncOutbox(limit = 50) {
       failed += 1
     }
   }
-  return { examined: events.length, succeeded, failed }
+  return { examined: events.length, succeeded, failed, backfill }
 }
 
 export async function processSalesLeadHandoffOutbox(limit = 25) {

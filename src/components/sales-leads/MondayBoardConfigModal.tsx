@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Check, Loader2, Save, Settings2, X } from 'lucide-react'
-import { Button, Card, Select } from '@/components/ui'
+import { Button, Card, SearchableSelect } from '@/components/ui'
 
 const MONDAY_24_COLUMNS: Array<{ key: string; label: string; number: number }> = [
   { number: 1, key: 'businessName', label: 'Business Name (Item Name)' },
@@ -44,7 +44,7 @@ export default function MondayBoardConfigModal({
   onSaved: () => void
 }) {
   const [loading, setLoading] = useState(true)
-  const [loadingColumns, setLoadingColumns] = useState(false)
+  const [fetchingCols, setFetchingCols] = useState(false)
   const [saving, setSaving] = useState(false)
   const [boards, setBoards] = useState<Board[]>([])
   const [columns, setColumns] = useState<Column[]>([])
@@ -73,51 +73,73 @@ export default function MondayBoardConfigModal({
     }
   }
 
+  const fetchColumnsForBoard = async (boardId: string) => {
+    if (!boardId) {
+      setColumns([])
+      return
+    }
+    setFetchingCols(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/sales-leads/monday-config?boardId=${boardId}`)
+      if (!res.ok) throw new Error('Failed to load columns for selected board')
+      const data = await res.json()
+      const newCols: Column[] = data.columns || []
+      setColumns(newCols)
+      if (newCols.length > 0) {
+        autoMap(newCols, mapping)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch board columns')
+    } finally {
+      setFetchingCols(false)
+    }
+  }
+
   useEffect(() => {
     if (isOpen) void fetchConfig()
   }, [isOpen])
 
-  const handleBoardChange = async (boardId: string) => {
+  const handleBoardSelect = (boardId: string) => {
     setSelectedBoardId(boardId)
-    setColumns([])
-    setError('')
-    setSuccessMsg('')
-    if (!boardId) return
-
-    setLoadingColumns(true)
-    try {
-      const res = await fetch(
-        `/api/sales-leads/monday-config?boardId=${encodeURIComponent(boardId)}`,
-        { cache: 'no-store' },
-      )
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        throw new Error(body?.error || 'Failed to fetch columns for the selected board')
-      }
-      const data = await res.json()
-      const nextColumns = Array.isArray(data.columns) ? data.columns : []
-      setColumns(nextColumns)
-      if (nextColumns.length === 0) {
-        setError('Monday returned no columns for the selected board.')
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch columns for the selected board')
-    } finally {
-      setLoadingColumns(false)
+    if (boardId) {
+      void fetchColumnsForBoard(boardId)
+    } else {
+      setColumns([])
     }
   }
 
-  const autoMap = (boardCols: Column[]) => {
-    const nextMapping: Record<string, string> = {}
+  const autoMap = (boardCols: Column[], baseMapping?: Record<string, string>) => {
+    const current = baseMapping || mapping || {}
+    const nextMapping: Record<string, string> = { ...current }
+
     for (const colDef of MONDAY_24_COLUMNS) {
+      if (nextMapping[colDef.key]) continue
+
+      if (colDef.key === 'businessName') {
+        const nameMatch = boardCols.find(
+          c =>
+            c.type === 'name' ||
+            c.id === 'name' ||
+            c.title.toLowerCase().trim() === 'name' ||
+            c.title.toLowerCase().includes('business') ||
+            c.title.toLowerCase().includes('lead'),
+        )
+        if (nameMatch) {
+          nextMapping[colDef.key] = nameMatch.id
+          continue
+        }
+      }
+
       const match = boardCols.find(
         c =>
+          c.title.toLowerCase().trim() === colDef.label.toLowerCase().split(' (')[0].trim() ||
           c.title.toLowerCase().includes(colDef.label.toLowerCase().split(' (')[0]) ||
           c.title.toLowerCase().includes(colDef.key.toLowerCase()),
       )
       if (match) nextMapping[colDef.key] = match.id
     }
-    setMapping(prev => ({ ...nextMapping, ...prev }))
+    setMapping(nextMapping)
   }
 
   const handleSave = async () => {
@@ -146,6 +168,18 @@ export default function MondayBoardConfigModal({
   }
 
   if (!isOpen) return null
+
+  const columnOptions = columns.map(c => ({
+    value: c.id,
+    label: `${c.title} (${c.type})`,
+    hint: c.id,
+  }))
+
+  const boardOptions = boards.map(b => ({
+    value: b.id,
+    label: b.name,
+    hint: `ID: ${b.id}`,
+  }))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -182,33 +216,26 @@ export default function MondayBoardConfigModal({
               </div>
             )}
 
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-              <label className="block text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                1. Target Monday Board
-              </label>
-              <Select
-                aria-label="Select Target Monday Board"
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold uppercase text-slate-500 tracking-wider">
+                  1. Target Monday Board
+                </label>
+                {fetchingCols && (
+                  <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching columns from Monday.com...
+                  </span>
+                )}
+              </div>
+              <SearchableSelect
+                options={boardOptions}
                 value={selectedBoardId}
-                onChange={e => void handleBoardChange(e.target.value)}
-                options={[
-                  { value: '', label: '-- Select a Monday Board --' },
-                  ...boards.map(b => ({ value: b.id, label: `${b.name} (ID: ${b.id})` })),
-                ]}
+                onChange={handleBoardSelect}
+                placeholder="Search your Monday boards..."
+                emptyLabel="-- Select Target Monday Board --"
               />
-              {loadingColumns && (
-                <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Fetching columns from Monday.com...
-                </p>
-              )}
-              {!loadingColumns && selectedBoardId && columns.length > 0 && (
-                <p className="text-[11px] text-emerald-600 flex items-center gap-1">
-                  <Check className="w-3 h-3" />
-                  {columns.length} columns loaded from the selected board.
-                </p>
-              )}
               {configured && (
-                <p className="text-[11px] text-emerald-600 flex items-center gap-1">
+                <p className="text-[11px] text-emerald-600 flex items-center gap-1 pt-1">
                   <Check className="w-3 h-3" /> Configured and active in database. Edits will update the stored mapping.
                 </p>
               )}
@@ -216,49 +243,61 @@ export default function MondayBoardConfigModal({
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                  2. 24-Column Mapping (Specification v2)
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
+                    2. 24-Column Mapping (Specification v2)
+                  </h3>
+                  {columns.length > 0 && (
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                      {columns.length} columns loaded
+                    </span>
+                  )}
+                </div>
                 {columns.length > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => autoMap(columns)}
-                    className="text-xs py-1 h-7"
+                    className="text-xs py-1 h-7 bg-white"
                   >
                     Auto-Match Columns
                   </Button>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[380px] overflow-y-auto p-1 border rounded-xl">
-                {MONDAY_24_COLUMNS.map(col => (
-                  <div
-                    key={col.key}
-                    className="p-2.5 rounded-lg border border-slate-100 bg-slate-50/50 flex flex-col gap-1 text-xs"
-                  >
-                    <div className="flex justify-between font-medium text-slate-700">
-                      <span>#{col.number}. {col.label}</span>
-                      <span className="text-[10px] font-mono text-slate-400">{col.key}</span>
+              {fetchingCols ? (
+                <div className="p-12 text-center text-xs text-slate-500 border rounded-xl bg-slate-50 flex flex-col items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                  Fetching column list from Monday.com...
+                </div>
+              ) : columns.length === 0 ? (
+                <div className="p-10 text-center text-xs text-slate-400 border rounded-xl bg-slate-50">
+                  Select a Monday board above to fetch its columns.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[380px] overflow-y-auto p-1 border rounded-xl">
+                  {MONDAY_24_COLUMNS.map(col => (
+                    <div
+                      key={col.key}
+                      className="p-2.5 rounded-lg border border-slate-100 bg-slate-50/50 flex flex-col gap-1.5 text-xs"
+                    >
+                      <div className="flex justify-between font-medium text-slate-700">
+                        <span>#{col.number}. {col.label}</span>
+                        <span className="text-[10px] font-mono text-slate-400">{col.key}</span>
+                      </div>
+                      <SearchableSelect
+                        options={columnOptions}
+                        value={mapping[col.key] || ''}
+                        onChange={val =>
+                          setMapping(prev => ({ ...prev, [col.key]: val }))
+                        }
+                        placeholder={`Search Monday column for ${col.label}...`}
+                        emptyLabel="-- Unmapped --"
+                      />
                     </div>
-                    <Select
-                      aria-label={`Mapping for ${col.label}`}
-                      value={mapping[col.key] || ''}
-                      onChange={e =>
-                        setMapping(prev => ({ ...prev, [col.key]: e.target.value }))
-                      }
-                      options={[
-                        { value: '', label: '-- Unmapped --' },
-                        ...columns.map(c => ({
-                          value: c.id,
-                          label: `${c.title} (${c.type})`,
-                        })),
-                      ]}
-                      className="text-xs h-8"
-                    />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -267,7 +306,7 @@ export default function MondayBoardConfigModal({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving || loading || loadingColumns} className="gap-1.5">
+          <Button onClick={handleSave} disabled={saving || loading || fetchingCols} className="gap-1.5">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Save Settings to Database
           </Button>

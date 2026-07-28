@@ -14,8 +14,14 @@ export async function GET(req: NextRequest) {
     const requestedBoardId = req.nextUrl.searchParams.get('boardId')?.trim()
     const boardId = requestedBoardId || stored.boardId
     const [boards, columns] = await Promise.all([
-      getMondayBoards(),
-      boardId ? getMondayBoardColumns(boardId) : Promise.resolve([]),
+      getMondayBoards().catch(err => {
+        console.warn('[monday-config] getMondayBoards error:', err?.message || err)
+        return []
+      }),
+      boardId ? getMondayBoardColumns(boardId).catch(err => {
+        console.warn('[monday-config] getMondayBoardColumns error:', err?.message || err)
+        return []
+      }) : Promise.resolve([]),
     ])
 
     return NextResponse.json({

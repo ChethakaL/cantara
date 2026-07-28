@@ -51,28 +51,46 @@ function composioApiKey() {
 }
 
 export async function composioFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${COMPOSIO_BASE_URL}${path}`, {
-    ...init,
-    cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": composioApiKey(),
-      ...(init?.headers ?? {}),
-    },
-  });
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(`${COMPOSIO_BASE_URL}${path}`, {
+        ...init,
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": composioApiKey(),
+          ...(init?.headers ?? {}),
+        },
+      });
 
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`Composio request failed (${res.status}): ${detail}`);
-  }
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`Composio request failed (${res.status}): ${detail}`);
+      }
 
-  const text = await res.text();
-  if (!text) return {} as T;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return {} as T;
+      const text = await res.text();
+      if (!text) return {} as T;
+      try {
+        return JSON.parse(text) as T;
+      } catch {
+        return {} as T;
+      }
+    } catch (err: any) {
+      lastError = err
+      const isNetworkError =
+        err?.code === 'ECONNRESET' ||
+        err?.code === 'ETIMEDOUT' ||
+        err?.name === 'TypeError' ||
+        String(err?.message || '').includes('fetch failed')
+      if (isNetworkError && attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, attempt * 300))
+        continue
+      }
+      throw err
+    }
   }
+  throw lastError
 }
 
 async function tryComposioFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
@@ -1033,6 +1051,20 @@ function unwrapMondayToolData(raw: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function findMondayItemId(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  for (const key of ['id', 'item_id', 'pulse_id']) {
+    const candidate = record[key]
+    if (typeof candidate === 'string' || typeof candidate === 'number') return String(candidate)
+  }
+  for (const child of Object.values(record)) {
+    const nested = findMondayItemId(child)
+    if (nested) return nested
+  }
+  return null
+}
+
 function findMondayItemsPagePayload(payload: Record<string, unknown> | null): {
   items: unknown[];
   cursor?: string;
@@ -1582,10 +1614,7 @@ export async function createMondayBoardItem(args: {
       item_name: args.itemName,
       column_values: args.columnValues,
     });
-    const toolId =
-      toolResult?.data?.id ||
-      toolResult?.data?.item?.id ||
-      toolResult?.data?.create_item?.id;
+    const toolId = findMondayItemId(unwrapMondayToolData(toolResult?.data) ?? toolResult?.data);
     if (toolId) return String(toolId);
   } catch (error) {
     console.warn("[Monday] MONDAY_CREATE_ITEM failed; trying GraphQL.", error);
@@ -1607,7 +1636,7 @@ export async function createMondayBoardItem(args: {
       columnValues: args.columnValues,
     },
   });
-  const itemId = (result?.data as any)?.create_item?.id;
+  const itemId = findMondayItemId(result?.data);
   if (!itemId) throw new Error("Monday item could not be created.");
   return String(itemId);
 }
