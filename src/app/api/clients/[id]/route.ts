@@ -152,50 +152,58 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         });
 
         const inviteSubject = `Cantara portal invitation for ${clientForInvite?.businessName || "your company"}`;
-        try {
-          await sendEmailWithComposio({
-            to: member.email,
-            displayName: member.name,
-            subject: inviteSubject,
-            body: buildTeamInviteEmail({
-              clientName: clientForInvite?.businessName || "your company",
-              memberName: member.name,
-              email: member.email,
-              password,
-              loginUrl: `${baseUrl}/login/client`,
-            }),
-          });
-          await recordClientEmailNotification({
-            clientId: id,
-            type: "TEAM_MEMBER_INVITE",
-            recipientEmail: normalizedEmail,
-            reminderDaysBefore: TEAM_MEMBER_INVITE_REMINDER_DAYS,
-            documentId: normalizedEmail,
-            targetDeadline: TEAM_MEMBER_INVITE_TARGET_DEADLINE,
-            subject: inviteSubject,
-            payload: { memberName: member.name, role: member.role },
-            status: "SENT",
-          });
-        } catch (emailError) {
-          const message = emailError instanceof Error ? emailError.message : "Failed to send invite email";
-          console.error("TEAM_MEMBER_INVITE_EMAIL_ERROR", {
-            clientId: id,
-            email: member.email,
-            error: emailError,
-          });
-          await recordClientEmailNotification({
-            clientId: id,
-            type: "TEAM_MEMBER_INVITE",
-            recipientEmail: normalizedEmail,
-            reminderDaysBefore: TEAM_MEMBER_INVITE_REMINDER_DAYS,
-            documentId: normalizedEmail,
-            targetDeadline: TEAM_MEMBER_INVITE_TARGET_DEADLINE,
-            subject: inviteSubject,
-            payload: { memberName: member.name, role: member.role },
-            status: "FAILED",
-            errorMessage: message,
-          }).catch(() => undefined);
-        }
+        const emailTo = member.email;
+        const displayName = member.name;
+        const memberRole = member.role;
+        const emailBody = buildTeamInviteEmail({
+          clientName: clientForInvite?.businessName || "your company",
+          memberName: member.name,
+          email: member.email,
+          password,
+          loginUrl: `${baseUrl}/login/client`,
+        });
+
+        // Fire-and-forget email dispatch so client save returns immediately
+        Promise.resolve().then(async () => {
+          try {
+            await sendEmailWithComposio({
+              to: emailTo,
+              displayName,
+              subject: inviteSubject,
+              body: emailBody,
+            });
+            await recordClientEmailNotification({
+              clientId: id,
+              type: "TEAM_MEMBER_INVITE",
+              recipientEmail: normalizedEmail,
+              reminderDaysBefore: TEAM_MEMBER_INVITE_REMINDER_DAYS,
+              documentId: normalizedEmail,
+              targetDeadline: TEAM_MEMBER_INVITE_TARGET_DEADLINE,
+              subject: inviteSubject,
+              payload: { memberName: displayName, role: memberRole },
+              status: "SENT",
+            });
+          } catch (emailError) {
+            const message = emailError instanceof Error ? emailError.message : "Failed to send invite email";
+            console.error("TEAM_MEMBER_INVITE_EMAIL_ERROR", {
+              clientId: id,
+              email: emailTo,
+              error: emailError,
+            });
+            await recordClientEmailNotification({
+              clientId: id,
+              type: "TEAM_MEMBER_INVITE",
+              recipientEmail: normalizedEmail,
+              reminderDaysBefore: TEAM_MEMBER_INVITE_REMINDER_DAYS,
+              documentId: normalizedEmail,
+              targetDeadline: TEAM_MEMBER_INVITE_TARGET_DEADLINE,
+              subject: inviteSubject,
+              payload: { memberName: displayName, role: memberRole },
+              status: "FAILED",
+              errorMessage: message,
+            }).catch(() => undefined);
+          }
+        });
       }
     }
 

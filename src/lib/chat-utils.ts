@@ -15,6 +15,10 @@ export function mapChatMessage(row: {
   timestamp: Date | string
   readByAdmin: boolean
   readByClient: boolean
+  attachmentUrl?: string | null
+  attachmentName?: string | null
+  attachmentMimeType?: string | null
+  attachmentSize?: number | null
 }): ChatMessage {
   return {
     id: row.id,
@@ -25,6 +29,10 @@ export function mapChatMessage(row: {
     timestamp: typeof row.timestamp === 'string' ? row.timestamp : row.timestamp.toISOString(),
     readByAdmin: row.readByAdmin,
     readByClient: row.readByClient,
+    attachmentUrl: row.attachmentUrl,
+    attachmentName: row.attachmentName,
+    attachmentMimeType: row.attachmentMimeType,
+    attachmentSize: row.attachmentSize,
   }
 }
 

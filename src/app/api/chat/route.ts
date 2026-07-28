@@ -8,6 +8,8 @@ import {
   resolveCantaraNotificationEmail,
 } from '@/lib/admin-message-notification-preferences'
 import { sendEmailWithComposio } from '@/lib/composio'
+import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { assertS3Configured, buildPresignedFileUrl, s3BucketName, s3Client } from '@/lib/s3'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,10 +34,33 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, senderRole, senderName, message } = await req.json()
+    const contentType = req.headers.get('content-type') || ''
+    let clientId: string, senderRole: string, senderName: string, message: string
+    let attachment: File | null = null
+    if (contentType.includes('multipart/form-data')) {
+      const form = await req.formData()
+      clientId = String(form.get('clientId') || '')
+      senderRole = String(form.get('senderRole') || '')
+      senderName = String(form.get('senderName') || '')
+      message = String(form.get('message') || '')
+      const file = form.get('attachment')
+      attachment = file instanceof File ? file : null
+    } else {
+      ({ clientId, senderRole, senderName, message } = await req.json())
+    }
 
-    if (!clientId || !message) {
+    if (!clientId || (!message?.trim() && !attachment)) {
       return new Response('Missing required fields', { status: 400 })
+    }
+
+    let attachmentData: { attachmentUrl: string; attachmentName: string; attachmentMimeType: string; attachmentSize: number } | undefined
+    if (attachment) {
+      if (attachment.size > 25 * 1024 * 1024) return new Response('Attachments must be 25MB or smaller', { status: 400 })
+      assertS3Configured()
+      const safeName = attachment.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const key = `clients/${clientId}/chat/${Date.now()}-${safeName}`
+      await s3Client.send(new PutObjectCommand({ Bucket: s3BucketName, Key: key, Body: Buffer.from(await attachment.arrayBuffer()), ContentType: attachment.type || 'application/octet-stream' }))
+      attachmentData = { attachmentUrl: await buildPresignedFileUrl(key, 7 * 24 * 60 * 60), attachmentName: attachment.name, attachmentMimeType: attachment.type || 'application/octet-stream', attachmentSize: attachment.size }
     }
 
     const role = normalizeSenderRole(String(senderRole || 'client'))
@@ -45,6 +70,7 @@ export async function POST(req: NextRequest) {
         senderRole: role === 'admin' ? 'ADMIN' : 'CLIENT',
         senderName,
         message,
+        ...attachmentData,
         readByAdmin: role === 'admin',
         readByClient: role === 'client',
       },

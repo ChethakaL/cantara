@@ -438,6 +438,10 @@ model ChatMessage {
   senderRole   Role
   senderName   String
   message      String
+  attachmentUrl      String?
+  attachmentName     String?
+  attachmentMimeType String?
+  attachmentSize     Int?
   timestamp    DateTime      @default(now())
   readByAdmin  Boolean       @default(false)
   readByClient Boolean       @default(false)
