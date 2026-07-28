@@ -1,12 +1,14 @@
 import { sendEmailWithComposio } from '@/lib/composio'
 import { getProjectEnv } from '@/lib/project-env'
 import { prisma } from '@/lib/prisma'
+import { getAIClient, resolveModel } from '@/lib/ai-client'
 import type { SalesLead, SalesLeadContactType } from '@prisma/client'
 
 type EmailLead = Pick<
   SalesLead,
-  'businessName' | 'ownerFirstName' | 'ownerLastName' | 'ownerEmail' | 'emailType' | 'city' | 'state'
+  'businessName' | 'ownerFirstName' | 'ownerLastName' | 'ownerEmail' | 'emailType' | 'city' | 'state' | 'googleRating' | 'reviewCount' | 'sqftCombined'
 >
+ & { aiResearchReport?: SalesLead['aiResearchReport'] }
 
 export class SalesLeadEmailConfigurationError extends Error {
   constructor(message: string) {
@@ -30,17 +32,71 @@ function interpolate(value: string, lead: EmailLead) {
   return value.replace(/\{\{(\w+)\}\}/g, (_match, key) => replacements[key] ?? '')
 }
 
-export function buildSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 | 2) {
-  const defaultSubject = templateNum === 1
-    ? `Inquiry regarding ${lead.businessName}`
-    : `Following up: Cantara Pet Business Advisory & ${lead.businessName}`
+function buildConfiguredSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 | 2) {
+  const reputation = lead.googleRating && lead.reviewCount
+    ? ` Maintaining a ${lead.googleRating}-star Google rating across ${lead.reviewCount} reviews is no small feat.`
+    : ''
+  const scale = lead.sqftCombined
+    ? ` The facility's approximately ${lead.sqftCombined.toLocaleString()} square feet also caught my attention.`
+    : ''
   const defaultBody = templateNum === 1
-    ? `Hello ${lead.ownerFirstName || 'there'},\n\nWe are reaching out from Cantara regarding ${lead.businessName}. We assist pet resort owners with confidential exit and growth readiness.\n\nBest regards,\nCantara Pet Advisors`
-    : `Hello ${lead.ownerFirstName || 'there'},\n\nFollowing up on our previous note regarding ${lead.businessName}. We would love to share insights tailored for independent operators in ${lead.city || 'your area'}.\n\nBest regards,\nCantara Pet Advisors`
+    ? `Hi ${lead.ownerFirstName || 'there'},\n\nI was researching independent pet resorts${lead.city ? ` in ${lead.city}` : ''} and was impressed by ${lead.businessName}.${reputation}${scale}\n\nCantara helps owners think through growth, succession, and exit strategies as they plan the next chapter of their business. There is no pressure or agenda to sell - I would simply enjoy learning about your vision for the next few years. Would you be open to a quick conversation?\n\nBest regards,\nCantara Pet Advisors`
+    : `Hi ${lead.ownerFirstName || 'there'},\n\nI wanted to follow up on my note about ${lead.businessName}. We speak with independent pet resort owners about practical growth opportunities and longer-term succession or exit planning, often well before a decision has been made.\n\nIf that is relevant to what you are thinking about, would you be open to a brief introduction?\n\nBest regards,\nCantara Pet Advisors`
   return {
-    subject: interpolate(getProjectEnv(templateKey(templateNum, lead.emailType, 'SUBJECT')) || defaultSubject, lead),
+    subject: `Growth and succession planning for ${lead.businessName}`,
     body: interpolate(getProjectEnv(templateKey(templateNum, lead.emailType, 'BODY')) || defaultBody, lead),
   }
+}
+
+function buildResearchFallback(lead: EmailLead, templateNum: 1 | 2) {
+  const location = [lead.city, lead.state].filter(Boolean).join(', ')
+  const rating = lead.googleRating ? `${lead.googleRating}-star Google rating` : ''
+  const reviews = lead.reviewCount ? `${lead.reviewCount} reviews` : ''
+  const proofPoint = [rating, reviews].filter(Boolean).join(' and ')
+  if (templateNum === 1) {
+    return {
+      subject: `Growth and succession planning for ${lead.businessName}`,
+      body: `Hi ${lead.ownerFirstName || 'there'},\n\nI was researching strong pet resorts${location ? ` in ${lead.city}` : ''} and was impressed by ${lead.businessName}${proofPoint ? ` - maintaining a ${proofPoint} is no small feat` : ''}.\n\nCantara helps independent pet resort owners evaluate growth, succession, and exit strategies. There’s no pressure or agenda to sell; I’d simply enjoy introducing ourselves and hearing about your vision for the next few years.\n\nWould you be open to a quick chat?\n\nBest regards,\nCantara Pet Advisors`,
+    }
+  }
+  return {
+    subject: `Growth and succession planning for ${lead.businessName}`,
+    body: `Hi ${lead.ownerFirstName || 'there'},\n\nJust following up on my note about ${lead.businessName}. We often speak with owners who are thinking about the next chapter - whether that means improving the business, preparing for a transition, or simply understanding their options.\n\nIf that’s relevant for you, would a 10-minute introduction be worthwhile?\n\nBest,\nCantara Pet Advisors`,
+  }
+}
+
+function parseDraftJson(text: string) {
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
+  const candidate = cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned
+  return JSON.parse(candidate) as { subject?: unknown; body?: unknown }
+}
+
+export async function buildSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 | 2) {
+  const fallback = lead.aiResearchReport
+    ? buildResearchFallback(lead, templateNum)
+    : buildConfiguredSalesLeadEmailDraft(lead, templateNum)
+  if (!lead.aiResearchReport) return fallback
+  try {
+    const ai = await getAIClient()
+    if (!ai) return fallback
+    const response = await ai.messages.create({
+      model: resolveModel('claude-3-5-haiku-latest'),
+      max_tokens: 700,
+      temperature: 0.3,
+      system: 'You are Cantara\'s senior M&A origination copywriter. Write credible, personalized cold outreach to an independent pet resort owner. The saved research is approved context and should be used openly: mention one or two accurate, positive specifics such as reputation, facility scale, longevity, or market position. Never invent or round up facts. Never make the email sound like an acquisition pitch, imply the owner wants to sell, or mention research or AI. Return valid JSON only with string fields subject and body.',
+      messages: [{ role: 'user', content: `Create Email ${templateNum} in this style: open by saying you were researching strong/top pet resorts in the prospect\'s market; give a sincere compliment supported by one or two saved facts; explain that Cantara helps independent pet resort owners evaluate growth, succession, and exit strategies; acknowledge there is no pressure or agenda to sell; ask to hear about the owner\'s vision for the next few years and request a quick chat. Email 2 should use a different researched fact or angle while remaining a natural follow-up. Keep it 100-150 words, warm, direct, and conversational. Use this exact subject line: "Growth and succession planning for ${lead.businessName}". Sign as Cantara Pet Advisors.
+Lead: ${JSON.stringify({ businessName: lead.businessName, ownerFirstName: lead.ownerFirstName, city: lead.city, state: lead.state })}
+Saved prospect research (you must use at least one specific fact from this): ${JSON.stringify(lead.aiResearchReport)}` }],
+    })
+    const text = response.content.find(item => item.type === 'text')?.text || ''
+    const parsed = parseDraftJson(text)
+    if (typeof parsed.subject === 'string' && typeof parsed.body === 'string' && parsed.subject.trim() && parsed.body.trim()) {
+      return { subject: `Growth and succession planning for ${lead.businessName}`, body: parsed.body.trim() }
+    }
+  } catch (error) {
+    console.error('[sales-leads] AI email draft failed; using research-aware fallback.', error)
+  }
+  return fallback
 }
 
 export async function sendSalesLeadEmail(
@@ -65,7 +121,7 @@ export async function sendSalesLeadEmail(
       throw new SalesLeadEmailConfigurationError('The lead does not have an email address.')
     }
 
-    const { subject, body } = buildSalesLeadEmailDraft(lead, templateNum)
+    const { subject, body } = await buildSalesLeadEmailDraft(lead, templateNum)
 
     const data = await sendEmailWithComposio({
       to: lead.ownerEmail,

@@ -28,6 +28,7 @@ import { ACTIVE_STAGES, CALL_RESULT_LABELS, isIdleLead, STAGE_LABELS } from '@/l
 import MondayBoardConfigModal from '@/components/sales-leads/MondayBoardConfigModal'
 import ExcelImportModal from '@/components/sales-leads/ExcelImportModal'
 import LeadDetailDrawer from '@/components/sales-leads/LeadDetailDrawer'
+import EnrichmentModal from '@/components/sales-leads/EnrichmentModal'
 
 type Lead = any
 
@@ -50,7 +51,7 @@ const stageBadges: Record<string, { label: string; color: 'gold' | 'blue' | 'gre
 }
 
 export default function SalesLeadsPage() {
-  const [view, setView] = useState('active')
+  const [view, setView] = useState<'active' | 'mine' | 'warm' | 'idle'>('active')
   const [leads, setLeads] = useState<Lead[]>([])
   const [callers, setCallers] = useState<any[]>([])
   const [callerId, setCallerId] = useState('')
@@ -60,20 +61,23 @@ export default function SalesLeadsPage() {
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [showDrawer, setShowDrawer] = useState(false)
+  const [enrichingLead, setEnrichingLead] = useState<Lead | null>(null)
 
   const [showNew, setShowNew] = useState(false)
   const [showMondayConfig, setShowMondayConfig] = useState(false)
   const [showExcelImport, setShowExcelImport] = useState(false)
+  const [syncingNotice, setSyncingNotice] = useState<string | null>(null)
 
   const [newBusiness, setNewBusiness] = useState('')
   const [error, setError] = useState('')
 
-  const load = async () => {
+  const load = async (syncWithMonday = false) => {
     setLoading(true)
     setError('')
     try {
       const params = new URLSearchParams({ view })
       if (callerId) params.set('callerId', callerId)
+      if (syncWithMonday) params.set('sync', 'true')
       const res = await fetch(`/api/sales-leads?${params}`, { cache: 'no-store' })
       if (!res.ok) throw new Error('Unable to load sales leads')
       const data = await res.json()
@@ -184,14 +188,26 @@ export default function SalesLeadsPage() {
             <Button variant="outline" size="sm" onClick={() => setShowExcelImport(true)} className="bg-white">
               <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-slate-600" /> Import Excel
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void load()} className="bg-white">
-              <RefreshCw className="w-3.5 h-3.5" />
+            <Button variant="outline" size="sm" onClick={() => void load(true)} className="bg-white" title="Refresh & Sync from Monday.com">
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </Button>
             <Button size="sm" onClick={() => setShowNew(true)} className="gap-1">
               <Plus className="w-3.5 h-3.5" /> New Lead
             </Button>
           </div>
         </div>
+
+        {syncingNotice && (
+          <div className="mb-6 p-3.5 rounded-xl bg-blue-50/90 border border-blue-200 text-blue-900 text-xs flex items-center justify-between shadow-xs">
+            <span className="flex items-center gap-2 font-medium">
+              <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+              {syncingNotice}
+            </span>
+            <span className="text-[11px] text-blue-700 bg-blue-100 px-2.5 py-1 rounded-full font-semibold">
+              Background Sync Active
+            </span>
+          </div>
+        )}
 
         {/* Executive Stats Summary Header */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -258,7 +274,7 @@ export default function SalesLeadsPage() {
               ].map(([key, label]) => (
                 <button
                   key={key}
-                  onClick={() => setView(key)}
+                  onClick={() => setView(key as 'active' | 'mine' | 'warm' | 'idle')}
                   className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                     view === key
                       ? 'bg-[#21263C] text-white shadow-xs'
@@ -419,6 +435,15 @@ export default function SalesLeadsPage() {
                             <Button
                               variant="outline"
                               size="sm"
+                              title="Run AI Prospect Research"
+                              onClick={() => setEnrichingLead(lead)}
+                              className="text-[11px] py-1 h-7 font-medium bg-white text-slate-700 hover:text-[#CAA15F] border-slate-200"
+                            >
+                              <Sparkles className="w-3 h-3 text-[#CAA15F]" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
                               onClick={() => {
                                 setSelectedLead(lead)
                                 setShowDrawer(true)
@@ -490,7 +515,14 @@ export default function SalesLeadsPage() {
         <ExcelImportModal
           isOpen={showExcelImport}
           onClose={() => setShowExcelImport(false)}
-          onImportComplete={() => void load()}
+          onImportComplete={async () => {
+            setSyncingNotice('Creating local records and syncing leads to Monday.com in the background...')
+            await load()
+            setTimeout(() => {
+              void load()
+              setSyncingNotice(null)
+            }, 6000)
+          }}
         />
 
         <LeadDetailDrawer
@@ -500,6 +532,18 @@ export default function SalesLeadsPage() {
           onClose={() => setShowDrawer(false)}
           onUpdate={updateLead}
         />
+
+        {enrichingLead && (
+          <EnrichmentModal
+            isOpen={Boolean(enrichingLead)}
+            leadId={enrichingLead.id}
+            businessName={enrichingLead.businessName}
+            initialNotes={enrichingLead.notes}
+            initialReport={enrichingLead.aiResearchReport}
+            onClose={() => setEnrichingLead(null)}
+            onNotesSaved={() => void load()}
+          />
+        )}
       </main>
     </div>
   )

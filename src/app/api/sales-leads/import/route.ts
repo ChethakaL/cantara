@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { normalizeImportRow, validateImportRows, importKey } from '@/lib/sales-leads/import-validation'
 import { SalesLeadStage } from '@prisma/client'
+import { salesLeadMondayConfiguration } from '@/lib/sales-leads/monday-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,6 +10,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { rows } = body
+    const previewOnly = body.preview === true
 
     if (!Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json({ error: 'No data rows provided' }, { status: 400 })
@@ -33,8 +35,8 @@ export async function POST(req: NextRequest) {
     const toInsert = validatedResults.filter(r => r.qualified)
 
     let createdCount = 0
-    if (toInsert.length > 0) {
-      await prisma.$transaction(
+    if (toInsert.length > 0 && !previewOnly) {
+      const created = await prisma.$transaction(
         toInsert.map(r =>
           prisma.salesLead.create({
             data: {
@@ -46,6 +48,10 @@ export async function POST(req: NextRequest) {
               websiteUrl: r.websiteUrl || null,
               googleRating: r.googleRating || null,
               reviewCount: r.reviewCount || null,
+              sqftIndoor: r.sqftIndoor || null,
+              sqftOutdoor: r.sqftOutdoor || null,
+              sqftCombined: r.sqftCombined || null,
+              locationType: r.locationType || null,
               ownerFirstName: r.ownerFirstName || null,
               ownerLastName: r.ownerLastName || null,
               phoneType: r.phoneType,
@@ -60,11 +66,29 @@ export async function POST(req: NextRequest) {
         ),
       )
       createdCount = toInsert.length
+      const mondayConfig = await salesLeadMondayConfiguration()
+      if (mondayConfig.boardId && Object.keys(mondayConfig.mapping).length > 0) {
+        await prisma.salesLeadSyncEvent.createMany({
+          data: created.map(lead => ({
+            leadId: lead.id,
+            direction: 'OUTBOUND_MONDAY' as const,
+            status: 'PENDING' as const,
+            payload: { reason: 'excel_import' },
+          })),
+        })
+        const { processSalesLeadSyncOutbox } = await import('@/lib/sales-leads/monday-sync')
+        processSalesLeadSyncOutbox().catch(err => console.warn('[import] Immediate Monday sync warning:', err))
+      }
     }
 
     const formattedResults = validatedResults.map((r, idx) => ({
       index: idx,
-      row: rows[idx],
+      row: {
+        ...rows[idx],
+        businessName: r.businessName,
+        city: r.city,
+        state: r.state,
+      },
       validation: {
         valid: r.qualified,
         reasons: [...r.errors, ...r.warnings],
@@ -74,7 +98,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       totalProcessed: rows.length,
-      importedCount: createdCount,
+      importedCount: previewOnly ? toInsert.length : createdCount,
+      validCount: toInsert.length,
       skippedDuplicates: formattedResults.filter(r => r.isDuplicate).length,
       invalidCount: formattedResults.filter(r => !r.validation.valid && !r.isDuplicate).length,
       results: formattedResults,

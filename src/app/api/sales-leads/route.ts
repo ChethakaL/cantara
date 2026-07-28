@@ -16,7 +16,7 @@ import {
   setSalesLeadStage,
   updateSalesLeadFields,
 } from '@/lib/sales-leads/service'
-import { salesLeadMondayConfiguration } from '@/lib/sales-leads/monday-sync'
+import { salesLeadMondayConfiguration, reconcileSalesLeadsFromMonday, processSalesLeadSyncOutbox } from '@/lib/sales-leads/monday-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,6 +36,12 @@ function optionalDate(value: unknown) {
 }
 
 export async function GET(req: NextRequest) {
+  const syncFromMonday = req.nextUrl.searchParams.get('sync') === 'true'
+  if (syncFromMonday) {
+    await reconcileSalesLeadsFromMonday().catch(err => console.warn('[sales-leads/route] Sync reconciliation warning:', err))
+    await processSalesLeadSyncOutbox().catch(err => console.warn('[sales-leads/route] Outbox sync warning:', err))
+  }
+
   const view = req.nextUrl.searchParams.get('view') || 'active'
   const requestedCallerId = req.nextUrl.searchParams.get('callerId') || undefined
   const state = req.nextUrl.searchParams.get('state') || undefined
@@ -192,29 +198,11 @@ export async function PATCH(req: NextRequest) {
         }),
       )
     }
-    if (body.currentStage) {
-      // The drawer saves stage and caller together. Persist the caller first so
-      // the workflow transition and the visible assignment stay consistent.
-      if (body.assignedCallerId !== undefined) {
-        const callerData: any = body.assignedCallerId === ''
-          ? { assignedCaller: { disconnect: true } }
-          : { assignedCaller: { connect: { id: body.assignedCallerId } } }
-        await updateSalesLeadFields(id, callerData)
-      }
-      return NextResponse.json(
-        await setSalesLeadStage({
-          id,
-          stage: body.currentStage as SalesLeadStage,
-          nextActionDate: optionalDate(body.nextActionDate),
-          bookingDateTime: optionalDate(body.bookingDateTime),
-          allowRestart: body.allowRestart === true,
-        }),
-      )
-    }
 
+    // 1. Update any editable fields (notes, caller, business details)
     const data: any = {}
     const editable = [
-      'businessName', 'assignedCallerId', 'state', 'city', 'websiteUrl', 'googleRating',
+      'businessName', 'state', 'city', 'websiteUrl', 'googleRating',
       'reviewCount', 'sqftIndoor', 'sqftOutdoor', 'sqftCombined', 'locationType',
       'preCallBriefUrl', 'ownerFirstName', 'ownerLastName', 'ownerPhone', 'phoneType',
       'sourceLinkPhone', 'ownerEmail', 'emailType', 'sourceLinkEmail', 'notes',
@@ -222,17 +210,64 @@ export async function PATCH(req: NextRequest) {
     for (const key of editable) {
       if (body[key] !== undefined) data[key] = body[key] === '' ? null : body[key]
     }
-    return NextResponse.json(await updateSalesLeadFields(id, data))
+    if (body.assignedCallerId !== undefined) {
+      const callerIdStr = String(body.assignedCallerId || '').trim()
+      data.assignedCaller = callerIdStr
+        ? { connect: { id: callerIdStr } }
+        : { disconnect: true }
+    }
+
+    let updatedLead = null
+    if (Object.keys(data).length > 0) {
+      updatedLead = await updateSalesLeadFields(id, data)
+    }
+
+    // 2. Update currentStage if provided
+    if (body.currentStage) {
+      const existing = await prisma.salesLead.findUnique({ where: { id }, select: { currentStage: true } })
+      if (existing && existing.currentStage !== body.currentStage) {
+        updatedLead = await setSalesLeadStage({
+          id,
+          stage: body.currentStage as SalesLeadStage,
+          nextActionDate: optionalDate(body.nextActionDate),
+          bookingDateTime: optionalDate(body.bookingDateTime),
+          allowRestart: body.allowRestart === true,
+        })
+      }
+    }
+
+    if (!updatedLead) {
+      updatedLead = await prisma.salesLead.findUnique({ where: { id } })
+    }
+
+    return NextResponse.json(updatedLead)
   } catch (error) {
     return errorResponse(error)
   }
 }
 
 export async function DELETE(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get('id')
-  if (!id) return NextResponse.json({ error: 'Lead id is required.' }, { status: 400 })
-  const existing = await prisma.salesLead.findUnique({ where: { id }, select: { id: true } })
-  if (!existing) return NextResponse.json({ error: 'Lead not found.' }, { status: 404 })
-  await prisma.salesLead.delete({ where: { id } })
-  return NextResponse.json({ deleted: true, id })
+  try {
+    const id = req.nextUrl.searchParams.get('id')
+    if (!id) return NextResponse.json({ error: 'Lead id is required.' }, { status: 400 })
+    const existing = await prisma.salesLead.findUnique({
+      where: { id },
+      select: { id: true, mondayItemId: true, mondayBoardId: true },
+    })
+    if (!existing) return NextResponse.json({ error: 'Lead not found.' }, { status: 404 })
+
+    if (existing.mondayItemId && existing.mondayBoardId === '18424022169') {
+      const { executeMondayTool } = await import('@/lib/composio')
+      await executeMondayTool('MONDAY_DELETE_ITEM', { item_id: existing.mondayItemId }).catch((err) =>
+        console.warn('[Delete Lead] Monday delete warning:', err)
+      )
+    }
+
+    await prisma.salesLeadSyncEvent.deleteMany({ where: { leadId: id } }).catch(() => null)
+    await prisma.salesLead.delete({ where: { id } })
+
+    return NextResponse.json({ deleted: true, id })
+  } catch (error) {
+    return errorResponse(error)
+  }
 }

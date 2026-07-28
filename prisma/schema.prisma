@@ -616,6 +616,7 @@ model SalesLead {
   emailSentAt        DateTime?
   bookingDateTime    DateTime?
   notes              String?
+  aiResearchReport   Json?
   mondayBoardId      String?
   mondayItemId       String?              @unique
   mondayLastSyncedAt DateTime?

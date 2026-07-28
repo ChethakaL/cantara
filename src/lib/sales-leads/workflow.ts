@@ -318,7 +318,10 @@ export function changeStage(args: {
       'BOOKING_DATE_REQUIRED',
     )
   }
-  const scheduledDate = args.nextActionDate ?? args.lead.nextActionDate
+  const scheduledDate =
+    args.nextActionDate ??
+    args.lead.nextActionDate ??
+    (args.stage === SalesLeadStage.EMAIL_1_DUE || args.stage === SalesLeadStage.EMAIL_2_DUE ? new Date() : null)
   if (
     (args.stage === SalesLeadStage.EMAIL_1_DUE || args.stage === SalesLeadStage.EMAIL_2_DUE) &&
     !scheduledDate

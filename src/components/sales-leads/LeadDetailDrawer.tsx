@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   Building2,
+  AlertTriangle,
   Calendar,
   CalendarClock,
   CheckCircle2,
@@ -16,10 +17,13 @@ import {
   Send,
   Star,
   User,
+  Trash2,
   X,
 } from 'lucide-react'
-import { Badge, Button, Input, Select, Textarea } from '@/components/ui'
+import { Badge, Button, Input, SearchableSelect, Select, Textarea } from '@/components/ui'
 import { CALL_RESULT_LABELS, STAGE_LABELS } from '@/lib/sales-leads/workflow'
+import { Sparkles } from 'lucide-react'
+import EnrichmentModal from '@/components/sales-leads/EnrichmentModal'
 
 type Lead = any
 
@@ -40,6 +44,10 @@ export default function LeadDetailDrawer({
   const [notes, setNotes] = useState('')
   const [stage, setStage] = useState('')
   const [callerId, setCallerId] = useState('')
+  const [showEnrichModal, setShowEnrichModal] = useState(false)
+  const [error, setError] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Email Draft State
   const [draftLoading, setDraftLoading] = useState(false)
@@ -135,6 +143,22 @@ export default function LeadDetailDrawer({
       onClose()
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!lead) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/sales-leads?id=${lead.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete lead')
+      setShowDeleteConfirm(false)
+      onClose()
+      await onUpdate(lead.id, {})
+    } catch (err: any) {
+      setError(err.message || 'Could not delete lead')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -288,31 +312,55 @@ export default function LeadDetailDrawer({
 
             {/* Stage & Caller Controls */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <Select
-                label="Current Stage"
-                value={stage || lead.currentStage}
-                onChange={e => setStage(e.target.value)}
-                options={Object.entries(STAGE_LABELS).map(([value, label]) => ({
-                  value,
-                  label: `${label} (${value})`,
-                }))}
-              />
-              <Select
-                label="Assigned Caller"
-                value={callerId !== '' ? callerId : lead.assignedCallerId || ''}
-                onChange={e => setCallerId(e.target.value)}
-                options={[
-                  { value: '', label: '-- Unassigned --' },
-                  ...callers.map(c => ({ value: c.id, label: c.name })),
-                ]}
-              />
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Current Stage
+                </label>
+                <SearchableSelect
+                  options={Object.entries(STAGE_LABELS).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                  value={stage || lead.currentStage}
+                  onChange={val => setStage(val)}
+                  allowEmpty={false}
+                  placeholder="Search stages..."
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Assigned Caller
+                </label>
+                <SearchableSelect
+                  options={callers.map(c => ({
+                    value: c.id,
+                    label: c.name,
+                  }))}
+                  value={callerId !== '' ? callerId : lead.assignedCallerId || ''}
+                  onChange={val => setCallerId(val)}
+                  allowEmpty={true}
+                  emptyLabel="-- Unassigned --"
+                  placeholder="Search callers..."
+                />
+              </div>
             </div>
 
             {/* Lead Intelligence & 24 Fields Overview */}
             <div className="space-y-4">
-              <h3 className="text-xs font-bold uppercase text-slate-400 tracking-wider">
-                Prospect Intelligence & Data Fields
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase text-slate-400 tracking-wider">
+                  Prospect Intelligence & Data Fields
+                </h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowEnrichModal(true)}
+                  className="text-xs py-1 h-7 bg-white text-slate-700 hover:text-[#CAA15F] border-slate-200"
+                >
+                  <Sparkles className="w-3.5 h-3.5 mr-1 text-[#CAA15F]" /> Research Prospect
+                </Button>
+              </div>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="p-3 bg-slate-50 rounded-lg border">
@@ -392,6 +440,54 @@ export default function LeadDetailDrawer({
                 </div>
               </div>
 
+              {/* AI Prospect Research Scorecard Section */}
+              {(() => {
+                let r: any = lead.aiResearchReport
+                if (!r && lead.notes) {
+                  const match = lead.notes.match(/<!-- AI_RESEARCH_JSON:([\s\S]*?)-->/)
+                  if (match && match[1]) {
+                    try { r = JSON.parse(match[1]) } catch { r = null }
+                  }
+                }
+
+                if (!r) return null
+
+                return (
+                  <div className="p-4 rounded-xl border border-amber-200/80 bg-amber-50/40 space-y-3">
+                    <div className="flex items-center justify-between border-b border-amber-200/60 pb-2">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs uppercase tracking-wider">
+                        <Sparkles className="w-4 h-4 text-cantara-gold" /> AI Prospect Intelligence Scorecard
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                        {r.tierRating || 'Tier 2'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                      <div className="p-2.5 bg-white rounded-lg border border-amber-100">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Year Established</span>
+                        <span className="font-semibold text-slate-800">{r.yearStarted}</span>
+                      </div>
+                      <div className="p-2.5 bg-white rounded-lg border border-amber-100">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Ownership Tenure</span>
+                        <span className="font-semibold text-slate-800">{r.ownershipTenure}</span>
+                      </div>
+                      <div className="p-2.5 bg-white rounded-lg border border-amber-100">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Prior Sale History</span>
+                        <span className="font-semibold text-slate-800">{r.priorSaleHistory}</span>
+                      </div>
+                    </div>
+
+                    {r.businessProfileSummary && (
+                      <div className="p-2.5 bg-white rounded-lg border border-amber-100 text-xs text-slate-700 leading-relaxed">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Executive Profile</span>
+                        {r.businessProfileSummary}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
               {/* Notes */}
               <Textarea
                 label="Freeform Notes & Caller Log"
@@ -409,16 +505,68 @@ export default function LeadDetailDrawer({
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Monday Sync: {lead.syncStatus}
             </div>
             <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={saving || deleting}
+                className="text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+              </Button>
               <Button variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button onClick={handleSaveFields} disabled={saving}>
+              <Button onClick={handleSaveFields} disabled={saving || deleting}>
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </div>
         </div>
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-rose-600 mb-3">
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-100">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Delete Sales Lead</h3>
+                <p className="text-xs text-slate-500">This action cannot be undone</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed mb-6 bg-slate-50 p-3 rounded-xl border border-slate-100">
+              Are you sure you want to delete <span className="font-bold text-slate-900">"{lead.businessName}"</span>? This will permanently remove it from your local database and from your Monday.com board (if synced).
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-medium gap-1.5"
+              >
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {deleting ? 'Deleting...' : 'Delete Lead'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <EnrichmentModal
+        isOpen={showEnrichModal}
+        leadId={lead.id}
+        businessName={lead.businessName}
+        initialNotes={lead.notes}
+        initialReport={lead.aiResearchReport}
+        onClose={() => setShowEnrichModal(false)}
+        onNotesSaved={async () => {
+          await onUpdate(lead.id, {})
+        }}
+      />
     </div>
   )
 }

@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getProjectEnv } from '@/lib/project-env'
 import { SalesLeadStage } from '@prisma/client'
 import { approveSalesLeadEmail, requestSalesLeadEmailApproval } from '@/lib/sales-leads/service'
+import { buildSalesLeadEmailDraft } from '@/lib/sales-leads/email-provider'
 
 export const dynamic = 'force-dynamic'
-
-function interpolate(value: string, lead: any) {
-  const replacements: Record<string, string> = {
-    businessName: lead.businessName || '',
-    ownerFirstName: lead.ownerFirstName || '',
-    ownerLastName: lead.ownerLastName || '',
-    city: lead.city || '',
-    state: lead.state || '',
-  }
-  return value.replace(/\{\{(\w+)\}\}/g, (_match, key) => replacements[key] ?? '')
-}
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -26,21 +15,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const templateNum = stage === SalesLeadStage.EMAIL_2_DUE || stage === SalesLeadStage.EMAIL_2_SENT ? 2 : 1
     const emailType = lead.emailType || 'GENERAL'
 
-    const defaultSubject =
-      templateNum === 1
-        ? `Inquiry regarding ${lead.businessName}`
-        : `Following up: Cantara Pet Business Advisory & ${lead.businessName}`
-
-    const defaultBody =
-      templateNum === 1
-        ? `Hello ${lead.ownerFirstName || 'there'},\n\nWe are reaching out from Cantara regarding ${lead.businessName}. We assist pet resort owners with confidential exit and growth readiness.\n\nWould you be open to a brief 10-minute introductory call next week?\n\nBest regards,\nCantara Pet Advisors`
-        : `Hello ${lead.ownerFirstName || 'there'},\n\nFollowing up on our previous note regarding ${lead.businessName}. We would love to share insights tailored for independent operators in ${lead.city || 'your area'}.\n\nLet us know if you'd like to review your business readiness assessment.\n\nBest regards,\nCantara Pet Advisors`
-
-    const envSubject = getProjectEnv(`SALES_LEAD_EMAIL_${templateNum}_${emailType}_SUBJECT`)
-    const envBody = getProjectEnv(`SALES_LEAD_EMAIL_${templateNum}_${emailType}_BODY`)
-
-    const subject = interpolate(envSubject || defaultSubject, lead)
-    const body = interpolate(envBody || defaultBody, lead)
+    // Generate on open so newly saved prospect research is reflected immediately.
+    const draft = await buildSalesLeadEmailDraft(lead, templateNum)
 
     return NextResponse.json({
       leadId: lead.id,
@@ -49,8 +25,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       emailType,
       recipientEmail: lead.ownerEmail || null,
       recipientName: [lead.ownerFirstName, lead.ownerLastName].filter(Boolean).join(' ') || lead.businessName,
-      subject,
-      body,
+      subject: draft.subject,
+      body: draft.body,
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Draft generation failed' }, { status: 500 })

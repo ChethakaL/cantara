@@ -129,7 +129,7 @@ export async function requestSalesLeadEmailApproval(id: string, template: 1 | 2)
   }
   if (lead.emailApprovalStatus === 'PENDING' && lead.pendingEmailTemplate === template) return lead
   if (!lead.ownerEmail) throw new SalesLeadEmailConfigurationError('The lead does not have an email address.')
-  const draft = buildSalesLeadEmailDraft(lead, template)
+  const draft = await buildSalesLeadEmailDraft(lead, template)
   return prisma.$transaction(async tx => {
     const updated = await tx.salesLead.update({
       where: { id },

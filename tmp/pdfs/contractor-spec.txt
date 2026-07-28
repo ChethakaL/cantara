@@ -1,0 +1,511 @@
+CANTARA | PET BUSINESS ADVISORS
+
+
+
+
+                                  CANTARA
+                                    Pet Business Advisors
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+
+
+MONDAY SALES LEAD OUTREACH BOARD
+                      Contractor Build Specification V2
+
+                          BOARD ARCHITECTURE – APPROVED
+                              Implementation Specification | July 2026
+
+
+
+
+                                  Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |   1
+CANTARA | PET BUSINESS ADVISORS
+
+PART I — BOARD OVERVIEW & OPERATING INTENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+1. Purpose of the Board
+The Cantara Monday Sales Lead Board will manage qualified pet resort prospects through a disciplined four-touch
+cold outbound sequence from initial Email 1 through either a booked meeting, a nurture handoff, or another
+defined exception status.
+  PRIMARY DESIGN PRINCIPLE​
+  This board is a workflow-management tool. It is not a full prospect database and it is not the post-booking sales
+  pipeline.
+
+
+
+2. What the Board Must Achieve
+●​ Give Craig, Gabriela, and Stephanie an immediate daily view of which prospects require action.
+●​ Make the next required step unmistakable for every active lead.
+●​ Preserve the same-caller-both-attempts rule for Call 1 and Call 2.
+●​ Automate the 21-calendar-day sequence wherever practical.
+●​ Capture only the structured data required for workflow, automation, filtering, reporting, or recurring
+   management decisions.
+●​ Move booked opportunities out of this board and into the Deals/CRM workflow.
+●​ Move defined nurture dispositions into the Nurture board.
+
+3. High-Level Workflow
+ Stage                                                         Operating Intent
+ Qualified Lead                                                Lead has passed Cantara ICP qualification and required
+                                                               enrichment.
+ Day 0 — Email 1                                               Email 1 is sent; next action is scheduled 7 calendar days later.
+ Day 7 — Call 1                                                Assigned Caller makes first call attempt and records Last Call
+                                                               Result.
+ Day 14 — Email 2                                              Email 2 is sent; next action is scheduled 7 calendar days later.
+ Day 21 — Call 2                                               Same Assigned Caller makes second call attempt and records
+                                                               Last Call Result.
+ Exit                                                          Lead becomes Booked, moves to Nurture when defined, or
+                                                               enters another exception status.
+
+
+
+4. Core Operating Logic
+ Board Element                                                 Meaning
+ Current Stage                                                 Answers one question only: What should happen next?
+ Last Call Result                                              Records what happened on the most recent call.
+ Next Action Date                                              Drives timing and due-stage automation.
+ Last Contact Date                                             Provides management control for idle active leads.
+ Assigned Caller                                               Identifies who makes both call attempts for the lead.
+ Pre-Call Brief                                                Holds prospect intelligence that does not need to exist as
+                                                               structured Monday columns.
+
+                                          Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |   2
+CANTARA | PET BUSINESS ADVISORS
+
+
+
+5. Board Users
+Initial outbound callers:
+●​ Craig
+●​ Gabriela
+●​ Stephanie
+The Assigned Caller is not a general lead-owner field. It identifies the person responsible for both Call 1 and Call 2.
+The same assigned caller should make both attempts unless Cantara manually reassigns the lead.
+
+6. What Success Looks Like
+ DAILY-USE STANDARD​
+ A caller should be able to open Active Triage and, within seconds, understand which leads require action, what
+ action is required, and when it is due.
+
+
+An active lead should not remain in the sequence without a clearly defined Current Stage and Next Action Date.
+The board should minimize manual maintenance, but it must preserve transparent status and date logic so Cantara
+can audit the process.
+
+7. Scope Boundaries
+ In Scope                                                        Out of Scope
+ Qualified-lead sequence management                              Initial lead sourcing
+ Four-touch outbound cadence                                     Full prospect research database
+ Caller assignment and call results                              Post-booking sales pipeline
+ Nurture and CRM handoff triggers                                Nurture-board cadence and content
+ Operational views and idle-lead controls                        Advanced executive dashboarding at launch
+
+
+
+
+                                            Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |   3
+CANTARA | PET BUSINESS ADVISORS
+
+PART II — DETAILED CONTRACTOR BUILD
+SPECIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+A. Build Authority and Source of Truth
+Build the board according to this specification. The approved architecture is intentionally constrained to 23
+columns. Do not add columns, saved views, statuses, or workflow branches during the initial build unless Cantara
+explicitly approves the change.
+ CONTRACTOR INSTRUCTION​
+ Where this document labels an item as an Implementation Dependency, do not invent a solution. Build the
+ approved portion, document the dependency, and confirm the final handoff mechanics with Cantara.
+
+
+
+B. Board Configuration
+ Setting                                                         Required Configuration
+ Board name                                                      Cantara — Sales Leads — Active Sequence
+ Board purpose                                                   Manage qualified cold outbound leads through Email 1 → Call 1
+                                                                 → Email 2 → Call 2.
+ Initial users                                                   Craig, Gabriela, Stephanie
+ Primary operating view                                          Active Triage
+
+
+ Date basis                                                      Calendar days, not business days.
+ Sequence cadence                                                Day 0 / Day 7 / Day 14 / Day 21.
+ Launch day alignment                                            Email 1 launches Tuesday or Wednesday; exact first launch date
+                                                                 is an implementation dependency.
+
+
+
+C. 23-Column Architecture
+ #                        Column                   Monday Type                 Purpose / Rule              Maintenance
+ 1                        Business Name            Item name                   Primary identifier          Imported / manual
+                                                                                                           correction
+ 2                        Assigned Caller          People                      Craig, Gabriela, or         Assigned before
+                                                                               Stephanie; same             sequence (Craig to
+                                                                               caller for both             assign manually)
+                                                                               attempts
+ 3                        Current Stage            Status                      Defines what                Mixed: automation
+                                                                               happens next                + manual exceptions
+ 4                        Last Action Result       Status                      Most recent action          Manual after each
+                                                                               outcome                     action
+ 5                        Next Action Date         Date                        Drives sequence             Primarily
+                                                                               timing                      automated; manual
+                                                                                                           for callback
+ 6                        Last Contact Date        Date                        Idle-lead control           Automated from
+                                                                                                           defined touch events
+
+                                            Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |   4
+CANTARA | PET BUSINESS ADVISORS
+#                  Column                    Monday Type                 Purpose / Rule                 Maintenance
+7                  State                     Status or Dropdown          US state; expandable           Imported
+8                  City                      Text                        Email merge-field              Imported
+                                                                         personalization
+9                  Website URL               Link                        Quick reference                Imported
+10                 Google Rating             Numbers                     Context / QA only              Imported
+11                 Review Count              Numbers                     Context / QA only              Imported
+12                 Square Footage            Number                      Facility size metric           Imported
+                   (Indoor)
+13                 Square Footage            Number                      Facility size metric           Imported
+                   (Outdoor)
+14                 Square Footage            Number                      Total facility size            Imported
+                   (Combined)
+15                 Location Type             Label                       Urban / Suburban /             Imported
+                                                                         Rural
+16                 Pre-Call Brief            Link                        Link to                        Imported /
+                                                                         Aliya-generated                generated upstream
+                                                                         research brief
+17                 Owner First Name          Text                        Business owner                 Imported
+                                                                         name
+18                 Owner Last Name           Text                        Business owner last            Imported
+                                                                         name
+19                 Owner Phone               Text                        Owner direct phone             Imported
+                                                                         number
+20                 Source Link               URL                         Link to where                  Imported
+                   (Phone)                                               Owner Phone was
+                                                                         sourced
+21                 Owner Email               Text                        Owner direct email             Imported
+22                 Source Link (Email)       URL                         Link to where                  Imported
+                                                                         Owner Email was
+                                                                         sourced
+23                 Booking Date/Time         Date with time              Calendly booking               Manual unless
+                                                                         reference                      booking integration
+                                                                                                        is added
+24                 Notes                     Long Text                   Freeform caller /              Manual
+                                                                         contractor notes
+
+
+D. Current Stage — Exact Status Labels
+Category                            Exact Label                                    Use
+ACTIVE SEQUENCE                     New                                            Lead is loaded and ready to enter the sequence.
+ACTIVE SEQUENCE                     Email 1 Due                                    Email 1 is the next required action.
+ACTIVE SEQUENCE                     Email 1 Sent                                   Email 1 has been sent; waiting for Call 1 due
+                                                                                   date.
+ACTIVE SEQUENCE                     Call 1 Due                                     Call 1 is the next required action.
+ACTIVE SEQUENCE                     Email 2 Due                                    Email 2 is the next required action.
+ACTIVE SEQUENCE                     Email 2 Sent                                   Email 2 has been sent; waiting for Call 2 due
+                                                                                   date.
+
+
+                                      Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |       5
+CANTARA | PET BUSINESS ADVISORS
+ Category                                Exact Label                                    Use
+ ACTIVE SEQUENCE                         Call 2 Due                                     Call 2 is the next required action.
+ SUCCESS                                 Booked                                         Meeting booked; stop sequence and hand off
+                                                                                        to Deals/CRM.
+ EXCEPTION                               Needs Follow-Up                                Prospect requests a callback on a specific date;
+                                                                                        pause standard sequence.
+ EXCEPTION                               Reconnect Later                                Lead is intentionally deferred for future
+                                                                                        reconnection.
+ EXCEPTION                               Bad Contact                                    Material contact data issue; stop sequence.
+ EXCEPTION                               Opted Out                                      Prospect opts out; stop sequence.
+ EXCEPTION                               Closed – Sold                                  Business has already sold; stop sequence.
+ EXCEPTION                               Not Interested – To Nurture                    Prospect says not interested / not a fit; stop
+                                                                                        sequence and move to Nurture.
+ TERMINAL                                Completed – No Response                        Four-touch sequence completed with no
+                                                                                        response; move to Nurture.
+
+
+
+
+E. Last Call Result — Exact Status Labels
+ Exact Label                                                     Definition
+ No Answer                                                       Call was placed; no answer and no voicemail left.
+ Left Voicemail                                                  Voicemail was left.
+ Gatekeeper                                                      Caller reached a gatekeeper but not the owner/contact.
+ Spoke with Owner                                                Caller reached the owner/contact.
+ Callback Requested                                              Prospect requested a callback.
+ Email Requested                                                 Prospect requested information by email.
+ Wrong Number                                                    Phone number is incorrect.
+ Disconnected Number                                             Number is disconnected.
+
+
+
+F. Sequence Cadence and Stage Logic
+ Timing                 Starting Stage            Required Action              Normal Resulting Stage        Next Action Date
+ Day 0                  Email 1 Due               Send Email 1                 Email 1 Sent                  Today + 7 calendar days
+ Day 7                  Call 1 Due                Assigned Caller makes Call   Email 2 Due*                  Today + 7 calendar days
+                                                  1 and records Last Call
+                                                  Result
+ Day 14                 Email 2 Due               Send Email 2                 Email 2 Sent                  Today + 7 calendar days
+ Day 21                 Call 2 Due                Same Assigned Caller         Terminal / exception          None unless exception
+                                                  makes Call 2 and records     disposition                   requires one
+                                                  Last Call Result
+
+
+*Implementation intent: after Call 1 is completed and a Last Call Result is recorded, the lead advances to Email 2
+Due unless the caller applies an approved exception status.
+
+G. Automation Build Recipes
+A1 — Start Email 1
+Trigger: Current Stage changes to Email 1 Due.
+Actions: Send Email 1 through the approved Gmail/email integration; set Current Stage to Email 1 Sent; set Last
+Contact Date to today; set Next Action Date to today + 7 calendar days.
+Expected Result: Lead waits in Email 1 Sent until the Call 1 due-date automation fires.
+                                           Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |        6
+CANTARA | PET BUSINESS ADVISORS
+A2 — Make Call 1 Due
+Trigger: Next Action Date arrives AND Current Stage = Email 1 Sent.
+Actions: Set Current Stage to Call 1 Due.
+Expected Result: Lead appears as due in Active Triage.
+
+A3 — Complete Call 1
+Trigger: Last Call Result changes while Current Stage = Call 1 Due.
+Actions: Set Last Contact Date to today; unless Current Stage is manually changed to an approved exception, set
+Current Stage to Email 2 Due; set Next Action Date to today + 7 calendar days.
+Expected Result: Standard sequence advances to Email 2 Due; exception paths pause or stop normal automation.
+
+A4 — Send Email 2
+Trigger: Current Stage changes to Email 2 Due.
+Actions: Send Email 2 through the approved Gmail/email integration; set Current Stage to Email 2 Sent; set Last
+Contact Date to today; set Next Action Date to today + 7 calendar days.
+Expected Result: Lead waits in Email 2 Sent until the Call 2 due-date automation fires.
+
+A5 — Make Call 2 Due
+Trigger: Next Action Date arrives AND Current Stage = Email 2 Sent.
+Actions: Set Current Stage to Call 2 Due.
+Expected Result: Lead appears as due in Active Triage.
+
+A6 — Complete Call 2
+Trigger: Last Call Result changes while Current Stage = Call 2 Due.
+Actions: Set Last Contact Date to today. Caller applies the correct terminal or exception Current Stage. If no
+response and no exception applies, set Current Stage to Completed – No Response.
+Expected Result: No lead remains indefinitely in Call 2 Due after a completed call.
+
+A7 — Callback Exception
+Trigger: Current Stage changes to Needs Follow-Up.
+Actions: Pause normal sequence automation. Next Action Date is manually set to the agreed callback date.
+Expected Result: Lead is retained for a specific follow-up and does not auto-advance through the standard
+cadence.
+
+A8 — Reconnect Later Exception
+Trigger: Current Stage changes to Reconnect Later.
+Actions: Pause normal sequence automation.
+Expected Result: Lead does not continue through the standard four-touch sequence.
+
+A9 — Nurture Handoff: No Response
+Trigger: Current Stage changes to Completed – No Response.
+
+
+                                         Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |   7
+CANTARA | PET BUSINESS ADVISORS
+Actions: Stop sequence automation and move/copy the lead to the Nurture board using the approved handoff
+mechanism.
+Expected Result: Lead leaves active-sequence management and enters nurture.
+
+A10 — Nurture Handoff: Not Interested
+Trigger: Current Stage changes to Not Interested – To Nurture.
+Actions: Stop sequence automation and move/copy the lead to the Nurture board using the approved handoff
+mechanism.
+Expected Result: Lead leaves active-sequence management and enters nurture.
+
+A11 — Deals/CRM Handoff
+Trigger: Current Stage changes to Booked.
+Actions: Stop sequence automation and move/copy the lead to the Deals/CRM board using the approved handoff
+mechanism.
+Expected Result: Booked prospect is managed in the post-booking sales pipeline.
+
+A12 — Stop-Stage Protection
+Trigger: Current Stage changes to Opted Out, Bad Contact, Closed – Sold, Completed – No Response, Not
+Interested – To Nurture, or Booked.
+Actions: Prevent any future standard sequence stage/date automations from advancing the lead.
+Expected Result: Terminal or handed-off leads do not re-enter the sequence.
+
+H. Simplified Exception & Prospect-Response Logic
+ Situation                                              Current Stage                                      Required System Behaviour
+ Prospect books a meeting                               Booked                                             Stop outbound sequence; hand off to
+                                                                                                           Deals/CRM.
+ Prospect requests a callback on a specific             Needs Follow-Up                                    Set Next Action Date to agreed date; pause
+ date                                                                                                      automated sequence.
+ Prospect explicitly says "not interested" or           Not Interested – To Nurture                        Stop sequence; hand off to Nurture.
+ "not a good fit"
+ Four-touch sequence completes with no                  Completed – No Response                            Stop sequence; hand off to Nurture
+ response                                                                                                  automatically.
+
+
+
+I. Launch Views — Exact Build Requirements
+ Exact View Name              Purpose                            Filter                          Sort                          Primary User
+ 1. Active Triage             Primary daily operating            Current Stage in                Next Action Date              All callers / management
+                              view                               active-sequence statuses only   ascending; then Current
+                                                                                                 Stage; then Assigned Caller
+ 2. My Leads                  Caller-specific workload           Assigned Caller = logged-in     Next Action Date ascending    Craig, Gabriela, Stephanie
+                                                                 caller AND Current Stage in
+                                                                 active-sequence + exception
+                                                                 statuses
+ 3. Warm / Exception Leads    Manage non-standard                Current Stage in Needs          Next Action Date ascending    Callers / management
+                              opportunities                      Follow-Up, Reconnect
+                                                                 Later, or Booked
+ 4. Idle Leads                Identify stalled active            Last Contact Date is more       Last Contact Date ascending   Management control
+                              records                            than 10 calendar days ago
+
+
+                                                          Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |          8
+CANTARA | PET BUSINESS ADVISORS
+ Exact View Name             Purpose                    Filter                         Sort                           Primary User
+                                                        AND Current Stage in
+                                                        active-sequence statuses
+
+
+
+State and Current Stage should remain available as board filters. Do not create additional saved views at launch
+without Cantara approval.
+
+J. Data Enrichment and Pre-Call Brief Boundary
+Only fields included in the approved 18-column architecture are stored as structured Monday columns. Additional
+research intelligence belongs in the Pre-Call Brief and is linked from the board.
+ Structured Monday Data                                                 Pre-Call Brief Intelligence
+ Facility/business name                                                 Facility size (sq ft or suite/kennel count)
+ Website, state, city                                                   Service lines offered
+ Google rating and review count                                         Number of locations
+ Verified contact name and title                                        Google/Meta ad-spend presence
+ Direct phone and email                                                 Urban/Suburban/Rural location type
+ Pre-Call Brief link                                                    Owner-occupied flag
+ Assigned Caller / workflow fields                                      Website highlights and research notes
+
+
+
+K. Prospect Admission Criteria
+A lead should enter the Active Sequence Board only after passing Cantara's current ICP qualification:
+●​   Independent operator; not a multi-state chain or franchise.
+●​   Offers dog boarding and/or daycare.
+●​   Exclude grooming-only and vet-clinic operations.
+●​   Minimum Google rating of 4.5.
+●​   At least 50 Google reviews.
+Qualification and enrichment occur before import. The Active Sequence Board is not the place to decide whether a
+lead meets the ICP.
+
+L. Cross-Board Handoffs
+ Trigger Stage                       Destination                        Build Intent                          Implementation Dependency
+ Completed – No Response             Nurture Board                      Required                              Exact move/copy mapping and
+                                                                                                              destination-board columns.
+ Not Interested – To Nurture         Nurture Board                      Required                              Exact move/copy mapping and
+                                                                                                              destination-board columns.
+ Booked                              Deals/CRM Board                    Required                              Exact move/copy mapping and
+                                                                                                              destination-board columns.
+
+
+ IMPLEMENTATION DEPENDENCY​
+ Cantara will define the exact handoff mechanism after the Nurture and Deals/CRM destination structures are
+ confirmed. The contractor should not create unapproved destination-board schemas.
+
+
+
+
+                                                 Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |   9
+CANTARA | PET BUSINESS ADVISORS
+M. Testing Scenarios and Acceptance Criteria
+ Test                                   Steps                                                 Pass Condition
+ T1 — Normal no-response path           Load sample lead → Email 1 Due → Email 1 Sent         Lead ends as Completed – No Response; standard
+                                        → Day 7 Call 1 Due → record call result → Email 2     sequence stops; Nurture handoff fires.
+                                        Due → Email 2 Sent → Day 21 Call 2 Due →
+                                        record no-response call result.
+ T2 — Books after Email 1               After Email 1, manually set Current Stage to          All sequence automations stop; Deals/CRM
+                                        Booked and enter Booking Date/Time.                   handoff fires.
+ T3 — Callback requested after Call 1   At Call 1, set Last Call Result = Callback            Standard sequence pauses; lead remains visible in
+                                        Requested; set Current Stage = Needs Follow-Up;       exception workflow; it does not auto-send Email
+                                        set future Next Action Date.                          2.
+ T4 — Not interested                    At any active stage, set Current Stage = Not          All sequence automations stop; Nurture handoff
+                                        Interested – To Nurture.                              fires.
+ T5 — Idle active lead                  Create an active-stage sample with Last Contact       Lead appears in Idle Leads view.
+                                        Date more than 10 calendar days ago.
+ T6 — Stop-stage protection             Place test lead in Opted Out, Bad Contact, or         Lead does not advance when the date arrives.
+                                        Closed – Sold with a future Next Action Date.
+ T7 — Same caller continuity            Assign a test lead to Gabriela and progress it from   Assigned Caller remains Gabriela unless manually
+                                        Call 1 through Call 2.                                reassigned.
+
+
+
+
+N. Contractor Delivery Requirements
+1.​ Build all 23 columns in the exact approved order.
+2.​ Configure Current Stage and Last Call Result using the exact labels in this specification.
+3.​ Build the Day 0 / 7 / 14 / 21 sequence on a calendar-day basis.
+4.​ Document every automation with its trigger, conditions, actions, and resulting stage/date.
+5.​ Build the four launch views exactly as specified, with Active Triage positioned first.
+6.​ Implement the 10-calendar-day Idle Leads threshold.
+7.​ Preserve stop-stage protection so terminal and handed-off leads cannot re-enter the normal sequence.
+8.​ Do not create additional saved views, columns, or workflow statuses without Cantara approval.
+9.​ Run all acceptance tests using sample leads before live prospect import.
+10.​ Provide Cantara with a concise build map or screen recording showing the board, views, and automations after
+     testing.
+
+O. Implementation Dependencies to Confirm with Cantara
+●​   Exact first Tuesday or Wednesday launch date for Email 1.
+●​   Approved Gmail/email integration and sender configuration.
+●​   Exact field mapping and move/copy mechanics for the Nurture board.
+●​   Exact field mapping and move/copy mechanics for the Deals/CRM board.
+●​   Sample prospect data for pre-launch testing.
+The Nurture board structure and cadence are separate workstreams and should not be designed inside this Active
+Sequence Board build unless Cantara issues a separate specification.
+
+P. Final Build Standard
+ ACCEPTANCE STANDARD​
+ The build is complete only when a caller can open Active Triage, immediately identify due work, execute the
+ required action, and trust that the lead will advance, pause, stop, or hand off according to the approved
+ workflow—and when all seven acceptance tests pass.
+
+
+                                        Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |                  10
+CANTARA | PET BUSINESS ADVISORS
+
+
+
+
+Additional Comments - July 22, 2026
+
+   1.​ We will need to utilize a third party email software to mass send emails as Gmail has restrictions?
+   2.​ We will need to distinguish leads where we have the owner’s direct email/phone #, versus a general
+       business email and #, and send slightly different emails/have different call scripts.
+   3.​ Sample data -     Cantara Monday Board Sample Data - July 2026
+   4.​ Let’s discuss the feasibility and cost of AI running a report on each lead similar to how I ran the reports on
+       this ChatGPT search - https://chatgpt.com/share/6a614922-30ac-83e8-8e27-a17010641a21
+            a.​ What year did the business start?
+            b.​ How long have the current owners owned the business?
+            c.​ Has the business been sold previously?
+            d.​ Rate the resort as Tier 1, 2, or 3
+                  i.​   Estimated business profile
+
+
+
+
+                 ii.​   Sale readiness signals
+
+
+
+
+                                        Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |   11
+CANTARA | PET BUSINESS ADVISORS
+
+
+
+
+                            CANTARA PET BUSINESS ADVISORS | 2026
+
+
+
+
+                                  Cantara Pet Business Advisors | Monday Sales Lead Board Contractor Build Specification |   12
+

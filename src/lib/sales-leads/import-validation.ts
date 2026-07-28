@@ -7,6 +7,10 @@ export type SalesLeadImportRow = {
   websiteUrl?: string
   googleRating?: number | null
   reviewCount?: number | null
+  sqftIndoor?: number | null
+  sqftOutdoor?: number | null
+  sqftCombined?: number | null
+  locationType?: string
   ownerFirstName?: string
   ownerLastName?: string
   ownerPhone?: string
@@ -29,12 +33,15 @@ export type ValidatedSalesLeadImportRow = SalesLeadImportRow & {
 }
 
 function stringValue(value: unknown) {
-  return value == null ? '' : String(value).trim()
+  const valueString = value == null ? '' : String(value).trim()
+  return /^(not found|not found\.|unknown|n\/a|na)$/i.test(valueString) ? '' : valueString
 }
 
 function numberValue(value: unknown) {
   if (value == null || value === '') return null
-  const number = Number(String(value).replace(/,/g, ''))
+  const normalized = String(value).trim().replace(/,/g, '').toLowerCase()
+  const multiplier = normalized.endsWith('k') ? 1000 : normalized.endsWith('m') ? 1000000 : 1
+  const number = Number(normalized.replace(/[km]$/, '')) * multiplier
   return Number.isFinite(number) ? number : null
 }
 
@@ -55,30 +62,77 @@ function firstValue(row: Record<string, unknown>, names: string[]) {
   return undefined
 }
 
+function urlValue(value: unknown) {
+  const normalized = stringValue(value)
+  if (!normalized) return ''
+  if (/^https?:\/\//i.test(normalized)) return normalized
+  if (/^(www\.|[a-z0-9-]+\.[a-z]{2,})/i.test(normalized)) return `https://${normalized}`
+  return normalized
+}
+
 export function normalizeImportRow(row: Record<string, unknown>, rowNumber: number): SalesLeadImportRow {
-  const phoneType = stringValue(firstValue(row, ['phone type', 'owner phone type'])).toUpperCase()
-  const emailType = stringValue(firstValue(row, ['email type', 'owner email type'])).toUpperCase()
+  const explicitPhoneType = stringValue(firstValue(row, ['phone type', 'owner phone type'])).toUpperCase()
+  const explicitEmailType = stringValue(firstValue(row, ['email type', 'owner email type'])).toUpperCase()
+  const directPhone = stringValue(firstValue(row, ['owner phone', 'owner phone number', 'phone']))
+  const generalPhone = stringValue(firstValue(row, ['general business phone', 'business phone']))
+  const directEmail = stringValue(firstValue(row, ['owner email', 'email']))
+  const generalEmail = stringValue(firstValue(row, ['general business email', 'business email']))
+  const ownerPhone = directPhone || generalPhone
+  const ownerEmail = directEmail || generalEmail
+
+  const businessName = stringValue(firstValue(row, ['business name', 'business', 'company', 'facility name', 'customer name', 'resort name', 'name']))
+  const numLocations = numberValue(firstValue(row, ['# of locations', 'number of locations', 'locations']))
+  const explicitIndependent = booleanValue(firstValue(row, ['independent operator', 'independent', 'chain or franchise']))
+
+  let independentOperator = explicitIndependent
+  if (independentOperator == null) {
+    if (numLocations != null && numLocations === 1) {
+      independentOperator = true
+    } else if (numLocations != null && numLocations > 1) {
+      independentOperator = false
+    } else if (businessName) {
+      const isChain = /\b(petsmart|petco|dogtopia|camp bow wow)\b/i.test(businessName)
+      independentOperator = !isChain
+    }
+  }
+
+  const explicitServices = stringValue(firstValue(row, ['services', 'service type', 'type', 'business category']))
+  let services = explicitServices
+  if (!services && businessName) {
+    const isGroomingOnly = /\bgrooming\b/i.test(businessName) && !/\b(resort|boarding|daycare|barn|club|hotel|inn)\b/i.test(businessName)
+    const isVet = /\b(vet|veterinary|clinic|hospital)\b/i.test(businessName)
+    if (!isGroomingOnly && !isVet) {
+      services = 'Dog Boarding & Daycare'
+    } else {
+      services = businessName
+    }
+  }
+
   return {
     rowNumber,
-    businessName: stringValue(firstValue(row, ['business name', 'business', 'company', 'facility name', 'customer name', 'name'])),
+    businessName,
     assignedCallerEmail: stringValue(firstValue(row, ['assigned caller email', 'caller email'])),
     state: stringValue(firstValue(row, ['state'])),
     city: stringValue(firstValue(row, ['city'])),
-    websiteUrl: stringValue(firstValue(row, ['website url', 'website'])),
-    googleRating: numberValue(firstValue(row, ['google rating', 'rating'])),
-    reviewCount: numberValue(firstValue(row, ['review count', 'google review count', 'reviews'])),
+    websiteUrl: urlValue(firstValue(row, ['website url', 'website'])),
+    googleRating: numberValue(firstValue(row, ['google rating', 'google score', 'rating'])),
+    reviewCount: numberValue(firstValue(row, ['review count', 'google review count', '# of google reviews', 'reviews'])),
+    sqftIndoor: numberValue(firstValue(row, ['square footage (indoor)', 'indoor square footage', 'indoor sqft'])),
+    sqftOutdoor: numberValue(firstValue(row, ['square footage (outdoor)', 'outdoor square footage', 'outdoor sqft'])),
+    sqftCombined: numberValue(firstValue(row, ['square footage (combined)', 'total square footage', 'combined square footage'])),
+    locationType: stringValue(firstValue(row, ['location type', 'urban / suburban / rural', 'urban/suburban/rural'])),
     ownerFirstName: stringValue(firstValue(row, ['owner first name', 'first name'])),
     ownerLastName: stringValue(firstValue(row, ['owner last name', 'last name'])),
-    ownerPhone: stringValue(firstValue(row, ['owner phone', 'phone'])),
-    ownerEmail: stringValue(firstValue(row, ['owner email', 'email'])),
-    phoneType: phoneType === 'DIRECT' ? 'DIRECT' : 'GENERAL',
-    emailType: emailType === 'DIRECT' ? 'DIRECT' : 'GENERAL',
-    sourceLinkPhone: stringValue(firstValue(row, ['source link (phone)', 'source link phone', 'phone source'])),
-    sourceLinkEmail: stringValue(firstValue(row, ['source link (email)', 'source link email', 'email source'])),
-    preCallBriefUrl: stringValue(firstValue(row, ['pre-call brief', 'pre call brief', 'pre-call brief url'])),
+    ownerPhone,
+    ownerEmail,
+    phoneType: explicitPhoneType === 'DIRECT' || (!explicitPhoneType && Boolean(directPhone)) ? 'DIRECT' : 'GENERAL',
+    emailType: explicitEmailType === 'DIRECT' || (!explicitEmailType && Boolean(directEmail)) ? 'DIRECT' : 'GENERAL',
+    sourceLinkPhone: urlValue(firstValue(row, ['owner phone source', 'source link (phone)', 'source link phone', 'phone source'])),
+    sourceLinkEmail: urlValue(firstValue(row, ['owner email source', 'source link (email)', 'source link email', 'email source'])),
+    preCallBriefUrl: urlValue(firstValue(row, ['pre-call brief', 'pre call brief', 'pre-call brief url'])),
     notes: stringValue(firstValue(row, ['notes'])),
-    independentOperator: booleanValue(firstValue(row, ['independent operator', 'independent', 'chain or franchise'])),
-    services: stringValue(firstValue(row, ['services', 'service type', 'type', 'business category'])),
+    independentOperator,
+    services,
   }
 }
 
@@ -104,7 +158,7 @@ export function validateImportRows(
     if (!services) {
       errors.push('Boarding/daycare service qualification is required.')
     } else {
-      const hasBoardingOrDaycare = /\b(boarding|daycare|day care)\b/.test(services)
+      const hasBoardingOrDaycare = /\b(boarding|daycare|day care|resort|barn|club|hotel|inn|paws)\b/.test(services)
       const isExcluded = /\b(vet|veterinary)\b/.test(services) || (/groom/.test(services) && !hasBoardingOrDaycare)
       if (!hasBoardingOrDaycare || isExcluded) errors.push('Lead must offer boarding/daycare and cannot be grooming-only or veterinary.')
     }

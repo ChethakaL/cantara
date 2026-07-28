@@ -41,7 +41,7 @@ export default function ExcelImportModal({
       const res = await fetch('/api/sales-leads/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: json }),
+        body: JSON.stringify({ rows: json, preview: true }),
       })
       if (!res.ok) throw new Error('Preview validation failed')
       const data = await res.json()
@@ -198,9 +198,9 @@ export default function ExcelImportModal({
               <Button variant="outline" onClick={() => setPreview(null)}>
                 Choose Another File
               </Button>
-              <Button onClick={executeImport} disabled={importing || preview.importedCount === 0}>
+              <Button onClick={executeImport} disabled={importing || (preview.validCount ?? preview.importedCount) === 0}>
                 {importing ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
-                Import {preview.importedCount} Qualified Leads
+                Import {preview.validCount ?? preview.importedCount} Qualified Leads
               </Button>
             </div>
           )}
