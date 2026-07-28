@@ -166,6 +166,7 @@ export default function OccupancyReviewTab({
 
   // File uploads
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const [clientDocs, setClientDocs] = useState<Array<{ id: string; fileName: string; viewUrl?: string; createdAt: string }>>([])
   const csvInputRef = useRef<HTMLInputElement | null>(null)
 
   const computedDaycare = useMemo(() => {
@@ -184,6 +185,7 @@ export default function OccupancyReviewTab({
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setReport(data.report)
+      setClientDocs(data.clientDocs || [])
       const inputs = data.inputs
       // Pre-fill form from saved report or client portal inputs
       if (data.report?.capacityModel) {
@@ -540,9 +542,40 @@ export default function OccupancyReviewTab({
           <h3 className="text-sm font-semibold text-slate-800">Optional: Upload Supporting Documents</h3>
           <p className="text-xs text-slate-500 max-w-lg mx-auto">Upload CSV, XLSX, or PDF for additional context. Monthly grid above is the primary data source.</p>
         </div>
+        {clientDocs.length > 0 && (
+          <div className="space-y-2 rounded-xl bg-emerald-50/50 border border-emerald-200 p-3.5">
+            <p className="text-xs font-semibold text-emerald-800 flex items-center gap-1.5 mb-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              Client Uploaded Documents (Auto-Linked from Portal)
+            </p>
+            {clientDocs.map(doc => (
+              <div key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-white rounded-lg border border-emerald-100 shadow-sm text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-medium text-slate-800 truncate">{doc.fileName}</span>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-700 font-medium">Uploaded by Client</span>
+                </div>
+                {doc.viewUrl && (
+                  <a
+                    href={doc.viewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold underline shrink-0"
+                  >
+                    View Document
+                  </a>
+                )}
+              </div>
+            ))}
+            <p className="text-[11px] text-emerald-700 mt-1">
+              These client documents are automatically included when you generate the report below.
+            </p>
+          </div>
+        )}
+
         <label className="block border-2 border-dashed border-slate-300 rounded-xl p-6 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30 transition-all">
           <Upload className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-          <span className="text-sm text-slate-600 font-medium">Drop files or click to upload</span>
+          <span className="text-sm text-slate-600 font-medium">Drop additional files or click to upload</span>
           <span className="block text-xs text-slate-400 mt-1">PDF, XLSX, CSV</span>
           <input type="file" multiple accept=".pdf,.xlsx,.csv,.xls" className="hidden" onChange={e => e.target.files && handleFiles(e.target.files)} />
         </label>

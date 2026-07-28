@@ -3,7 +3,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 
+import { GetObjectCommand } from '@aws-sdk/client-s3'
+import { s3Client, s3BucketName, buildPresignedFileUrl } from '@/lib/s3'
+
 export const dynamic = 'force-dynamic'
+
+async function streamToBuffer(stream: any): Promise<Buffer> {
+  const chunks: Uint8Array[] = []
+  for await (const chunk of stream) {
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
 
 function computeOccupancyMetrics(
   monthlyData: Array<{month: string; boardingDogs: number; daycareDogs: number}>,
@@ -47,11 +58,28 @@ export async function GET(req: NextRequest) {
   const clientId = req.nextUrl.searchParams.get('clientId')
   if (!clientId) return new Response('clientId required', { status: 400 })
 
-  const client = await prisma.clientProfile.findUnique({
-    where: { id: clientId },
-    select: { sectionSubmissions: true },
-  })
+  const [client, rawDocs] = await Promise.all([
+    prisma.clientProfile.findUnique({
+      where: { id: clientId },
+      select: { sectionSubmissions: true },
+    }),
+    (prisma as any).clientDocument.findMany({
+      where: { clientId, documentId: 'occupancy_review' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, fileName: true, mimeType: true, localPath: true, createdAt: true },
+    }),
+  ])
   if (!client) return new Response('Client not found', { status: 404 })
+
+  const clientDocs = await Promise.all(
+    (rawDocs || []).map(async (doc: any) => ({
+      id: doc.id,
+      fileName: doc.fileName,
+      mimeType: doc.mimeType,
+      createdAt: doc.createdAt,
+      viewUrl: doc.localPath ? await buildPresignedFileUrl(doc.localPath).catch(() => null) : null,
+    }))
+  )
 
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
     ? client.sectionSubmissions
@@ -59,7 +87,7 @@ export async function GET(req: NextRequest) {
   const report = submissions.occupancyReview ?? null
   const inputs = submissions.occupancyReviewInputs ?? null
 
-  return NextResponse.json({ report, inputs })
+  return NextResponse.json({ report, inputs, clientDocs })
 }
 
 export async function POST(req: NextRequest) {
@@ -120,6 +148,35 @@ export async function POST(req: NextRequest) {
         base64: buffer.toString('base64'),
         mediaType: file.type || 'application/octet-stream',
       })
+    }
+
+    // Load any portal-uploaded documents for 'occupancy_review'
+    const storedDocs = await (prisma as any).clientDocument.findMany({
+      where: { clientId, documentId: 'occupancy_review' },
+      orderBy: { createdAt: 'desc' },
+      select: { fileName: true, mimeType: true, localPath: true, storageBucket: true },
+    })
+
+    for (const doc of storedDocs) {
+      if (!doc.localPath) continue
+      try {
+        const obj = await s3Client.send(
+          new GetObjectCommand({
+            Bucket: doc.storageBucket || s3BucketName,
+            Key: doc.localPath,
+          })
+        )
+        if (obj.Body) {
+          const buffer = await streamToBuffer(obj.Body)
+          fileEntries.push({
+            name: doc.fileName || 'Occupancy_Review_Document',
+            base64: buffer.toString('base64'),
+            mediaType: doc.mimeType || 'application/pdf',
+          })
+        }
+      } catch (err) {
+        console.error('[occupancy-review] failed to fetch stored doc:', err)
+      }
     }
 
     // Build document context
