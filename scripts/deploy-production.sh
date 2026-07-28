@@ -83,15 +83,24 @@ docker run -d \
   -p "127.0.0.1:${PORT}:3000" \
   "$IMAGE"
 
-echo "=== Ensure RealEstateAppraisalReport table ==="
-# deploy.sh historically never ran Prisma migrations; app code can ship before schema exists.
-# Keep this migration SQL idempotent (IF NOT EXISTS) so re-runs are safe.
-REAL_ESTATE_SQL="${REPO}/prisma/migrations/20260714_add_real_estate_appraisal/migration.sql"
-if [[ -f "$REAL_ESTATE_SQL" ]]; then
-  docker exec -i cantara-postgres psql -U cantara -d cantara_next -v ON_ERROR_STOP=1 < "$REAL_ESTATE_SQL"
-else
-  echo "WARN: missing $REAL_ESTATE_SQL"
-fi
+echo "=== Apply idempotent SQL migrations (postgres data preserved) ==="
+# deploy.sh historically never ran Prisma migrate; apply safe SQL only.
+# Keep every file idempotent (IF NOT EXISTS / exception handlers) so re-runs are safe.
+apply_sql() {
+  local label="$1"
+  local file="$2"
+  if [[ -f "$file" ]]; then
+    echo "--- $label ---"
+    docker exec -i cantara-postgres psql -U cantara -d cantara_next -v ON_ERROR_STOP=1 < "$file"
+  else
+    echo "WARN: missing $file"
+  fi
+}
+
+apply_sql "RealEstateAppraisalReport" "${REPO}/prisma/migrations/20260714_add_real_estate_appraisal/migration.sql"
+apply_sql "Occupancy Review deactivate form questions" "${REPO}/prisma/migrations/20260728120000_move_occupancy_review_to_document_upload/migration.sql"
+apply_sql "ChatMessage attachments" "${REPO}/prisma/migrations/20260728130000_add_chat_attachments/migration.sql"
+apply_sql "SalesLead tables" "${REPO}/prisma/migrations/20260722_add_sales_leads/migration.sql"
 
 sleep 12
 curl -sf -o /dev/null -w "local:%{http_code}\n" "http://127.0.0.1:${PORT}/" || echo "local:fail"
