@@ -102,7 +102,14 @@ export default function SalesLeadsPage() {
       body: JSON.stringify({ id, ...patch }),
     })
     if (!res.ok) {
-      setError('Could not update lead')
+      let message = 'Could not update lead.'
+      try {
+        const data = await res.json()
+        if (typeof data.error === 'string' && data.error.trim()) message = data.error
+      } catch {
+        // Keep the user-friendly fallback when the response is not JSON.
+      }
+      setError(message)
       return
     }
     await load()

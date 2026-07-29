@@ -287,6 +287,9 @@ export function changeStage(args: {
   const isApprovedSequenceStart =
     args.lead.currentStage === SalesLeadStage.NEW &&
     args.stage === SalesLeadStage.EMAIL_1_DUE
+  const isManualEmailSent =
+    (args.lead.currentStage === SalesLeadStage.EMAIL_1_DUE && args.stage === SalesLeadStage.EMAIL_1_SENT) ||
+    (args.lead.currentStage === SalesLeadStage.EMAIL_2_DUE && args.stage === SalesLeadStage.EMAIL_2_SENT)
   const isApprovedManualDisposition =
     isActiveStage(args.lead.currentStage) &&
     (isExceptionStage(args.stage) || isTerminalStage(args.stage))
@@ -297,6 +300,7 @@ export function changeStage(args: {
   if (
     !isSameStage &&
     !isApprovedSequenceStart &&
+    !isManualEmailSent &&
     !isApprovedManualDisposition &&
     !isExplicitRestart &&
     !isTerminalCorrection
@@ -306,12 +310,9 @@ export function changeStage(args: {
       'AUTOMATION_OWNED_TRANSITION',
     )
   }
-  if (args.stage === SalesLeadStage.NEEDS_FOLLOW_UP && !args.nextActionDate) {
-    throw new SalesLeadWorkflowError(
-      'Needs Follow-Up requires a callback date.',
-      'CALLBACK_DATE_REQUIRED',
-    )
-  }
+  const followUpDate = args.stage === SalesLeadStage.NEEDS_FOLLOW_UP
+    ? args.nextActionDate ?? addCalendarDays(new Date(), 7)
+    : null
   if (args.stage === SalesLeadStage.BOOKED && !args.bookingDateTime) {
     throw new SalesLeadWorkflowError(
       'Booked requires a booking date and time.',
@@ -333,10 +334,25 @@ export function changeStage(args: {
   }
 
   const shouldClearDate = isTerminalStage(args.stage) || args.stage === SalesLeadStage.RECONNECT_LATER
+  if (isManualEmailSent) {
+    const now = new Date()
+    const emailNumber = args.stage === SalesLeadStage.EMAIL_1_SENT ? 1 : 2
+    return {
+      patch: {
+        currentStage: args.stage,
+        lastContactDate: now,
+        nextActionDate: addCalendarDays(now, 7),
+        bookingDateTime: args.lead.bookingDateTime,
+      },
+      activityType: `email_${emailNumber}_logged_sent`,
+      summary: `Email ${emailNumber} marked as sent; next action scheduled in 7 calendar days.`,
+      effects: [{ type: 'QUEUE_MONDAY_SYNC' }],
+    }
+  }
   return {
     patch: {
       currentStage: args.stage,
-      nextActionDate: shouldClearDate ? null : scheduledDate,
+      nextActionDate: shouldClearDate ? null : (followUpDate ?? scheduledDate),
       bookingDateTime:
         args.stage === SalesLeadStage.BOOKED
           ? args.bookingDateTime
