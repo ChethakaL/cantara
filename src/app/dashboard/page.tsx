@@ -28,6 +28,7 @@ import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/
 import { DocumentUploadPanel, type DocumentUploadStatusSummary } from '@/components/documents/DocumentUploadPanel'
 import { DocumentUploadAccordion } from '@/components/documents/DocumentUploadAccordion'
 import { RevenueBreakdownReview } from '@/components/client-portal/RevenueBreakdownReview'
+import { OccupancyDataReview } from '@/components/client-portal/OccupancyDataReview'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { fetchClientDocumentsBatch, fileCountForDocumentIds, mergeUploadedFiles, type FilesByDocumentId } from '@/lib/client-document-files'
 import { getDocsForAgentSelections, getDocsForWorkstream, getValuationDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
@@ -243,20 +244,6 @@ const getTourTargetId = (step: number) => {
     case 13: return 'tour-roadmap-container'
     default: return null
   }
-}
-
-const DEDICATED_REQUIRED_INFO_AGENTS = [
-  'facility_review',
-  'digital_presence',
-  'occupancy_review',
-  'vendor_directory',
-  'professional_advisors',
-  'competitor_analysis',
-  'pricing_analysis',
-] as const
-
-function isDedicatedRequiredInfoAgent(agentId: string): boolean {
-  return (DEDICATED_REQUIRED_INFO_AGENTS as readonly string[]).includes(agentId)
 }
 
 function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
@@ -1456,6 +1443,25 @@ function OverviewTab({
 function DocumentReferenceLink({ docId }: { docId: string }) {
   const ref = DOCUMENT_REFERENCE_TEMPLATES[docId]
   if (!ref) return null
+
+  if (docId === 'occupancy_review') {
+    return (
+      <div className="mt-3 mb-2 rounded-lg border border-emerald-200/90 bg-emerald-50/40 p-3 shadow-sm">
+        <a
+          href={ref.path}
+          className="flex items-center gap-1.5 text-xs font-bold text-emerald-900 hover:text-emerald-800"
+          download
+        >
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          Download 24-Month Occupancy Sample (CSV)
+        </a>
+        <p className="mt-1 ml-[22px] text-[11px] text-emerald-800 font-medium">
+          This is just a sample template. Please ensure you put 24 months of data when uploading your own occupancy report.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <a
       href={ref.path}
@@ -2708,8 +2714,6 @@ function AgentInformationTab({
     )
   }
 
-  const otherFormQuestions = formQuestions.filter(q => !isDedicatedRequiredInfoAgent(q.agentId))
-
   const isFormTabComplete = (key: string) => {
     // 1. Competitor & Pricing Inputs check
     if (key === 'competitor_analysis') {
@@ -2740,9 +2744,6 @@ function AgentInformationTab({
 
     // 4. Standard questions check
     const tabQuestions = formQuestions.filter(q => {
-      if (key === 'other_info') {
-        return !isDedicatedRequiredInfoAgent(q.agentId)
-      }
       return key === 'competitor_analysis'
         ? (q.agentId === 'competitor_analysis' || q.agentId === 'pricing_analysis')
         : q.agentId === key
@@ -2756,7 +2757,9 @@ function AgentInformationTab({
     const standardQuestions = tabQuestions.filter(filterOutSpecialFields)
     if (standardQuestions.length > 0) {
       const requiredQuestions = standardQuestions.filter(q => q.required)
-      const questionsToCheck = requiredQuestions.length > 0 ? requiredQuestions : standardQuestions
+      const questionsToCheck = key === 'digital_presence'
+        ? standardQuestions
+        : (requiredQuestions.length > 0 ? requiredQuestions : standardQuestions)
 
       const allStandardFilled = questionsToCheck.every(q => {
         const val = formResponses[q.fieldKey]
@@ -2836,9 +2839,6 @@ function AgentInformationTab({
           <div className="p-5 space-y-5">
             {buildOrderedFormQuestionGroups(
               formQuestions.filter(q => {
-                if (activeFormTab === 'other_info') {
-                  return !isDedicatedRequiredInfoAgent(q.agentId)
-                }
                 return activeFormTab === 'competitor_analysis'
                   ? (q.agentId === 'competitor_analysis' || q.agentId === 'pricing_analysis')
                   : q.agentId === activeFormTab
@@ -2926,6 +2926,14 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   const [formError, setFormError] = useState('')
   const [filesByDocId, setFilesByDocId] = useState<FilesByDocumentId>({})
   const [filesCatalogLoading, setFilesCatalogLoading] = useState(true)
+  const [assignFilter, setAssignFilter] = useState('all')
+
+  const filterOptions = [
+    { value: 'all', label: 'All Assignments' },
+    { value: 'none', label: 'Unassigned' },
+    { value: 'me', label: 'Me' },
+    ...(teamMembers ?? []).map(m => ({ value: m.name, label: m.name })),
+  ]
 
   const assignOptions = [
     { value: 'me', label: 'Me' },
@@ -3039,12 +3047,43 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
     )
   }
 
+  const filteredValuationDocs = valuationDocs.filter(doc => {
+    if (assignFilter === 'all') return true
+    const s = getStatus(doc.id)
+    if (assignFilter === 'none') return !s.assignedTo
+    return (s.assignedTo || '').toLowerCase() === assignFilter.toLowerCase()
+  })
+
+  const filteredCategories = categories.map(cat => ({
+    ...cat,
+    documents: cat.documents.filter(doc => {
+      if (assignFilter === 'all') return true
+      const s = getStatus(doc.id)
+      if (assignFilter === 'none') return !s.assignedTo
+      return (s.assignedTo || '').toLowerCase() === assignFilter.toLowerCase()
+    })
+  })).filter(cat => cat.documents.length > 0)
+
   return (
     <div id="tour-collection-container" className="space-y-4">
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
-        <p>
+      <div className="flex items-center justify-between gap-4 flex-wrap bg-white rounded-2xl border border-slate-200 p-4">
+        <p className="text-xs text-slate-500 leading-relaxed flex-1 min-w-[200px]">
           Upload documents for each item your team confirmed in the Assign step. You can add files over time — each upload saves immediately. Target deadlines are set by your Cantara team.
         </p>
+        {!isTeamMemberSession && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Filter:</span>
+            <select
+              value={assignFilter}
+              onChange={e => setAssignFilter(e.target.value)}
+              className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 font-medium text-slate-700 transition-all cursor-pointer hover:border-slate-300"
+            >
+              {filterOptions.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
       {filesCatalogLoading && (
         <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
@@ -3118,7 +3157,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
           </div>
         </div>
       )}
-      {valuationDocs.length > 0 && (
+      {filteredValuationDocs.length > 0 && (
         <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
           <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between gap-3 flex-wrap">
             <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
@@ -3127,13 +3166,13 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                 <TargetDeadlineBadge deadline={sectionDeadlines[VALUATION_SECTION_ID]} uploaded={false} />
               )}
               <span className="text-xs text-amber-700">
-                {valuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0)}/
-                {valuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0)} uploaded
+                {filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0)}/
+                {filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0)} uploaded
               </span>
             </div>
           </div>
           <div className="overflow-hidden rounded-b-2xl border-t border-amber-100/80">
-            {valuationDocs.map(doc => {
+            {filteredValuationDocs.map(doc => {
               const s = getStatus(doc.id)
               if (s.hasDoc === false || s.notApplicable) return null
               const valuationUnits = uploadUnitsForDoc(doc.id)
@@ -3152,6 +3191,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                   isComplete={valuationComplete}
                   tone="valuation"
                   headerActions={
+                    /* 
                     !isTeamMemberSession && (
                       <select
                         className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 font-medium text-slate-600 transition-all cursor-pointer hover:border-slate-300"
@@ -3168,6 +3208,8 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                         ))}
                       </select>
                     )
+                    */
+                   null
                   }
                 >
                   <DocumentReferenceLink docId={doc.id} />
@@ -3198,12 +3240,12 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
           </div>
           {renderSectionFooter(
             'valuation',
-            valuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0),
-            valuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0),
+            filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0),
+            filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0),
           )}
         </div>
       )}
-      {categories.map(cat => {
+      {filteredCategories.map(cat => {
         const docsToShow = cat.documents.filter(d => {
           const s = getStatus(d.id)
           if (s.hasDoc === false || s.notApplicable) return false
@@ -3258,6 +3300,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                     fileCount={fileCount}
                     isComplete={slotUploaded}
                     headerActions={
+                      /*
                       !isTeamMemberSession && (
                         <select
                           className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 font-medium text-slate-600 transition-all cursor-pointer hover:border-slate-300"
@@ -3274,10 +3317,13 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                           ))}
                         </select>
                       )
+                      */
+                     null
                     }
                   >
                     <DocumentReferenceLink docId={doc.id} />
                     {doc.id === 'revenue_breakdown' && <RevenueBreakdownReview clientId={clientId} />}
+                    {doc.id === 'occupancy_review' && <OccupancyDataReview clientId={clientId} />}
                     {doc.flagged && doc.flagNote && (
                       <p className="mb-2 text-xs text-amber-600">{doc.flagNote}</p>
                     )}

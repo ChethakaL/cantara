@@ -6,6 +6,8 @@ import { ensureClientDriveSubfolder, uploadClientDocumentToDrive } from "@/lib/c
 import { assertS3Configured, buildPresignedFileUrl, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 import { syncDocumentStatusForUpload } from "@/lib/client-document-status-sync";
+import { parseOccupancyUpload } from "@/lib/occupancy-upload-parser";
+import { occupancyInputsToFormResponses } from "@/lib/occupancy-form-fields";
 
 /** Run insurance AI after the HTTP response is sent so the browser is not blocked on a long POST. */
 function scheduleInsuranceAutoReview(args: {
@@ -192,6 +194,18 @@ export async function POST(req: NextRequest) {
 
     const isInsurancePdf =
       documentId === "insurance_claims_12m" && (file.type || "").includes("pdf");
+    let occupancyInputs = null;
+    if (documentId === "occupancy_review") {
+      try {
+        occupancyInputs = parseOccupancyUpload(bytes, file.name);
+      } catch (parseError) {
+        console.warn("[client-documents/upload] Occupancy file saved but could not be parsed", {
+          clientId,
+          fileName: file.name,
+          error: parseError,
+        });
+      }
+    }
 
     const document = await (prisma as any).clientDocument.create({
       data: {
@@ -231,6 +245,38 @@ export async function POST(req: NextRequest) {
       await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '5s'`);
       await syncDocumentStatusForUpload(tx, clientId, documentId);
     });
+
+    if (occupancyInputs) {
+      console.info("[client-documents/upload] Occupancy inputs parsed", {
+        clientId,
+        documentId,
+        monthlyRows: occupancyInputs.monthlyData?.length ?? 0,
+        totalDailyCapacity: occupancyInputs.totalDailyCapacity,
+        boardingRuns: occupancyInputs.boardingRuns,
+        daycareSpots: occupancyInputs.daycareSpots,
+      });
+      const current = await (prisma as any).clientProfile.findUnique({
+        where: { id: clientId },
+        select: { sectionSubmissions: true },
+      });
+      const submissions = (current?.sectionSubmissions && typeof current.sectionSubmissions === "object")
+        ? current.sectionSubmissions as Record<string, any>
+        : {};
+      const responses = {
+        ...(submissions.agentFormResponses ?? {}),
+        ...occupancyInputsToFormResponses(occupancyInputs),
+      };
+      await (prisma as any).clientProfile.update({
+        where: { id: clientId },
+        data: {
+          sectionSubmissions: {
+            ...submissions,
+            agentFormResponses: responses,
+            occupancyReviewInputs: occupancyInputs,
+          },
+        },
+      });
+    }
 
     const driveFolderId = extractDriveFolderId(client?.driveFolderId);
     if (driveFolderId) {
@@ -288,6 +334,7 @@ export async function POST(req: NextRequest) {
       fileUrl: publicUrl,
       uploadedAt: document.createdAt.toISOString(),
       insuranceReviewPending: isInsurancePdf,
+      occupancyInputsSaved: Boolean(occupancyInputs),
     });
   } catch (error) {
     console.error("Upload Error:", error);

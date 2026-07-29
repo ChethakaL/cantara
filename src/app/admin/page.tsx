@@ -609,9 +609,9 @@ export default function AdminDashboard() {
               <div style={{ width: '1.75rem', height: '1.5px', background: '#b8922a', marginTop: '0.75rem' }} />
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-            {/* <Link href="/admin/sales-leads">
+            <Link href="/admin/sales-leads">
               <Button variant="outline"><BarChart3 className="w-4 h-4" /> Go to Sales Leads Board <ChevronRight className="w-4 h-4" /></Button>
-            </Link> */}
+            </Link>
             <Button onClick={() => setAdding(true)}>
               <Plus className="w-4 h-4" /> New Client
             </Button>

@@ -30,20 +30,6 @@ type ClientPortalFormQuestion = {
   sortOrder?: number
 }
 
-const DEDICATED_REQUIRED_INFO_AGENTS = [
-  'facility_review',
-  'digital_presence',
-  'occupancy_review',
-  'vendor_directory',
-  'professional_advisors',
-  'competitor_analysis',
-  'pricing_analysis',
-] as const
-
-function isDedicatedRequiredInfoAgent(agentId: string) {
-  return (DEDICATED_REQUIRED_INFO_AGENTS as readonly string[]).includes(agentId)
-}
-
 function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
   const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
   return {
@@ -425,7 +411,6 @@ export default function AdminRequiredInfoTab({
           <div className="space-y-5 p-5">
             {buildOrderedFormQuestionGroups(
               formQuestions.filter(q => {
-                if (activeFormTab === 'other_info') return !isDedicatedRequiredInfoAgent(q.agentId)
                 if (activeFormTab === 'competitor_analysis') return q.agentId === 'competitor_analysis' || q.agentId === 'pricing_analysis'
                 return q.agentId === activeFormTab
               }),
