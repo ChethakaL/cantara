@@ -245,20 +245,6 @@ const getTourTargetId = (step: number) => {
   }
 }
 
-const DEDICATED_REQUIRED_INFO_AGENTS = [
-  'facility_review',
-  'digital_presence',
-  'occupancy_review',
-  'vendor_directory',
-  'professional_advisors',
-  'competitor_analysis',
-  'pricing_analysis',
-] as const
-
-function isDedicatedRequiredInfoAgent(agentId: string): boolean {
-  return (DEDICATED_REQUIRED_INFO_AGENTS as readonly string[]).includes(agentId)
-}
-
 function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
   const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
   return {
@@ -2708,8 +2694,6 @@ function AgentInformationTab({
     )
   }
 
-  const otherFormQuestions = formQuestions.filter(q => !isDedicatedRequiredInfoAgent(q.agentId))
-
   const isFormTabComplete = (key: string) => {
     // 1. Competitor & Pricing Inputs check
     if (key === 'competitor_analysis') {
@@ -2740,9 +2724,6 @@ function AgentInformationTab({
 
     // 4. Standard questions check
     const tabQuestions = formQuestions.filter(q => {
-      if (key === 'other_info') {
-        return !isDedicatedRequiredInfoAgent(q.agentId)
-      }
       return key === 'competitor_analysis'
         ? (q.agentId === 'competitor_analysis' || q.agentId === 'pricing_analysis')
         : q.agentId === key
@@ -2836,9 +2817,6 @@ function AgentInformationTab({
           <div className="p-5 space-y-5">
             {buildOrderedFormQuestionGroups(
               formQuestions.filter(q => {
-                if (activeFormTab === 'other_info') {
-                  return !isDedicatedRequiredInfoAgent(q.agentId)
-                }
                 return activeFormTab === 'competitor_analysis'
                   ? (q.agentId === 'competitor_analysis' || q.agentId === 'pricing_analysis')
                   : q.agentId === activeFormTab

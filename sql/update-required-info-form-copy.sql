@@ -10,10 +10,10 @@ Lawyer | John Lee | Lee Law | john@example.com | 555-222-3333 | Lease counsel',
 WHERE "agentId" = 'professional_advisors'
   AND "fieldKey" = 'professionalAdvisorsList';
 
--- Software & Vendors: Excel options wording on separate lines (this section only).
+-- Software & Vendors: clarify purpose vs Material Contracts upload + auto-populate note.
 UPDATE "AgentFormQuestion"
 SET
-  "description" = E'Two options to provide this information:\n1. Fill in the form below\n2. Provide the information in an Excel file\n\nPlease note that we have provided a downloadable Excel template as a reference if required.',
+  "description" = E'List every software tool, subscription, and vendor the business uses — including ones without a formal contract. Vendors from your uploaded Material & Vendor Contracts are auto-populated here; add any missing ones below.\n\nTwo options:\n1. Fill in the form below\n2. Upload an Excel file (downloadable template provided)',
   "updatedAt" = CURRENT_TIMESTAMP
 WHERE "agentId" = 'vendor_directory'
   AND "fieldKey" = 'vendorDirectoryList';
