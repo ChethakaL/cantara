@@ -23,7 +23,7 @@ export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) 
             <div className="w-px h-3 bg-cantara-sun/15" />
             <span className="tracking-[0.18em] uppercase" style={{ fontSize: '0.58rem', color: '#F1E6BB', opacity: 0.4 }}>Advisor Dashboard</span>
             <div className="w-px h-3 bg-cantara-sun/10 hidden md:block" />
-            <Link
+            {/* <Link
               href="/admin/digital-presence"
               className={cn(
                 'hidden md:flex items-center gap-1.5 text-xs transition-colors px-2 py-1 rounded',
@@ -34,7 +34,7 @@ export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) 
             >
               <Globe2 className="w-3.5 h-3.5" />
               Digital Presence
-            </Link>
+            </Link> */}
             <Link
               href="/admin/sales-leads"
               className={cn(
