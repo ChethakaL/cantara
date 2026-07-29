@@ -334,7 +334,7 @@ export default function OccupancyReviewTab({
       }
 
       // Also store the raw uploaded file for the agent to analyze
-      setUploadedFiles(prev => [...prev, { name: file.name, file }])
+      setUploadedFiles(prev => [...prev, { name: file.name, file, sizeBytes: file.size }])
       csvInputRef.current && (csvInputRef.current.value = '')
       return
     }
