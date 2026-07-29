@@ -245,11 +245,78 @@ export default function OccupancyReviewTab({
     const splitCsvLine = (line: string) =>
       line.split(',').map(cell => cell.trim().replace(/^"|"$/g, ''))
     const headers = splitCsvLine(lines[0]).map(h => h.trim().toLowerCase())
-    const monthIdx = headers.findIndex(h => ['month', 'date', 'period'].includes(h))
-    const boardingIdx = headers.findIndex(h => ['boarding', 'boarding dogs', 'boardingdogs', 'boarding_dogs', 'boardings'].includes(h))
+
+    // ─── FORMAT 1: PawPartner daily export ───────────────────────────
+    // Columns: (empty), Day Start, Check In, Check Out, Day End, Pet Occupancy, Kennel Occupancy, Daycare, Daycare Pet Occupancy, Grooming
+    // Row 1 = "Average" summary, then daily rows like "Sun 7/12", "Mon 7/13"
+    const isPawPartner = headers.some(h => h.includes('day start') || h.includes('kennel occupancy') || h.includes('pet occupancy'))
+    if (isPawPartner) {
+      const dayStartIdx = headers.findIndex(h => h.includes('day start'))
+      const dayEndIdx = headers.findIndex(h => h.includes('day end'))
+      const daycareIdx = headers.findIndex(h => h === 'daycare')
+      const groomingIdx = headers.findIndex(h => h.includes('grooming'))
+      const kennelOccIdx = headers.findIndex(h => h.includes('kennel occupancy'))
+
+      // Parse daily rows into monthly aggregates
+      const monthlyAgg: Record<string, { totalBoarding: number; totalDaycare: number; days: number; totalGrooming: number; avgKennelOcc: number[] }> = {}
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = splitCsvLine(lines[i])
+        const label = cols[0]?.trim()
+        if (!label || label.toLowerCase() === 'average') continue
+
+        // Parse date from format "Sun 7/12", "Mon 7/13" etc.
+        const dateMatch = label.match(/\w+\s+(\d+)\/(\d+)/)
+        if (!dateMatch) continue
+        const monthNum = parseInt(dateMatch[1])
+        const year = new Date().getFullYear()
+        const monthKey = `${year}-${String(monthNum).padStart(2, '0')}`
+
+        if (!monthlyAgg[monthKey]) {
+          monthlyAgg[monthKey] = { totalBoarding: 0, totalDaycare: 0, days: 0, totalGrooming: 0, avgKennelOcc: [] }
+        }
+
+        const dayEnd = parseInt(cols[dayEndIdx]) || 0
+        const daycare = cols[daycareIdx]?.trim()
+        const daycareNum = daycare && daycare !== '-' ? parseInt(daycare) || 0 : 0
+        const grooming = cols[groomingIdx]?.trim()
+        const groomingNum = grooming && grooming !== '-' ? parseInt(grooming) || 0 : 0
+        const kennelOcc = cols[kennelOccIdx]?.trim()
+        const kennelOccNum = kennelOcc ? parseFloat(kennelOcc.replace('%', '')) : 0
+
+        monthlyAgg[monthKey].totalBoarding += dayEnd
+        monthlyAgg[monthKey].totalDaycare += daycareNum
+        monthlyAgg[monthKey].totalGrooming += groomingNum
+        monthlyAgg[monthKey].days++
+        if (kennelOccNum > 0) monthlyAgg[monthKey].avgKennelOcc.push(kennelOccNum)
+      }
+
+      // Convert to monthly averages (average daily boarding/daycare count)
+      const imported: Record<string, { boardingDogs: number; daycareDogs: number }> = {}
+      for (const [month, agg] of Object.entries(monthlyAgg)) {
+        imported[month] = {
+          boardingDogs: agg.days > 0 ? Math.round(agg.totalBoarding / agg.days) : 0,
+          daycareDogs: agg.days > 0 ? Math.round(agg.totalDaycare / agg.days) : 0,
+        }
+      }
+
+      setMonthlyData(prev => prev.map(entry => imported[entry.month]
+        ? { ...entry, ...imported[entry.month] }
+        : entry
+      ))
+
+      // Also store the raw uploaded file for the agent to analyze
+      setUploadedFiles(prev => [...prev, { name: file.name, file }])
+      csvInputRef.current && (csvInputRef.current.value = '')
+      return
+    }
+
+    // ─── FORMAT 2: Standard monthly CSV (Month, Boarding, Daycare) ───
+    const monthIdx = headers.findIndex(h => ['month', 'date', 'period', ''].includes(h))
+    const boardingIdx = headers.findIndex(h => ['boarding', 'boarding dogs', 'boardingdogs', 'boarding_dogs', 'boardings', 'day start', 'day end'].includes(h))
     const daycareIdx = headers.findIndex(h => ['daycare', 'daycare dogs', 'daycaredogs', 'daycare_dogs', 'daycares'].includes(h))
     if (monthIdx === -1 || boardingIdx === -1 || daycareIdx === -1) {
-      setError('CSV must have columns: Month, Boarding, Daycare')
+      setError('CSV format not recognised. Expected either PawPartner daily export or columns: Month, Boarding, Daycare')
       return
     }
     const imported: Record<string, {boardingDogs: number; daycareDogs: number}> = {}
@@ -257,7 +324,6 @@ export default function OccupancyReviewTab({
       const cols = splitCsvLine(lines[i])
       const rawMonth = cols[monthIdx]?.trim()
       if (!rawMonth) continue
-      // Try to parse month
       let monthKey = rawMonth
       if (/^\d{4}-\d{2}$/.test(rawMonth)) {
         monthKey = rawMonth
@@ -272,8 +338,8 @@ export default function OccupancyReviewTab({
         daycareDogs: parseInt(cols[daycareIdx]) || 0,
       }
     }
-    setMonthlyData(prev => prev.map(entry => imported[entry.month] 
-      ? { ...entry, ...imported[entry.month] } 
+    setMonthlyData(prev => prev.map(entry => imported[entry.month]
+      ? { ...entry, ...imported[entry.month] }
       : entry
     ))
     csvInputRef.current && (csvInputRef.current.value = '')
