@@ -1443,6 +1443,25 @@ function OverviewTab({
 function DocumentReferenceLink({ docId }: { docId: string }) {
   const ref = DOCUMENT_REFERENCE_TEMPLATES[docId]
   if (!ref) return null
+
+  if (docId === 'occupancy_review') {
+    return (
+      <div className="mt-3 mb-2 rounded-lg border border-emerald-200/90 bg-emerald-50/40 p-3 shadow-sm">
+        <a
+          href={ref.path}
+          className="flex items-center gap-1.5 text-xs font-bold text-emerald-900 hover:text-emerald-800"
+          download
+        >
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          Download 24-Month Occupancy Sample (CSV)
+        </a>
+        <p className="mt-1 ml-[22px] text-[11px] text-emerald-800 font-medium">
+          This is just a sample template. Please ensure you put 24 months of data when uploading your own occupancy report.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <a
       href={ref.path}
