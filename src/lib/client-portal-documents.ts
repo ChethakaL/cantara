@@ -25,6 +25,10 @@ export const DOCUMENT_REFERENCE_TEMPLATES: Partial<Record<string, { label: strin
     label: 'Download employee list template (Excel)',
     path: '/api/client-portal/templates/employee-list',
   },
+  occupancy_review: {
+    label: 'Download sample template (CSV) — please replace with 24 months of your data',
+    path: '/PawPartner_hyline_hotel_everson_wa_occupancy_alls_export_20260722_100237.csv',
+  },
 }
 
 export const DOCUMENT_ASSIGN_HELP: Partial<Record<string, string>> = {

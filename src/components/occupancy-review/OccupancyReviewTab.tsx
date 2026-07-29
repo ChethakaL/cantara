@@ -203,13 +203,9 @@ export default function OccupancyReviewTab({
       if (data.report?.monthlyData?.length) {
         setMonthlyData(data.report.monthlyData)
       } else if (inputs?.monthlyData?.length) {
-        const imported = Object.fromEntries(
-          inputs.monthlyData.map((entry: MonthlyEntry) => [entry.month, entry])
-        )
-        setMonthlyData(prev => prev.map(entry => imported[entry.month]
-          ? { ...entry, boardingDogs: imported[entry.month].boardingDogs, daycareDogs: imported[entry.month].daycareDogs }
-          : entry
-        ))
+        // Portal uploads may contain dates outside the browser's current 24-month window.
+        // Render the saved upload directly so it is visible and editable immediately.
+        setMonthlyData(inputs.monthlyData)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load occupancy review.')
@@ -255,9 +251,12 @@ export default function OccupancyReviewTab({
       const daycareIdx = headers.findIndex(h => h === 'daycare')
       const groomingIdx = headers.findIndex(h => h.includes('grooming'))
       const kennelOccIdx = headers.findIndex(h => h.includes('kennel occupancy'))
+      const daycareOccIdx = headers.findIndex(h => h.includes('daycare pet occupancy') || h.includes('daycare occupancy'))
 
       // Parse daily rows into monthly aggregates
       const monthlyAgg: Record<string, { totalBoarding: number; totalDaycare: number; days: number; totalGrooming: number; avgKennelOcc: number[] }> = {}
+      let estimatedBoardingCapacities: number[] = []
+      let estimatedDaycareCapacities: number[] = []
 
       for (let i = 1; i < lines.length; i++) {
         const cols = splitCsvLine(lines[i])
@@ -283,11 +282,24 @@ export default function OccupancyReviewTab({
         const kennelOcc = cols[kennelOccIdx]?.trim()
         const kennelOccNum = kennelOcc ? parseFloat(kennelOcc.replace('%', '')) : 0
 
+        const daycareOcc = daycareOccIdx !== -1 ? cols[daycareOccIdx]?.trim() : null
+        const daycareOccNum = daycareOcc && daycareOcc !== '-' ? parseFloat(daycareOcc.replace('%', '')) : 0
+
         monthlyAgg[monthKey].totalBoarding += dayEnd
         monthlyAgg[monthKey].totalDaycare += daycareNum
         monthlyAgg[monthKey].totalGrooming += groomingNum
         monthlyAgg[monthKey].days++
-        if (kennelOccNum > 0) monthlyAgg[monthKey].avgKennelOcc.push(kennelOccNum)
+        
+        if (kennelOccNum > 0) {
+          monthlyAgg[monthKey].avgKennelOcc.push(kennelOccNum)
+          if (dayEnd > 0) {
+            estimatedBoardingCapacities.push(dayEnd / (kennelOccNum / 100))
+          }
+        }
+        
+        if (daycareOccNum > 0 && daycareNum > 0) {
+          estimatedDaycareCapacities.push(daycareNum / (daycareOccNum / 100))
+        }
       }
 
       // Convert to monthly averages (average daily boarding/daycare count)
@@ -303,6 +315,23 @@ export default function OccupancyReviewTab({
         ? { ...entry, ...imported[entry.month] }
         : entry
       ))
+
+      let finalBoardingRuns = 0
+      let finalDaycareSpots = 0
+
+      if (estimatedBoardingCapacities.length > 0) {
+        finalBoardingRuns = Math.round(estimatedBoardingCapacities.reduce((a,b) => a+b, 0) / estimatedBoardingCapacities.length)
+        setBoardingRuns(String(finalBoardingRuns))
+      }
+      
+      if (estimatedDaycareCapacities.length > 0) {
+        finalDaycareSpots = Math.round(estimatedDaycareCapacities.reduce((a,b) => a+b, 0) / estimatedDaycareCapacities.length)
+        setDaycareSpotsInput(String(finalDaycareSpots))
+      }
+
+      if (finalBoardingRuns > 0 || finalDaycareSpots > 0) {
+        setTotalDailyCapacity(String(finalBoardingRuns + finalDaycareSpots))
+      }
 
       // Also store the raw uploaded file for the agent to analyze
       setUploadedFiles(prev => [...prev, { name: file.name, file }])

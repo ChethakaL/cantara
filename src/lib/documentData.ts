@@ -128,7 +128,7 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
       { id: 'sales_process_transcript', name: 'Sales Call Transcript / Recording', description: 'Cantara collects discovery/sales call transcripts for the Sales Process Review agent (admin upload).', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'meeting_notes', name: 'Meeting Notes / Call Notes', description: 'Cantara advisor meeting notes and call transcripts for the Meeting Notes agent (admin upload).', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'litigation_search_docs', name: 'Lien Search / Court Records', description: 'Formal lien search results, title reports, or court record documents from attorney or title company.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
-      { id: 'occupancy_review', name: 'Occupancy Review Data', description: 'Upload the occupancy report or spreadsheet containing capacity and monthly boarding/daycare counts. The Occupancy Review Agent will extract the inputs from this document.', type: 'required', workstreams: ['ws2', 'both'] },
+      { id: 'occupancy_review', name: 'Occupancy Review Data', description: 'Upload the occupancy report or spreadsheet containing capacity and monthly boarding/daycare counts. The Occupancy Review Agent will extract the inputs from this document. Download the sample CSV below. Please replace the sample data with 24 months of your actual data.', type: 'required', workstreams: ['ws2', 'both'] },
     ],
   },
   {
