@@ -17,6 +17,10 @@ export const SALES_LEAD_MONDAY_MAPPING_FIELDS = [
   { key: 'sqftCombined', label: 'Square Footage (Combined)' },
   { key: 'locationType', label: 'Location Type' },
   { key: 'preCallBriefUrl', label: 'Pre-Call Brief' },
+  { key: 'email1Draft', label: 'Email 1 Draft' },
+  { key: 'call1Script', label: 'Call 1 Script' },
+  { key: 'email2Draft', label: 'Email 2 Draft' },
+  { key: 'call2Script', label: 'Call 2 Script' },
   { key: 'ownerFirstName', label: 'Owner First Name' },
   { key: 'ownerLastName', label: 'Owner Last Name' },
   { key: 'ownerPhone', label: 'Owner Phone' },
@@ -25,6 +29,14 @@ export const SALES_LEAD_MONDAY_MAPPING_FIELDS = [
   { key: 'sourceLinkEmail', label: 'Source Link (Email)' },
   { key: 'bookingDateTime', label: 'Booking Date/Time' },
   { key: 'notes', label: 'Notes' },
+  { key: 'email1Draft', label: 'Email 1 Draft' },
+  { key: 'call1Script', label: 'Call 1 Script' },
+  { key: 'email2Draft', label: 'Email 2 Draft' },
+  { key: 'call2Script', label: 'Call 2 Script' },
+  { key: 'resortAddress', label: 'Resort Address' },
+  { key: 'locationCount', label: '# of Locations' },
+  { key: 'generalEmail', label: 'General Email' },
+  { key: 'generalPhone', label: 'General Phone' },
 ] as const
 
 export type SalesLeadMondayMappingKey = (typeof SALES_LEAD_MONDAY_MAPPING_FIELDS)[number]['key']
