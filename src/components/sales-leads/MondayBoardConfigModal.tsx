@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Check, Loader2, Save, Settings2, X } from 'lucide-react'
 import { Button, Card, SearchableSelect } from '@/components/ui'
 
-const MONDAY_24_COLUMNS: Array<{ key: string; label: string; number: number }> = [
+const MONDAY_COLUMNS: Array<{ key: string; label: string; number: number }> = [
   { number: 1, key: 'businessName', label: 'Business Name (Item Name)' },
   { number: 2, key: 'assignedCaller', label: 'Assigned Caller (People)' },
   { number: 3, key: 'currentStage', label: 'Current Stage (Status)' },
@@ -29,6 +29,14 @@ const MONDAY_24_COLUMNS: Array<{ key: string; label: string; number: number }> =
   { number: 22, key: 'sourceLinkEmail', label: 'Source Link (Email)' },
   { number: 23, key: 'bookingDateTime', label: 'Booking Date/Time' },
   { number: 24, key: 'notes', label: 'Notes' },
+  { number: 25, key: 'email1Draft', label: 'Email 1 Draft' },
+  { number: 26, key: 'call1Script', label: 'Call 1 Script' },
+  { number: 27, key: 'email2Draft', label: 'Email 2 Draft' },
+  { number: 28, key: 'call2Script', label: 'Call 2 Script' },
+  { number: 29, key: 'resortAddress', label: 'Resort Address' },
+  { number: 30, key: 'locationCount', label: '# of Locations' },
+  { number: 31, key: 'generalEmail', label: 'General Email' },
+  { number: 32, key: 'generalPhone', label: 'General Phone' },
 ]
 
 type Board = { id: string; name: string }
@@ -113,7 +121,7 @@ export default function MondayBoardConfigModal({
     const current = baseMapping || mapping || {}
     const nextMapping: Record<string, string> = { ...current }
 
-    for (const colDef of MONDAY_24_COLUMNS) {
+    for (const colDef of MONDAY_COLUMNS) {
       if (nextMapping[colDef.key]) continue
 
       if (colDef.key === 'businessName') {
@@ -157,7 +165,7 @@ export default function MondayBoardConfigModal({
         body: JSON.stringify({ boardId: selectedBoardId, mapping }),
       })
       if (!res.ok) throw new Error('Failed to save configuration')
-      setSuccessMsg('Monday.com Board and 24-Column Mapping saved successfully!')
+      setSuccessMsg('Monday.com Board and Sales Lead column mapping saved successfully!')
       setConfigured(true)
       onSaved()
     } catch (err: any) {
@@ -245,7 +253,7 @@ export default function MondayBoardConfigModal({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <h3 className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                    2. 24-Column Mapping (Specification v2)
+                    2. Sales Lead Column Mapping
                   </h3>
                   {columns.length > 0 && (
                     <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
@@ -276,7 +284,7 @@ export default function MondayBoardConfigModal({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[380px] overflow-y-auto p-1 border rounded-xl">
-                  {MONDAY_24_COLUMNS.map(col => (
+                  {MONDAY_COLUMNS.map(col => (
                     <div
                       key={col.key}
                       className="p-2.5 rounded-lg border border-slate-100 bg-slate-50/50 flex flex-col gap-1.5 text-xs"

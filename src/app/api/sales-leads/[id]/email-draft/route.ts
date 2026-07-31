@@ -15,8 +15,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const templateNum = stage === SalesLeadStage.EMAIL_2_DUE || stage === SalesLeadStage.EMAIL_2_SENT ? 2 : 1
     const emailType = lead.emailType || 'GENERAL'
 
-    // Generate on open so newly saved prospect research is reflected immediately.
-    const draft = await buildSalesLeadEmailDraft(lead, templateNum)
+    // Reuse the saved draft. Opening the drawer must not spend tokens or
+    // replace an already-created draft. Generate only when no draft exists.
+    const draft = lead.emailDraftSubject && lead.emailDraftBody
+      ? { subject: lead.emailDraftSubject, body: lead.emailDraftBody }
+      : await buildSalesLeadEmailDraft(lead, templateNum)
 
     return NextResponse.json({
       leadId: lead.id,

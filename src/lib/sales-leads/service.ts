@@ -17,6 +17,7 @@ import {
   type WorkflowResult,
 } from '@/lib/sales-leads/workflow'
 import { buildSalesLeadEmailDraft, SalesLeadEmailConfigurationError } from '@/lib/sales-leads/email-provider'
+import { researchAndDraftEmail1 } from '@/lib/sales-leads/prospect-research'
 
 type DbLead = Awaited<ReturnType<typeof getSalesLeadOrThrow>>
 
@@ -218,7 +219,7 @@ export async function setSalesLeadStage(args: {
   allowRestart?: boolean
 }) {
   const lead = await getSalesLeadOrThrow(args.id)
-  return applyResult(
+  const updated = await applyResult(
     lead,
     changeStage({
       lead: workflowLead(lead),
@@ -228,6 +229,10 @@ export async function setSalesLeadStage(args: {
       allowRestart: args.allowRestart,
     }),
   )
+  if (args.stage === SalesLeadStage.EMAIL_1_DUE && lead.currentStage !== SalesLeadStage.EMAIL_1_DUE) {
+    await researchAndDraftEmail1(args.id)
+  }
+  return updated
 }
 
 export async function processSalesLeadDueDates(now = new Date()) {

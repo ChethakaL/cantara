@@ -19,7 +19,8 @@ export type MondayMapping = Partial<Record<
   | 'state' | 'city' | 'websiteUrl' | 'googleRating' | 'reviewCount' | 'sqftIndoor'
   | 'sqftOutdoor' | 'sqftCombined' | 'locationType' | 'preCallBriefUrl' | 'ownerFirstName'
   | 'ownerLastName' | 'ownerPhone' | 'sourceLinkPhone' | 'ownerEmail' | 'sourceLinkEmail'
-  | 'bookingDateTime' | 'notes',
+  | 'bookingDateTime' | 'notes' | 'email1Draft' | 'call1Script' | 'email2Draft' | 'call2Script'
+  | 'resortAddress' | 'locationCount' | 'generalEmail' | 'generalPhone',
   string
 >>
 
@@ -49,6 +50,11 @@ function emailValue(value: string | null) {
 
 function phoneValue(value: string | null) {
   return value ? { phone: value, countryShortName: 'US' } : null
+}
+
+function researchReportUrl(leadId: string) {
+  const base = getProjectEnv('NEXT_PUBLIC_APP_URL') || getProjectEnv('APP_URL') || ''
+  return `${base.replace(/\/$/, '')}/api/sales-leads/${leadId}/research-report`
 }
 
 export async function salesLeadMondayConfiguration() {
@@ -95,7 +101,7 @@ export function mondayColumnValues(
   put('sqftOutdoor', lead.sqftOutdoor)
   put('sqftCombined', lead.sqftCombined)
   put('locationType', lead.locationType ? { label: lead.locationType } : null)
-  put('preCallBriefUrl', linkValue(lead.preCallBriefUrl))
+  put('preCallBriefUrl', linkValue(lead.preCallBriefUrl || (lead.aiResearchReport ? researchReportUrl(lead.id) : null)))
   put('ownerFirstName', lead.ownerFirstName || null)
   put('ownerLastName', lead.ownerLastName || null)
   put('ownerPhone', phoneValue(lead.ownerPhone))
@@ -104,6 +110,17 @@ export function mondayColumnValues(
   put('sourceLinkEmail', linkValue(lead.sourceLinkEmail))
   put('bookingDateTime', dateValue(lead.bookingDateTime, true))
   put('notes', lead.notes || null)
+  const email1Draft = lead.emailDraftSubject && lead.emailDraftBody
+    ? `Subject: ${lead.emailDraftSubject}\n\n${lead.emailDraftBody}`
+    : null
+  put('email1Draft', email1Draft)
+  put('call1Script', lead.call1Script || null)
+  put('email2Draft', lead.email2Draft || null)
+  put('call2Script', lead.call2Script || null)
+  put('resortAddress', lead.resortAddress || null)
+  put('locationCount', lead.locationCount || null)
+  put('generalEmail', emailValue(lead.generalEmail || lead.ownerEmail || null))
+  put('generalPhone', phoneValue(lead.generalPhone || lead.ownerPhone || null))
   return values
 }
 

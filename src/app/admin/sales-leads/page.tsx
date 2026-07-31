@@ -70,6 +70,7 @@ export default function SalesLeadsPage() {
 
   const [newBusiness, setNewBusiness] = useState('')
   const [error, setError] = useState('')
+  const [processingLeads, setProcessingLeads] = useState<Record<string, string>>({})
 
   const load = async (syncWithMonday = false) => {
     setLoading(true)
@@ -96,12 +97,26 @@ export default function SalesLeadsPage() {
   }, [view, callerId])
 
   const updateLead = async (id: string, patch: Record<string, unknown>) => {
+    const isEmail1Due = patch.currentStage === 'EMAIL_1_DUE'
+    let phaseTimer: ReturnType<typeof setInterval> | undefined
+    if (isEmail1Due) {
+      setShowDrawer(false)
+      setProcessingLeads(prev => ({ ...prev, [id]: 'Researching prospect' }))
+      const phases = ['Researching prospect', 'Saving research report', 'Generating Email 1 draft', 'Saving draft to Monday']
+      let phaseIndex = 0
+      phaseTimer = setInterval(() => {
+        phaseIndex = Math.min(phaseIndex + 1, phases.length - 1)
+        setProcessingLeads(prev => ({ ...prev, [id]: phases[phaseIndex] }))
+      }, 2500)
+    }
     const res = await fetch('/api/sales-leads', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, ...patch }),
     })
     if (!res.ok) {
+      if (phaseTimer) clearInterval(phaseTimer)
+      if (isEmail1Due) setProcessingLeads(prev => { const next = { ...prev }; delete next[id]; return next })
       let message = 'Could not update lead.'
       try {
         const data = await res.json()
@@ -113,6 +128,11 @@ export default function SalesLeadsPage() {
       return
     }
     await load()
+    if (phaseTimer) clearInterval(phaseTimer)
+    if (isEmail1Due) {
+      setProcessingLeads(prev => ({ ...prev, [id]: 'Completed' }))
+      window.setTimeout(() => setProcessingLeads(prev => { const next = { ...prev }; delete next[id]; return next }), 1800)
+    }
     if (selectedLead && selectedLead.id === id) {
       setSelectedLead(prev => (prev ? { ...prev, ...patch } : null))
     }
@@ -368,6 +388,7 @@ export default function SalesLeadsPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {filteredLeads.map(lead => {
+                    const processingPhase = processingLeads[lead.id]
                     const badgeCfg = stageBadges[lead.currentStage] || {
                       label: lead.currentStage,
                       color: 'slate',
@@ -376,16 +397,22 @@ export default function SalesLeadsPage() {
                       <tr
                         key={lead.id}
                         onClick={() => {
+                          if (processingPhase) return
                           setSelectedLead(lead)
                           setShowDrawer(true)
                         }}
-                        className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
+                        className={`${processingPhase ? 'bg-blue-50/70 opacity-80 cursor-wait' : 'hover:bg-slate-50/80 cursor-pointer'} transition-colors group`}
                       >
                         {/* Business Name & Details */}
                         <td className="px-5 py-3.5">
                           <div className="font-semibold text-slate-800 group-hover:text-cantara-navy transition-colors">
                             {lead.businessName}
                           </div>
+                          {processingPhase && (
+                            <div className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-700">
+                              <RefreshCw className="w-3 h-3 animate-spin" /> {processingPhase}
+                            </div>
+                          )}
                           <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
                             <span className="flex items-center gap-1">
                               <MapPin className="w-3 h-3 text-slate-300" />
@@ -443,7 +470,8 @@ export default function SalesLeadsPage() {
                               variant="outline"
                               size="sm"
                               title="Run AI Prospect Research"
-                              onClick={() => setEnrichingLead(lead)}
+                              onClick={() => { if (!processingPhase) setEnrichingLead(lead) }}
+                              disabled={Boolean(processingPhase)}
                               className="text-[11px] py-1 h-7 font-medium bg-white text-slate-700 hover:text-[#CAA15F] border-slate-200"
                             >
                               <Sparkles className="w-3 h-3 text-[#CAA15F]" />
@@ -452,6 +480,7 @@ export default function SalesLeadsPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => {
+                                if (processingPhase) return
                                 setSelectedLead(lead)
                                 setShowDrawer(true)
                               }}

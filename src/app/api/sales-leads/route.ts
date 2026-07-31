@@ -240,6 +240,10 @@ export async function PATCH(req: NextRequest) {
       updatedLead = await prisma.salesLead.findUnique({ where: { id } })
     }
 
+    // Complete the outbound update before returning so the UI can safely show the
+    // processing indicator as finished only after Monday has the new values.
+    await processSalesLeadSyncOutbox().catch(err => console.warn('[sales-leads/route] Immediate outbox warning:', err))
+
     return NextResponse.json(updatedLead)
   } catch (error) {
     return errorResponse(error)
