@@ -129,25 +129,30 @@ export function mondayColumnValues(
 }
 
 export async function syncSalesLeadToMonday(leadId: string) {
-  const lead = await prisma.salesLead.findUnique({ where: { id: leadId } })
-  if (!lead) throw new Error('Sales lead not found.')
-  const config = await salesLeadMondayConfiguration()
-  const boardId = lead.mondayBoardId || config.boardId
-  if (!boardId || Object.keys(config.mapping).length === 0) {
-    throw new Error('Sales Lead Monday board and column mapping are not configured.')
-  }
-  const columnValues = mondayColumnValues(lead, config.mapping, config.callerMapping)
-  const itemId = lead.mondayItemId
-    ? (await updateMondayBoardItem({ boardId, itemId: lead.mondayItemId, columnValues }), lead.mondayItemId)
-    : await createMondayBoardItem({ boardId, itemName: lead.businessName, columnValues })
-  return prisma.salesLead.update({
-    where: { id: lead.id },
-    data: {
-      mondayBoardId: boardId,
-      mondayItemId: itemId,
-      mondayLastSyncedAt: new Date(),
-      syncStatus: SalesLeadSyncStatus.SYNCED,
-    },
+  // Serialize create/update per lead across workers and app instances. Without
+  // this, two outbox events can both observe mondayItemId=null and create items.
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`monday-sales-lead:${leadId}`}))`
+    const lead = await tx.salesLead.findUnique({ where: { id: leadId } })
+    if (!lead) throw new Error('Sales lead not found.')
+    const config = await salesLeadMondayConfiguration()
+    const boardId = lead.mondayBoardId || config.boardId
+    if (!boardId || Object.keys(config.mapping).length === 0) {
+      throw new Error('Sales Lead Monday board and column mapping are not configured.')
+    }
+    const columnValues = mondayColumnValues(lead, config.mapping, config.callerMapping)
+    const itemId = lead.mondayItemId
+      ? (await updateMondayBoardItem({ boardId, itemId: lead.mondayItemId, columnValues }), lead.mondayItemId)
+      : await createMondayBoardItem({ boardId, itemName: lead.businessName, columnValues })
+    return tx.salesLead.update({
+      where: { id: lead.id },
+      data: {
+        mondayBoardId: boardId,
+        mondayItemId: itemId,
+        mondayLastSyncedAt: new Date(),
+        syncStatus: SalesLeadSyncStatus.SYNCED,
+      },
+    })
   })
 }
 
