@@ -54,7 +54,7 @@ function phoneValue(value: string | null) {
 
 function researchReportUrl(leadId: string) {
   const base = getProjectEnv('NEXT_PUBLIC_APP_URL') || getProjectEnv('APP_URL') || ''
-  return `${base.replace(/\/$/, '')}/research-report/${leadId}`
+  return `${(base || 'https://advisor.cantarapet.com').replace(/\/$/, '')}/research-report/${leadId}`
 }
 
 export async function salesLeadMondayConfiguration() {
@@ -101,7 +101,10 @@ export function mondayColumnValues(
   put('sqftOutdoor', lead.sqftOutdoor)
   put('sqftCombined', lead.sqftCombined)
   put('locationType', lead.locationType ? { label: lead.locationType } : null)
-  put('preCallBriefUrl', linkValue(lead.preCallBriefUrl || (lead.aiResearchReport ? researchReportUrl(lead.id) : null)))
+  const savedBriefUrl = lead.preCallBriefUrl && /^https?:\/\//i.test(lead.preCallBriefUrl)
+    ? lead.preCallBriefUrl
+    : lead.aiResearchReport ? researchReportUrl(lead.id) : null
+  put('preCallBriefUrl', linkValue(savedBriefUrl))
   put('ownerFirstName', lead.ownerFirstName || null)
   put('ownerLastName', lead.ownerLastName || null)
   put('ownerPhone', phoneValue(lead.ownerPhone))

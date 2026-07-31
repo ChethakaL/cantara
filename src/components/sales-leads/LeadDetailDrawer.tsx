@@ -27,6 +27,13 @@ import EnrichmentModal from '@/components/sales-leads/EnrichmentModal'
 
 type Lead = any
 
+function researchText(value: unknown) {
+  if (value === null || value === undefined || value === '') return 'Not specified'
+  if (typeof value === 'string') return value.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
+  if (typeof value === 'object') return Object.entries(value as Record<string, unknown>).map(([key, nested]) => `${key}: ${researchText(nested)}`).join(' · ')
+  return String(value)
+}
+
 export default function LeadDetailDrawer({
   lead,
   callers,
@@ -466,22 +473,22 @@ export default function LeadDetailDrawer({
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
                       <div className="p-2.5 bg-white rounded-lg border border-amber-100">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Year Established</span>
-                        <span className="font-semibold text-slate-800">{r.yearStarted}</span>
+                        <span className="font-semibold text-slate-800">{researchText(r.yearStarted)}</span>
                       </div>
                       <div className="p-2.5 bg-white rounded-lg border border-amber-100">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Ownership Tenure</span>
-                        <span className="font-semibold text-slate-800">{r.ownershipTenure}</span>
+                        <span className="font-semibold text-slate-800">{researchText(r.ownershipTenure)}</span>
                       </div>
                       <div className="p-2.5 bg-white rounded-lg border border-amber-100">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Prior Sale History</span>
-                        <span className="font-semibold text-slate-800">{r.priorSaleHistory}</span>
+                        <span className="font-semibold text-slate-800">{researchText(r.priorSaleHistory)}</span>
                       </div>
                     </div>
 
                     {r.businessProfileSummary && (
                       <div className="p-2.5 bg-white rounded-lg border border-amber-100 text-xs text-slate-700 leading-relaxed">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Executive Profile</span>
-                        {r.businessProfileSummary}
+                        {researchText(r.businessProfileSummary)}
                       </div>
                     )}
                   </div>
