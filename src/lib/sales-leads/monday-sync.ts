@@ -116,10 +116,11 @@ export function mondayColumnValues(
   const email1Draft = lead.emailDraftSubject && lead.emailDraftBody
     ? `Subject: ${lead.emailDraftSubject}\n\n${lead.emailDraftBody}`
     : null
-  put('email1Draft', email1Draft)
-  put('call1Script', lead.call1Script || null)
-  put('email2Draft', lead.email2Draft || null)
-  put('call2Script', lead.call2Script || null)
+  // Monday long_text columns require an object payload, not a bare string.
+  put('email1Draft', email1Draft ? { text: email1Draft } : null)
+  put('call1Script', lead.call1Script ? { text: lead.call1Script } : null)
+  put('email2Draft', lead.email2Draft ? { text: lead.email2Draft } : null)
+  put('call2Script', lead.call2Script ? { text: lead.call2Script } : null)
   put('resortAddress', lead.resortAddress || null)
   put('locationCount', lead.locationCount || null)
   put('generalEmail', emailValue(lead.generalEmail || lead.ownerEmail || null))
