@@ -128,12 +128,40 @@ export function mondayColumnValues(
   return values
 }
 
+/** In-process mutex so concurrent outbox/webhook workers cannot create twice for one lead. */
+const leadSyncGates = new Map<string, Promise<unknown>>()
+
+async function withLeadSyncGate<T>(leadId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = leadSyncGates.get(leadId) ?? Promise.resolve()
+  let release!: () => void
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const chained = previous.catch(() => undefined).then(() => gate)
+  leadSyncGates.set(leadId, chained)
+  await previous.catch(() => undefined)
+  try {
+    return await fn()
+  } finally {
+    release()
+    if (leadSyncGates.get(leadId) === chained) leadSyncGates.delete(leadId)
+  }
+}
+
+async function findMondayItemIdByBusinessName(boardId: string, businessName: string) {
+  const needle = businessName.trim().toLowerCase()
+  if (!needle) return null
+  const items = await getMondayBoardItems(boardId)
+  const match = items.find(item => item.name.trim().toLowerCase() === needle)
+  return match?.id ? String(match.id) : null
+}
+
 export async function syncSalesLeadToMonday(leadId: string) {
-  // Serialize create/update per lead across workers and app instances. Without
-  // this, two outbox events can both observe mondayItemId=null and create items.
-  return prisma.$transaction(async tx => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`monday-sales-lead:${leadId}`}))`
-    const lead = await tx.salesLead.findUnique({ where: { id: leadId } })
+  // Do NOT wrap Monday HTTP calls in a Prisma interactive transaction. The prior
+  // advisory-lock transaction timed out (30s) after create_item succeeded, so
+  // mondayItemId never saved and retries created duplicate Monday rows.
+  return withLeadSyncGate(leadId, async () => {
+    const lead = await prisma.salesLead.findUnique({ where: { id: leadId } })
     if (!lead) throw new Error('Sales lead not found.')
     const config = await salesLeadMondayConfiguration()
     const boardId = lead.mondayBoardId || config.boardId
@@ -141,10 +169,26 @@ export async function syncSalesLeadToMonday(leadId: string) {
       throw new Error('Sales Lead Monday board and column mapping are not configured.')
     }
     const columnValues = mondayColumnValues(lead, config.mapping, config.callerMapping)
-    const itemId = lead.mondayItemId
-      ? (await updateMondayBoardItem({ boardId, itemId: lead.mondayItemId, columnValues }), lead.mondayItemId)
-      : await createMondayBoardItem({ boardId, itemName: lead.businessName, columnValues })
-    return tx.salesLead.update({
+
+    let itemId = lead.mondayItemId
+    if (itemId) {
+      await updateMondayBoardItem({ boardId, itemId, columnValues })
+    } else {
+      // Re-link an existing Monday row by exact name before creating (recovers
+      // from earlier creates whose DB link-back failed).
+      itemId = await findMondayItemIdByBusinessName(boardId, lead.businessName)
+      if (itemId) {
+        await updateMondayBoardItem({ boardId, itemId, columnValues })
+      } else {
+        itemId = await createMondayBoardItem({
+          boardId,
+          itemName: lead.businessName,
+          columnValues,
+        })
+      }
+    }
+
+    return prisma.salesLead.update({
       where: { id: lead.id },
       data: {
         mondayBoardId: boardId,
@@ -212,7 +256,8 @@ async function backfillUnlinkedSalesLeads() {
 export async function processSalesLeadSyncOutbox(limit = 50) {
   const backfill = await backfillUnlinkedSalesLeads()
   const events = await prisma.salesLeadSyncEvent.findMany({
-    where: { status: { in: ['PENDING', 'ERROR'] }, direction: 'OUTBOUND_MONDAY', attempts: { lt: 5 } },
+    // Allow more retries so leads stuck after the transaction-timeout bug can recover.
+    where: { status: { in: ['PENDING', 'ERROR'] }, direction: 'OUTBOUND_MONDAY', attempts: { lt: 25 } },
     orderBy: { createdAt: 'asc' },
     take: limit,
   })

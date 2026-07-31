@@ -396,9 +396,19 @@ export async function createMondayBoardItem(args: {
   }
 
   if (!itemId) {
-    const cleanValues = Object.fromEntries(
-      Object.entries(args.columnValues || {}).filter(([_, v]) => v !== null && v !== undefined)
-    );
+    // Composio may have created the item before returning an error/unparseable
+    // payload. Prefer linking by name over a second create_item.
+    try {
+      const existing = (await getMondayBoardItems(args.boardId)).find(
+        (item) => item.name.trim().toLowerCase() === args.itemName.trim().toLowerCase(),
+      );
+      if (existing?.id) itemId = String(existing.id);
+    } catch (lookupError) {
+      console.warn("[Monday] Post-create name lookup failed before GraphQL fallback.", lookupError);
+    }
+  }
+
+  if (!itemId) {
     const result = await executeMondayGraphqlDirect({
       query: `
         mutation ($boardId: ID!, $itemName: String!) {
