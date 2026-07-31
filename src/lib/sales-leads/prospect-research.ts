@@ -5,7 +5,7 @@ import { getProjectEnv } from '@/lib/project-env'
 
 function researchReportUrl(leadId: string) {
   const base = getProjectEnv('NEXT_PUBLIC_APP_URL') || getProjectEnv('APP_URL') || ''
-  return `${base.replace(/\/$/, '')}/research-report/${leadId}`
+  return `${(base || 'https://advisor.cantarapet.com').replace(/\/$/, '')}/research-report/${leadId}`
 }
 
 export async function generateProspectResearch(leadId: string) {
@@ -23,7 +23,21 @@ Owner Name: "${[lead.ownerFirstName, lead.ownerLastName].filter(Boolean).join(' 
 Indoor SqFt: ${lead.sqftIndoor || 'N/A'}, Outdoor SqFt: ${lead.sqftOutdoor || 'N/A'}, Combined SqFt: ${lead.sqftCombined || 'N/A'}
 Google Rating: ${lead.googleRating || 'N/A'} (${lead.reviewCount || 'N/A'} reviews)
 
-Answer: year started, current-owner tenure, prior sale history, and a Tier 1/2/3 rating with reasoning. Return only valid JSON with keys yearStarted, ownershipTenure, priorSaleHistory, tierRating, tierReasoning, businessProfileSummary.`
+Conduct a structured research analysis answering:
+1. What year did the business start / open?
+2. How long have the current owners owned the business?
+3. Has the business been sold previously?
+4. Rate the resort Tier 1, Tier 2, or Tier 3 based on facility scale, review volume, and business profile.
+
+Return only valid JSON, with each value a concise plain-text string (never nested objects and never markdown):
+{
+  "yearStarted": "year and operating tenure",
+  "ownershipTenure": "current-owner tenure",
+  "priorSaleHistory": "prior sale history or no public record found",
+  "tierRating": "Tier 1 | Tier 2 | Tier 3",
+  "tierReasoning": "one-sentence justification",
+  "businessProfileSummary": "concise 2-3 sentence executive profile"
+}`
   const response = await ai.messages.create({
     model: resolveModel('claude-sonnet-4-20250514'),
     max_tokens: 1000,
@@ -37,7 +51,11 @@ Answer: year started, current-owner tenure, prior sale history, and a Tier 1/2/3
   } catch {
     report = { yearStarted: 'Not specified', ownershipTenure: 'Not specified', priorSaleHistory: 'No public sale records found', tierRating: lead.sqftCombined && lead.sqftCombined >= 15000 ? 'Tier 1' : 'Tier 2', tierReasoning: 'Based on facility scale and review profile.', businessProfileSummary: raw.slice(0, 500) }
   }
-  return prisma.salesLead.update({ where: { id: leadId }, data: { aiResearchReport: report, preCallBriefUrl: researchReportUrl(leadId) } })
+  const normalizedReport = Object.fromEntries(Object.entries(report).map(([key, value]) => [
+    key,
+    typeof value === 'string' ? value.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim() : JSON.stringify(value),
+  ]))
+  return prisma.salesLead.update({ where: { id: leadId }, data: { aiResearchReport: normalizedReport, preCallBriefUrl: researchReportUrl(leadId) } })
 }
 
 export async function generateSalesLeadEmail1Draft(leadId: string) {

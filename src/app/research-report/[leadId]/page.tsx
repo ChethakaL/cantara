@@ -7,6 +7,15 @@ function label(key: string) {
   return key.replace(/[A-Z]/g, letter => ` ${letter}`).replace(/^./, letter => letter.toUpperCase())
 }
 
+function displayValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return 'Not specified'
+  if (typeof value === 'string') return value.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).map(([key, nested]) => `${label(key)}: ${displayValue(nested)}`).join('\n')
+  }
+  return String(value)
+}
+
 export default async function ResearchReportPage({ params }: { params: { leadId: string } }) {
   const lead = await prisma.salesLead.findUnique({
     where: { id: params.leadId },
@@ -36,7 +45,7 @@ export default async function ResearchReportPage({ params }: { params: { leadId:
             {Object.entries(report).map(([key, value]) => (
               <section key={key} className={`${key === 'businessProfileSummary' || key === 'tierReasoning' ? 'md:col-span-2' : ''} rounded-2xl border border-slate-200 bg-slate-50/70 p-5`}>
                 <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-[#9a7946]">{label(key)}</h2>
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">{String(value ?? 'Not specified')}</p>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">{displayValue(value)}</p>
               </section>
             ))}
           </div>
