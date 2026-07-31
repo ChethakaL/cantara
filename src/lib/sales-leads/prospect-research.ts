@@ -1,6 +1,12 @@
 import { prisma } from '@/lib/prisma'
 import { getAIClient, resolveModel } from '@/lib/ai-client'
 import { buildSalesLeadEmailDraft } from '@/lib/sales-leads/email-provider'
+import { getProjectEnv } from '@/lib/project-env'
+
+function researchReportUrl(leadId: string) {
+  const base = getProjectEnv('NEXT_PUBLIC_APP_URL') || getProjectEnv('APP_URL') || ''
+  return `${base.replace(/\/$/, '')}/research-report/${leadId}`
+}
 
 export async function generateProspectResearch(leadId: string) {
   const lead = await prisma.salesLead.findUnique({ where: { id: leadId } })
@@ -31,7 +37,7 @@ Answer: year started, current-owner tenure, prior sale history, and a Tier 1/2/3
   } catch {
     report = { yearStarted: 'Not specified', ownershipTenure: 'Not specified', priorSaleHistory: 'No public sale records found', tierRating: lead.sqftCombined && lead.sqftCombined >= 15000 ? 'Tier 1' : 'Tier 2', tierReasoning: 'Based on facility scale and review profile.', businessProfileSummary: raw.slice(0, 500) }
   }
-  return prisma.salesLead.update({ where: { id: leadId }, data: { aiResearchReport: report } })
+  return prisma.salesLead.update({ where: { id: leadId }, data: { aiResearchReport: report, preCallBriefUrl: researchReportUrl(leadId) } })
 }
 
 export async function generateSalesLeadEmail1Draft(leadId: string) {

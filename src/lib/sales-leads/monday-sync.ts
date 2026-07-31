@@ -54,7 +54,7 @@ function phoneValue(value: string | null) {
 
 function researchReportUrl(leadId: string) {
   const base = getProjectEnv('NEXT_PUBLIC_APP_URL') || getProjectEnv('APP_URL') || ''
-  return `${base.replace(/\/$/, '')}/api/sales-leads/${leadId}/research-report`
+  return `${base.replace(/\/$/, '')}/research-report/${leadId}`
 }
 
 export async function salesLeadMondayConfiguration() {
