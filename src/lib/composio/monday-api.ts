@@ -265,31 +265,14 @@ export async function executeMondayGraphqlDirect(args: {
   query: string;
   variables?: Record<string, unknown>;
 }): Promise<Record<string, unknown> | null> {
-  const connection = await getMondayConnection().catch(() => null);
-  if (connection) {
-    try {
-      const proxyResult = await composioFetch<any>("/tools/execute/proxy", {
-        method: "POST",
-        body: JSON.stringify({
-          endpoint: "https://api.monday.com/v2",
-          method: "POST",
-          connected_account_id: connection.id,
-          parameters: [
-            { name: "Content-Type", value: "application/json", type: "header" },
-            { name: "API-Version", value: "2024-01", type: "header" },
-          ],
-          body: { query: args.query, variables: args.variables },
-        }),
-      });
-      const dataObj = unwrapComposioProxyData(proxyResult);
-      if (dataObj) return dataObj;
-    } catch (err) {
-      console.warn("[Composio Proxy] GraphQL proxy execution warning:", err);
-    }
-  }
-
+  // Do NOT use Composio /tools/execute/proxy — production API keys do not have
+  // proxy-execute permission (403 ExternalProxy_OrgNotAllowed). Call Monday API
+  // directly with the connected account token instead.
   const authHeader = await getMondayAuthHeader();
-  if (!authHeader) return null;
+  if (!authHeader) {
+    console.warn("[Monday Direct GraphQL] No Monday access token available from connected account.");
+    return null;
+  }
 
   const mondayRes = await fetch("https://api.monday.com/v2", {
     method: "POST",

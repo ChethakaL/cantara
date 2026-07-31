@@ -1,9 +1,7 @@
-import { composioFetch } from "./client";
 import {
   executeMondayTool,
   executeMondayGraphqlDirect,
   unwrapMondayToolData,
-  getMondayConnection,
 } from "./monday-api";
 
 export function findMondayItemId(value: unknown): string | null {
@@ -211,75 +209,48 @@ export async function getMondayBoardItems(boardId: string) {
   }
 
   if (bestResult.length === 0 || !foundColumnData) {
-    console.log(`[Composio] Proxy GraphQL for board ${boardId}...`);
+    console.log(`[Monday] Direct GraphQL items_page for board ${boardId}...`);
     try {
-      const connection = await getMondayConnection();
-      if (connection) {
-        const gql = `query { boards(ids: [${boardId}]) { items_page(limit: 500) { cursor items { id name column_values { id type text value column { title } } } } } }`;
-        const proxyResult = await composioFetch<any>("/tools/execute/proxy", {
-          method: "POST",
-          body: JSON.stringify({
-            endpoint: "https://api.monday.com/v2",
-            method: "POST",
-            connected_account_id: connection.id,
-            parameters: [
-              { name: "Content-Type", value: "application/json", type: "header" },
-              { name: "API-Version", value: "2024-01", type: "header" },
-            ],
-            body: { query: gql },
-          }),
-        });
-
-        const outer = proxyResult?.data;
-        let up: Record<string, unknown> | null = null;
-        if (outer && typeof outer === "object") up = outer as Record<string, unknown>;
-        else if (typeof outer === "string") {
-          try {
-            up = JSON.parse(outer) as Record<string, unknown>;
-          } catch {
-            up = null;
+      const gqlResult = await executeMondayGraphqlDirect({
+        query: `
+          query ($boardId: [ID!]) {
+            boards(ids: $boardId) {
+              items_page(limit: 500) {
+                items {
+                  id
+                  name
+                  column_values {
+                    id
+                    type
+                    text
+                    value
+                    column { title }
+                  }
+                }
+              }
+            }
           }
+        `,
+        variables: { boardId: [boardId] },
+      });
+      const boards = (gqlResult?.data as any)?.boards as unknown[] | undefined;
+      let items: any[] | undefined;
+      if (Array.isArray(boards) && boards[0] && typeof boards[0] === "object") {
+        const ip = (boards[0] as Record<string, unknown>).items_page as Record<string, unknown> | undefined;
+        if (ip && Array.isArray(ip.items)) items = ip.items as any[];
+      }
+      if (Array.isArray(items) && items.length > 0) {
+        const hasCols = items.some((i) => Array.isArray(i.column_values) && i.column_values.length > 0);
+        if (bestResult.length === 0 || hasCols) {
+          bestResult = items;
+          foundColumnData = hasCols;
         }
-        const httpStatus = typeof up?.status === "number" ? (up.status as number) : undefined;
-        let graphqlLayer = up?.data as Record<string, unknown> | string | null | undefined;
-        if (typeof graphqlLayer === "string") {
-          try {
-            graphqlLayer = JSON.parse(graphqlLayer) as Record<string, unknown>;
-          } catch {
-            graphqlLayer = null;
-          }
-        }
-        const gq = (graphqlLayer && typeof graphqlLayer === "object" ? graphqlLayer : null) as Record<
-          string,
-          unknown
-        > | null;
-        if (gq && Array.isArray(gq.errors) && gq.errors.length) {
-          console.log("[Composio] Proxy GraphQL errors:", JSON.stringify(gq.errors).slice(0, 400));
-        }
-        const boards = gq?.boards as unknown[] | undefined;
-        let items: any[] | undefined;
-        if (Array.isArray(boards) && boards[0] && typeof boards[0] === "object") {
-          const ip = (boards[0] as Record<string, unknown>).items_page as Record<string, unknown> | undefined;
-          if (ip && Array.isArray(ip.items)) items = ip.items as any[];
-        }
-
-        if (Array.isArray(items) && items.length > 0) {
-          const hasCols = items.some((i) => Array.isArray(i.column_values) && i.column_values.length > 0);
-          if (bestResult.length === 0 || hasCols) {
-            bestResult = items;
-            foundColumnData = hasCols;
-          }
-          console.log(
-            `[Composio] Proxy returned ${items.length} items (upstream HTTP ${httpStatus ?? "?"}). column_values: ${hasCols}`
-          );
-        } else if (httpStatus && httpStatus >= 400) {
-          console.log(`[Composio] Proxy upstream HTTP ${httpStatus}`);
-        } else {
-          console.log(`[Composio] Proxy could not parse items from response.`);
-        }
+        console.log(
+          `[Monday] Direct GraphQL returned ${items.length} items. column_values: ${hasCols}`
+        );
       }
     } catch (e) {
-      console.log(`[Composio] Proxy call failed:`, e);
+      console.log(`[Monday] Direct GraphQL items_page failed:`, e);
     }
   }
 
