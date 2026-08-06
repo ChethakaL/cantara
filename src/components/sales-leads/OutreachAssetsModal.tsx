@@ -24,6 +24,49 @@ function assetLabel(asset: Pick<Asset, 'touch' | 'assetType'>) {
 
 type User = { id: string; name: string; email: string }
 
+function readAdminEmailFromCookie(): string {
+  if (typeof document === 'undefined') return ''
+  try {
+    const cookies = document.cookie.split('; ')
+    const cookie = cookies.find(c => c.startsWith('cantara_admin_email='))
+    if (!cookie) return ''
+    return decodeURIComponent(cookie.split('=').slice(1).join('=')).trim()
+  } catch {
+    return ''
+  }
+}
+
+function resolveCurrentUserId(apiId: string | null | undefined, users: User[]): string | null {
+  if (apiId) return apiId
+  const email = readAdminEmailFromCookie().toLowerCase()
+  if (!email) return null
+  return users.find(user => user.email.toLowerCase() === email)?.id || null
+}
+
+function filterAssets(
+  list: Asset[],
+  assetTypeFilter: 'ALL' | 'EMAIL' | 'CALL',
+  senderFilter: string,
+  sequenceFilter: string,
+  currentUserId: string | null,
+) {
+  return list
+    .filter(asset =>
+      (assetTypeFilter === 'ALL' || asset.assetType === assetTypeFilter) &&
+      (senderFilter === 'CURRENT'
+        ? (!asset.senderUserId || (!!currentUserId && asset.senderUserId === currentUserId))
+        : senderFilter === 'ALL' || (asset.senderUserId || 'GENERIC') === senderFilter) &&
+      (sequenceFilter === 'ALL' || String(asset.touch) === sequenceFilter)
+    )
+    .slice()
+    .sort((a, b) =>
+      a.touch - b.touch ||
+      a.assetType.localeCompare(b.assetType) ||
+      a.contactType.localeCompare(b.contactType) ||
+      (a.senderUser?.name || '').localeCompare(b.senderUser?.name || '')
+    )
+}
+
 export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [assets, setAssets] = useState<Asset[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -33,7 +76,8 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor')
   const [assetTypeFilter, setAssetTypeFilter] = useState<'ALL' | 'EMAIL' | 'CALL'>('ALL')
-  const [senderFilter, setSenderFilter] = useState('CURRENT')
+  // Default to all senders so Email + Call templates are visible without hunting filters.
+  const [senderFilter, setSenderFilter] = useState('ALL')
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [sequenceFilter, setSequenceFilter] = useState('ALL')
 
@@ -41,15 +85,23 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
     setLoading(true)
     setError('')
     try { 
-      const res = await fetch('/api/sales-leads/assets', { cache: 'no-store' })
+      const res = await fetch('/api/sales-leads/assets', { cache: 'no-store', credentials: 'same-origin' })
       if (!res.ok) throw new Error('Could not load assets')
       const data = await res.json()
-      setAssets(data.assets || [])
-      setUsers(data.users || [])
-      setCurrentUserId(data.currentUserId || null)
-      if (data.assets?.length && !editing) {
-        setEditing(data.assets[0])
-      }
+      const list: Asset[] = data.assets || []
+      const userList: User[] = data.users || []
+      const me = resolveCurrentUserId(data.currentUserId, userList)
+      setAssets(list)
+      setUsers(userList)
+      setCurrentUserId(me)
+      const visible = filterAssets(list, assetTypeFilter, senderFilter, sequenceFilter, me)
+      setEditing(prev => {
+        if (prev?.id) {
+          const stillThere = list.find(a => a.id === prev.id)
+          if (stillThere) return stillThere
+        }
+        return visible[0] || list[0] || null
+      })
     } catch (err: any) { 
       setError(err.message) 
     } finally { 
@@ -64,7 +116,16 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
   if (!isOpen) return null
 
   const startNew = () => {
-    const newAsset: Asset = { touch: 1, assetType: 'EMAIL', contactType: 'DIRECT', body: '', subject: '', version: 1, active: true }
+    const newAsset: Asset = {
+      touch: 1,
+      assetType: 'EMAIL',
+      contactType: 'DIRECT',
+      body: '',
+      subject: '',
+      version: 1,
+      active: true,
+      senderUserId: currentUserId,
+    }
     setEditing(newAsset)
     setActiveTab('editor')
   }
@@ -77,6 +138,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
       const res = await fetch('/api/sales-leads/assets', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
+        credentials: 'same-origin',
         body: JSON.stringify(editing) 
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Could not save asset')
@@ -91,13 +153,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
   }
 
   const selectedSender = users.find(u => u.id === editing?.senderUserId)
-  const visibleAssets = assets.filter(asset =>
-    (assetTypeFilter === 'ALL' || asset.assetType === assetTypeFilter) &&
-    (senderFilter === 'CURRENT'
-      ? (!asset.senderUserId || asset.senderUserId === currentUserId)
-      : senderFilter === 'ALL' || (asset.senderUserId || 'GENERIC') === senderFilter) &&
-    (sequenceFilter === 'ALL' || String(asset.touch) === sequenceFilter)
-  )
+  const visibleAssets = filterAssets(assets, assetTypeFilter, senderFilter, sequenceFilter, currentUserId)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
@@ -192,7 +248,9 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                         </span>
                       </div>
                       <div className="text-xs font-medium text-slate-600 truncate">
-                        {asset.subject || '(No Subject)'}
+                        {asset.assetType === 'CALL'
+                          ? (asset.body?.trim() ? asset.body.trim().slice(0, 72) : '(Empty call script)')
+                          : (asset.subject || '(No Subject)')}
                       </div>
                       <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
                         <span className="truncate">{asset.senderUser?.name || 'Generic Sender'}</span>
@@ -205,6 +263,11 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                 {!assets.length && (
                   <div className="text-center py-10 text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4">
                     No templates saved yet. Click "New Template" to create one.
+                  </div>
+                )}
+                {!!assets.length && !visibleAssets.length && (
+                  <div className="text-center py-10 text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4">
+                    No templates match these filters. Try <span className="font-semibold text-slate-600">All Senders</span> or type <span className="font-semibold text-slate-600">Call</span>.
                   </div>
                 )}
               </div>

@@ -8,8 +8,16 @@ export async function GET() {
     prisma.outreachAsset.findMany({ include: { senderUser: { select: { id: true, name: true, email: true } }, }, orderBy: [{ assetType: 'asc' }, { touch: 'asc' }, { contactType: 'asc' }, { version: 'desc' }] }),
     prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true, name: true, email: true }, orderBy: { name: 'asc' } }),
   ])
-  const email = (await import('next/headers')).cookies().get('cantara_admin_email')?.value
-  const currentUserId = email ? (users.find(user => user.email === email)?.id || null) : null
+  const emailRaw = (await import('next/headers')).cookies().get('cantara_admin_email')?.value || ''
+  let email = emailRaw
+  try {
+    email = decodeURIComponent(emailRaw).trim()
+  } catch {
+    email = emailRaw.trim()
+  }
+  const currentUserId = email
+    ? (users.find(user => user.email.toLowerCase() === email.toLowerCase())?.id || null)
+    : null
   return NextResponse.json({ assets, users, currentUserId })
 }
 
