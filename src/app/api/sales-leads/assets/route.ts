@@ -39,3 +39,16 @@ export async function POST(req: NextRequest) {
     : await prisma.outreachAsset.create({ data })
   return NextResponse.json({ asset })
 }
+
+export async function DELETE(req: NextRequest) {
+  const id = new URL(req.url).searchParams.get('id')
+  if (!id) {
+    return NextResponse.json({ error: 'Asset id is required.' }, { status: 400 })
+  }
+  try {
+    await prisma.outreachAsset.delete({ where: { id } })
+    return NextResponse.json({ ok: true, id })
+  } catch {
+    return NextResponse.json({ error: 'Template not found or already deleted.' }, { status: 404 })
+  }
+}

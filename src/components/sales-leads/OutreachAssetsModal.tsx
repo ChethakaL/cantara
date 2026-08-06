@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Save, X, Mail, User as UserIcon, Tag, Eye, Code2 } from 'lucide-react'
+import { Loader2, Plus, Save, X, Mail, User as UserIcon, Tag, Eye, Code2, Trash2 } from 'lucide-react'
 import { Button, Card, Input, Select, Textarea } from '@/components/ui'
 
 type Asset = {
@@ -73,6 +73,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
   const [editing, setEditing] = useState<Asset | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor')
   const [assetTypeFilter, setAssetTypeFilter] = useState<'ALL' | 'EMAIL' | 'CALL'>('ALL')
@@ -152,6 +153,32 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
     } 
   }
 
+  const removeAsset = async (asset: Asset) => {
+    if (!asset.id) {
+      setEditing(null)
+      return
+    }
+    const label = `${assetLabel(asset)} (${asset.contactType === 'DIRECT' ? 'Direct Owner' : 'General Inbox'})`
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return
+    setDeleting(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/sales-leads/assets?id=${encodeURIComponent(asset.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Could not delete template')
+      const remaining = assets.filter(a => a.id !== asset.id)
+      setAssets(remaining)
+      const visible = filterAssets(remaining, assetTypeFilter, senderFilter, sequenceFilter, currentUserId)
+      setEditing(prev => (prev?.id === asset.id ? (visible[0] || null) : prev))
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const selectedSender = users.find(u => u.id === editing?.senderUserId)
   const visibleAssets = filterAssets(assets, assetTypeFilter, senderFilter, sequenceFilter, currentUserId)
 
@@ -226,37 +253,56 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                 {visibleAssets.map(asset => {
                   const isSelected = editing?.id === asset.id || (!editing?.id && asset === editing)
                   return (
-                    <button
-                      key={asset.id || Math.random()}
-                      onClick={() => setEditing(asset)}
-                      className={`w-full text-left rounded-xl p-3.5 transition-all border ${
+                    <div
+                      key={asset.id || `${asset.assetType}-${asset.touch}-${asset.contactType}-${asset.senderUserId || 'generic'}`}
+                      className={`relative w-full text-left rounded-xl p-3.5 transition-all border group ${
                         isSelected 
                           ? 'border-amber-400 bg-amber-50/50 shadow-sm ring-1 ring-amber-400/20' 
                           : 'border-slate-200/70 bg-white hover:border-slate-300 hover:bg-slate-50/80'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className="text-xs font-bold text-slate-800">
-                          {assetLabel(asset)}
-                        </span>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                          asset.contactType === 'DIRECT' 
-                            ? 'bg-amber-100 text-amber-800' 
-                            : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {asset.contactType === 'DIRECT' ? 'Direct Owner' : 'General Inbox'}
-                        </span>
-                      </div>
-                      <div className="text-xs font-medium text-slate-600 truncate">
-                        {asset.assetType === 'CALL'
-                          ? (asset.body?.trim() ? asset.body.trim().slice(0, 72) : '(Empty call script)')
-                          : (asset.subject || '(No Subject)')}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
-                        <span className="truncate">{asset.senderUser?.name || 'Generic Sender'}</span>
-                        <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">v{asset.version}</span>
-                      </div>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditing(asset)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1 pr-7">
+                          <span className="text-xs font-bold text-slate-800">
+                            {assetLabel(asset)}
+                          </span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            asset.contactType === 'DIRECT' 
+                              ? 'bg-amber-100 text-amber-800' 
+                              : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {asset.contactType === 'DIRECT' ? 'Direct Owner' : 'General Inbox'}
+                          </span>
+                        </div>
+                        <div className="text-xs font-medium text-slate-600 truncate">
+                          {asset.assetType === 'CALL'
+                            ? (asset.body?.trim() ? asset.body.trim().slice(0, 72) : '(Empty call script)')
+                            : (asset.subject || '(No Subject)')}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
+                          <span className="truncate">{asset.senderUser?.name || 'Generic Sender'}</span>
+                          <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">v{asset.version}</span>
+                        </div>
+                      </button>
+                      {asset.id && (
+                        <button
+                          type="button"
+                          title="Delete template"
+                          disabled={deleting}
+                          onClick={e => {
+                            e.stopPropagation()
+                            void removeAsset(asset)
+                          }}
+                          className="absolute top-2.5 right-2.5 p-1.5 rounded-md text-slate-300 hover:text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all disabled:opacity-40"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   )
                 })}
 
@@ -309,10 +355,22 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                       </button>
                     </div>
 
+                    {editing.id && (
+                      <button
+                        type="button"
+                        onClick={() => void removeAsset(editing)}
+                        disabled={saving || deleting}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 shadow-sm transition-all disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>{deleting ? 'Deleting...' : 'Delete'}</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => void save()}
-                      disabled={saving}
+                      disabled={saving || deleting}
                       className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white shadow-sm transition-all disabled:opacity-50"
                     >
                       <Save className="w-3.5 h-3.5" />
