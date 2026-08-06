@@ -266,7 +266,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                         onClick={() => setEditing(asset)}
                         className="w-full text-left"
                       >
-                        <div className="flex items-center justify-between gap-1 mb-1 pr-7">
+                        <div className="flex items-center justify-between gap-1 mb-1">
                           <span className="text-xs font-bold text-slate-800">
                             {assetLabel(asset)}
                           </span>
@@ -285,23 +285,26 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                         </div>
                         <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
                           <span className="truncate">{asset.senderUser?.name || 'Generic Sender'}</span>
-                          <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">v{asset.version}</span>
+                          
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-medium">v{asset.version}</span>
+                            {asset.id && (
+                              <button
+                                type="button"
+                                title="Delete template"
+                                disabled={deleting}
+                                onClick={e => {
+                                  e.stopPropagation()
+                                  void removeAsset(asset)
+                                }}
+                                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 opacity-70 group-hover:opacity-100 transition-all disabled:opacity-40"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </button>
-                      {asset.id && (
-                        <button
-                          type="button"
-                          title="Delete template"
-                          disabled={deleting}
-                          onClick={e => {
-                            e.stopPropagation()
-                            void removeAsset(asset)
-                          }}
-                          className="absolute top-2.5 right-2.5 p-1.5 rounded-md text-slate-300 hover:text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all disabled:opacity-40"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
                     </div>
                   )
                 })}
@@ -354,18 +357,6 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                         <Eye className="w-3.5 h-3.5" /> {editing.assetType === 'CALL' ? 'Preview Script' : 'Preview Mail'}
                       </button>
                     </div>
-
-                    {editing.id && (
-                      <button
-                        type="button"
-                        onClick={() => void removeAsset(editing)}
-                        disabled={saving || deleting}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 shadow-sm transition-all disabled:opacity-50"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>{deleting ? 'Deleting...' : 'Delete'}</span>
-                      </button>
-                    )}
 
                     <button
                       type="button"
