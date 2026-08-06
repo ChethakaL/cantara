@@ -1,4 +1,5 @@
-CREATE TABLE "OutreachAsset" (
+-- Idempotent: OutreachAsset table for reusable email/call templates per touch.
+CREATE TABLE IF NOT EXISTS "OutreachAsset" (
   "id" TEXT NOT NULL,
   "senderUserId" TEXT,
   "touch" INTEGER NOT NULL,
@@ -12,6 +13,18 @@ CREATE TABLE "OutreachAsset" (
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "OutreachAsset_pkey" PRIMARY KEY ("id")
 );
-CREATE INDEX "OutreachAsset_touch_contactType_active_idx" ON "OutreachAsset"("touch", "contactType", "active");
-CREATE INDEX "OutreachAsset_senderUserId_touch_contactType_active_idx" ON "OutreachAsset"("senderUserId", "touch", "contactType", "active");
-ALTER TABLE "OutreachAsset" ADD CONSTRAINT "OutreachAsset_senderUserId_fkey" FOREIGN KEY ("senderUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+CREATE INDEX IF NOT EXISTS "OutreachAsset_touch_contactType_active_idx"
+  ON "OutreachAsset"("touch", "contactType", "active");
+
+CREATE INDEX IF NOT EXISTS "OutreachAsset_senderUserId_touch_contactType_active_idx"
+  ON "OutreachAsset"("senderUserId", "touch", "contactType", "active");
+
+DO $$ BEGIN
+  ALTER TABLE "OutreachAsset"
+    ADD CONSTRAINT "OutreachAsset_senderUserId_fkey"
+    FOREIGN KEY ("senderUserId") REFERENCES "User"("id")
+    ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
