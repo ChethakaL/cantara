@@ -26,6 +26,7 @@ function workflowLead(lead: DbLead) {
     currentStage: lead.currentStage,
     assignedCallerId: lead.assignedCallerId,
     nextActionDate: lead.nextActionDate,
+    stageStartDate: lead.stageStartDate,
     bookingDateTime: lead.bookingDateTime,
   }
 }

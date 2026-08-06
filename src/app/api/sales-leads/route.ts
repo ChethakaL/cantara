@@ -51,9 +51,7 @@ export async function GET(req: NextRequest) {
   let callerId = requestedCallerId
   if (view === 'mine' && !callerId) {
     const email = req.cookies.get('cantara_admin_email')?.value
-    if (email) {
-      callerId = (await prisma.user.findUnique({ where: { email }, select: { id: true } }))?.id
-    }
+    if (email) callerId = (await prisma.user.findUnique({ where: { email }, select: { id: true } }))?.id
   }
   if (view === 'active') where.currentStage = { in: [...ACTIVE_STAGES] }
   if (view === 'mine') {
@@ -216,6 +214,7 @@ export async function PATCH(req: NextRequest) {
         ? { connect: { id: callerIdStr } }
         : { disconnect: true }
     }
+    if (body.stageStartDate !== undefined) data.stageStartDate = optionalDate(body.stageStartDate)
 
     let updatedLead = null
     if (Object.keys(data).length > 0) {

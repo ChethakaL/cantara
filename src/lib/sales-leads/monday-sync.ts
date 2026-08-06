@@ -15,7 +15,7 @@ import {
 } from '@/lib/sales-leads/service'
 
 export type MondayMapping = Partial<Record<
-  | 'businessName' | 'assignedCaller' | 'currentStage' | 'lastCallResult' | 'nextActionDate' | 'lastContactDate'
+  | 'businessName' | 'assignedCaller' | 'currentStage' | 'lastCallResult' | 'nextActionDate' | 'stageStartDate' | 'lastContactDate'
   | 'state' | 'city' | 'websiteUrl' | 'googleRating' | 'reviewCount' | 'sqftIndoor'
   | 'sqftOutdoor' | 'sqftCombined' | 'locationType' | 'preCallBriefUrl' | 'ownerFirstName'
   | 'ownerLastName' | 'ownerPhone' | 'sourceLinkPhone' | 'ownerEmail' | 'sourceLinkEmail'
@@ -91,6 +91,7 @@ export function mondayColumnValues(
   put('currentStage', { label: STAGE_LABELS[lead.currentStage as SalesLeadStage] })
   put('lastCallResult', lead.lastCallResult ? { label: CALL_RESULT_LABELS[lead.lastCallResult] } : null)
   put('nextActionDate', dateValue(lead.nextActionDate))
+  put('stageStartDate', dateValue(lead.stageStartDate))
   put('lastContactDate', dateValue(lead.lastContactDate))
   put('state', lead.state || null)
   put('city', lead.city || null)
@@ -418,6 +419,7 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
       const stage = stageByLabel[columnText(item, config.mapping.currentStage).toLowerCase()]
       const callResult = callResultByLabel[columnText(item, config.mapping.lastCallResult).toLowerCase()]
       const nextActionDate = columnDate(item, config.mapping.nextActionDate)
+      const stageStartDate = columnDate(item, config.mapping.stageStartDate)
       const bookingDateTime = columnDate(item, config.mapping.bookingDateTime)
 
       if (
@@ -446,6 +448,9 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
       const assignedCallerId = mondayPersonId ? callerByMondayId.get(mondayPersonId) : undefined
       if (assignedCallerId && assignedCallerId !== lead.assignedCallerId) {
         manualFields.assignedCallerId = assignedCallerId
+      }
+      if ((stageStartDate?.getTime() || null) !== (lead.stageStartDate?.getTime() || null)) {
+        manualFields.stageStartDate = stageStartDate
       }
       const notes = columnText(item, config.mapping.notes)
       if (notes !== (lead.notes || '')) manualFields.notes = notes || null

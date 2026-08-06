@@ -51,6 +51,7 @@ export default function LeadDetailDrawer({
   const [notes, setNotes] = useState('')
   const [stage, setStage] = useState('')
   const [callerId, setCallerId] = useState('')
+  const [stageStartDate, setStageStartDate] = useState('')
   const [showEnrichModal, setShowEnrichModal] = useState(false)
   const [error, setError] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -89,6 +90,7 @@ export default function LeadDetailDrawer({
     if (isOpen && lead) {
       setStage(lead.currentStage)
       setCallerId(lead.assignedCallerId || '')
+      setStageStartDate(lead.stageStartDate ? new Date(lead.stageStartDate).toISOString().slice(0, 10) : '')
       setNotes(lead.notes || '')
       if (
         ['EMAIL_1_DUE', 'EMAIL_1_SENT', 'EMAIL_2_DUE', 'EMAIL_2_SENT', 'NEW'].includes(
@@ -140,11 +142,17 @@ export default function LeadDetailDrawer({
   }
 
   const handleSaveFields = async () => {
+    const selectedCallerId = callerId !== undefined ? callerId : (lead.assignedCallerId || '')
+    if (!selectedCallerId) {
+      setError('Please assign a lead before saving. The assigned lead determines which email and call assets are used.')
+      return
+    }
     setSaving(true)
     try {
       await onUpdate(lead.id, {
         currentStage: stage || lead.currentStage,
         assignedCallerId: callerId !== undefined ? callerId || null : lead.assignedCallerId,
+        stageStartDate: stageStartDate || null,
         notes: notes !== undefined ? notes : lead.notes,
       })
       onClose()
@@ -318,7 +326,7 @@ export default function LeadDetailDrawer({
             </div>
 
             {/* Stage & Caller Controls */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Current Stage
@@ -337,7 +345,7 @@ export default function LeadDetailDrawer({
 
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Assigned Caller
+                  Assigned Lead
                 </label>
                 <SearchableSelect
                   options={callers.map(c => ({
@@ -349,6 +357,18 @@ export default function LeadDetailDrawer({
                   allowEmpty={true}
                   emptyLabel="-- Unassigned --"
                   placeholder="Search callers..."
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Stage Start Date
+                </label>
+                <Input
+                  type="date"
+                  value={stageStartDate}
+                  onChange={event => setStageStartDate(event.target.value)}
+                  aria-label="Stage Start Date"
                 />
               </div>
             </div>

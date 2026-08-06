@@ -6,11 +6,12 @@ import { Button, Card, SearchableSelect } from '@/components/ui'
 
 const MONDAY_COLUMNS: Array<{ key: string; label: string; number: number }> = [
   { number: 1, key: 'businessName', label: 'Business Name (Item Name)' },
-  { number: 2, key: 'assignedCaller', label: 'Assigned Caller (People)' },
+  { number: 2, key: 'assignedCaller', label: 'Assigned Lead (People)' },
   { number: 3, key: 'currentStage', label: 'Current Stage (Status)' },
-  { number: 4, key: 'lastCallResult', label: 'Last Call Result (Status)' },
-  { number: 5, key: 'nextActionDate', label: 'Next Action Date (Date)' },
-  { number: 6, key: 'lastContactDate', label: 'Last Contact Date (Date)' },
+  { number: 4, key: 'lastCallResult', label: 'Last Stage Result (Status)' },
+  { number: 5, key: 'nextActionDate', label: 'Next Stage Date (Date)' },
+  { number: 6, key: 'stageStartDate', label: 'Stage Start Date (Date)' },
+  { number: 7, key: 'lastContactDate', label: 'Last Contact Date (Date)' },
   { number: 7, key: 'state', label: 'State' },
   { number: 8, key: 'city', label: 'City' },
   { number: 9, key: 'websiteUrl', label: 'Website URL' },

@@ -65,6 +65,7 @@ export type WorkflowLead = {
   currentStage: SalesLeadStage
   assignedCallerId: string | null
   nextActionDate: Date | null
+  stageStartDate: Date | null
   bookingDateTime: Date | null
 }
 
@@ -78,6 +79,7 @@ export type WorkflowResult = {
     currentStage?: SalesLeadStage
     lastCallResult?: SalesLeadCallResult
     nextActionDate?: Date | null
+    stageStartDate?: Date | null
     lastContactDate?: Date
     bookingDateTime?: Date | null
   }
@@ -334,6 +336,7 @@ export function changeStage(args: {
   }
 
   const shouldClearDate = isTerminalStage(args.stage) || args.stage === SalesLeadStage.RECONNECT_LATER
+  const isEmailDueStage = args.stage === SalesLeadStage.EMAIL_1_DUE || args.stage === SalesLeadStage.EMAIL_2_DUE
   if (isManualEmailSent) {
     const now = new Date()
     const emailNumber = args.stage === SalesLeadStage.EMAIL_1_SENT ? 1 : 2
@@ -353,6 +356,7 @@ export function changeStage(args: {
     patch: {
       currentStage: args.stage,
       nextActionDate: shouldClearDate ? null : (followUpDate ?? scheduledDate),
+      stageStartDate: isEmailDueStage && !isSameStage ? new Date() : args.lead.stageStartDate,
       bookingDateTime:
         args.stage === SalesLeadStage.BOOKED
           ? args.bookingDateTime
