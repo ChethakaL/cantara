@@ -534,6 +534,25 @@ model User {
   Questions                 Question[]
   Sessions                  Session[]
   salesLeads                SalesLead[]
+  outreachAssets            OutreachAsset[]
+}
+
+model OutreachAsset {
+  id             String               @id @default(cuid())
+  senderUserId   String?
+  touch          Int
+  contactType    SalesLeadContactType
+  assetType      String               @default("EMAIL")
+  subject        String?
+  body           String
+  version        Int                  @default(1)
+  active         Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  senderUser     User?                @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  @@index([touch, contactType, active])
+  @@index([senderUserId, touch, contactType, active])
 }
 
 enum SalesLeadStage {
@@ -592,6 +611,7 @@ model SalesLead {
   currentStage       SalesLeadStage       @default(NEW)
   lastCallResult     SalesLeadCallResult?
   nextActionDate     DateTime?
+  stageStartDate     DateTime?
   lastContactDate    DateTime?
   state              String?
   city               String?

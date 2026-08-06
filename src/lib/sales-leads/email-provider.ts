@@ -6,9 +6,9 @@ import type { SalesLead, SalesLeadContactType } from '@prisma/client'
 
 type EmailLead = Pick<
   SalesLead,
-  'businessName' | 'ownerFirstName' | 'ownerLastName' | 'ownerEmail' | 'emailType' | 'city' | 'state' | 'googleRating' | 'reviewCount' | 'sqftCombined'
+  'businessName' | 'ownerFirstName' | 'ownerLastName' | 'ownerEmail' | 'emailType' | 'city' | 'state' | 'googleRating' | 'reviewCount' | 'sqftCombined' | 'websiteUrl'
 >
- & { aiResearchReport?: SalesLead['aiResearchReport'] }
+ & { aiResearchReport?: SalesLead['aiResearchReport']; assignedCallerId?: string | null }
 
 export class SalesLeadEmailConfigurationError extends Error {
   constructor(message: string) {
@@ -22,14 +22,33 @@ function templateKey(template: 1 | 2, contactType: SalesLeadContactType, part: '
 }
 
 function interpolate(value: string, lead: EmailLead) {
+  const report = (lead.aiResearchReport && typeof lead.aiResearchReport === 'object' ? lead.aiResearchReport : {}) as Record<string, unknown>
   const replacements: Record<string, string> = {
     businessName: lead.businessName,
     ownerFirstName: lead.ownerFirstName || '',
     ownerLastName: lead.ownerLastName || '',
     city: lead.city || '',
     state: lead.state || '',
+    facilityName: lead.businessName,
+    website: lead.websiteUrl || '',
+    phone: '',
+    link: lead.websiteUrl || '',
+    googleRating: lead.googleRating ? String(lead.googleRating) : '',
+    reviewCount: lead.reviewCount ? String(lead.reviewCount) : '',
+    sqftCombined: lead.sqftCombined ? lead.sqftCombined.toLocaleString() : '',
+    facilityAndOperatingProfile: String(report.facilityAndOperatingProfile || ''),
+    aiGeneratedCompliment: String(report.recommendedPersonalization || report.businessProfileSummary || ''),
   }
-  return value.replace(/\{\{(\w+)\}\}/g, (_match, key) => replacements[key] ?? '')
+  return value
+    .replace(/\{\{(\w+)\}\}/g, (_match, key) => replacements[key] ?? '')
+    .replace(/\[Facility Name\]/gi, replacements.facilityName)
+    .replace(/\[First Name\]/gi, replacements.ownerFirstName)
+    .replace(/\[Last Name\]/gi, replacements.ownerLastName)
+    .replace(/\[City\]/gi, replacements.city)
+    .replace(/\[State\]/gi, replacements.state)
+    .replace(/\[LINK\]/gi, replacements.link)
+    .replace(/\[phone\]/gi, replacements.phone)
+    .replace(/\[AI-generated[^\]]*\]/gi, replacements.aiGeneratedCompliment)
 }
 
 function buildConfiguredSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 | 2) {
@@ -72,6 +91,25 @@ function parseDraftJson(text: string) {
 }
 
 export async function buildSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 | 2) {
+  if (!lead.assignedCallerId) {
+    throw new SalesLeadEmailConfigurationError('Assign a lead before generating an email draft so the correct sender assets can be used.')
+  }
+  const asset = await prisma.outreachAsset.findFirst({
+    where: {
+      touch: templateNum,
+      assetType: 'EMAIL',
+      contactType: lead.emailType,
+      active: true,
+      senderUserId: lead.assignedCallerId,
+    },
+    orderBy: [{ version: 'desc' }],
+  })
+  if (asset) {
+    return {
+      subject: interpolate(asset.subject || `Growth and succession planning for ${lead.businessName}`, lead),
+      body: interpolate(asset.body, lead),
+    }
+  }
   const fallback = lead.aiResearchReport
     ? buildResearchFallback(lead, templateNum)
     : buildConfiguredSalesLeadEmailDraft(lead, templateNum)

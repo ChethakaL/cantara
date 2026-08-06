@@ -2,10 +2,11 @@ import type { MondayMapping } from '@/lib/sales-leads/monday-sync'
 
 export const SALES_LEAD_MONDAY_MAPPING_FIELDS = [
   { key: 'businessName', label: 'Business Name (Item Name)' },
-  { key: 'assignedCaller', label: 'Assigned Caller' },
+  { key: 'assignedCaller', label: 'Assigned Lead' },
   { key: 'currentStage', label: 'Current Stage' },
-  { key: 'lastCallResult', label: 'Last Action Result' },
-  { key: 'nextActionDate', label: 'Next Action Date' },
+  { key: 'lastCallResult', label: 'Last Stage Result' },
+  { key: 'nextActionDate', label: 'Next Stage Date' },
+  { key: 'stageStartDate', label: 'Stage Start Date' },
   { key: 'lastContactDate', label: 'Last Contact Date' },
   { key: 'state', label: 'State' },
   { key: 'city', label: 'City' },

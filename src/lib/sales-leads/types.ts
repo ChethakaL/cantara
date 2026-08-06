@@ -4,6 +4,7 @@ export type SalesLeadListItem = {
   currentStage: string
   lastCallResult: string | null
   nextActionDate: string | null
+  stageStartDate: string | null
   lastContactDate: string | null
   city: string | null
   state: string | null

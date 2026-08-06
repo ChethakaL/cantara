@@ -46,7 +46,7 @@ async function getGoogleDriveAuthConfigId() {
           "GOOGLEDRIVE_DELETE_FILE",
           "GOOGLEDRIVE_CREATE_PERMISSION",
           "GOOGLEDRIVE_SHARE_FILE",
-          "GOOGLEDRIVE_GET_FILE_DETAILS",
+          "GOOGLEDRIVE_GET_FILE_METADATA",
         ],
       },
     }),
@@ -155,10 +155,16 @@ function extractDriveFileId(result: any): string | null {
     result?.id ??
     result?.file_id ??
     result?.folder_id ??
+    result?.documentId ??
+    result?.document_id ??
     result?.data?.id ??
     result?.data?.file_id ??
     result?.data?.folder_id ??
+    result?.data?.documentId ??
     result?.response_data?.id ??
+    result?.response_data?.file?.id ??
+    result?.data?.file?.id ??
+    result?.file?.id ??
     null
   );
 }
@@ -243,10 +249,13 @@ export async function uploadClientDocumentToDrive(args: {
   fileName: string;
   mimeType?: string;
   sourceUrl: string;
+  skipExistingCheck?: boolean;
 }) {
   const connection = await getGoogleDriveConnection();
-  if (!connection || connection.status !== "ACTIVE" || connection.is_disabled) return null;
-  if (await fileExistsInFolder(args.fileName, args.folderId)) return { skipped: true, reason: "exists" };
+  if (!connection || connection.status !== "ACTIVE" || connection.is_disabled) {
+    console.warn(`[Composio] No active Drive connection found for the configured entity; attempting the Drive action directly.`);
+  }
+  if (!args.skipExistingCheck && await fileExistsInFolder(args.fileName, args.folderId)) return { skipped: true, reason: "exists" };
 
   const result = await executeGoogleDriveTool<any>("GOOGLEDRIVE_UPLOAD_FROM_URL", {
     source_url: args.sourceUrl,
@@ -321,8 +330,8 @@ export async function saveGeneratedReportToDrive(args: {
     });
   }
 
-  const details = await executeGoogleDriveTool<any>("GOOGLEDRIVE_GET_FILE_DETAILS", {
-    file_id: fileId,
+  const details = await executeGoogleDriveTool<any>("GOOGLEDRIVE_GET_FILE_METADATA", {
+    fileId,
     fields: "id, name, webViewLink, webContentLink",
   }).catch(() => null);
 
@@ -334,4 +343,51 @@ export async function saveGeneratedReportToDrive(args: {
       details?.webViewLink ??
       ((result as any)?.data?.webViewLink ?? (result as any)?.webViewLink),
   };
+}
+
+function driveFolderId(value: string) {
+  const match = value.match(/\/folders\/([^/?#]+)/)
+  return match?.[1] || (value.match(/^[a-zA-Z0-9_-]{10,}$/)?.[0] ?? null)
+}
+
+export async function createPublicEditableGoogleDoc(args: {
+  folderUrl: string
+  fileName: string
+  html: string
+}) {
+  const folderId = driveFolderId(args.folderUrl)
+  if (!folderId) throw new Error('Google Drive brief folder is not configured.')
+  assertS3Configured()
+  const safeName = args.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const key = `drive-sync/pre-call-briefs/${Date.now()}-${safeName}.html`
+  await s3Client.send(new PutObjectCommand({
+    Bucket: s3BucketName,
+    Key: key,
+    Body: args.html,
+    ContentType: 'text/html; charset=utf-8',
+  }))
+  // Drive converts the HTML into a native, editable Google Doc. This deliberately
+  // uses the Drive toolkit—the same connected account used by the folder picker.
+  const result = await uploadClientDocumentToDrive({
+    folderId,
+    fileName: args.fileName,
+    mimeType: 'application/vnd.google-apps.document',
+    sourceUrl: await buildPresignedFileUrl(key),
+    skipExistingCheck: true,
+  })
+  const fileId = extractDriveFileId((result as any)?.data ?? result)
+  if (!fileId) throw new Error('Google Drive did not return a document id.')
+  await executeGoogleDriveTool('GOOGLEDRIVE_CREATE_PERMISSION', {
+    file_id: fileId,
+    role: 'writer',
+    type: 'anyone',
+  })
+  const details = await executeGoogleDriveTool<any>('GOOGLEDRIVE_GET_FILE_METADATA', {
+    fileId,
+    fields: 'id,name,webViewLink,webContentLink',
+  }).catch(() => null)
+  return {
+    fileId,
+    webViewLink: details?.data?.webViewLink ?? (details as any)?.webViewLink ?? `https://drive.google.com/open?id=${fileId}`,
+  }
 }

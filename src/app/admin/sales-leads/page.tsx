@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Clock,
   FileSpreadsheet,
+  FolderOpen,
   Filter,
   Mail,
   MapPin,
@@ -26,6 +27,8 @@ import AdminNav from '@/components/admin/AdminNav'
 import { Badge, Button, Card, Input, Select } from '@/components/ui'
 import { ACTIVE_STAGES, CALL_RESULT_LABELS, isIdleLead, STAGE_LABELS } from '@/lib/sales-leads/workflow'
 import MondayBoardConfigModal from '@/components/sales-leads/MondayBoardConfigModal'
+import GoogleDriveBriefConfigModal from '@/components/sales-leads/GoogleDriveBriefConfigModal'
+import OutreachAssetsModal from '@/components/sales-leads/OutreachAssetsModal'
 import ExcelImportModal from '@/components/sales-leads/ExcelImportModal'
 import LeadDetailDrawer from '@/components/sales-leads/LeadDetailDrawer'
 import EnrichmentModal from '@/components/sales-leads/EnrichmentModal'
@@ -65,6 +68,8 @@ export default function SalesLeadsPage() {
 
   const [showNew, setShowNew] = useState(false)
   const [showMondayConfig, setShowMondayConfig] = useState(false)
+  const [showDriveConfig, setShowDriveConfig] = useState(false)
+  const [showAssets, setShowAssets] = useState(false)
   const [showExcelImport, setShowExcelImport] = useState(false)
   const [syncingNotice, setSyncingNotice] = useState<string | null>(null)
 
@@ -212,6 +217,12 @@ export default function SalesLeadsPage() {
             <Button variant="outline" size="sm" onClick={() => setShowMondayConfig(true)} className="bg-white">
               <Settings2 className="w-3.5 h-3.5 mr-1.5 text-cantara-gold" /> Monday Board Sync
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowDriveConfig(true)} className="bg-white">
+              <FolderOpen className="w-3.5 h-3.5 mr-1.5 text-green-700" /> Google Drive Briefs
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowAssets(true)} className="bg-white">
+              <Mail className="w-3.5 h-3.5 mr-1.5 text-blue-700" /> Assets
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setShowExcelImport(true)} className="bg-white">
               <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-slate-600" /> Import Excel
             </Button>
@@ -227,11 +238,15 @@ export default function SalesLeadsPage() {
         {syncingNotice && (
           <div className="mb-6 p-3.5 rounded-xl bg-blue-50/90 border border-blue-200 text-blue-900 text-xs flex items-center justify-between shadow-xs">
             <span className="flex items-center gap-2 font-medium">
-              <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+              {syncingNotice.startsWith('Google Drive') ? (
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+              ) : (
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+              )}
               {syncingNotice}
             </span>
             <span className="text-[11px] text-blue-700 bg-blue-100 px-2.5 py-1 rounded-full font-semibold">
-              Background Sync Active
+              {syncingNotice.startsWith('Google Drive') ? 'Configuration Saved' : 'Background Sync Active'}
             </span>
           </div>
         )}
@@ -380,9 +395,9 @@ export default function SalesLeadsPage() {
                   <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-400 font-medium">
                     <th className="px-5 py-3">Business Prospect</th>
                     <th className="px-4 py-3">Stage</th>
-                    <th className="px-4 py-3">Next Action Due</th>
-                    <th className="px-4 py-3">Assigned Caller</th>
-                    <th className="px-4 py-3">Last Call Result</th>
+                    <th className="px-4 py-3">Next Stage Due</th>
+                    <th className="px-4 py-3">Assigned Lead</th>
+                    <th className="px-4 py-3">Last Stage Result</th>
                     <th className="px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
@@ -438,7 +453,7 @@ export default function SalesLeadsPage() {
                           {formatNextActionBadge(lead.nextActionDate, lead.currentStage)}
                         </td>
 
-                        {/* Assigned Caller */}
+                        {/* Assigned Lead */}
                         <td className="px-4 py-3.5">
                           {lead.assignedCaller ? (
                             <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100 text-slate-700 font-medium text-[11px]">
@@ -547,6 +562,13 @@ export default function SalesLeadsPage() {
           onClose={() => setShowMondayConfig(false)}
           onSaved={() => void load()}
         />
+
+        <GoogleDriveBriefConfigModal
+          isOpen={showDriveConfig}
+          onClose={() => setShowDriveConfig(false)}
+          onSaved={() => setSyncingNotice('Google Drive folder saved for Pre-Call Briefs.')}
+        />
+        <OutreachAssetsModal isOpen={showAssets} onClose={() => setShowAssets(false)} />
 
         <ExcelImportModal
           isOpen={showExcelImport}

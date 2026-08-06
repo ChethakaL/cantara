@@ -22,6 +22,7 @@ type ResearchReport = {
   tierRating: string
   tierReasoning: string
   businessProfileSummary: string
+  [key: string]: string
 }
 
 export default function EnrichmentModal({
@@ -46,6 +47,7 @@ export default function EnrichmentModal({
   const [savingNotes, setSavingNotes] = useState(false)
   const [savedSuccess, setSavedSuccess] = useState(false)
   const [error, setError] = useState('')
+  const [briefUrl, setBriefUrl] = useState('')
 
   useEffect(() => {
     if (!isOpen) return
@@ -86,6 +88,7 @@ export default function EnrichmentModal({
       }
       const data = await res.json()
       setReport(data.report)
+      setBriefUrl(data.preCallBriefUrl || '')
     } catch (err: any) {
       setError(err.message || 'An error occurred during AI research')
     } finally {
@@ -95,6 +98,10 @@ export default function EnrichmentModal({
 
   const handleSaveToNotes = async () => {
     if (!report) return
+    if (briefUrl) {
+      setSavedSuccess(true)
+      return
+    }
     setSavingNotes(true)
     setError('')
     try {
@@ -108,6 +115,22 @@ export default function EnrichmentModal({
       if (onNotesSaved) onNotesSaved()
     } catch (err: any) {
       setError(err.message || 'Could not save report to lead notes')
+    } finally {
+      setSavingNotes(false)
+    }
+  }
+
+  const recreateGoogleDoc = async () => {
+    setSavingNotes(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/sales-leads/${leadId}/research-report`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not recreate Google Doc')
+      setBriefUrl(data.preCallBriefUrl || '')
+      setSavedSuccess(true)
+    } catch (err: any) {
+      setError(err.message || 'Could not recreate Google Doc')
     } finally {
       setSavingNotes(false)
     }
@@ -153,7 +176,7 @@ export default function EnrichmentModal({
               Run AI Prospect Deep Research
             </h3>
             <p className="text-xs text-slate-500 max-w-md mb-6">
-              AI will analyze public records and business registries to research establishment year, current ownership tenure, prior sale history, and resort tier rating for {businessName}.
+              AI will build a factual pre-call brief from the lead record and verified public research, including ownership, facility operations, recent developments, sources, and outreach personalization.
             </p>
             <Button onClick={runResearch} className="gap-2 bg-[#21263C] hover:bg-slate-800 text-white">
               <Sparkles className="w-4 h-4 text-cantara-gold" /> Start AI Research Analysis
@@ -178,65 +201,19 @@ export default function EnrichmentModal({
         {report && !loading && (
           <div className="flex-1 overflow-y-auto space-y-4 pr-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col gap-1">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                  Year Established
-                </div>
-                <div className="text-sm font-medium text-slate-800">
-                  {report.yearStarted}
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col gap-1">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  Ownership Tenure
-                </div>
-                <div className="text-sm font-medium text-slate-800">
-                  {report.ownershipTenure}
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col gap-1">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  <History className="w-3.5 h-3.5 text-purple-600" />
-                  Prior Sale History
-                </div>
-                <div className="text-sm font-medium text-slate-800">
-                  {report.priorSaleHistory}
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col gap-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    <Award className="w-3.5 h-3.5 text-amber-600" />
-                    Resort Tier Rating
+              {Object.entries(report).map(([key, value]) => (
+                <div key={key} className={`p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2 ${['businessProfileSummary', 'recommendedPersonalization', 'sources', 'facilityAndOperatingProfile'].includes(key) ? 'md:col-span-2' : ''}`}>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-[#9a7946]">
+                    {key.replace(/[A-Z]/g, letter => ` ${letter}`).replace(/^./, letter => letter.toUpperCase())}
                   </div>
-                  <span className={`px-2 py-0.5 rounded-md text-xs font-semibold border ${getTierColor(report.tierRating)}`}>
-                    {report.tierRating}
-                  </span>
+                  <p className="text-sm text-slate-700 leading-6 whitespace-pre-wrap">{value || 'Not publicly verified'}</p>
                 </div>
-                <div className="text-xs text-slate-600 mt-1">
-                  {report.tierReasoning}
-                </div>
-              </div>
+              ))}
             </div>
-
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/40 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                <FileText className="w-3.5 h-3.5 text-slate-600" />
-                Executive Business Profile
-              </div>
-              <p className="text-xs text-slate-700 leading-relaxed">
-                {report.businessProfileSummary}
-              </p>
-            </div>
-
             {savedSuccess && (
               <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-700 flex items-center gap-1.5">
-                <Check className="w-4 h-4" /> Report saved to Lead Notes and queued for Monday.com sync!
+                <Check className="w-4 h-4" /> Editable public Google Doc created and saved to Google Drive.
+                {briefUrl && <a className="ml-2 underline font-semibold" href={briefUrl} target="_blank" rel="noreferrer">Open brief</a>}
               </div>
             )}
           </div>
@@ -247,6 +224,11 @@ export default function EnrichmentModal({
             <Button variant="outline" onClick={onClose}>
               Close
             </Button>
+            {report && (
+              <Button variant="outline" onClick={recreateGoogleDoc} disabled={savingNotes} className="text-slate-600">
+                <Sparkles className="w-3.5 h-3.5 mr-1 text-[#CAA15F]" /> Recreate Google Doc
+              </Button>
+            )}
             {report && (
               <Button variant="outline" onClick={runResearch} disabled={loading} className="text-slate-600">
                 <Sparkles className="w-3.5 h-3.5 mr-1 text-[#CAA15F]" /> Re-run Research
@@ -266,7 +248,7 @@ export default function EnrichmentModal({
               ) : (
                 <Sparkles className="w-4 h-4 text-cantara-gold" />
               )}
-              {savedSuccess ? 'Saved to Database' : 'Save Report'}
+              {savedSuccess ? 'Saved to Drive' : 'Save Report to Drive'}
             </Button>
           )}
         </div>

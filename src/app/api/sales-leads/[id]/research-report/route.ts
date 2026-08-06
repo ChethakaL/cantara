@@ -1,7 +1,17 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { saveProspectResearchToGoogleDoc } from '@/lib/sales-leads/prospect-research'
 
 export const dynamic = 'force-dynamic'
+
+export async function POST(_: Request, { params }: { params: { id: string } }) {
+  try {
+    const updated = await saveProspectResearchToGoogleDoc(params.id)
+    return NextResponse.json({ success: true, preCallBriefUrl: updated.preCallBriefUrl })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Could not recreate Google Doc.' }, { status: 500 })
+  }
+}
 
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   const lead = await prisma.salesLead.findUnique({ where: { id: params.id }, select: { businessName: true, aiResearchReport: true, updatedAt: true } })

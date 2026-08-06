@@ -81,8 +81,8 @@ export function Input({ label, error, className, ...props }: InputProps) {
 }
 
 // ── Select ────────────────────────────────────────────────────────────────────
-interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> { label?: string; options: { value: string; label: string }[] }
-export function Select({ label, options, className, ...props }: SelectProps) {
+interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> { label?: string; options?: { value: string; label: string }[] }
+export function Select({ label, options, className, children, ...props }: SelectProps) {
   return (
     <div className="space-y-1.5">
       {label && <label className="block text-xs font-medium text-slate-600">{label}</label>}
@@ -94,7 +94,8 @@ export function Select({ label, options, className, ...props }: SelectProps) {
         )}
         {...props}
       >
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {children}
       </select>
     </div>
   )

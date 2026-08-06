@@ -19,3 +19,9 @@ export async function saveDriveParentFolder(folderUrl: string) {
   });
   return trimmed;
 }
+
+export async function getDriveParentFolderId() {
+  const value = await getDriveParentFolder()
+  const match = value.match(/\/folders\/([^/?#]+)/)
+  return match?.[1] || null
+}

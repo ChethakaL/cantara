@@ -15,11 +15,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const templateNum = stage === SalesLeadStage.EMAIL_2_DUE || stage === SalesLeadStage.EMAIL_2_SENT ? 2 : 1
     const emailType = lead.emailType || 'GENERAL'
 
-    // Reuse the saved draft. Opening the drawer must not spend tokens or
-    // replace an already-created draft. Generate only when no draft exists.
-    const draft = lead.emailDraftSubject && lead.emailDraftBody
-      ? { subject: lead.emailDraftSubject, body: lead.emailDraftBody }
-      : await buildSalesLeadEmailDraft(lead, templateNum)
+    // Re-resolve the asset on every open so changing the assigned lead cannot
+    // leave a stale draft from another sender in the drawer.
+    const draft = await buildSalesLeadEmailDraft(lead, templateNum)
+    await prisma.salesLead.update({ where: { id: lead.id }, data: { emailDraftSubject: draft.subject, emailDraftBody: draft.body } })
 
     return NextResponse.json({
       leadId: lead.id,
