@@ -101,6 +101,8 @@ apply_sql "RealEstateAppraisalReport" "${REPO}/prisma/migrations/20260714_add_re
 apply_sql "Occupancy Review deactivate form questions" "${REPO}/prisma/migrations/20260728120000_move_occupancy_review_to_document_upload/migration.sql"
 apply_sql "ChatMessage attachments" "${REPO}/prisma/migrations/20260728130000_add_chat_attachments/migration.sql"
 apply_sql "SalesLead tables" "${REPO}/prisma/migrations/20260722_add_sales_leads/migration.sql"
+apply_sql "SalesLead stageStartDate" "${REPO}/prisma/migrations/20260806_add_stage_start_date/migration.sql"
+apply_sql "OutreachAsset table" "${REPO}/prisma/migrations/20260806_add_outreach_assets/migration.sql"
 
 sleep 12
 curl -sf -o /dev/null -w "local:%{http_code}\n" "http://127.0.0.1:${PORT}/" || echo "local:fail"
