@@ -481,7 +481,7 @@ export default function LeadDetailDrawer({
 
                 return (
                   <div className="p-4 rounded-xl border border-amber-200/80 bg-amber-50/40 space-y-3">
-                    <div className="flex items-center justify-between border-b border-amber-200/60 pb-2">
+                  <div className="flex items-center justify-between border-b border-amber-200/60 pb-2">
                       <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs uppercase tracking-wider">
                         <Sparkles className="w-4 h-4 text-cantara-gold" /> AI Prospect Intelligence Scorecard
                       </div>
@@ -490,27 +490,26 @@ export default function LeadDetailDrawer({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-                      <div className="p-2.5 bg-white rounded-lg border border-amber-100">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Year Established</span>
-                        <span className="font-semibold text-slate-800">{researchText(r.yearStarted)}</span>
-                      </div>
-                      <div className="p-2.5 bg-white rounded-lg border border-amber-100">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Ownership Tenure</span>
-                        <span className="font-semibold text-slate-800">{researchText(r.ownershipTenure)}</span>
-                      </div>
-                      <div className="p-2.5 bg-white rounded-lg border border-amber-100">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Prior Sale History</span>
-                        <span className="font-semibold text-slate-800">{researchText(r.priorSaleHistory)}</span>
-                      </div>
+                    <div className="space-y-1.5 text-xs">
+                      {[
+                        ['1. Lead Qualification and Tier', [r.tierRating, r.leadQualification, r.tierReasoning]],
+                        ['2. Ownership and Business History', [r.yearStarted && `Year established: ${r.yearStarted}`, r.ownershipHistory || r.ownershipTenure, r.priorSaleHistory && `Prior sale history: ${r.priorSaleHistory}`]],
+                        ['3. Owner Intelligence and Relationship Profile', [r.ownerProfile, r.credentialsAndAssociations, r.socialAndCommunityProfile]],
+                        ['4. Facility and Operating Profile', [r.facilityAndOperatingProfile]],
+                        ['5. Recent Business Developments', [r.recentBusinessDevelopments]],
+                        ['6. Outreach Preparation', [r.recommendedPersonalization, r.businessProfileSummary]],
+                        ['7. Sources', [r.sources]],
+                      ].map(([title, values], index) => (
+                        <details key={String(title)} open={index === 0} className="bg-white rounded-lg border border-amber-100 group">
+                          <summary className="cursor-pointer list-none px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#9a7946] flex items-center justify-between">
+                            {title}<span className="text-slate-300 group-open:rotate-180 transition-transform">⌄</span>
+                          </summary>
+                          <div className="px-3 pb-2.5 text-slate-700 leading-5 whitespace-pre-wrap">
+                            {(values as unknown[]).filter(Boolean).map((value, valueIndex) => <p key={valueIndex} className={valueIndex ? 'mt-1.5' : ''}>{String(value)}</p>)}
+                          </div>
+                        </details>
+                      ))}
                     </div>
-
-                    {r.businessProfileSummary && (
-                      <div className="p-2.5 bg-white rounded-lg border border-amber-100 text-xs text-slate-700 leading-relaxed">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Executive Profile</span>
-                        {researchText(r.businessProfileSummary)}
-                      </div>
-                    )}
                   </div>
                 )
               })()}

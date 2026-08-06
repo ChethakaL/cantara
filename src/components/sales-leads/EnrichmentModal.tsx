@@ -200,14 +200,22 @@ export default function EnrichmentModal({
 
         {report && !loading && (
           <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {Object.entries(report).map(([key, value]) => (
-                <div key={key} className={`p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2 ${['businessProfileSummary', 'recommendedPersonalization', 'sources', 'facilityAndOperatingProfile'].includes(key) ? 'md:col-span-2' : ''}`}>
-                  <div className="text-xs font-semibold uppercase tracking-wider text-[#9a7946]">
-                    {key.replace(/[A-Z]/g, letter => ` ${letter}`).replace(/^./, letter => letter.toUpperCase())}
+            <div className="space-y-3">
+              {[
+                ['1. Lead Qualification and Tier', [report.tierRating, report.leadQualification, report.tierReasoning]],
+                ['2. Ownership and Business History', [report.yearStarted && `Year established: ${report.yearStarted}`, report.ownershipHistory, report.priorSaleHistory && `Prior sale history: ${report.priorSaleHistory}`]],
+                ['3. Owner Intelligence and Relationship Profile', [report.ownerProfile, report.credentialsAndAssociations, report.socialAndCommunityProfile]],
+                ['4. Facility and Operating Profile', [report.facilityAndOperatingProfile]],
+                ['5. Recent Business Developments', [report.recentBusinessDevelopments]],
+                ['6. Outreach Preparation', [report.recommendedPersonalization, report.businessProfileSummary]],
+                ['7. Sources', [report.sources]],
+              ].map(([title, values]) => (
+                <section key={String(title)} className="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden">
+                  <div className="px-4 py-2.5 bg-[#21263C] text-white text-xs font-semibold tracking-wide">{title}</div>
+                  <div className="px-4 py-3 text-sm text-slate-700 leading-6 whitespace-pre-wrap">
+                    {(values as unknown[]).filter(Boolean).map((value, index) => <p key={index} className={index ? 'mt-2' : ''}>{String(value)}</p>)}
                   </div>
-                  <p className="text-sm text-slate-700 leading-6 whitespace-pre-wrap">{value || 'Not publicly verified'}</p>
-                </div>
+                </section>
               ))}
             </div>
             {savedSuccess && (
