@@ -146,6 +146,72 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
   };
 }
 
+/**
+ * Lightweight list DTO for GET /api/clients (admin dashboard cards).
+ * Intentionally excludes sectionSubmissions, full document rows, advisor images,
+ * and other multi-MB blobs that belong on GET /api/clients/[id].
+ */
+export function mapClientListItemForFrontend(client: any, unreadCount = 0) {
+  const documentStatuses = Object.fromEntries(
+    (client.ClientDocumentStatuses ?? []).map((status: any) => [
+      status.documentId,
+      {
+        id: status.documentId,
+        hasDoc: status.hasDoc,
+        unavailableDecision: status.unavailableDecision ?? null,
+        assignedTo: status.assignedTo,
+        uploadedAt: status.uploadedAt?.toISOString?.() ?? status.uploadedAt ?? null,
+        fileName: status.fileName ?? null,
+        fileUrl: null,
+        notApplicable: Boolean(status.notApplicable),
+        targetDeadline: status.targetDeadline?.toISOString?.() ?? status.targetDeadline ?? null,
+      },
+    ]),
+  );
+
+  return {
+    id: client.id,
+    name: client.User?.name || "Unknown Client",
+    email: client.User?.email || client.email || "",
+    company: client.businessName,
+    dba: "",
+    phone: client.phone || "",
+    businessAddress: client.businessAddress || "",
+    state: "",
+    totalEmployeesSelfReported: null,
+    employmentTypeBreakdown: null,
+    businessCategory: client.businessCategory || "",
+    websiteUrl: client.websiteUrl || "",
+    propertyOwnership: "",
+    workstream: client.workstream ? client.workstream.toLowerCase() : null,
+    customWorkstreamId: client.customWorkstreamId ?? null,
+    customWorkstream: null,
+    workstreamAgents: [],
+    stage: client.stage ? client.stage.toLowerCase() : "onboarding",
+    businessType: client.businessType ? client.businessType.toLowerCase() : "single",
+    branches: [],
+    teamMembers: (client.TeamMembers ?? []).map((member: any) => ({
+      id: member.id,
+      name: member.name,
+      email: member.email,
+      role: member.role,
+    })),
+    advisors: [],
+    sectionSubmissions: {},
+    sectionDeadlines: {},
+    documentStatuses,
+    uploadedDocuments: {},
+    driveFolder: client.driveFolderId,
+    createdAt: client.createdAt?.toISOString?.() ?? client.createdAt,
+    provisionedAt: client.provisionedAt?.toISOString?.() ?? client.provisionedAt ?? null,
+    lastLogin: client.lastLogin?.toISOString?.() ?? client.lastLogin ?? null,
+    mustChangePassword: Boolean(client.User?.mustChangePassword),
+    notes: "",
+    valuationDocUploaded: Boolean(client.valuationDocUploaded),
+    unreadCount,
+  };
+}
+
 function extractStateFromAddress(address: string) {
   const trimmed = address.trim();
   if (!trimmed) return "";
