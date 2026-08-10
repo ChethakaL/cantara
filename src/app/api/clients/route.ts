@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { mapClientForFrontend } from "@/lib/client-mappers";
+import { mapClientForFrontend, mapClientListItemForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
 import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
 import { sendEmailWithComposio } from "@/lib/composio";
@@ -11,41 +11,81 @@ function generatePassword() {
   return crypto.randomBytes(9).toString("base64url");
 }
 
-// GET /api/clients - Get all clients for admin dashboard
-export async function GET(req: NextRequest) {
+// GET /api/clients - Slim list for admin dashboard (full detail: GET /api/clients/[id])
+export async function GET(_req: NextRequest) {
   try {
     scheduleDailyDocumentDeadlineRemindersCheck();
 
     const clients = await (prisma as any).clientProfile.findMany({
-      include: {
-        Branches: true,
-        TeamMembers: true,
-        AdvisorProfiles: true,
-        customWorkstream: { include: { agents: true } },
-        ClientWorkstreamAgents: true,
-        ClientDocumentStatuses: true,
-        ClientDocument: true,
-        User: true,
-        ChatMessages: {
-          orderBy: { timestamp: "desc" },
-          take: 1,
+      select: {
+        id: true,
+        businessName: true,
+        businessAddress: true,
+        businessCategory: true,
+        websiteUrl: true,
+        email: true,
+        phone: true,
+        driveFolderId: true,
+        workstream: true,
+        customWorkstreamId: true,
+        stage: true,
+        businessType: true,
+        valuationDocUploaded: true,
+        createdAt: true,
+        provisionedAt: true,
+        lastLogin: true,
+        User: {
+          select: {
+            name: true,
+            email: true,
+            mustChangePassword: true,
+          },
+        },
+        TeamMembers: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        ClientDocumentStatuses: {
+          select: {
+            documentId: true,
+            hasDoc: true,
+            unavailableDecision: true,
+            assignedTo: true,
+            uploadedAt: true,
+            fileName: true,
+            notApplicable: true,
+            targetDeadline: true,
+          },
         },
       },
       orderBy: { createdAt: "desc" },
     });
 
-    const requirements = await (prisma as any).agentDocumentRequirement.findMany();
-    const mappedClients = await Promise.all(clients.map(async (c: any) => {
-      const unreadCount = await prisma.chatMessage.count({
-        where: {
-          clientId: c.id,
-          readByAdmin: false,
-          senderRole: "CLIENT",
-        },
-      });
+    const clientIds = clients.map((c: { id: string }) => c.id);
+    const unreadRows =
+      clientIds.length === 0
+        ? []
+        : await prisma.chatMessage.groupBy({
+            by: ["clientId"],
+            where: {
+              clientId: { in: clientIds },
+              readByAdmin: false,
+              senderRole: "CLIENT",
+            },
+            _count: { _all: true },
+          });
 
-      return mapClientForFrontend(applyAgentDocumentRequirements(c, requirements), unreadCount);
-    }));
+    const unreadByClient = new Map(
+      unreadRows.map((row) => [row.clientId, row._count._all]),
+    );
+
+    const mappedClients = clients.map((c: any) =>
+      mapClientListItemForFrontend(c, unreadByClient.get(c.id) ?? 0),
+    );
 
     return NextResponse.json(mappedClients);
   } catch (error) {

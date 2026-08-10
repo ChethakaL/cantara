@@ -423,12 +423,15 @@ export default function ClientDashboard() {
             : (requiresPasswordChange ? 1 : null),
       )
       setTourPaused(savedTourPaused)
-      const all = await getClients()
-      const found =
-        (clientId ? all.find(c => c.id === clientId) : null) ??
-        (email ? all.find(c => c.email === email || c.teamMembers.some(member => member.email === email)) : null) ??
-        all.find(c => c.workstream) ??
-        all[0]
+      let found = clientId ? await getClient(clientId) : null
+      if (!found) {
+        const all = await getClients()
+        const match =
+          (email ? all.find(c => c.email === email || c.teamMembers.some(member => member.email === email)) : null) ??
+          all.find(c => c.workstream) ??
+          all[0]
+        if (match) found = (await getClient(match.id)) ?? match
+      }
       if (found) {
         setClient(found)
         setDocStatuses(found.documentStatuses ?? {})
