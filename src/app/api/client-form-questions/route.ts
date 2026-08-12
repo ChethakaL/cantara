@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ensureCompetitorFormFields } from '@/lib/competitor-form-fields'
 import { buildOccupancyReviewInputs, occupancyInputsToFormResponses } from '@/lib/occupancy-form-fields'
 import { syncStructuredToFormResponses, formatProfessionalAdvisors, formatVendorDirectory } from '@/lib/sync-form-responses'
+import { normalizeOptionalFormValue } from '@/lib/client-form-na'
 
 type AgentSelection = { agentId: string; agentName?: string | null }
 type FormQuestionRow = {
@@ -195,18 +196,18 @@ function compatibilitySections(client: any, existing: Record<string, any>, respo
     digitalPresenceForm: {
       ...(existing.digitalPresenceForm ?? {}),
       businessName: client.businessName ?? '',
-      websiteUrl: merged.businessWebsite ?? client.websiteUrl ?? '',
-      googleBusinessProfileUrl: merged.googleBusinessProfileUrl ?? '',
-      googleBusinessLocations: merged.googleBusinessLocations ?? '',
-      facebookHandle: merged.facebookHandle ?? '',
-      instagramHandle: merged.instagramHandle ?? '',
-      tiktokHandle: merged.tiktokHandle ?? '',
-      bookingPlatformUrl: merged.bookingPlatformUrl ?? '',
-      yelpUrl: merged.yelpUrl ?? '',
-      nextdoorUrl: merged.nextdoorUrl ?? '',
-      linkedinUrl: merged.linkedinUrl ?? '',
-      glassdoorUrl: merged.glassdoorUrl ?? '',
-      bbbUrl: merged.bbbUrl ?? '',
+      websiteUrl: normalizeOptionalFormValue(merged.businessWebsite) || client.websiteUrl || '',
+      googleBusinessProfileUrl: normalizeOptionalFormValue(merged.googleBusinessProfileUrl),
+      googleBusinessLocations: normalizeOptionalFormValue(merged.googleBusinessLocations),
+      facebookHandle: normalizeOptionalFormValue(merged.facebookHandle),
+      instagramHandle: normalizeOptionalFormValue(merged.instagramHandle),
+      tiktokHandle: normalizeOptionalFormValue(merged.tiktokHandle),
+      bookingPlatformUrl: normalizeOptionalFormValue(merged.bookingPlatformUrl),
+      yelpUrl: normalizeOptionalFormValue(merged.yelpUrl),
+      nextdoorUrl: normalizeOptionalFormValue(merged.nextdoorUrl),
+      linkedinUrl: normalizeOptionalFormValue(merged.linkedinUrl),
+      glassdoorUrl: normalizeOptionalFormValue(merged.glassdoorUrl),
+      bbbUrl: normalizeOptionalFormValue(merged.bbbUrl),
     },
   }
 

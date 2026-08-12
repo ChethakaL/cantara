@@ -11,6 +11,8 @@ type TopCompetitorsFormProps = {
   showAddress?: boolean
   addressRequired?: boolean
   maxCompetitors?: number
+  /** When false, always show maxCompetitors slots and hide add/remove controls. */
+  allowAddRemove?: boolean
 }
 
 const emptyCompetitor = (): ManualCompetitorEntry => ({ name: '', address: '', websiteUrl: '' })
@@ -21,8 +23,11 @@ export default function TopCompetitorsForm({
   showAddress = true,
   addressRequired = false,
   maxCompetitors = COMPETITOR_SLOT_COUNT,
+  allowAddRemove = true,
 }: TopCompetitorsFormProps) {
-  const rows = competitors.length ? competitors : [emptyCompetitor()]
+  const rows = allowAddRemove
+    ? (competitors.length ? competitors : [emptyCompetitor()])
+    : Array.from({ length: maxCompetitors }, (_, index) => competitors[index] ?? emptyCompetitor())
 
   const updateCompetitor = (index: number, field: keyof ManualCompetitorEntry, value: string) => {
     const next = rows.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row))
@@ -50,10 +55,13 @@ export default function TopCompetitorsForm({
         <div>
           <p className="text-sm font-medium text-slate-700">Top Competitors</p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Enter up to {maxCompetitors} known competitors. The analysis will run on these specific businesses.
+            {allowAddRemove
+              ? `Enter up to ${maxCompetitors} known competitors. The analysis will run on these specific businesses.`
+              : `Enter all ${maxCompetitors} known competitors. The analysis will run on these specific businesses.`}
           </p>
         </div>
-        {rows.length < maxCompetitors && (
+        {/* Add button hidden when slots are fixed (client portal Required Info). */}
+        {allowAddRemove && rows.length < maxCompetitors && (
           <button
             type="button"
             onClick={addCompetitor}
@@ -72,7 +80,8 @@ export default function TopCompetitorsForm({
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
                 Competitor {index + 1}
               </p>
-              {rows.length > 1 && (
+              {/* Delete icon hidden when slots are fixed (client portal Required Info). */}
+              {allowAddRemove && rows.length > 1 && (
                 <button
                   type="button"
                   onClick={() => removeCompetitor(index)}

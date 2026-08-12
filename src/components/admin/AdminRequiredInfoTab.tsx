@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { ChevronRight, FileSpreadsheet, Plus, Trash2, Upload } from 'lucide-react'
+import { ChevronRight, FileSpreadsheet, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { Button, Card } from '@/components/ui'
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
 import type { Client } from '@/lib/store'
@@ -14,6 +14,7 @@ import {
   serializePipeRows,
   type StructuredFormFieldKey,
 } from '@/lib/structured-form-excel'
+import { FORM_FIELD_NA_VALUE, isFormFieldNa } from '@/lib/client-form-na'
 
 type ClientPortalFormQuestion = {
   id: string
@@ -38,7 +39,8 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
       ...(hasAgentForm('competitor_analysis') || hasAgentForm('pricing_analysis') ? ['competitor_analysis'] : []),
       ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
-      ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
+      // Hidden: vendor info now collected via Document Upload → Vendor Contracts
+      // ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
     ],
     formLabels: {
@@ -89,34 +91,58 @@ function FormQuestionFields({
         const commonClass =
           'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
         const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
-        const Shell = structured ? 'div' : 'label'
+        const value = formResponses[question.fieldKey] ?? ''
+        const isNa = !question.required && !structured && isFormFieldNa(value)
+        const showNaToggle = !question.required && !structured
+        const Shell = structured || showNaToggle ? 'div' : 'label'
         const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2' : ''
         return (
           <Shell key={question.id} className={shellClass}>
-            <span className="text-xs font-semibold text-slate-500">
-              {question.label}
-              {question.required && <span className="text-amber-600"> *</span>}
-            </span>
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-semibold text-slate-500">
+                {question.label}
+                {question.required && <span className="text-amber-600"> *</span>}
+              </span>
+              {showNaToggle && (
+                <button
+                  type="button"
+                  onClick={() => onUpdate(question.fieldKey, isNa ? '' : FORM_FIELD_NA_VALUE)}
+                  className={`shrink-0 px-2 py-0.5 rounded-md text-[10px] font-semibold border transition-all ${
+                    isNa
+                      ? 'border-slate-400 bg-slate-100 text-slate-600'
+                      : 'border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-500'
+                  }`}
+                  aria-pressed={isNa}
+                  title={isNa ? 'Clear N/A and enter a value' : 'Mark as not applicable'}
+                >
+                  N/A
+                </button>
+              )}
+            </div>
             {question.description && (
               <span className="block text-[11px] text-slate-400 mt-0.5 whitespace-pre-line">{question.description}</span>
             )}
             {structured ? (
               <StructuredRowsInput
                 question={question}
-                value={formResponses[question.fieldKey] ?? ''}
+                value={value}
                 onChange={value => onUpdate(question.fieldKey, value)}
                 onError={onError}
               />
+            ) : isNa ? (
+              <div className={`${commonClass} mt-1 bg-slate-50 text-slate-400 border-dashed`}>
+                Not applicable
+              </div>
             ) : question.inputType === 'textarea' ? (
               <textarea
-                value={formResponses[question.fieldKey] ?? ''}
+                value={value}
                 onChange={e => onUpdate(question.fieldKey, e.target.value)}
                 placeholder={question.placeholder ?? ''}
                 className={`${commonClass} mt-1 min-h-[84px] resize-y`}
               />
             ) : question.inputType === 'select' ? (
               <select
-                value={formResponses[question.fieldKey] ?? ''}
+                value={value}
                 onChange={e => onUpdate(question.fieldKey, e.target.value)}
                 className={`${commonClass} mt-1 bg-white`}
               >
@@ -130,7 +156,7 @@ function FormQuestionFields({
             ) : (
               <input
                 type={question.inputType === 'number' ? 'number' : question.inputType === 'url' ? 'url' : 'text'}
-                value={formResponses[question.fieldKey] ?? ''}
+                value={value}
                 onChange={e => onUpdate(question.fieldKey, e.target.value)}
                 placeholder={question.placeholder ?? ''}
                 className={`${commonClass} mt-1`}
@@ -285,6 +311,7 @@ export default function AdminRequiredInfoTab({
 }) {
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -293,6 +320,7 @@ export default function AdminRequiredInfoTab({
   useEffect(() => {
     let cancelled = false
     autoSaveSkipRef.current = true
+    setLoading(true)
     async function loadFormQuestions() {
       try {
         const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(client.id)}`)
@@ -304,6 +332,8 @@ export default function AdminRequiredInfoTab({
         setTimeout(() => { autoSaveSkipRef.current = false }, 0)
       } catch {
         if (!cancelled) setFormQuestions([])
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
     void loadFormQuestions()
@@ -365,6 +395,17 @@ export default function AdminRequiredInfoTab({
 
   const currentIndex = activeFormKeys.indexOf(activeFormTab)
   const hasNext = currentIndex !== -1 && currentIndex < activeFormKeys.length - 1
+
+  if (loading) {
+    return (
+      <div className="flex h-[350px] items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+          <span className="text-xs text-slate-400 font-medium">Loading required info forms...</span>
+        </div>
+      </div>
+    )
+  }
 
   if (!formQuestions.length) {
     return (

@@ -100,17 +100,19 @@ Write a warm 2-3 paragraph letter:
 
 ## Sale-Readiness Overview
 
-Create a summary table using GREEN/YELLOW/RED indicators. This is the most important visual in the report.
+Create a summary table that rolls up the checklist findings by category. Each row shows the COUNT of red, yellow, and green items within that category, plus a summary and deal impact. This gives a quick at-a-glance view of where attention is needed.
 Use the exact category names consistently in every section. For example, if the summary uses "Legal & Corporate Standing", every later reference must use "Legal & Corporate Standing", not "Legal & Corporate".
 
-| Category | Status | Summary | Impact on Deal |
-|----------|--------|---------|----------------|
-| Category Name | 🟢 GREEN / 🟡 YELLOW / 🔴 RED | One-line summary of current state | How this affects the deal (e.g., "Could delay closing by 2-4 weeks", "Buyer will likely request price reduction", "No impact — ready for diligence") |
+| Category | 🔴 Red | 🟡 Yellow | 🟢 Green | Summary | Impact on Deal |
+|----------|--------|-----------|----------|---------|----------------|
+| Category Name | 1 | 2 | 0 | One-line summary of current state | How this affects the deal (e.g., "Could delay closing by 2-4 weeks", "Buyer will likely request price reduction", "No impact — ready for diligence") |
 
 ${workstream === 'ws1' ? `Categories to assess: Legal & Corporate Standing, Ownership & Transfer Readiness, Contracts & Agreements, Litigation & Liens, Insurance Coverage, Permits & Zoning, Employment & HR, Tax Compliance, Key Person Dependencies, Vendor & Technology` :
 `Categories to assess: Revenue & Profitability, Pricing Strategy, Digital Presence & Marketing, Competitive Positioning, Sales Process Maturity, Facility & Operations, Customer Concentration, Growth Trajectory`}
 
-Status definitions:
+The counts in each row MUST match the number of checklist items in the Sale-Readiness Checklist table below for that same category. For example, if "Legal & Corporate Standing" has 1 red and 2 yellow items in the checklist, the overview row must show 🔴 Red = 1, 🟡 Yellow = 2, 🟢 Green = 0.
+
+Status definitions (for checklist items):
 - 🟢 GREEN = Sale-ready, no action needed. Buyer diligence will pass smoothly.
 - 🟡 YELLOW = Needs attention. Fixable, but if left unaddressed could slow the deal or reduce certainty.
 - 🔴 RED = Critical gap. Must be resolved before listing or it will materially impact the deal.

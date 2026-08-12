@@ -7,7 +7,8 @@ export function competitorFieldKey(index: number, field: 'Name' | 'Website' | 'A
 }
 
 export function readCompetitorSlots(responses: Record<string, string>): ManualCompetitorEntry[] {
-  const slots = Array.from({ length: COMPETITOR_SLOT_COUNT }, (_, slotIndex) => {
+  // Always return all 5 slots so Required Info shows a fixed competitor list.
+  return Array.from({ length: COMPETITOR_SLOT_COUNT }, (_, slotIndex) => {
     const index = slotIndex + 1
     return {
       name: responses[competitorFieldKey(index, 'Name')] ?? '',
@@ -15,21 +16,6 @@ export function readCompetitorSlots(responses: Record<string, string>): ManualCo
       address: responses[competitorFieldKey(index, 'Address')] ?? '',
     }
   })
-
-  let lastFilled = -1
-  slots.forEach((slot, index) => {
-    if (slot.name.trim() || slot.websiteUrl?.trim() || slot.address?.trim()) {
-      lastFilled = index
-    }
-  })
-
-  const storedCount = responses.competitorSlotCount ? parseInt(responses.competitorSlotCount, 10) : NaN
-  const visibleCount = Math.min(
-    COMPETITOR_SLOT_COUNT,
-    Math.max(1, lastFilled + 1, !isNaN(storedCount) ? storedCount : 0),
-  )
-
-  return slots.slice(0, visibleCount)
 }
 
 export function writeCompetitorSlots(
@@ -43,6 +29,6 @@ export function writeCompetitorSlots(
     next[competitorFieldKey(index, 'Website')] = competitor?.websiteUrl?.trim() ?? ''
     next[competitorFieldKey(index, 'Address')] = competitor?.address?.trim() ?? ''
   }
-  next.competitorSlotCount = String(competitors.length)
+  next.competitorSlotCount = String(COMPETITOR_SLOT_COUNT)
   return next
 }

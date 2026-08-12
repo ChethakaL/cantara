@@ -58,6 +58,7 @@ export function ClientCompetitorInputsFields({
           onChange={handleCompetitorsChange}
           showAddress={mode === 'competitor_analysis'}
           addressRequired={false}
+          allowAddRemove={false}
         />
       )}
     </div>
