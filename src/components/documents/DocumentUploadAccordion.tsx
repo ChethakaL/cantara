@@ -65,13 +65,17 @@ export function DocumentUploadAccordion({
               ) : null}
             </div>
             {description && (
-              <p className={`mt-0.5 text-xs line-clamp-2 ${tone === 'valuation' ? 'text-amber-700' : 'text-slate-500'}`}>
+              <p
+                className={`mt-0.5 text-xs leading-relaxed ${
+                  open ? '' : 'line-clamp-2'
+                } ${tone === 'valuation' ? 'text-amber-700' : 'text-slate-500'}`}
+              >
                 {description}
               </p>
             )}
             {!open && (
               <p className="mt-1 text-[11px] text-slate-400">
-                {fileCount > 0 ? 'Expand to upload file(s)' : 'Expand to upload file(s)'}
+                Expand to upload file(s)
               </p>
             )}
           </div>

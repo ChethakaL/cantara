@@ -51,6 +51,7 @@ import ClientApprovedAgentOutput, { type ClientApprovedClient } from '@/componen
 import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
 import { readCompetitorSlots } from '@/lib/competitor-portal-form'
+import { FORM_FIELD_NA_VALUE, isFormFieldAnswered, isFormFieldNa } from '@/lib/client-form-na'
 import { buildTaxReadinessReferenceHtml } from '@/lib/tax-readiness'
 
 export type ClientPortalFormQuestion = {
@@ -152,11 +153,11 @@ function ClientNav({ workstreamTitle, unreadCount, onNotifications, onAccountSet
 // ── Phase tabs ───────────────────────────────────────────────────────────────
 const PHASES = [
   { id: 'overview', label: 'Overview' },
-  { id: 'assign', label: 'Assign' },
+  { id: 'assign', label: 'Assign Documents' },
   { id: 'collection', label: 'Document Upload' },
   { id: 'information', label: 'Required Info' },
   { id: 'requirements', label: 'Action Items' },
-  { id: 'roadmap', label: 'Report Tabs' },
+  { id: 'roadmap', label: 'Final Reports' },
 ]
 
 const TOUR_STEPS = [
@@ -254,7 +255,8 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
       ...(hasAgentForm('competitor_analysis') || hasAgentForm('pricing_analysis') ? ['competitor_analysis'] : []),
       ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
-      ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
+      // Hidden: vendor info now collected via Document Upload → Vendor Contracts
+      // ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
     ],
     formLabels: {
@@ -1838,7 +1840,7 @@ function AssignTab({
                     const s = getStatus(doc.id)
                     const options = [
                       { value: 'me', label: 'Me' },
-                      ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
+                      ...teamMembers.map(m => ({ value: m.name, label: m.name })),
                     ]
                     return (
                       <div key={doc.id} className="px-5 py-4 bg-white/60 flex items-center gap-4">
@@ -1900,7 +1902,7 @@ function AssignTab({
                 const s = getStatus(doc.id)
                 const options = [
                   { value: 'me', label: 'Me' },
-                  ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
+                  ...teamMembers.map(m => ({ value: m.name, label: m.name })),
                 ]
                 return (
                   <div key={doc.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4">
@@ -1968,7 +1970,7 @@ function AssignTab({
                         const assignedTo = formAssignments[formKey] ?? (formKey === 'competitor_analysis' ? formAssignments.pricing_analysis : '') ?? ''
                         const options = [
                           { value: 'me', label: 'Me' },
-                          ...teamMembers.map(m => ({ value: m.name, label: m.name + ' · ' + m.role })),
+                          ...teamMembers.map(m => ({ value: m.name, label: m.name })),
                         ]
                         return (
                           <div key={formKey} className="px-5 py-4 flex items-center gap-4">
@@ -2144,14 +2146,34 @@ function FormQuestionFields({
         const commonClass =
           'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400 mt-auto'
         const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
-        const Shell = structured ? 'div' : 'label'
+        const value = formResponses[question.fieldKey] ?? ''
+        const isNa = !question.required && !structured && isFormFieldNa(value)
+        const showNaToggle = !question.required && !structured
+        const Shell = structured || showNaToggle ? 'div' : 'label'
         const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2 flex flex-col justify-between' : 'flex flex-col justify-between'
         return (
           <Shell key={question.id} className={shellClass}>
-            <span className="text-xs font-semibold text-slate-500">
-              {question.label}
-              {question.required && <span className="text-amber-600"> *</span>}
-            </span>
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-semibold text-slate-500">
+                {question.label}
+                {question.required && <span className="text-amber-600"> *</span>}
+              </span>
+              {showNaToggle && (
+                <button
+                  type="button"
+                  onClick={() => onUpdate(question.fieldKey, isNa ? '' : FORM_FIELD_NA_VALUE)}
+                  className={`shrink-0 px-2 py-0.5 rounded-md text-[10px] font-semibold border transition-all ${
+                    isNa
+                      ? 'border-slate-400 bg-slate-100 text-slate-600'
+                      : 'border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-500'
+                  }`}
+                  aria-pressed={isNa}
+                  title={isNa ? 'Clear N/A and enter a value' : 'Mark as not applicable'}
+                >
+                  N/A
+                </button>
+              )}
+            </div>
             {question.description && (
               <span className="block text-[11px] text-slate-400 mt-0.5 whitespace-pre-line">
                 {question.description}
@@ -2160,20 +2182,24 @@ function FormQuestionFields({
             {structured ? (
               <StructuredRowsInput
                 question={question}
-                value={formResponses[question.fieldKey] ?? ''}
+                value={value}
                 onChange={value => onUpdate(question.fieldKey, value)}
                 onError={onError}
               />
+            ) : isNa ? (
+              <div className={`${commonClass} mt-1 bg-slate-50 text-slate-400 border-dashed`}>
+                Not applicable
+              </div>
             ) : question.inputType === 'textarea' ? (
               <textarea
-                value={formResponses[question.fieldKey] ?? ''}
+                value={value}
                 onChange={e => onUpdate(question.fieldKey, e.target.value)}
                 placeholder={question.placeholder ?? ''}
                 className={`${commonClass} mt-1 min-h-[84px] resize-y`}
               />
             ) : question.inputType === 'select' ? (
               <select
-                value={formResponses[question.fieldKey] ?? ''}
+                value={value}
                 onChange={e => onUpdate(question.fieldKey, e.target.value)}
                 className={`${commonClass} mt-1 bg-white`}
               >
@@ -2193,7 +2219,7 @@ function FormQuestionFields({
                       ? 'url'
                       : 'text'
                 }
-                value={formResponses[question.fieldKey] ?? ''}
+                value={value}
                 onChange={e => onUpdate(question.fieldKey, e.target.value)}
                 placeholder={question.placeholder ?? ''}
                 className={`${commonClass} mt-1`}
@@ -2593,6 +2619,7 @@ function AgentInformationTab({
   const [formError, setFormError] = useState('')
   const [formHydrated, setFormHydrated] = useState(false)
   const autoSaveSkipRef = useRef(true)
+  const formSavedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -2613,7 +2640,10 @@ function AgentInformationTab({
       }
     }
     void loadFormQuestions()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (formSavedTimeoutRef.current) clearTimeout(formSavedTimeoutRef.current)
+    }
   }, [clientId])
 
   function updateFormResponse(fieldKey: string, value: string) {
@@ -2635,6 +2665,10 @@ function AgentInformationTab({
     }
     setSavingFormResponses(true)
     setFormSaved(false)
+    if (formSavedTimeoutRef.current) {
+      clearTimeout(formSavedTimeoutRef.current)
+      formSavedTimeoutRef.current = null
+    }
     setFormError('')
     try {
       const res = await fetch('/api/client-form-questions', {
@@ -2644,7 +2678,10 @@ function AgentInformationTab({
       })
       if (!res.ok) throw new Error(await res.text())
       setFormSaved(true)
-      setTimeout(() => setFormSaved(false), 2000)
+      formSavedTimeoutRef.current = setTimeout(() => {
+        setFormSaved(false)
+        formSavedTimeoutRef.current = null
+      }, 5000)
       return true
     } catch (err) {
       if (!options?.silent) {
@@ -2764,10 +2801,7 @@ function AgentInformationTab({
         ? standardQuestions
         : (requiredQuestions.length > 0 ? requiredQuestions : standardQuestions)
 
-      const allStandardFilled = questionsToCheck.every(q => {
-        const val = formResponses[q.fieldKey]
-        return val && val.trim().length > 0
-      })
+      const allStandardFilled = questionsToCheck.every(q => isFormFieldAnswered(formResponses[q.fieldKey]))
       if (!allStandardFilled) return false
     }
 
@@ -2833,7 +2867,7 @@ function AgentInformationTab({
                   <option value="">— Assign to —</option>
                   <option value="me">Me</option>
                   {client.teamMembers.map(m => (
-                    <option key={m.name} value={m.name}>{m.name} · {m.role}</option>
+                    <option key={m.name} value={m.name}>{m.name}</option>
                   ))}
                 </select>
               </div>
@@ -2879,11 +2913,17 @@ function AgentInformationTab({
             ))}
             {formError && <p className="text-xs text-red-600">{formError}</p>}
             <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
-              <div className="flex items-center gap-3">
-                <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
-                  {savingFormResponses ? 'Saving...' : (hasNext ? 'Save Information' : 'Submit')}
-                </Button>
-                {formSaved && <span className="text-xs text-emerald-600 font-medium">Saved</span>}
+              <div className="flex items-center gap-3 min-h-[32px]">
+                {activeFormTab !== 'digital_presence' && activeFormTab !== 'competitor_analysis' && (
+                  <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
+                    {savingFormResponses ? 'Saving...' : (hasNext ? 'Save Information' : 'Submit')}
+                  </Button>
+                )}
+                {savingFormResponses ? (
+                  <span className="text-xs text-slate-500 font-medium">Saving...</span>
+                ) : formSaved ? (
+                  <span className="text-xs text-emerald-600 font-medium">Saved</span>
+                ) : null}
               </div>
             </div>
           </div>
@@ -2940,7 +2980,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
 
   const assignOptions = [
     { value: 'me', label: 'Me' },
-    ...(teamMembers ?? []).map(m => ({ value: m.name, label: `${m.name} · ${m.role}` })),
+    ...(teamMembers ?? []).map(m => ({ value: m.name, label: m.name })),
   ]
 
   const refreshFileCatalog = useCallback(async () => {
@@ -3160,7 +3200,11 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
           </div>
         </div>
       )}
-      {filteredValuationDocs.length > 0 && (
+      {filteredValuationDocs.length > 0 && (() => {
+        const valuationUploaded = filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0)
+        const valuationTotal = filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0)
+        const valuationSectionComplete = valuationTotal > 0 && valuationUploaded === valuationTotal
+        return (
         <div className={`rounded-2xl border overflow-hidden ${sectionSubmissions.valuation ? 'border-slate-200 bg-slate-50 opacity-70' : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'}`}>
           <div className="px-5 py-3 border-b border-amber-200/80 flex items-center justify-between gap-3 flex-wrap">
             <h4 className="text-sm font-semibold text-amber-900">Valuation Documents</h4>
@@ -3168,9 +3212,11 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
               {sectionDeadlines[VALUATION_SECTION_ID] && (
                 <TargetDeadlineBadge deadline={sectionDeadlines[VALUATION_SECTION_ID]} uploaded={false} />
               )}
-              <span className="text-xs text-amber-700">
-                {filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0)}/
-                {filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0)} uploaded
+              <span className="inline-flex items-center gap-1.5 text-xs text-amber-700">
+                {valuationUploaded}/{valuationTotal} uploaded
+                {valuationSectionComplete && (
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-500" aria-label="Section complete" />
+                )}
               </span>
             </div>
           </div>
@@ -3243,11 +3289,12 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
           </div>
           {renderSectionFooter(
             'valuation',
-            filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).total, 0),
-            filteredValuationDocs.reduce((sum, doc) => sum + uploadUnitsForDoc(doc.id).uploaded, 0),
+            valuationTotal,
+            valuationUploaded,
           )}
         </div>
-      )}
+        )
+      })()}
       {filteredCategories.map(cat => {
         const docsToShow = cat.documents.filter(d => {
           const s = getStatus(d.id)
@@ -3280,8 +3327,11 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                 {sectionDeadlines[cat.id] && (
                   <TargetDeadlineBadge deadline={sectionDeadlines[cat.id]} uploaded={sectionTotals.uploaded === sectionTotals.total && sectionTotals.total > 0} />
                 )}
-                <span className="text-xs text-slate-400">
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
                   {sectionTotals.uploaded}/{sectionTotals.total} uploaded
+                  {sectionTotals.total > 0 && sectionTotals.uploaded === sectionTotals.total && (
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-500" aria-label="Section complete" />
+                  )}
                 </span>
               </div>
             </div>
@@ -3572,7 +3622,7 @@ function RequirementsClientTab({
                         <option value="">Me</option>
                         {teamMembers.map(member => (
                           <option key={member.id} value={member.name}>
-                            {member.name}{member.role ? ` · ${member.role}` : ''}
+                            {member.name}
                           </option>
                         ))}
                       </select>
