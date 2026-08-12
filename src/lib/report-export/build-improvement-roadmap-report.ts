@@ -1,4 +1,5 @@
 import { generateReportHtml } from './generate-report-html'
+import { getStatusBadgeKind, isStatusCell } from './status-cell'
 
 type RoadmapReport = {
   workstream: string
@@ -58,22 +59,17 @@ function parseMarkdownSections(markdown: string): Array<{ title: string; content
 
 /** Convert status emoji/text to styled HTML badge */
 function renderStatusBadge(text: string): string {
-  const s = text.toUpperCase()
-  if (s.includes('🟢') || s.includes('GREEN')) {
+  const kind = getStatusBadgeKind(text)
+  if (kind === 'green') {
     return '<span style="display:inline-block;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🟢 Green</span>'
   }
-  if (s.includes('🟡') || s.includes('YELLOW')) {
+  if (kind === 'yellow') {
     return '<span style="display:inline-block;background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🟡 Yellow</span>'
   }
-  if (s.includes('🔴') || s.includes('RED')) {
+  if (kind === 'red') {
     return '<span style="display:inline-block;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;">🔴 Red</span>'
   }
   return formatInline(text)
-}
-
-function isStatusCell(text: string): boolean {
-  const s = text.toUpperCase()
-  return s.includes('🟢') || s.includes('🟡') || s.includes('🔴') || s.includes('GREEN') || s.includes('YELLOW') || (s === 'RED' || s.includes('🔴'))
 }
 
 function markdownToHtml(markdown: string): string {

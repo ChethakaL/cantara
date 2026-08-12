@@ -7,17 +7,12 @@ import remarkGfm from 'remark-gfm'
 import { Button, Card, cn } from '@/components/ui'
 import { parseMarkdownBlocks, serializeMarkdownBlocks, type MarkdownBlock } from '@/lib/markdown-blocks'
 import { EditableTextBlock } from '@/components/report-export/EditableTextBlock'
+import { isStatusCell } from '@/lib/report-export/status-cell'
 
 type MarkdownReport = {
   markdown: string
   generatedAt?: string
   updatedAt?: string
-}
-
-function isStatusCell(text: string): boolean {
-  const value = String(text ?? '').toUpperCase()
-  return value.includes('🟢') || value.includes('🟡') || value.includes('🔴')
-    || value.includes('GREEN') || value.includes('YELLOW') || value.includes('RED')
 }
 
 function isChecklistCell(text: string): boolean {
