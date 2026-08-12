@@ -8,6 +8,7 @@ import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildBuyerReportHtml } from '@/lib/report-export/build-buyer-report'
+import { getStatusBadgeKind, isStatusCell } from '@/lib/report-export/status-cell'
 
 type BuyerReport = {
   workstream: string
@@ -20,22 +21,17 @@ type BuyerReport = {
 
 /** Map emoji status indicators to styled badges */
 function StatusBadge({ text }: { text: string }) {
-  const str = String(text ?? '')
-  if (str.includes('🟢') || str.toUpperCase().includes('GREEN')) {
+  const kind = getStatusBadgeKind(text)
+  if (kind === 'green') {
     return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">🟢 Green</span>
   }
-  if (str.includes('🟡') || str.toUpperCase().includes('YELLOW')) {
+  if (kind === 'yellow') {
     return <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-semibold text-amber-700">🟡 Yellow</span>
   }
-  if (str.includes('🔴') || str.toUpperCase().includes('RED')) {
+  if (kind === 'red') {
     return <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-semibold text-rose-700">🔴 Red</span>
   }
-  return <span>{str}</span>
-}
-
-function isStatusCell(text: string): boolean {
-  const s = String(text ?? '').toUpperCase()
-  return s.includes('🟢') || s.includes('🟡') || s.includes('🔴') || s.includes('GREEN') || s.includes('YELLOW') || s.includes('RED')
+  return <span>{String(text ?? '')}</span>
 }
 
 const markdownComponents = {
