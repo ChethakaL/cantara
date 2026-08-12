@@ -93,7 +93,41 @@ function markdownToHtml(markdown: string): string {
     if (!inTable || tableRows.length < 2) { inTable = false; tableRows = []; return }
     const headers = tableRows[0]
     const rows = tableRows.slice(2) // skip separator
-    html.push(`<table class="report-table"><thead><tr>${headers.map(h => `<th>${formatInline(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c, i) => {
+
+    // Detect overview summary table by checking for 🔴/🟡/🟢 in headers
+    const redColIdx = headers.findIndex(h => h.includes('🔴'))
+    const yellowColIdx = headers.findIndex(h => h.includes('🟡'))
+    const greenColIdx = headers.findIndex(h => h.includes('🟢'))
+    const isOverviewTable = redColIdx !== -1 && yellowColIdx !== -1 && greenColIdx !== -1
+
+    html.push(`<table class="report-table"><thead><tr>${headers.map((h, hi) => {
+      if (isOverviewTable && hi === redColIdx) {
+        return `<th style="text-align:center;color:#991b1b;background:#fef2f2;">${formatInline(h)}</th>`
+      }
+      if (isOverviewTable && hi === yellowColIdx) {
+        return `<th style="text-align:center;color:#92400e;background:#fffbeb;">${formatInline(h)}</th>`
+      }
+      if (isOverviewTable && hi === greenColIdx) {
+        return `<th style="text-align:center;color:#065f46;background:#ecfdf5;">${formatInline(h)}</th>`
+      }
+      return `<th>${formatInline(h)}</th>`
+    }).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c, i) => {
+      // Overview table: render count cells with colored backgrounds
+      if (isOverviewTable && i === redColIdx) {
+        const count = c.trim()
+        const hasIssues = count !== '0' && count !== ''
+        return `<td style="text-align:center;font-weight:800;font-size:14px;${hasIssues ? 'color:#991b1b;background:#fef2f2;' : 'color:#cbd5e1;'}">${formatInline(count)}</td>`
+      }
+      if (isOverviewTable && i === yellowColIdx) {
+        const count = c.trim()
+        const hasIssues = count !== '0' && count !== ''
+        return `<td style="text-align:center;font-weight:800;font-size:14px;${hasIssues ? 'color:#92400e;background:#fffbeb;' : 'color:#cbd5e1;'}">${formatInline(count)}</td>`
+      }
+      if (isOverviewTable && i === greenColIdx) {
+        const count = c.trim()
+        const hasIssues = count !== '0' && count !== ''
+        return `<td style="text-align:center;font-weight:800;font-size:14px;${hasIssues ? 'color:#065f46;background:#ecfdf5;' : 'color:#cbd5e1;'}">${formatInline(count)}</td>`
+      }
       // Render status cells as badges
       if (isStatusCell(c)) {
         return `<td>${renderStatusBadge(c)}</td>`

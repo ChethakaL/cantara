@@ -213,9 +213,19 @@ const markdownComponents = {
   thead: ({ children }: { children?: React.ReactNode }) => (
     <thead className="bg-slate-50">{children}</thead>
   ),
-  th: ({ children }: { children?: React.ReactNode }) => (
-    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">{children}</th>
-  ),
+  th: ({ children }: { children?: React.ReactNode }) => {
+    const text = String(children ?? '')
+    if (text.includes('🔴')) {
+      return <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-rose-600 bg-rose-50/50">{children}</th>
+    }
+    if (text.includes('🟡')) {
+      return <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-amber-600 bg-amber-50/50">{children}</th>
+    }
+    if (text.includes('🟢')) {
+      return <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50/50">{children}</th>
+    }
+    return <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">{children}</th>
+  },
   td: ({ children }: { children?: React.ReactNode }) => {
     const text = String(children ?? '')
     if (isStatusCell(text)) {
