@@ -29,6 +29,7 @@ export type ComposioConnectedAccount = {
   status_reason?: string;
   is_disabled?: boolean;
   updated_at?: string;
+  user_id?: string;
   toolkit?: { slug?: string };
   connection?: Record<string, unknown>;
   state?: unknown;
