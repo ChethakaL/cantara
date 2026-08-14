@@ -18,6 +18,19 @@ export function getComposioMailToolkitSlug() {
   throw new Error("COMPOSIO_MAIL_TOOLKIT must be GMAIL or OUTLOOK.");
 }
 
+export function getPreferredComposioMailFromEmail() {
+  return (getProjectEnv("COMPOSIO_MAIL_FROM_EMAIL") || "aliya@cantarapet.com").trim().toLowerCase();
+}
+
+function mailConnectionListParams() {
+  const params = new URLSearchParams();
+  params.append("toolkit_slugs", getComposioMailToolkitSlug());
+  params.append("user_ids", COMPOSIO_MAIL_USER_ID);
+  params.append("statuses", "ACTIVE");
+  params.set("limit", "10");
+  return params;
+}
+
 export function getComposioMailToolSlug(toolkit = getComposioMailToolkitSlug()) {
   return toolkit === "OUTLOOK" ? "OUTLOOK_SEND_EMAIL" : "GMAIL_SEND_EMAIL";
 }
@@ -142,13 +155,9 @@ export async function getComposioMailConnection(accountId?: string | null) {
 
   if (!connection) {
     const toolkit = getComposioMailToolkitSlug();
-    const params = new URLSearchParams({
-      user_uuid: COMPOSIO_MAIL_USER_ID,
-      toolkit_slug: toolkit,
-      status: "ACTIVE",
-      limit: "10",
-    });
-    const list = await composioFetch<{ items?: ComposioConnectedAccount[] }>(`/connected_accounts?${params}`);
+    const list = await composioFetch<{ items?: ComposioConnectedAccount[] }>(
+      `/connected_accounts?${mailConnectionListParams()}`
+    );
     connection = (list.items ?? []).find(
       (item) => item.status === "ACTIVE" && !item.is_disabled && item.toolkit?.slug?.toUpperCase() === toolkit
     ) ?? null;
@@ -186,7 +195,7 @@ export async function getComposioMailProfile() {
       method: "POST",
       body: JSON.stringify({
         connected_account_id: connection.id,
-        user_id: COMPOSIO_MAIL_USER_ID,
+        user_id: connection.user_id || COMPOSIO_MAIL_USER_ID,
         arguments: {},
       }),
     });
@@ -207,6 +216,37 @@ export async function getComposioMailProfile() {
   }
 }
 
+async function executeMailTool<T>(
+  connection: ComposioConnectedAccount & { id: string },
+  toolSlug: string,
+  argumentsPayload: Record<string, unknown>,
+) {
+  return composioFetch<T>(`/tools/execute/${toolSlug}`, {
+    method: "POST",
+    body: JSON.stringify({
+      connected_account_id: connection.id,
+      user_id: connection.user_id || COMPOSIO_MAIL_USER_ID,
+      arguments: argumentsPayload,
+    }),
+  });
+}
+
+async function assertPreferredMailSender(connection: ComposioConnectedAccount & { id: string }) {
+  const expected = getPreferredComposioMailFromEmail();
+  const toolkit = getComposioMailToolkitSlug();
+  const profile = await executeMailTool<{ successful?: boolean; data?: unknown; error?: string }>(
+    connection,
+    getComposioMailProfileToolSlug(toolkit),
+    {},
+  ).catch(() => null);
+  const fromEmail = (extractComposioEmail(profile?.data) || extractComposioEmail(connection) || "").toLowerCase();
+  if (fromEmail && fromEmail !== expected) {
+    throw new Error(
+      `Refusing to send from ${fromEmail}. Invitation sender must be ${expected}. Reconnect the mailbox on Developer Mail.`,
+    );
+  }
+}
+
 export async function sendEmailWithComposio(args: {
   to: string;
   displayName?: string;
@@ -219,18 +259,17 @@ export async function sendEmailWithComposio(args: {
     throw new Error("No active mail connection found in Composio");
   }
 
+  await assertPreferredMailSender(connection);
+
   const toolkit = getComposioMailToolkitSlug();
   const toolSlug = getComposioMailToolSlug(toolkit);
   const toolArguments = buildComposioMailArguments(args);
 
-  const res = await composioFetch<{ successful?: boolean; error?: string; data?: unknown }>(`/tools/execute/${toolSlug}`, {
-    method: "POST",
-    body: JSON.stringify({
-      connected_account_id: connection.id,
-      user_id: COMPOSIO_MAIL_USER_ID,
-      arguments: toolArguments,
-    }),
-  });
+  const res = await executeMailTool<{ successful?: boolean; error?: string; data?: unknown }>(
+    connection,
+    toolSlug,
+    toolArguments,
+  );
 
   if (res.successful === false) {
     throw new Error(res.error || "Composio email execution returned an unsuccessful status");
