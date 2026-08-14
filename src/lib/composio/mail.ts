@@ -182,11 +182,11 @@ export async function getComposioMailProfile() {
   const toolkit = getComposioMailToolkitSlug();
   const toolSlug = getComposioMailProfileToolSlug(toolkit);
   try {
-    const res = await composioFetch<{ successful?: boolean; data?: unknown }>("/tools/execute", {
+    const res = await composioFetch<{ successful?: boolean; data?: unknown }>(`/tools/execute/${toolSlug}`, {
       method: "POST",
       body: JSON.stringify({
-        tool_slug: toolSlug,
         connected_account_id: connection.id,
+        user_id: COMPOSIO_MAIL_USER_ID,
         arguments: {},
       }),
     });
@@ -223,11 +223,11 @@ export async function sendEmailWithComposio(args: {
   const toolSlug = getComposioMailToolSlug(toolkit);
   const toolArguments = buildComposioMailArguments(args);
 
-  const res = await composioFetch<{ successful?: boolean; error?: string; data?: unknown }>("/tools/execute", {
+  const res = await composioFetch<{ successful?: boolean; error?: string; data?: unknown }>(`/tools/execute/${toolSlug}`, {
     method: "POST",
     body: JSON.stringify({
-      tool_slug: toolSlug,
       connected_account_id: connection.id,
+      user_id: COMPOSIO_MAIL_USER_ID,
       arguments: toolArguments,
     }),
   });
