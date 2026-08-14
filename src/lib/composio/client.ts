@@ -107,7 +107,7 @@ export function composioUserIdForClient(clientId: string) {
 
 export async function pingComposioApi() {
   try {
-    const data = await composioFetch<Record<string, unknown>>("/apps?limit=1");
+    const data = await composioFetch<Record<string, unknown>>("/toolkits?limit=1");
     return { ok: true, data, message: "Connected", status: 200, apiUrl: COMPOSIO_BASE_URL };
   } catch (error: any) {
     return { ok: false, error: error.message || "Failed to contact Composio", message: error.message || "Failed to contact Composio", status: 503, apiUrl: COMPOSIO_BASE_URL };
