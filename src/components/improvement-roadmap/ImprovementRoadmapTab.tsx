@@ -56,6 +56,22 @@ async function saveChecklistItems(clientId: string, items: SaleReadinessChecklis
   return (data.checklist?.items ?? items) as SaleReadinessChecklistItem[]
 }
 
+function renderFormattedText(text: string | undefined): React.ReactNode {
+  if (!text) return ''
+  if (!text.includes('**') && !text.includes('__')) return text
+
+  const parts = text.split(/(\*\*[^*]+?\*\*|__[^*]+?__)/g)
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      return <strong key={index} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>
+    }
+    if (part.startsWith('__') && part.endsWith('__') && part.length >= 4) {
+      return <strong key={index} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>
+    }
+    return part
+  })
+}
+
 function ChecklistApprovalPanel({
   clientId,
   clientName,
@@ -340,11 +356,11 @@ function ChecklistApprovalPanel({
                   </>
                 ) : (
                   <>
-                    <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.category}</td>
+                    <td className="px-4 py-3 text-xs font-semibold text-slate-700">{renderFormattedText(item.category)}</td>
                     <td className="px-4 py-3">
-                      <p className="text-sm font-medium text-slate-800">{item.item}</p>
+                      <p className="text-sm font-medium text-slate-800">{renderFormattedText(item.item)}</p>
                       {item.actionNeeded ? (
-                        <p className="mt-1 text-xs leading-5 text-slate-500">{item.actionNeeded}</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">{renderFormattedText(item.actionNeeded)}</p>
                       ) : null}
                     </td>
                     <td className="px-4 py-3"><StatusBadge text={item.status} /></td>

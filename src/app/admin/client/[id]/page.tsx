@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, FileSpreadsheet, Globe2,
@@ -9,7 +10,12 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
-import dynamic from 'next/dynamic'
+import ClientManager from '@/components/admin/ClientManager'
+import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
+import { getClient, getAdminName, getAdminEmail, getCurrentRole } from '@/lib/store'
+import type { Client } from '@/lib/store'
+import { useChatUnread } from '@/hooks/useChatUnread'
+import { agentLookupKeys, getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 
 const TabLoader = () => (
   <div className="flex h-[400px] items-center justify-center">
@@ -22,12 +28,8 @@ const RealEstateAppraisalTab = dynamic(() => import('@/components/admin/RealEsta
 const ContractAnalysisTab = dynamic(() => import('@/components/admin/ContractAnalysis'), { loading: TabLoader })
 const AdminChat = dynamic(() => import('@/components/admin/AdminChat'), { loading: TabLoader })
 const AdditionalRequirementsAdmin = dynamic(() => import('@/components/admin/AdditionalRequirements'), { loading: TabLoader })
-import ClientManager from '@/components/admin/ClientManager'
 const AdminDocumentsView = dynamic(() => import('@/components/admin/AdminDocuments'), { loading: TabLoader })
 const SalesProcessReviewTab = dynamic(() => import('@/components/sales-review/SalesProcessReviewTab'), { loading: TabLoader })
-// Meeting notes agent is temporarily hidden from the client agents dropdown.
-// Keep the component code in place so it can be restored later.
-// const MeetingNotesTab = dynamic(() => import('@/components/meeting-notes/MeetingNotesTab'), { loading: TabLoader })
 const TtmAnalysisTab = dynamic(() => import('@/components/ttm-agent/TtmAnalysisTab').then(mod => mod.TtmAnalysisTab), { loading: TabLoader })
 const DigitalPresenceTab = dynamic(() => import('@/components/digital-presence/DigitalPresenceTab'), { loading: TabLoader })
 const CompetitorAnalysisTab = dynamic(() => import('@/components/competitor-analysis/CompetitorAnalysisTab'), { loading: TabLoader })
@@ -59,11 +61,6 @@ const LoiReviewTab = dynamic(() => import('@/components/loi-review/LoiReviewTab'
 const ClientLocationMapTab = dynamic(() => import('@/components/client-location-map/ClientLocationMapTab'), { loading: TabLoader })
 const AdminRequiredInfoTab = dynamic(() => import('@/components/admin/AdminRequiredInfoTab'), { loading: TabLoader })
 const ClientTimeline = dynamic(() => import('@/components/admin/ClientTimeline'), { loading: TabLoader })
-import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
-import { getClient, getAdminName, getAdminEmail, getCurrentRole } from '@/lib/store'
-import type { Client } from '@/lib/store'
-import { useChatUnread } from '@/hooks/useChatUnread'
-import { agentLookupKeys, getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
 

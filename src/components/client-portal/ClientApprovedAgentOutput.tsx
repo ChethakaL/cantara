@@ -258,6 +258,22 @@ function buildReleasedRoadmapMarkdown(markdown: string, items: SaleReadinessChec
   return serializeMarkdownBlocks(filteredBlocks)
 }
 
+function renderFormattedText(text: string | undefined): React.ReactNode {
+  if (!text) return ''
+  if (!text.includes('**') && !text.includes('__')) return text
+
+  const parts = text.split(/(\*\*[^*]+?\*\*|__[^*]+?__)/g)
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      return <strong key={index} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>
+    }
+    if (part.startsWith('__') && part.endsWith('__') && part.length >= 4) {
+      return <strong key={index} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>
+    }
+    return part
+  })
+}
+
 function ClientChecklistTable({
   clientId,
   clientName,
@@ -279,34 +295,34 @@ function ClientChecklistTable({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientId,
-          itemId: item.id,
-          clientCompleted: !item.clientCompleted,
+          items: items.map(current => (
+            current.id === item.id
+              ? { ...current, clientCompleted: !current.clientCompleted }
+              : current
+          )),
         }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to update checklist.')
-      onChange((data.checklist?.items ?? []).filter((next: SaleReadinessChecklistItem) => next.advisorApproved))
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to update item.')
+      onChange((data.checklist?.items ?? items) as SaleReadinessChecklistItem[])
+    } catch {
+      // rollback or keep as-is
     } finally {
       setUpdating(null)
     }
   }
 
-  if (!items.length) {
-    return (
-      <div className="my-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-        No checklist items have been released by your advisor yet.
-      </div>
-    )
-  }
-
   return (
-    <div className="my-6 space-y-2">
+    <div className="my-6 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Interactive Checklist</span>
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Sale-Readiness Checklist</h3>
+          <p className="text-xs text-slate-500">Track and check off action items as you complete them.</p>
+        </div>
         <button
           type="button"
           onClick={() => exportSaleReadinessChecklistExcel(items, clientName)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
         >
           <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
           Download Excel
@@ -335,10 +351,10 @@ function ClientChecklistTable({
                   className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                 />
               </td>
-              <td className="px-4 py-3 align-top text-sm font-medium leading-6 text-slate-600">{item.category}</td>
-              <td className={`px-4 py-3 align-top text-sm font-medium leading-6 ${item.clientCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{item.item}</td>
+              <td className="px-4 py-3 align-top text-sm font-medium leading-6 text-slate-700">{renderFormattedText(item.category)}</td>
+              <td className={`px-4 py-3 align-top text-sm font-medium leading-6 ${item.clientCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{renderFormattedText(item.item)}</td>
               <td className="px-4 py-3 align-top"><StatusBadge value={item.status || 'Open'} /></td>
-              <td className="px-4 py-3 align-top text-sm leading-6 text-slate-700">{item.actionNeeded}</td>
+              <td className="px-4 py-3 align-top text-sm leading-6 text-slate-700">{renderFormattedText(item.actionNeeded)}</td>
             </tr>
           ))}
         </tbody>

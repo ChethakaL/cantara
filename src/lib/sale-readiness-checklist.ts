@@ -45,6 +45,8 @@ function cleanCell(value: string | undefined): string {
     .replace(/\\\|/g, '|')
     .replace(/^☐\s*/, '')
     .replace(/^☑\s*/, '')
+    .replace(/^\*\*([\s\S]*?)\*\*$/, '$1')
+    .replace(/^__([\s\S]*?)__$/, '$1')
     .trim()
 }
 
@@ -62,9 +64,11 @@ function stableId(parts: string[]): string {
 }
 
 export function createChecklistItem(partial: Partial<SaleReadinessChecklistItem> = {}): SaleReadinessChecklistItem {
+  const rawCategory = String(partial.category ?? '').trim()
+  const cleanCategory = rawCategory.replace(/^\*\*([\s\S]*?)\*\*$/, '$1').replace(/^__([\s\S]*?)__$/, '$1').trim()
   return {
     id: partial.id || `chk_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
-    category: String(partial.category ?? '').trim(),
+    category: cleanCategory,
     item: String(partial.item ?? '').trim(),
     status: String(partial.status ?? '🟡 YELLOW').trim() || '🟡 YELLOW',
     actionNeeded: String(partial.actionNeeded ?? '').trim(),
