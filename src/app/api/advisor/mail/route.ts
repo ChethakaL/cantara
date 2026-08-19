@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getLoggedInAdvisor, getAdvisorMailConnection, createAdvisorMailConnectLink } from '@/lib/advisor-mail'
+import { publicAppOrigin } from '@/lib/public-origin'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
   const advisor = await getLoggedInAdvisor()
   if (!advisor) return new Response('Advisor authentication required', { status: 401 })
   try {
-    const origin = new URL(req.url).origin
+    const origin = publicAppOrigin(req)
     const link = await createAdvisorMailConnectLink(advisor.id, `${origin}/admin/settings?advisor-mail=connected`)
     return NextResponse.json(link)
   } catch (error) {

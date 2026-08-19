@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createQuickBooksConnectLink } from "@/lib/composio";
 import { prisma } from "@/lib/prisma";
+import { publicAppOrigin } from "@/lib/public-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
     const client = await prisma.clientProfile.findUnique({ where: { id: clientId } });
     if (!client) return new Response("Client not found", { status: 404 });
 
-    const origin = req.headers.get("origin") ?? new URL(req.url).origin;
+    const origin = publicAppOrigin(req);
     const link = await createQuickBooksConnectLink({
       clientId,
       callbackUrl: `${origin}/dashboard?quickbooks=connected`,

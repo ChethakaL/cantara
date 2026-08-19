@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMondayConnectLink } from "@/lib/composio";
+import { publicAppOrigin } from "@/lib/public-origin";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const origin = req.headers.get("origin") ?? new URL(req.url).origin;
+    const origin = publicAppOrigin(req);
     const link = await createMondayConnectLink(`${origin}/admin?monday=connected`);
     return NextResponse.json(link);
   } catch (error) {

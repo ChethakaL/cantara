@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createGoogleDriveConnectLink } from "@/lib/composio";
+import { publicAppOrigin } from "@/lib/public-origin";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const origin = req.headers.get("origin") ?? new URL(req.url).origin;
+    const origin = publicAppOrigin(req);
     const link = await createGoogleDriveConnectLink(`${origin}/admin?drive=connected`);
     return NextResponse.json(link);
   } catch (error) {
