@@ -19,6 +19,7 @@ import {
 import { salesLeadMondayConfiguration, reconcileSalesLeadsFromMonday, processSalesLeadSyncOutbox } from '@/lib/sales-leads/monday-sync'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 120
 
 function errorResponse(error: unknown) {
   if (error instanceof SalesLeadWorkflowError) {
@@ -37,9 +38,18 @@ function optionalDate(value: unknown) {
 
 export async function GET(req: NextRequest) {
   const syncFromMonday = req.nextUrl.searchParams.get('sync') === 'true'
+  let syncSummary: Record<string, unknown> | null = null
   if (syncFromMonday) {
-    await reconcileSalesLeadsFromMonday().catch(err => console.warn('[sales-leads/route] Sync reconciliation warning:', err))
-    await processSalesLeadSyncOutbox().catch(err => console.warn('[sales-leads/route] Outbox sync warning:', err))
+    try {
+      const inbound = await reconcileSalesLeadsFromMonday()
+      const outbound = await processSalesLeadSyncOutbox()
+      syncSummary = { ...inbound, outbound }
+      console.log('[sales-leads] Monday sync', syncSummary)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn('[sales-leads/route] Sync reconciliation warning:', err)
+      syncSummary = { error: message, created: 0, updated: 0 }
+    }
   }
 
   const view = req.nextUrl.searchParams.get('view') || 'active'
@@ -107,7 +117,7 @@ export async function GET(req: NextRequest) {
     select: { id: true, name: true, email: true },
     orderBy: { name: 'asc' },
   })
-  return NextResponse.json({ leads: filtered, callers, stats })
+  return NextResponse.json({ leads: filtered, callers, stats, sync: syncSummary })
 }
 
 export async function POST(req: NextRequest) {

@@ -1,4 +1,4 @@
-import { SalesLeadStage, SalesLeadSyncStatus } from '@prisma/client'
+import { SalesLeadContactType, SalesLeadStage, SalesLeadSyncStatus } from '@prisma/client'
 import {
   createMondayBoardItem,
   getMondayBoardItems,
@@ -396,25 +396,179 @@ const callResultByLabel = Object.fromEntries(
   Object.entries(CALL_RESULT_LABELS).map(([result, label]) => [label.toLowerCase(), result]),
 ) as Record<string, any>
 
+function columnNumber(item: any, columnId: string | undefined) {
+  const text = columnText(item, columnId).replace(/,/g, '')
+  if (!text) return null
+  const parsed = Number(text)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function fieldsFromMondayItem(
+  item: any,
+  mapping: MondayMapping,
+  callerByMondayId: Map<string, string>,
+) {
+  const ownerEmail = columnText(item, mapping.ownerEmail)
+  const generalEmail = columnText(item, mapping.generalEmail)
+  const ownerPhone = columnText(item, mapping.ownerPhone)
+  const generalPhone = columnText(item, mapping.generalPhone)
+  const mondayPersonId = columnPersonId(item, mapping.assignedCaller)
+  const assignedCallerId = mondayPersonId ? callerByMondayId.get(mondayPersonId) || null : null
+  const stage = stageByLabel[columnText(item, mapping.currentStage).toLowerCase()] || SalesLeadStage.NEW
+
+  return {
+    assignedCallerId,
+    currentStage: stage,
+    nextActionDate: columnDate(item, mapping.nextActionDate),
+    stageStartDate: columnDate(item, mapping.stageStartDate),
+    lastContactDate: columnDate(item, mapping.lastContactDate),
+    bookingDateTime: columnDate(item, mapping.bookingDateTime),
+    state: columnText(item, mapping.state) || null,
+    city: columnText(item, mapping.city) || null,
+    websiteUrl: columnText(item, mapping.websiteUrl) || null,
+    googleRating: columnNumber(item, mapping.googleRating),
+    reviewCount: columnNumber(item, mapping.reviewCount) != null ? Math.round(columnNumber(item, mapping.reviewCount)!) : null,
+    sqftIndoor: columnNumber(item, mapping.sqftIndoor) != null ? Math.round(columnNumber(item, mapping.sqftIndoor)!) : null,
+    sqftOutdoor: columnNumber(item, mapping.sqftOutdoor) != null ? Math.round(columnNumber(item, mapping.sqftOutdoor)!) : null,
+    sqftCombined: columnNumber(item, mapping.sqftCombined) != null ? Math.round(columnNumber(item, mapping.sqftCombined)!) : null,
+    locationType: columnText(item, mapping.locationType) || null,
+    preCallBriefUrl: columnText(item, mapping.preCallBriefUrl) || null,
+    ownerFirstName: columnText(item, mapping.ownerFirstName) || null,
+    ownerLastName: columnText(item, mapping.ownerLastName) || null,
+    ownerPhone: ownerPhone || generalPhone || null,
+    phoneType: ownerPhone ? SalesLeadContactType.DIRECT : SalesLeadContactType.GENERAL,
+    sourceLinkPhone: columnText(item, mapping.sourceLinkPhone) || null,
+    ownerEmail: ownerEmail || generalEmail || null,
+    emailType: ownerEmail ? SalesLeadContactType.DIRECT : SalesLeadContactType.GENERAL,
+    sourceLinkEmail: columnText(item, mapping.sourceLinkEmail) || null,
+    notes: columnText(item, mapping.notes) || null,
+  }
+}
+
+async function createLeadFromMondayItem(args: {
+  item: any
+  boardId: string
+  mapping: MondayMapping
+  callerByMondayId: Map<string, string>
+}) {
+  const businessName = String(args.item.name || '').trim()
+  const mondayItemId = String(args.item.id)
+  const fields = fieldsFromMondayItem(args.item, args.mapping, args.callerByMondayId)
+
+  const created = await prisma.salesLead.create({
+    data: {
+      businessName,
+      mondayBoardId: args.boardId,
+      mondayItemId,
+      mondayLastSyncedAt: new Date(),
+      syncStatus: SalesLeadSyncStatus.SYNCED,
+      ...fields,
+    },
+  })
+  await prisma.salesLeadActivity.create({
+    data: {
+      leadId: created.id,
+      type: 'created',
+      summary: 'Lead imported from Monday.com.',
+    },
+  })
+  await prisma.salesLeadSyncEvent.create({
+    data: {
+      leadId: created.id,
+      direction: 'INBOUND_MONDAY',
+      status: 'COMPLETE',
+      payload: { itemId: mondayItemId, reason: 'created_from_monday' },
+      processedAt: new Date(),
+    },
+  })
+  return created
+}
+
 export async function reconcileSalesLeadsFromMonday(itemId?: string) {
   const config = await salesLeadMondayConfiguration()
   if (!config.boardId || Object.keys(config.mapping).length === 0) {
     throw new Error('Sales Lead Monday board and column mapping are not configured.')
   }
-  const items = (await getMondayBoardItems(config.boardId)).filter(item => !itemId || item.id === itemId)
+  const items = (await getMondayBoardItems(config.boardId)).filter(item => !itemId || String(item.id) === String(itemId))
+  const itemIds = items.map(item => String(item.id))
   const leads = await prisma.salesLead.findMany({
-    where: { mondayBoardId: config.boardId, mondayItemId: { in: items.map(item => item.id) } },
+    where: {
+      OR: [
+        { mondayItemId: { in: itemIds } },
+        { mondayBoardId: config.boardId },
+        { mondayItemId: null },
+      ],
+    },
   })
-  const leadByItemId = new Map(leads.map(lead => [lead.mondayItemId, lead]))
+  const leadByItemId = new Map(leads.filter(lead => lead.mondayItemId).map(lead => [lead.mondayItemId as string, lead]))
+  const leadByName = new Map(leads.map(lead => [lead.businessName.trim().toLowerCase(), lead]))
   const callerByMondayId = new Map(
     Object.entries(config.callerMapping).map(([userId, mondayId]) => [String(mondayId), userId]),
   )
   let updated = 0
+  let created = 0
+  const createdNames: string[] = []
   const errors: Array<{ itemId: string; message: string }> = []
 
   for (const item of items) {
-    const lead = leadByItemId.get(item.id)
+    const mondayItemId = String(item.id)
+    const businessName = String(item.name || '').trim()
+    if (!businessName) {
+      errors.push({ itemId: mondayItemId, message: 'Skipped: Monday item has no business name.' })
+      continue
+    }
+
+    let lead = leadByItemId.get(mondayItemId)
+    if (!lead) {
+      const named = leadByName.get(businessName.toLowerCase())
+      if (named && !named.mondayItemId) {
+        lead = await prisma.salesLead.update({
+          where: { id: named.id },
+          data: { mondayItemId, mondayBoardId: config.boardId },
+        })
+        leadByItemId.set(mondayItemId, lead)
+      } else if (named && named.mondayItemId && named.mondayItemId !== mondayItemId) {
+        errors.push({
+          itemId: mondayItemId,
+          message: `Skipped import: "${businessName}" already exists as another lead.`,
+        })
+        continue
+      } else {
+        try {
+          lead = await createLeadFromMondayItem({
+            item,
+            boardId: config.boardId,
+            mapping: config.mapping,
+            callerByMondayId,
+          })
+          created += 1
+          createdNames.push(businessName)
+          leadByItemId.set(mondayItemId, lead)
+          leadByName.set(businessName.toLowerCase(), lead)
+          continue
+        } catch (error: any) {
+          if (error?.code === 'P2002') {
+            lead = await prisma.salesLead.findUnique({ where: { mondayItemId } })
+            if (!lead) {
+              errors.push({
+                itemId: mondayItemId,
+                message: error instanceof Error ? error.message : 'Failed to import Monday item.',
+              })
+              continue
+            }
+          } else {
+            errors.push({
+              itemId: mondayItemId,
+              message: error instanceof Error ? error.message : 'Failed to import Monday item.',
+            })
+            continue
+          }
+        }
+      }
+    }
+
     if (!lead) continue
+
     try {
       const stage = stageByLabel[columnText(item, config.mapping.currentStage).toLowerCase()]
       const callResult = callResultByLabel[columnText(item, config.mapping.lastCallResult).toLowerCase()]
@@ -467,7 +621,7 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
             leadId: lead.id,
             direction: 'INBOUND_MONDAY',
             status: 'COMPLETE',
-            payload: { itemId: item.id },
+            payload: { itemId: mondayItemId },
             processedAt: new Date(),
           },
         }),
@@ -475,10 +629,18 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
       updated += 1
     } catch (error) {
       errors.push({
-        itemId: item.id,
+        itemId: mondayItemId,
         message: error instanceof Error ? error.message : 'Inbound reconciliation failed.',
       })
     }
   }
-  return { examined: items.length, matched: leads.length, updated, errors }
+
+  if (createdNames.length) {
+    console.log('[sales-leads] Imported unmatched Monday items:', createdNames.join(', '))
+  }
+  if (errors.length) {
+    console.warn('[sales-leads] Monday inbound errors:', errors)
+  }
+
+  return { examined: items.length, matched: leadByItemId.size, updated, created, createdNames, errors }
 }
