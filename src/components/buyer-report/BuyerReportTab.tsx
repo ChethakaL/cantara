@@ -96,6 +96,7 @@ export default function BuyerReportTab({
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [roadmapReady, setRoadmapReady] = useState(false)
 
   const wsLabel = workstream === 'ws1' ? 'WS1 — Risk Mitigation' : 'WS2 — Profitability & Growth'
 
@@ -107,6 +108,7 @@ export default function BuyerReportTab({
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setReport(data.report)
+      setRoadmapReady(Boolean(data.roadmapReady))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load buyer report.')
     } finally {
@@ -151,7 +153,7 @@ export default function BuyerReportTab({
           <p className="text-xs text-slate-500 mt-1">{wsLabel} — Buyer-Facing Acquisition Summary</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
+          <Button size="sm" variant="outline" onClick={generate} disabled={generating || !roadmapReady} title={!roadmapReady ? 'Run the Sales Readiness Roadmap first' : undefined}>
             <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
             {report ? 'Regenerate' : 'Generate Report'}
           </Button>
@@ -160,6 +162,8 @@ export default function BuyerReportTab({
           )}
         </div>
       </div>
+
+      {!roadmapReady && <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Run and submit the <strong>Sales Readiness Roadmap</strong> before generating this buyer report.</div>}
 
       {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
@@ -206,7 +210,7 @@ export default function BuyerReportTab({
           <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
             Generate a buyer-facing report that presents the business to potential acquirers, highlighting strengths and opportunities based on all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agent findings.
           </p>
-          <Button onClick={generate} disabled={generating}>
+          <Button onClick={generate} disabled={generating || !roadmapReady}>
             Generate Buyer Report
           </Button>
         </Card>

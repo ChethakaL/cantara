@@ -6,7 +6,7 @@ import {
 } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getProjectEnv } from '@/lib/project-env'
-import { sendSalesLeadEmail } from '@/lib/sales-leads/email-provider'
+import { sendSalesLeadEmail, type SalesLeadEmailRecipients } from '@/lib/sales-leads/email-provider'
 import {
   changeStage,
   processDueDate,
@@ -149,7 +149,11 @@ export async function requestSalesLeadEmailApproval(id: string, template: 1 | 2)
   })
 }
 
-export async function approveSalesLeadEmail(id: string, approvedBy: string) {
+export async function approveSalesLeadEmail(
+  id: string,
+  approvedBy: string,
+  recipients?: SalesLeadEmailRecipients,
+) {
   const lead = await getSalesLeadOrThrow(id)
   if (lead.emailApprovalStatus !== 'PENDING' || !lead.pendingEmailTemplate) {
     throw new SalesLeadWorkflowError('Only a pending email draft can be approved.', 'EMAIL_APPROVAL_REQUIRED')
@@ -158,8 +162,8 @@ export async function approveSalesLeadEmail(id: string, approvedBy: string) {
     throw new SalesLeadWorkflowError('The email draft is incomplete.', 'EMAIL_DRAFT_REQUIRED')
   }
   const template = lead.pendingEmailTemplate === 1 ? 1 : 2
-  const result = startEmail(workflowLead(lead), template)
-  const sent = await sendSalesLeadEmail(lead, template)
+  const result = startEmail(workflowLead(lead), template, new Date(), { allowEarlySend: true })
+  const sent = await sendSalesLeadEmail(lead, template, recipients)
   if (!sent.success) throw new SalesLeadWorkflowError(sent.error || 'Email send failed.', 'EMAIL_SEND_FAILED')
   return prisma.$transaction(async tx => {
     const updated = await tx.salesLead.update({
@@ -174,7 +178,16 @@ export async function approveSalesLeadEmail(id: string, approvedBy: string) {
       },
     })
     await tx.salesLeadActivity.create({
-      data: { leadId: id, type: `email_${template}_sent`, summary: `Email ${template} sent after human approval.`, metadata: jsonPayload({ approvedBy }) },
+      data: {
+        leadId: id,
+        type: `email_${template}_sent`,
+        summary: `Email ${template} sent after human approval.`,
+        metadata: jsonPayload({
+          approvedBy,
+          extraTo: recipients?.extraTo || [],
+          cc: recipients?.cc || [],
+        }),
+      },
     })
     return updated
   })

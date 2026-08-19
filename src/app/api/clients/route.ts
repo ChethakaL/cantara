@@ -4,8 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { mapClientForFrontend, mapClientListItemForFrontend } from "@/lib/client-mappers";
 import { applyAgentDocumentRequirements } from "@/lib/workstream-agent-mapping";
 import { scheduleDailyDocumentDeadlineRemindersCheck } from "@/lib/document-deadline-reminder-scheduler";
-import { sendEmailWithComposio } from "@/lib/composio";
-import { buildClientPortalInviteEmail } from "@/lib/client-invite-email";
 
 function generatePassword() {
   return crypto.randomBytes(9).toString("base64url");
@@ -107,8 +105,6 @@ export async function POST(req: NextRequest) {
     const propertyOwnership = body.propertyOwnership === 'lease' || body.propertyOwnership === 'owns'
       ? body.propertyOwnership
       : null;
-    const advisorName = String(body.advisorName || process.env.CANTARA_ADVISOR_NAME || "Cantara Pet Advisors").trim();
-    const sendInvite = body.sendInvite !== false;
 
     if (!name || !email) {
       return new Response("Missing required fields", { status: 400 });
@@ -145,32 +141,6 @@ export async function POST(req: NextRequest) {
       },
       include: { User: true },
     });
-
-    if (sendInvite) {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || new URL(req.url).origin;
-      const loginUrl = `${baseUrl}/login/client`;
-      const settingsUrl = `${baseUrl}/dashboard/settings`;
-      const inviteSubject = `Welcome to the Cantara portal — ${businessName}`;
-      try {
-        await sendEmailWithComposio({
-          to: email,
-          displayName: name,
-          subject: inviteSubject,
-          body: buildClientPortalInviteEmail({
-            businessName,
-            contactName: name,
-            email,
-            password,
-            loginUrl,
-            settingsUrl,
-            businessCategories: businessCategory,
-            advisorName,
-          }),
-        });
-      } catch (emailError) {
-        console.error("CLIENT_INVITE_EMAIL_ERROR", { clientId: profile.id, email, error: emailError });
-      }
-    }
 
     const requirements = await (prisma as any).agentDocumentRequirement.findMany();
     return NextResponse.json(mapClientForFrontend(applyAgentDocumentRequirements(profile as any, requirements)));

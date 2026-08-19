@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
+import { readChecklistSubmission, readRoadmapSubmission } from '@/lib/sale-readiness-checklist'
 import type { AgentOverviewReport } from '@/lib/report-export/build-agent-overview-report'
 
 export const dynamic = 'force-dynamic'
@@ -192,7 +193,13 @@ async function latestAgentRecord(clientId: string, key: string): Promise<{ creat
     ? submissions.valuation
     : key === 'employeeComp'
       ? submissions.employeeCompReport || submissions.employeeComp
-      : submissions[key]
+      : key === 'salesReadinessRoadmap'
+        ? readRoadmapSubmission(submissions) || readChecklistSubmission(submissions)
+        : key === 'ws1Assessment'
+          ? submissions.assessmentReport_ws1
+          : key === 'ws2Assessment'
+            ? submissions.assessmentReport_ws2
+            : submissions[key]
   if (!submission) return null
   return {
     createdAt: new Date(submission.submittedAt || submission.generatedAt || client?.updatedAt || Date.now()).toISOString(),

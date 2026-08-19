@@ -103,3 +103,91 @@ export function occupancyInputsToFormResponses(inputs: OccupancyReviewInputs | u
     occupancyMonthlyData: formatOccupancyMonthlyData(inputs.monthlyData),
   }
 }
+
+export type OccupancyFormFieldDef = {
+  agentId: string
+  agentName: string
+  fieldKey: string
+  label: string
+  description: string | null
+  inputType: string
+  placeholder: string
+  required: boolean
+  options: unknown
+  groupKey: string
+  groupLabel: string
+  sortOrder: number
+}
+
+export const OCCUPANCY_CAPACITY_FIELD_DEFS: OccupancyFormFieldDef[] = [
+  {
+    agentId: 'occupancy_review',
+    agentName: 'Occupancy Review Agent',
+    fieldKey: 'occupancyTotalDailyCapacity',
+    label: 'Total Daily Capacity (Owner-Stated Max)',
+    description: 'Owner-stated total capacity is preferred. Daycare spots = Total - Boarding Runs if left blank.',
+    inputType: 'number',
+    placeholder: 'e.g., 75',
+    required: false,
+    options: null,
+    groupKey: 'occupancy_capacity',
+    groupLabel: 'Capacity Model',
+    sortOrder: 400,
+  },
+  {
+    agentId: 'occupancy_review',
+    agentName: 'Occupancy Review Agent',
+    fieldKey: 'occupancyBoardingRuns',
+    label: 'Boarding Runs / Kennels',
+    description: 'Number of boarding runs or suites at full capacity.',
+    inputType: 'number',
+    placeholder: 'e.g., 45',
+    required: false,
+    options: null,
+    groupKey: 'occupancy_capacity',
+    groupLabel: 'Capacity Model',
+    sortOrder: 410,
+  },
+  {
+    agentId: 'occupancy_review',
+    agentName: 'Occupancy Review Agent',
+    fieldKey: 'occupancyDaycareSpots',
+    label: 'Daycare Spots',
+    description: 'Leave blank to auto-calculate as Total Capacity minus Boarding Runs.',
+    inputType: 'number',
+    placeholder: 'e.g., 30',
+    required: false,
+    options: null,
+    groupKey: 'occupancy_capacity',
+    groupLabel: 'Capacity Model',
+    sortOrder: 420,
+  },
+  {
+    agentId: 'occupancy_review',
+    agentName: 'Occupancy Review Agent',
+    fieldKey: 'occupancyGroomingStations',
+    label: 'Grooming Stations',
+    description: 'Optional. Number of grooming stations if applicable.',
+    inputType: 'number',
+    placeholder: 'e.g., 6',
+    required: false,
+    options: null,
+    groupKey: 'occupancy_capacity',
+    groupLabel: 'Capacity Model',
+    sortOrder: 430,
+  },
+]
+
+export function ensureOccupancyFormFields<T extends { agentId: string; fieldKey: string; sortOrder: number }>(
+  rows: T[],
+  activeAgentIds: string[],
+): T[] {
+  if (!activeAgentIds.includes('occupancy_review')) return rows
+  const nonOccupancyRows = rows.filter(r => r.agentId !== 'occupancy_review')
+  const capacityDefs = OCCUPANCY_CAPACITY_FIELD_DEFS.map(def => ({
+    id: `occupancy_review_${def.fieldKey}`,
+    ...def,
+  } as unknown as T))
+  return [...nonOccupancyRows, ...capacityDefs]
+}
+

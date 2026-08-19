@@ -27,7 +27,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'legal_entity_search', agentName: 'Legal Reports & Entity Search Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure', 'business_licenses'] },
     { agentId: 'tax_liability_review', agentName: 'Tax Liability Review Agent', documentIds: ['tax_returns_3yr', 'irs_941_940_3yr', 'contractor_1099_agreements', 'sales_use_tax_3yr', 'irs_tax_notices_3yr'] },
     { agentId: 'ws1_assessment', agentName: 'WS1 Assessment Report', documentIds: [] },
-    { agentId: 'ws1_roadmap', agentName: 'WS1 Sales Readiness Roadmap', documentIds: [] },
+    { agentId: 'sales_readiness_roadmap', agentName: 'Sales Readiness Roadmap', documentIds: [] },
   ],
   ws2: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
@@ -40,7 +40,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent', documentIds: ['sales_process_transcript', 'pricing_schedule'] },
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
     { agentId: 'ws2_assessment', agentName: 'WS2 Assessment Report', documentIds: [] },
-    { agentId: 'ws2_roadmap', agentName: 'WS2 Sales Readiness Roadmap', documentIds: [] },
+    { agentId: 'sales_readiness_roadmap', agentName: 'Sales Readiness Roadmap', documentIds: [] },
   ],
   ma: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
@@ -95,10 +95,21 @@ export function getClientWorkstreamAgents(client: {
   if (client.workstream !== 'ma') {
     const explicitlyAdded = client.workstreamAgents?.some(a => a.agentId === 'professional_advisors')
     if (!explicitlyAdded) {
-      return agents.filter(agent => agent.agentId !== 'professional_advisors')
+      agents = agents.filter(agent => agent.agentId !== 'professional_advisors')
     }
   }
-  return agents
+  return dedupeAgents(agents.map(normalizeRoadmapAgent))
+}
+
+function normalizeRoadmapAgent(agent: WorkstreamAgentSelection): WorkstreamAgentSelection {
+  if (agent.agentId === 'ws1_roadmap' || agent.agentId === 'ws2_roadmap' || agent.agentId === 'sales_readiness_roadmap') {
+    return { ...agent, agentId: 'sales_readiness_roadmap', agentName: 'Sales Readiness Roadmap' }
+  }
+  return agent
+}
+
+function dedupeAgents(agents: WorkstreamAgentSelection[]) {
+  return agents.filter((agent, index) => agents.findIndex(item => item.agentId === agent.agentId) === index)
 }
 
 export function normalizeAgentStatusKey(agentId: string) {
@@ -129,8 +140,19 @@ export function normalizeAgentStatusKey(agentId: string) {
     tax_liability_review: 'taxLiabilityReview',
     ws1_assessment: 'ws1Assessment',
     ws2_assessment: 'ws2Assessment',
-    ws1_roadmap: 'ws1Roadmap',
-    ws2_roadmap: 'ws2Roadmap',
+    sales_readiness_roadmap: 'salesReadinessRoadmap',
+    ws1_roadmap: 'salesReadinessRoadmap',
+    ws2_roadmap: 'salesReadinessRoadmap',
+    ws1Roadmap: 'salesReadinessRoadmap',
+    ws2Roadmap: 'salesReadinessRoadmap',
   }
   return aliases[agentId] ?? agentId
+}
+
+export function agentLookupKeys(agentId: string): string[] {
+  const key = normalizeAgentStatusKey(agentId)
+  if (key === 'salesReadinessRoadmap') {
+    return ['sales_readiness_roadmap', 'salesReadinessRoadmap', 'ws1_roadmap', 'ws1Roadmap', 'ws2_roadmap', 'ws2Roadmap']
+  }
+  return Array.from(new Set([agentId, key]))
 }

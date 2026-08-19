@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, FileText, MessageSquare, AlertCircle, Settings,
   Landmark, Briefcase, FileSpreadsheet, Globe2,
-  ChevronDown, Bot, Users2, Calculator, Sparkles, Camera, TrendingUp, MapPin,
+  ChevronDown, ChevronLeft, ChevronRight, Bot, Users2, Calculator, Sparkles, Camera, TrendingUp, MapPin,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AdminNav from '@/components/admin/AdminNav'
@@ -58,11 +58,12 @@ const OccupancyReviewTab = dynamic(() => import('@/components/occupancy-review/O
 const LoiReviewTab = dynamic(() => import('@/components/loi-review/LoiReviewTab'), { loading: TabLoader })
 const ClientLocationMapTab = dynamic(() => import('@/components/client-location-map/ClientLocationMapTab'), { loading: TabLoader })
 const AdminRequiredInfoTab = dynamic(() => import('@/components/admin/AdminRequiredInfoTab'), { loading: TabLoader })
+const ClientTimeline = dynamic(() => import('@/components/admin/ClientTimeline'), { loading: TabLoader })
 import { Badge, WorkstreamBadge, Card, GoldLine, cn } from '@/components/ui'
 import { getClient, getAdminName, getAdminEmail, getCurrentRole } from '@/lib/store'
 import type { Client } from '@/lib/store'
 import { useChatUnread } from '@/hooks/useChatUnread'
-import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
+import { agentLookupKeys, getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
 
@@ -95,11 +96,11 @@ const AGENT_TABS = [
   { key: 'pricing-vertical', label: 'Pricing by Vertical', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'sales-process-review', label: 'Sales Process Review', badge: null, icon: FileText, group: 'WS2 — Performance' },
   // Reports & Roadmaps
-  { key: 'ws1-assessment', label: 'WS1 Internal Assessment', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
-  { key: 'ws1-roadmap', label: 'WS1 Sales Readiness Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  // Retained for historical output compatibility; intentionally hidden from the UI.
+  // { key: 'ws1-assessment', label: 'WS1 Internal Assessment', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   { key: 'ws1-buyer-report', label: 'WS1 Buyer Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
-  { key: 'ws2-assessment', label: 'WS2 Internal Assessment', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
-  { key: 'ws2-roadmap', label: 'WS2 Sales Readiness Roadmap', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
+  // Retained for historical output compatibility; intentionally hidden from the UI.
+  // { key: 'ws2-assessment', label: 'WS2 Internal Assessment', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   { key: 'ws2-buyer-report', label: 'WS2 Buyer Report', badge: null, icon: FileText, group: 'Reports & Roadmaps' },
   // Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again.
   // { key: 'meeting-notes', label: 'Meeting Notes Agent', badge: null, icon: MessageSquare, group: 'WS2 — Performance' },
@@ -119,10 +120,12 @@ const STANDARD_TABS = [
   { key: 'agent-runs', label: 'Agent Status', icon: Bot },
   { key: 'requirements', label: 'Additional Requirements', icon: AlertCircle },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
+  { key: 'sales-readiness-roadmap', label: 'Sales Readiness Roadmap', icon: FileText },
   { key: 'agent-overview', label: 'Agent Overview', icon: FileText },
 ] as const
 
-type TabKey = typeof STANDARD_TABS[number]['key'] | AgentKey
+// Legacy assessment keys remain addressable for previously stored outputs, but are not rendered in navigation.
+type TabKey = typeof STANDARD_TABS[number]['key'] | AgentKey | 'ws1-assessment' | 'ws2-assessment'
 
 const TAB_AGENT_APPROVAL_KEYS: Partial<Record<TabKey, string>> = {
   ttm: 'ttmAnalysis',
@@ -149,14 +152,13 @@ const TAB_AGENT_APPROVAL_KEYS: Partial<Record<TabKey, string>> = {
   'tax-liability-review': 'taxLiabilityReview',
   'ws1-assessment': 'ws1Assessment',
   'ws2-assessment': 'ws2Assessment',
-  'ws1-roadmap': 'ws1Roadmap',
-  'ws2-roadmap': 'ws2Roadmap',
+  'sales-readiness-roadmap': 'salesReadinessRoadmap',
   'net-proceeds': 'net_proceeds',
   teaser: 'teaser',
   cim: 'cim',
 }
 
-const AGENT_ID_TO_TAB_KEY: Record<string, AgentKey> = {
+const AGENT_ID_TO_TAB_KEY: Record<string, TabKey> = {
   ttm: 'ttm',
   lease_analysis: 'lease',
   real_estate_appraisal: 'real-estate-appraisal',
@@ -183,8 +185,9 @@ const AGENT_ID_TO_TAB_KEY: Record<string, AgentKey> = {
   tax_liability_review: 'tax-liability-review',
   ws1_assessment: 'ws1-assessment',
   ws2_assessment: 'ws2-assessment',
-  ws1_roadmap: 'ws1-roadmap',
-  ws2_roadmap: 'ws2-roadmap',
+  sales_readiness_roadmap: 'sales-readiness-roadmap',
+  ws1_roadmap: 'sales-readiness-roadmap',
+  ws2_roadmap: 'sales-readiness-roadmap',
   net_proceeds: 'net-proceeds',
   teaser: 'teaser',
   cim: 'cim',
@@ -199,7 +202,9 @@ function isApprovedForReview(client: Client, tab: TabKey): boolean {
   const approvals = (submissions.agentApprovals && typeof submissions.agentApprovals === 'object'
     ? submissions.agentApprovals
     : {}) as Record<string, unknown>
-  const entry = (approvals[key] ?? approvals[normalizeAgentStatusKey(key)]) as { status?: string } | undefined
+  const entry = agentLookupKeys(key)
+    .map(lookupKey => approvals[lookupKey])
+    .find(value => value && typeof value === 'object') as { status?: string } | undefined
   return entry?.status === 'approved'
 }
 
@@ -360,6 +365,30 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         return true
       })
     : []
+
+  const tabsContainerRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const checkScroll = useCallback(() => {
+    const el = tabsContainerRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 6)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 6)
+  }, [])
+
+  useEffect(() => {
+    checkScroll()
+    const handleResize = () => checkScroll()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [checkScroll, availableAgentTabs])
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    const el = tabsContainerRef.current
+    if (!el) return
+    el.scrollBy({ left: direction === 'left' ? -220 : 220, behavior: 'smooth' })
+  }
 
   useEffect(() => {
     if (getCurrentRole() !== 'admin') { router.push('/login/admin'); return }
@@ -593,70 +622,103 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         </motion.div>
 
         {/* Tab navigation */}
-        <Card className="mb-6">
-          <div className="flex overflow-x-auto hide-scrollbar border-b border-slate-100">
-            {/* Standard tabs */}
-            {STANDARD_TABS.slice(0, 3).map(tab => {
-              const Icon = tab.icon
-              const active = activeTab === tab.key
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={cn(
-                    'flex items-center gap-2 px-5 py-3.5 text-xs font-medium tracking-wide border-b-2 -mb-px whitespace-nowrap transition-all',
-                    active ? 'text-slate-900 border-amber-500' : 'text-slate-400 border-transparent hover:text-slate-600'
-                  )}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {tab.label}
-                </button>
-              )
-            })}
+        <Card className="mb-6 overflow-hidden">
+          <div className="relative group">
+            {canScrollLeft && (
+              <button
+                type="button"
+                onClick={() => scrollTabs('left')}
+                className="absolute left-0 top-0 bottom-2 z-10 flex items-center px-2 bg-gradient-to-r from-white via-white/95 to-transparent text-amber-600 hover:text-amber-700 transition-opacity"
+                title="Scroll left"
+              >
+                <div className="p-1 rounded-full bg-white shadow-md border border-amber-200">
+                  <ChevronLeft className="w-4 h-4 text-amber-600" />
+                </div>
+              </button>
+            )}
 
-            {/* Agents dropdown */}
-            <AgentsDropdown
-              activeTab={activeTab}
-              onSelect={key => setActiveTab(key)}
-              availableAgentTabs={availableAgentTabs}
-            />
-
-            {/* Remaining standard tabs */}
-            {STANDARD_TABS.slice(3).map(tab => {
-              const Icon = tab.icon
-              const active = activeTab === tab.key
-              const locked = tab.key === 'agent-overview' && !overviewReady
-              const tabUnread = tab.key === 'messages' ? messageUnread : 0
-              return (
-                <div
-                  key={tab.key}
-                  onMouseEnter={(event) => { if (locked) setOverviewTooltipRect(event.currentTarget.getBoundingClientRect()) }}
-                  onMouseLeave={() => { if (locked) setOverviewTooltipRect(null) }}
-                  className="relative flex"
-                >
+            <div
+              ref={tabsContainerRef}
+              onScroll={checkScroll}
+              className="flex overflow-x-auto border-b border-slate-100 scroll-smooth [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-amber-50/60 [&::-webkit-scrollbar-thumb]:bg-amber-400 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-amber-500"
+              style={{ scrollbarWidth: 'thin', scrollbarColor: '#f59e0b #fef3c7' }}
+            >
+              {/* Standard tabs */}
+              {STANDARD_TABS.slice(0, 3).map(tab => {
+                const Icon = tab.icon
+                const active = activeTab === tab.key
+                return (
                   <button
-                    onClick={() => { if (!locked) setActiveTab(tab.key) }}
-                    aria-disabled={locked}
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
                     className={cn(
-                      'flex items-center gap-2 px-5 py-3.5 text-xs font-medium tracking-wide border-b-2 -mb-px whitespace-nowrap transition-all',
-                      locked && 'cursor-not-allowed text-slate-300 border-transparent',
-                      !locked && (active ? 'text-slate-900 border-amber-500' : 'text-slate-400 border-transparent hover:text-slate-600')
+                      'flex items-center gap-2 px-5 py-3.5 text-xs font-medium tracking-wide border-b-2 -mb-px whitespace-nowrap transition-all shrink-0',
+                      active ? 'text-slate-900 border-amber-500' : 'text-slate-400 border-transparent hover:text-slate-600'
                     )}
                   >
                     <Icon className="w-3.5 h-3.5" />
                     {tab.label}
-                    {tabUnread > 0 && (
-                      <span
-                        className="inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
-                        style={{ background: '#ef4444' }}
-                      >
-                        {tabUnread}
-                      </span>
-                    )}
                   </button>
+                )
+              })}
+
+              {/* Agents dropdown */}
+              <AgentsDropdown
+                activeTab={activeTab}
+                onSelect={key => setActiveTab(key)}
+                availableAgentTabs={availableAgentTabs}
+              />
+
+              {/* Remaining standard tabs */}
+              {STANDARD_TABS.slice(3).map(tab => {
+                const Icon = tab.icon
+                const active = activeTab === tab.key
+                const locked = tab.key === 'agent-overview' && !overviewReady
+                const tabUnread = tab.key === 'messages' ? messageUnread : 0
+                return (
+                  <div
+                    key={tab.key}
+                    onMouseEnter={(event) => { if (locked) setOverviewTooltipRect(event.currentTarget.getBoundingClientRect()) }}
+                    onMouseLeave={() => { if (locked) setOverviewTooltipRect(null) }}
+                    className="relative flex shrink-0"
+                  >
+                    <button
+                      onClick={() => { if (!locked) setActiveTab(tab.key) }}
+                      aria-disabled={locked}
+                      className={cn(
+                        'flex items-center gap-2 px-5 py-3.5 text-xs font-medium tracking-wide border-b-2 -mb-px whitespace-nowrap transition-all',
+                        locked && 'cursor-not-allowed text-slate-300 border-transparent',
+                        !locked && (active ? 'text-slate-900 border-amber-500' : 'text-slate-400 border-transparent hover:text-slate-600')
+                      )}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {tab.label}
+                      {tabUnread > 0 && (
+                        <span
+                          className="inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
+                          style={{ background: '#ef4444' }}
+                        >
+                          {tabUnread}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+
+            {canScrollRight && (
+              <button
+                type="button"
+                onClick={() => scrollTabs('right')}
+                className="absolute right-0 top-0 bottom-2 z-10 flex items-center px-2 bg-gradient-to-l from-white via-white/95 to-transparent text-amber-600 hover:text-amber-700 transition-opacity"
+                title="Scroll right"
+              >
+                <div className="p-1 rounded-full bg-white shadow-md border border-amber-200">
+                  <ChevronRight className="w-4 h-4 text-amber-600" />
                 </div>
-              )
-            })}
+              </button>
+            )}
           </div>
           {overviewTooltip}
 
@@ -668,12 +730,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             className="p-6"
           >
             {activeTab === 'manage' && (
-              <ClientManager
-                client={client}
-                onSaved={setClient}
-                onDeleted={() => router.push('/admin')}
-                onDeleteError={message => setToast({ message, type: 'error' })}
-              />
+              <div className="space-y-6">
+                <ClientTimeline clientId={client.id} />
+                <ClientManager
+                  client={client}
+                  onSaved={setClient}
+                  onDeleted={() => router.push('/admin')}
+                  onDeleteError={message => setToast({ message, type: 'error' })}
+                />
+              </div>
             )}
             {activeTab === 'documents' && <AdminDocumentsView client={client} onClientUpdated={setClient} />}
             {activeTab === 'required-info' && (
@@ -801,11 +866,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             {activeTab === 'ws2-assessment' && (
               <AssessmentReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws2" readOnly={activeAgentReadOnly} />
             )}
-            {activeTab === 'ws1-roadmap' && (
-              <ImprovementRoadmapTab clientId={client.id} clientName={client.company || client.name} workstream="ws1" readOnly={activeAgentReadOnly} />
-            )}
-            {activeTab === 'ws2-roadmap' && (
-              <ImprovementRoadmapTab clientId={client.id} clientName={client.company || client.name} workstream="ws2" readOnly={activeAgentReadOnly} />
+            {activeTab === 'sales-readiness-roadmap' && (
+              <ImprovementRoadmapTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
             )}
             {activeTab === 'ws1-buyer-report' && (
               <BuyerReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws1" />

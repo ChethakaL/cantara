@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { Plus, Search, Users, MessageSquare, AlertCircle, FolderOpen, ChevronRight, Mail, Loader2, CheckCircle2, ExternalLink, Trello, LogOut, Download, BarChart3 } from 'lucide-react'
 import AdminNav from '@/components/admin/AdminNav'
+import GoogleServicesCard from '@/components/admin/GoogleServicesCard'
 import MondayImportModal from '@/components/monday/MondayImportModal'
 import PetBusinessCategoryField from '@/components/ui/PetBusinessCategoryField'
 import { PROPERTY_OWNERSHIP_OPTIONS } from '@/lib/pet-business-categories'
@@ -131,7 +132,6 @@ export default function AdminDashboard() {
   })
   const [adminName, setAdminName] = useState('Admin Pollack')
   const [driveStatus, setDriveStatus] = useState<{ connected: boolean; connection: { status: string; updatedAt: string | null } | null } | null>(null)
-  const [connectingDrive, setConnectingDrive] = useState(false)
   const [syncingDrive, setSyncingDrive] = useState(false)
   const [driveSyncSummary, setDriveSyncSummary] = useState<string>('')
   const [driveSyncJob, setDriveSyncJob] = useState<any>(null)
@@ -295,28 +295,12 @@ export default function AdminDashboard() {
       setNewClientDriveExistingFolder('')
       setNewClientDriveParentFolder('')
       setNewClientDriveFolderName('')
-      setToast({ message: 'Client created and invite email sent', type: 'success' })
+      setToast({ message: 'Client created — send the portal invitation from the client profile', type: 'success' })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create client'
       setToast({ message, type: 'error' })
     } finally {
       setCreatingClient(false)
-    }
-  }
-
-  const connectDrive = async () => {
-    setConnectingDrive(true)
-    try {
-      const res = await fetch('/api/composio/google-drive/connect', { method: 'POST' })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
-      if (data.redirect_url) {
-        window.open(data.redirect_url, '_blank', 'noopener,noreferrer')
-        window.setTimeout(() => void refreshDriveStatus(), 3000)
-        window.setTimeout(() => void refreshDriveStatus(), 8000)
-      }
-    } finally {
-      setConnectingDrive(false)
     }
   }
 
@@ -348,21 +332,6 @@ export default function AdminDashboard() {
       alert('Failed to disconnect Monday.com')
     } finally {
       setConnectingMonday(false)
-    }
-  }
-
-  const disconnectDrive = async () => {
-    if (!confirm('Are you sure you want to disconnect Google Drive? This will stop folder browsing and document syncing.')) return
-    setConnectingDrive(true)
-    try {
-      const res = await fetch('/api/composio/google-drive/disconnect', { method: 'POST' })
-      if (!res.ok) throw new Error(await res.text())
-      await refreshDriveStatus()
-    } catch (err) {
-      console.error(err)
-      alert('Failed to disconnect Google Drive')
-    } finally {
-      setConnectingDrive(false)
     }
   }
 
@@ -618,56 +587,11 @@ export default function AdminDashboard() {
             </div>
           </div>
 
+          <GoogleServicesCard onManageFolders={() => setShowDriveManager(true)} />
+
+          {driveSyncSummary ? (
           <Card className="p-5 mb-8 border-cantara-gold/20">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(202,161,95,0.08)' }}>
-                  <FolderOpen className="w-5 h-5" style={{ color: '#CAA15F' }} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-semibold text-slate-800">Google Drive storage</h3>
-                    {driveStatus?.connected ? (
-                      <Badge color="green">Connected</Badge>
-                    ) : (
-                      <Badge color="slate">{driveStatus?.connection?.status ? `Status: ${driveStatus.connection.status}` : 'Not connected'}</Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
-                    Sign in with Google, then choose or change each client&apos;s Drive folder from Client Management.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-                {driveStatus?.connected && (
-                  <Button
-                    size="sm"
-                    onClick={() => setShowDriveManager(true)}
-                  >
-                    <FolderOpen className="w-3.5 h-3.5" />
-                    Manage folders
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant={driveStatus?.connected ? 'outline' : 'primary'}
-                  onClick={() => driveStatus?.connected ? void disconnectDrive() : void connectDrive()}
-                  disabled={connectingDrive || syncingDrive}
-                  className={driveStatus?.connected ? 'text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200' : ''}
-                >
-                  {connectingDrive ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : driveStatus?.connected ? (
-                    <LogOut className="w-3.5 h-3.5" />
-                  ) : (
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  )}
-                  {driveStatus?.connected ? 'Disconnect' : 'Sign in with Google'}
-                </Button>
-              </div>
-            </div>
-            {driveSyncSummary && (
-              <div className="mt-4 rounded-lg border border-slate-200 bg-white/50 backdrop-blur-sm px-4 py-4 text-xs shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white/50 backdrop-blur-sm px-4 py-4 text-xs shadow-sm">
                 <div className="flex items-start gap-3">
                   <div className="mt-0.5">
                     {syncingDrive ? (
@@ -766,8 +690,8 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               </div>
-            )}
           </Card>
+          ) : null}
 
           <Modal
             open={showDriveManager}

@@ -99,9 +99,9 @@ function EditableCell({
   )
 }
 
-function makeEmptyMatrixRow(competitorNames: string[]): PriceMatrixRow {
+function makeEmptyMatrixRow(competitorNames: string[], defaultService = ''): PriceMatrixRow {
   return {
-    service: '',
+    service: defaultService,
     basis: '',
     sellerPrice: '',
     sellerNormalized: '',
@@ -309,7 +309,7 @@ export default function PricingAnalysisTab({
 
   // ── Mutation helpers ────────────────────────────────────────────────────────
   const updateMatrixRow = (index: number, field: keyof PriceMatrixRow, value: any) => {
-    if (!result) return
+    if (!result || index < 0 || index >= (result.priceMatrix ?? []).length) return
     const matrix = [...(result.priceMatrix ?? [])]
     matrix[index] = { ...matrix[index], [field]: value }
     setResult({ ...result, priceMatrix: matrix })
@@ -321,9 +321,9 @@ export default function PricingAnalysisTab({
     field: 'listedPrice' | 'normalized' | 'normalizationNote',
     value: string,
   ) => {
-    if (!result) return
+    if (!result || rowIndex < 0 || rowIndex >= (result.priceMatrix ?? []).length) return
     const matrix = [...(result.priceMatrix ?? [])]
-    const row = { ...matrix[rowIndex], competitors: [...matrix[rowIndex].competitors] }
+    const row = { ...matrix[rowIndex], competitors: [...(matrix[rowIndex].competitors ?? [])] }
     let compIndex = row.competitors.findIndex(c => c.name === compName)
     if (compIndex < 0) {
       row.competitors.push({
@@ -340,17 +340,21 @@ export default function PricingAnalysisTab({
     setResult({ ...result, priceMatrix: matrix })
   }
 
-  const addMatrixRow = () => {
+  const addMatrixRow = (vertical?: PricingServiceVertical) => {
     if (!result) return
     const names = getCompetitorNamesFromReport(result)
+    const defaultService =
+      vertical && vertical !== 'Other'
+        ? `${vertical} - `
+        : ''
     setResult({
       ...result,
-      priceMatrix: [...(result.priceMatrix ?? []), makeEmptyMatrixRow(names)],
+      priceMatrix: [...(result.priceMatrix ?? []), makeEmptyMatrixRow(names, defaultService)],
     })
   }
 
   const removeMatrixRow = (rowIndex: number) => {
-    if (!result) return
+    if (!result || rowIndex < 0 || rowIndex >= (result.priceMatrix ?? []).length) return
     const matrix = [...(result.priceMatrix ?? [])]
     matrix.splice(rowIndex, 1)
     setResult({ ...result, priceMatrix: matrix })
@@ -365,7 +369,7 @@ export default function PricingAnalysisTab({
   }
 
   const removeSummaryRow = (rowIndex: number) => {
-    if (!result) return
+    if (!result || rowIndex < 0 || rowIndex >= (result.pricingSummary ?? []).length) return
     const summary = [...(result.pricingSummary ?? [])]
     summary.splice(rowIndex, 1)
     setResult({ ...result, pricingSummary: summary })
@@ -388,7 +392,7 @@ export default function PricingAnalysisTab({
   }
 
   const updateSummaryRow = (index: number, field: keyof PricingSummaryRow, value: any) => {
-    if (!result) return
+    if (!result || index < 0 || index >= (result.pricingSummary ?? []).length) return
     const summary = [...(result.pricingSummary ?? [])]
     summary[index] = { ...summary[index], [field]: value }
     setResult({ ...result, pricingSummary: summary })
@@ -689,11 +693,11 @@ export default function PricingAnalysisTab({
                         <span className="text-[10px] text-slate-400">No services in this section</span>
                       )}
                     </div>
-                    {editMode && vertical === 'Other' && (
+                    {editMode && (
                       <button
                         type="button"
-                        onClick={addMatrixRow}
-                        className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
+                        onClick={() => addMatrixRow(vertical)}
+                        className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium px-2 py-1 rounded hover:bg-amber-50 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         Add row
@@ -773,7 +777,7 @@ export default function PricingAnalysisTab({
                           {editMode && groupedRows.length === 0 && (
                             <tr>
                               <td colSpan={3 + competitorNames.length + (editMode ? 1 : 0)} className="px-4 py-6 text-center text-sm text-slate-400">
-                                No {vertical.toLowerCase()} services yet. Add a row from the Other section or run analysis.
+                                No {vertical.toLowerCase()} services yet. Click &ldquo;Add row&rdquo; above to add one.
                               </td>
                             </tr>
                           )}

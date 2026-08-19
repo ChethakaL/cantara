@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getLatestTaxLiabilityReport } from '@/lib/tax-liability-review/storage'
-import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
+import { agentLookupKeys, getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
+import { readChecklistSubmission, readRoadmapSubmission } from '@/lib/sale-readiness-checklist'
 import { VALUATION_DOCS, DOCUMENT_CATEGORIES } from '@/lib/documentData'
 
 export const dynamic = 'force-dynamic'
@@ -86,10 +87,12 @@ const AGENT_LABELS: Record<string, { label: string; tabKey: string; category: st
   ws1Assessment: { label: 'WS1 Assessment Report', tabKey: 'ws1-assessment', category: 'Reports & Roadmaps' },
   ws2_assessment: { label: 'WS2 Assessment Report', tabKey: 'ws2-assessment', category: 'Reports & Roadmaps' },
   ws2Assessment: { label: 'WS2 Assessment Report', tabKey: 'ws2-assessment', category: 'Reports & Roadmaps' },
-  ws1_roadmap: { label: 'WS1 Sales Readiness Roadmap', tabKey: 'ws1-roadmap', category: 'Reports & Roadmaps' },
-  ws1Roadmap: { label: 'WS1 Sales Readiness Roadmap', tabKey: 'ws1-roadmap', category: 'Reports & Roadmaps' },
-  ws2_roadmap: { label: 'WS2 Sales Readiness Roadmap', tabKey: 'ws2-roadmap', category: 'Reports & Roadmaps' },
-  ws2Roadmap: { label: 'WS2 Sales Readiness Roadmap', tabKey: 'ws2-roadmap', category: 'Reports & Roadmaps' },
+  sales_readiness_roadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
+  salesReadinessRoadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
+  ws1_roadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
+  ws1Roadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
+  ws2_roadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
+  ws2Roadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
 }
 
 const DOCUMENT_NAMES: Record<string, string> = {}
@@ -104,14 +107,20 @@ for (const cat of DOCUMENT_CATEGORIES) {
 
 
 
+function firstLookupEntry(store: Record<string, unknown> | null | undefined, agentId: string, statusKey: string) {
+  for (const key of [...agentLookupKeys(agentId), statusKey]) {
+    const entry = store?.[key]
+    if (entry && typeof entry === 'object') return entry as Record<string, unknown>
+  }
+  return undefined
+}
+
 function manualApproval(
   approvals: Record<string, unknown> | null | undefined,
   agentId: string,
   statusKey: string,
 ): boolean {
-  const entry = approvals?.[agentId] ?? approvals?.[statusKey]
-  if (!entry || typeof entry !== 'object') return false
-  return (entry as { status?: string }).status === 'approved'
+  return firstLookupEntry(approvals, agentId, statusKey)?.status === 'approved'
 }
 
 function manualRelease(
@@ -119,9 +128,8 @@ function manualRelease(
   agentId: string,
   statusKey: string,
 ): { released: boolean; releasedAt: string | null } {
-  const entry = releases?.[agentId] ?? releases?.[statusKey]
-  if (!entry || typeof entry !== 'object') return { released: false, releasedAt: null }
-  const release = entry as { released?: boolean; releasedAt?: string }
+  const release = firstLookupEntry(releases, agentId, statusKey)
+  if (!release) return { released: false, releasedAt: null }
   return {
     released: release.released === true,
     releasedAt: typeof release.releasedAt === 'string' ? release.releasedAt : null,
@@ -396,20 +404,16 @@ export async function GET(req: NextRequest) {
         ?? (submissions.assessmentReport_ws2 as { generatedAt?: string })?.generatedAt
         ?? null,
     },
-    ws1Roadmap: {
-      hasRun: Boolean(submissions.improvementRoadmap_ws1),
-      approved: manualApproval(approvals, 'ws1_roadmap', 'ws1Roadmap'),
-      runAt: (submissions.improvementRoadmap_ws1 as { updatedAt?: string; generatedAt?: string })?.updatedAt
-        ?? (submissions.improvementRoadmap_ws1 as { generatedAt?: string })?.generatedAt
-        ?? null,
-    },
-    ws2Roadmap: {
-      hasRun: Boolean(submissions.improvementRoadmap_ws2),
-      approved: manualApproval(approvals, 'ws2_roadmap', 'ws2Roadmap'),
-      runAt: (submissions.improvementRoadmap_ws2 as { updatedAt?: string; generatedAt?: string })?.updatedAt
-        ?? (submissions.improvementRoadmap_ws2 as { generatedAt?: string })?.generatedAt
-        ?? null,
-    },
+    salesReadinessRoadmap: (() => {
+      const stored = readRoadmapSubmission(submissions) ?? readChecklistSubmission(submissions)
+      return {
+        hasRun: Boolean(stored),
+        approved: manualApproval(approvals, 'sales_readiness_roadmap', 'salesReadinessRoadmap'),
+        runAt: (stored as { updatedAt?: string; generatedAt?: string } | null)?.updatedAt
+          ?? (stored as { generatedAt?: string } | null)?.generatedAt
+          ?? null,
+      }
+    })(),
   }
 
   const uploadedDocIds = new Set((uploadedDocs ?? []).map(d => d.documentId).filter(Boolean) as string[])

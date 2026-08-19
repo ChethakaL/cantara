@@ -365,8 +365,29 @@ model ClientProfile {
   TtmAnalyses                  TtmAnalysis[]
   Ws2DerivedReports            Ws2DerivedReport[]
   Ws2RecastAnalyses            Ws2RecastAnalysis[]
+  timelineStages               ClientTimelineStage[]
 
   @@index([customWorkstreamId])
+}
+
+model ClientTimelineStage {
+  id             String    @id @default(cuid())
+  clientId       String
+  stageKey       String
+  status         String    @default("PENDING")
+  manualOverride Boolean   @default(false)
+  completedAt    DateTime?
+  completedBy    String?
+  notesText      String?
+  notesFileName  String?
+  notesUploadedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  client ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, stageKey])
+  @@index([clientId, updatedAt])
 }
 
 model WorkstreamTemplate {
@@ -535,21 +556,42 @@ model User {
   Sessions                  Session[]
   salesLeads                SalesLead[]
   outreachAssets            OutreachAsset[]
+  advisorMailConnection     AdvisorMailConnection?
+}
+
+model AdvisorMailConnection {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  provider           String   @default("GMAIL")
+  composioUserId     String   @unique
+  connectedAccountId String
+  email              String?
+  status             String   @default("PENDING")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([connectedAccountId])
 }
 
 model OutreachAsset {
-  id             String               @id @default(cuid())
-  senderUserId   String?
-  touch          Int
-  contactType    SalesLeadContactType
-  assetType      String               @default("EMAIL")
-  subject        String?
-  body           String
-  version        Int                  @default(1)
-  active         Boolean              @default(true)
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  senderUser     User?                @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  id                 String               @id @default(cuid())
+  senderUserId       String?
+  touch              Int
+  contactType        SalesLeadContactType
+  assetType          String               @default("EMAIL")
+  subject            String?
+  body               String
+  senderDisplayName  String?
+  calendarUrl        String?
+  senderPhone        String?
+  guideUrl           String?
+  version            Int                  @default(1)
+  active             Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  senderUser         User?                @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
 
   @@index([touch, contactType, active])
   @@index([senderUserId, touch, contactType, active])
@@ -876,6 +918,7 @@ enum ClientEmailNotificationType {
   TEAM_MEMBER_INVITE
   DOCUMENT_DEADLINE_REMINDER
   CHAT_MESSAGE
+  CLIENT_PORTAL_INVITE
 }
 
 enum ClientEmailNotificationStatus {

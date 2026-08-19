@@ -481,6 +481,7 @@ export default function MondayImportModal({ onClose, onImported }: { onClose: ()
                   <div>
                     <p className="text-sm font-semibold text-slate-800">Import complete</p>
                     <p className="text-xs text-slate-400">{created.length} created, {skipped.length} skipped</p>
+                    <p className="text-xs text-slate-500 mt-1">Send portal invitations manually from each client&apos;s profile (Client Management tab).</p>
                   </div>
                 </div>
                 {created.length > 0 && (

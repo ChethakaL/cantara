@@ -187,19 +187,16 @@ export default function OccupancyReviewTab({
       setReport(data.report)
       setClientDocs(data.clientDocs || [])
       const inputs = data.inputs
-      // Pre-fill form from saved report or client portal inputs
-      if (data.report?.capacityModel) {
-        const cm = data.report.capacityModel
-        if (cm.totalDailyCapacity) setTotalDailyCapacity(String(cm.totalDailyCapacity))
-        if (cm.boardingRuns) setBoardingRuns(String(cm.boardingRuns))
-        if (cm.daycareSpots) setDaycareSpotsInput(String(cm.daycareSpots))
-        if (cm.groomingStations) setGroomingStations(String(cm.groomingStations))
-      } else if (inputs) {
-        if (inputs.totalDailyCapacity) setTotalDailyCapacity(String(inputs.totalDailyCapacity))
-        if (inputs.boardingRuns) setBoardingRuns(String(inputs.boardingRuns))
-        if (inputs.daycareSpots) setDaycareSpotsInput(String(inputs.daycareSpots))
-        if (inputs.groomingStations) setGroomingStations(String(inputs.groomingStations))
-      }
+      const cm = data.report?.capacityModel
+      const totalDaily = inputs?.totalDailyCapacity ?? cm?.totalDailyCapacity
+      const bRuns = inputs?.boardingRuns ?? cm?.boardingRuns
+      const dSpots = inputs?.daycareSpots ?? cm?.daycareSpots
+      const gStations = inputs?.groomingStations ?? cm?.groomingStations
+
+      if (totalDaily != null) setTotalDailyCapacity(String(totalDaily))
+      if (bRuns != null) setBoardingRuns(String(bRuns))
+      if (dSpots != null) setDaycareSpotsInput(String(dSpots))
+      if (gStations != null) setGroomingStations(String(gStations))
       if (data.report?.monthlyData?.length) {
         setMonthlyData(data.report.monthlyData)
       } else if (inputs?.monthlyData?.length) {

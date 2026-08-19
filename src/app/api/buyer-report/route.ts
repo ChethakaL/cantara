@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
+import { readRoadmapSubmission } from '@/lib/sale-readiness-checklist'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -19,8 +20,9 @@ export async function GET(req: NextRequest) {
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
   const key = `buyerReport_${workstream}`
   const report = submissions[key] ?? null
+  const roadmap = readRoadmapSubmission(submissions)
 
-  return NextResponse.json({ report })
+  return NextResponse.json({ report, roadmapReady: Boolean(roadmap?.stage === 'report' && roadmap.markdown?.trim()) })
 }
 
 export async function POST(req: NextRequest) {
@@ -38,7 +40,10 @@ export async function POST(req: NextRequest) {
   if (!client) return new Response('Client not found', { status: 404 })
 
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
-  const assessmentReport = submissions[`assessmentReport_${workstream}`]
+  const roadmapReport = readRoadmapSubmission(submissions)
+  if (!roadmapReport || roadmapReport.stage !== 'report' || !roadmapReport.markdown?.trim()) {
+    return NextResponse.json({ error: 'Run and submit the Sales Readiness Roadmap before generating the buyer report.' }, { status: 409 })
+  }
   const agentData = await gatherAgentData(clientId, workstream)
 
   const wsLabel = workstream === 'ws1' ? 'Workstream 1 — Risk Mitigation' : 'Workstream 2 — Profitability & Growth'
@@ -151,7 +156,8 @@ Numbered list of 5-7 recommended next steps for an interested buyer. Be specific
 
 ## Source Data
 
-${assessmentReport?.markdown ? `### Internal Assessment Summary\n${truncate(assessmentReport.markdown, 6000)}` : ''}
+### Sales Readiness Roadmap
+${truncate(roadmapReport.markdown, 10000)}
 
 ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`).join('\n\n')}`,
     }],

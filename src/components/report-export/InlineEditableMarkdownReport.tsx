@@ -287,7 +287,7 @@ export default function InlineEditableMarkdownReport({
         {effectiveEditMode ? (
           <div className="space-y-4">
             <p className="text-[11px] text-slate-500">
-              Edit directly in the report below. Tables can be changed cell by cell — add or remove rows as needed.
+              Edit directly in the report below. Tables can be changed cell by cell — add or remove rows and lines as needed.
             </p>
             {blocks.map((block, index) => (
               <div key={index}>

@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { SalesLeadStage } from '@prisma/client'
 import { approveSalesLeadEmail, requestSalesLeadEmailApproval } from '@/lib/sales-leads/service'
 import { buildSalesLeadEmailDraft } from '@/lib/sales-leads/email-provider'
+import { parseEmailList, withoutEmail } from '@/lib/sales-leads/email-recipients'
+import { SalesLeadWorkflowError } from '@/lib/sales-leads/workflow'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,13 +40,18 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await req.json()
-    const { subject, bodyText } = body
+    const { subject, bodyText, extraTo, cc } = body
 
     const lead = await prisma.salesLead.findUnique({ where: { id: params.id } })
     if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
 
     if (!lead.ownerEmail) {
       return NextResponse.json({ error: 'Lead has no owner email address' }, { status: 400 })
+    }
+
+    const recipients = {
+      extraTo: withoutEmail(parseEmailList(extraTo), lead.ownerEmail),
+      cc: withoutEmail(parseEmailList(cc), lead.ownerEmail),
     }
 
     const templateNum = lead.currentStage === SalesLeadStage.EMAIL_2_DUE ? 2 : 1
@@ -59,9 +66,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         },
       })
     }
-    const updated = await approveSalesLeadEmail(lead.id, 'Admin')
-    return NextResponse.json({ success: true, updated })
+    const updated = await approveSalesLeadEmail(lead.id, 'Admin', recipients)
+    return NextResponse.json({ success: true, updated, recipients })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Email sending failed' }, { status: 500 })
+    const message = error.message || 'Email sending failed'
+    if (error instanceof SalesLeadWorkflowError) {
+      return NextResponse.json({ error: message, code: error.code }, { status: 409 })
+    }
+    console.error('[sales-leads/email-draft]', error)
+    const status = /^Invalid email address/i.test(message) ? 400 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }
