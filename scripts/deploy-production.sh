@@ -106,6 +106,8 @@ apply_sql "OutreachAsset table" "${REPO}/prisma/migrations/20260806_add_outreach
 apply_sql "Client portal invite notification type" "${REPO}/prisma/migrations/20260818_add_client_portal_invite_notification/migration.sql"
 apply_sql "Advisor mail connections" "${REPO}/prisma/migrations/20260819_add_advisor_mail_connections/migration.sql"
 apply_sql "Client timeline stages" "${REPO}/prisma/migrations/20260819_add_client_timeline_stages/migration.sql"
+apply_sql "Outreach asset fill-in fields" "${REPO}/prisma/migrations/20260819_add_outreach_asset_fill_in_fields/migration.sql"
+apply_sql "Occupancy capacity required info restore" "${REPO}/prisma/migrations/20260818200000_restore_occupancy_capacity_required_info/migration.sql"
 
 sleep 12
 curl -sf -o /dev/null -w "local:%{http_code}\n" "http://127.0.0.1:${PORT}/" || echo "local:fail"
