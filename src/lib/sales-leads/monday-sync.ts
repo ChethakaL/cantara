@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma'
 import { getProjectEnv } from '@/lib/project-env'
 import { getStoredSalesLeadMondaySettings } from '@/lib/secure-settings'
 import { CALL_RESULT_LABELS, STAGE_LABELS } from '@/lib/sales-leads/workflow'
+import { matchMondayPersonName, type MatchableCaller } from '@/lib/sales-leads/caller-match'
 import {
   recordSalesLeadCall,
   setSalesLeadStage,
@@ -403,17 +404,50 @@ function columnNumber(item: any, columnId: string | undefined) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function resolveAssignedCallerId(
+  item: any,
+  mapping: MondayMapping,
+  callerByMondayId: Map<string, string>,
+  callers: MatchableCaller[],
+) {
+  const mondayPersonId = columnPersonId(item, mapping.assignedCaller)
+  const fromIdMap = mondayPersonId ? callerByMondayId.get(mondayPersonId) || null : null
+  const assignedText = columnText(item, mapping.assignedCaller)
+  const fromName = matchMondayPersonName(assignedText, callers)
+
+  if (fromIdMap || fromName) {
+    console.log('[sales-leads] Assigned lead from Monday', {
+      item: item.name,
+      assignedText: assignedText || null,
+      mondayPersonId,
+      matchedBy: fromIdMap ? 'callerMapping' : 'name',
+      matchedUserId: fromIdMap || fromName?.id || null,
+      matchedUserName: fromIdMap
+        ? callers.find(caller => caller.id === fromIdMap)?.name || fromIdMap
+        : fromName?.name || null,
+    })
+  } else if (assignedText || mondayPersonId) {
+    console.warn('[sales-leads] Assigned lead on Monday did not match a Cantara admin', {
+      item: item.name,
+      assignedText: assignedText || null,
+      mondayPersonId,
+    })
+  }
+
+  return fromIdMap || fromName?.id || null
+}
+
 function fieldsFromMondayItem(
   item: any,
   mapping: MondayMapping,
   callerByMondayId: Map<string, string>,
+  callers: MatchableCaller[],
 ) {
   const ownerEmail = columnText(item, mapping.ownerEmail)
   const generalEmail = columnText(item, mapping.generalEmail)
   const ownerPhone = columnText(item, mapping.ownerPhone)
   const generalPhone = columnText(item, mapping.generalPhone)
-  const mondayPersonId = columnPersonId(item, mapping.assignedCaller)
-  const assignedCallerId = mondayPersonId ? callerByMondayId.get(mondayPersonId) || null : null
+  const assignedCallerId = resolveAssignedCallerId(item, mapping, callerByMondayId, callers)
   const stage = stageByLabel[columnText(item, mapping.currentStage).toLowerCase()] || SalesLeadStage.NEW
 
   return {
@@ -450,10 +484,11 @@ async function createLeadFromMondayItem(args: {
   boardId: string
   mapping: MondayMapping
   callerByMondayId: Map<string, string>
+  callers: MatchableCaller[]
 }) {
   const businessName = String(args.item.name || '').trim()
   const mondayItemId = String(args.item.id)
-  const fields = fieldsFromMondayItem(args.item, args.mapping, args.callerByMondayId)
+  const fields = fieldsFromMondayItem(args.item, args.mapping, args.callerByMondayId, args.callers)
 
   const created = await prisma.salesLead.create({
     data: {
@@ -505,6 +540,10 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
   const callerByMondayId = new Map(
     Object.entries(config.callerMapping).map(([userId, mondayId]) => [String(mondayId), userId]),
   )
+  const callers = await prisma.user.findMany({
+    where: { role: 'ADMIN' },
+    select: { id: true, name: true, email: true },
+  })
   let updated = 0
   let created = 0
   const createdNames: string[] = []
@@ -540,6 +579,7 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
             boardId: config.boardId,
             mapping: config.mapping,
             callerByMondayId,
+            callers,
           })
           created += 1
           createdNames.push(businessName)
@@ -598,8 +638,7 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
       }
 
       const manualFields: any = {}
-      const mondayPersonId = columnPersonId(item, config.mapping.assignedCaller)
-      const assignedCallerId = mondayPersonId ? callerByMondayId.get(mondayPersonId) : undefined
+      const assignedCallerId = resolveAssignedCallerId(item, config.mapping, callerByMondayId, callers)
       if (assignedCallerId && assignedCallerId !== lead.assignedCallerId) {
         manualFields.assignedCallerId = assignedCallerId
       }
