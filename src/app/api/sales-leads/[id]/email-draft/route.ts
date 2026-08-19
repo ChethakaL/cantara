@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { SalesLeadStage } from '@prisma/client'
 import { approveSalesLeadEmail, requestSalesLeadEmailApproval } from '@/lib/sales-leads/service'
-import { buildSalesLeadEmailDraft } from '@/lib/sales-leads/email-provider'
+import { buildSalesLeadEmailDraft, SalesLeadEmailConfigurationError } from '@/lib/sales-leads/email-provider'
 import { parseEmailList, withoutEmail } from '@/lib/sales-leads/email-recipients'
 import { SalesLeadWorkflowError } from '@/lib/sales-leads/workflow'
 
@@ -33,7 +33,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       body: draft.body,
     })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Draft generation failed' }, { status: 500 })
+    const message = error?.message || 'Draft generation failed'
+    console.error('[sales-leads/email-draft GET]', message)
+    const status = error instanceof SalesLeadEmailConfigurationError ? 400 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }
 

@@ -87,8 +87,13 @@ export default function LeadDetailDrawer({
     setEmailErrorMsg('')
     try {
       const res = await fetch(`/api/sales-leads/${leadId}/email-draft`)
-      if (!res.ok) throw new Error('Failed to generate draft')
-      const data = await res.json()
+      const data = await res.json().catch(() => ({} as { error?: string }))
+      if (!res.ok) {
+        throw new Error(
+          (typeof data.error === 'string' && data.error.trim()) ||
+            'Failed to generate draft',
+        )
+      }
       setDraftSubject(data.subject || '')
       setDraftBody(data.body || '')
       setDraftRecipient(data.recipientEmail || '')
