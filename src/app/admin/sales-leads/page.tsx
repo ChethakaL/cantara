@@ -91,6 +91,18 @@ export default function SalesLeadsPage() {
       setLeads(data.leads || [])
       setCallers(data.callers || [])
       setStats(data.stats || { active: 0, due: 0, warm: 0, idle: 0 })
+      if (syncWithMonday) {
+        const created = Number(data.sync?.created || 0)
+        const syncError = typeof data.sync?.error === 'string' ? data.sync.error : ''
+        if (syncError) {
+          setSyncingNotice(`Monday sync issue: ${syncError}`)
+        } else if (created > 0) {
+          setSyncingNotice(`Imported ${created} new lead${created === 1 ? '' : 's'} from Monday: ${(data.sync?.createdNames || []).join(', ')}`)
+        } else {
+          setSyncingNotice('Monday sync complete. No new board items to import.')
+        }
+        window.setTimeout(() => setSyncingNotice(null), 8000)
+      }
     } catch (e: any) {
       setError(e.message || 'Unable to load sales leads')
     } finally {
@@ -218,7 +230,7 @@ export default function SalesLeadsPage() {
             <Button variant="outline" size="sm" onClick={() => setShowMondayConfig(true)} className="bg-white">
               <Settings2 className="w-3.5 h-3.5 mr-1.5 text-cantara-gold" /> Monday Configuration
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void load(true)} className="bg-white" title="Refresh & Sync from Monday.com">
+            <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={loading} className="bg-white" title="Refresh & Sync from Monday.com">
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-cantara-gold ${loading ? 'animate-spin' : ''}`} /> Monday Sync
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowDriveConfig(true)} className="bg-white">
@@ -239,15 +251,21 @@ export default function SalesLeadsPage() {
         {syncingNotice && (
           <div className="mb-6 p-3.5 rounded-xl bg-blue-50/90 border border-blue-200 text-blue-900 text-xs flex items-center justify-between shadow-xs">
             <span className="flex items-center gap-2 font-medium">
-              {syncingNotice.startsWith('Google Drive') ? (
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-              ) : (
+              {syncingNotice.startsWith('Creating local records') ? (
                 <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
               )}
               {syncingNotice}
             </span>
             <span className="text-[11px] text-blue-700 bg-blue-100 px-2.5 py-1 rounded-full font-semibold">
-              {syncingNotice.startsWith('Google Drive') ? 'Configuration Saved' : 'Background Sync Active'}
+              {syncingNotice.startsWith('Creating local records')
+                ? 'Background Sync Active'
+                : syncingNotice.startsWith('Monday sync issue')
+                  ? 'Sync Issue'
+                  : syncingNotice.startsWith('Google Drive')
+                    ? 'Configuration Saved'
+                    : 'Sync Complete'}
             </span>
           </div>
         )}
