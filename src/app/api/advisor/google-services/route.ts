@@ -5,6 +5,7 @@ import {
   getAdvisorGoogleServicesStatus,
   startAdvisorGoogleConnectChain,
 } from '@/lib/advisor-google'
+import { publicAppOrigin } from '@/lib/public-origin'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   const advisor = await getLoggedInAdvisor()
   if (!advisor) return new Response('Advisor authentication required', { status: 401 })
   try {
-    const origin = new URL(req.url).origin
+    const origin = publicAppOrigin(req)
     const link = await startAdvisorGoogleConnectChain(advisor.id, origin)
     return NextResponse.json(link)
   } catch (error) {

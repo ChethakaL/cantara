@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getLoggedInAdvisor } from '@/lib/advisor-mail'
 import { continueAdvisorGoogleConnectChain } from '@/lib/advisor-google'
+import { publicAppOrigin } from '@/lib/public-origin'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  const origin = new URL(req.url).origin
+  const origin = publicAppOrigin(req)
   const advisor = await getLoggedInAdvisor()
   if (!advisor) {
     return NextResponse.redirect(`${origin}/login/admin?next=/admin`)
