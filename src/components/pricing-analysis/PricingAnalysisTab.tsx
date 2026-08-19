@@ -26,6 +26,7 @@ import {
   groupRowsByPricingVertical,
   PRICING_SERVICE_VERTICAL_ORDER,
   classifyPricingService,
+  type PricingServiceVertical,
 } from '@/lib/pricing-analysis/service-vertical'
 
 const STATUS_COLORS: Record<string, { badge: 'red' | 'green' | 'blue' | 'slate'; label: string }> = {

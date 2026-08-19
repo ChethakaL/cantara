@@ -278,7 +278,7 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
       sectionSubmissions: {
         ...existingSections,
         facilityReviewMode: nextMode,
-      } as Client['sectionSubmissions'],
+      } as unknown as Client['sectionSubmissions'],
     }
     setClient(nextClient)
     try {
