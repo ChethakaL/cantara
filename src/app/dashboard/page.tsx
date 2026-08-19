@@ -814,7 +814,7 @@ export default function ClientDashboard() {
                 return true
               }).map(p => {
                 const isActive = phase === p.id
-                const hasBadge = (p.id === 'requirements' && openReqs.length > 0) || p.id === 'information'
+                const hasBadge = p.id === 'requirements' && openReqs.length > 0
                 const disabled = Boolean((p as any).disabled)
                 const isStepHighlighted = false
                 return (
@@ -843,9 +843,6 @@ export default function ClientDashboard() {
                       <span className="w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: '#f43f5e', color: 'white' }}>
                         {openReqs.length}
                       </span>
-                    )}
-                    {hasBadge && p.id === 'information' && (
-                      <span className="w-2 h-2 rounded-full" style={{ background: '#d4a843' }} />
                     )}
                   </button>
                 )
@@ -2840,6 +2837,8 @@ function AgentInformationTab({
                 <p className="text-xs text-slate-500 mt-1">
                   {activeFormTab === 'facility_review'
                     ? 'Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.'
+                    : activeFormTab === 'occupancy_review'
+                    ? 'WS2 — Establish capacity limits and capacity model for buyer-facing analysis.'
                     : 'Complete the fields below. Answers save automatically.'}
                 </p>
               )}
@@ -2886,9 +2885,16 @@ function AgentInformationTab({
                 className="space-y-3 pt-2 border-t border-slate-100 first:border-t-0 first:pt-0"
               >
                 {activeFormTab !== 'competitor_analysis' && (
-                  <h5 className="text-sm font-bold text-slate-800">
-                    {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
-                  </h5>
+                  <div>
+                    <h5 className="text-sm font-bold text-slate-800">
+                      {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
+                    </h5>
+                    {group.groupLabel === 'Capacity Model' && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Owner-stated total capacity is preferred. Daycare spots = Total – Boarding Runs if left blank.
+                      </p>
+                    )}
+                  </div>
                 )}
                 {activeFormTab === 'competitor_analysis' ? (
                   <ClientCompetitorInputsFields
@@ -3834,7 +3840,7 @@ function RoadmapTab({ clientId, client }: { clientId: string; client: ClientAppr
     },
     {
       label: 'Reports & Roadmaps',
-      keys: ['ws1Assessment','ws2Assessment','ws1Roadmap','ws2Roadmap'],
+      keys: ['ws1Assessment','ws2Assessment','salesReadinessRoadmap','ws1Roadmap','ws2Roadmap'],
     },
   ]
 

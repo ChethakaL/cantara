@@ -5,6 +5,7 @@ import { KeyRound, Loader2, ShieldCheck, Database, Sliders, CheckCircle2, Lock }
 import { AdminPortalHeader } from '@/components/admin/AdminPortalHeader'
 import { Button, Input } from '@/components/ui'
 import { useAdminInboxUnread } from '@/hooks/useChatRoom'
+import GoogleServicesCard from '@/components/admin/GoogleServicesCard'
 import { MONDAY_ITEM_NAME_COLUMN_ID, MONDAY_ITEM_NAME_COLUMN_LABEL } from '@/lib/monday-client-import'
 import { getAdminEmail } from '@/lib/store'
 import {
@@ -316,6 +317,8 @@ export default function AdminSettingsPage() {
             Configure system-wide integrations, credentials, and custom entity mappings.
           </p>
         </div>
+
+        <GoogleServicesCard />
 
         {/* Anthropic Section */}
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

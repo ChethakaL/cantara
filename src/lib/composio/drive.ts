@@ -3,7 +3,7 @@ import { renderHtmlToPdfBuffer } from "@/lib/report-pdf";
 import { assertS3Configured, buildPresignedFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import {
   composioFetch,
-  tryComposioFetch,
+  createComposioAuthLink,
   getComposioAdminId,
   ADMIN_DRIVE_USER_ID,
   GOOGLEDRIVE_TOOLKIT_SLUG,
@@ -58,35 +58,12 @@ async function getGoogleDriveAuthConfigId() {
 export async function createGoogleDriveConnectLink(callbackUrl: string, adminId?: string) {
   const userId = adminId || getComposioAdminId() || ADMIN_DRIVE_USER_ID;
   const authConfigId = await getGoogleDriveAuthConfigId();
-  const direct = await tryComposioFetch<{
-    id: string;
-    redirect_url: string;
-  }>("/connected_accounts", {
-    method: "POST",
-    body: JSON.stringify({
-      auth_config: { id: authConfigId },
-      connection: { user_id: userId },
-    }),
-  });
-
-  if (direct?.redirect_url) {
-    return {
-      redirect_url: direct.redirect_url,
-      connected_account_id: direct.id,
-    };
-  }
-
-  return composioFetch<{
-    redirect_url: string;
-    connected_account_id: string;
-  }>("/connected_accounts/link", {
-    method: "POST",
-    body: JSON.stringify({
-      auth_config_id: authConfigId,
-      user_id: userId,
-      alias: `cantara-google-drive-${Date.now()}`,
-      callback_url: callbackUrl,
-    }),
+  return createComposioAuthLink({
+    authConfigId,
+    userId,
+    callbackUrl,
+    alias: `cantara-google-drive-${Date.now()}`,
+    allowMultiple: true,
   });
 }
 

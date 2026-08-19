@@ -13,12 +13,31 @@ export type SaleReadinessChecklistItem = {
   clientCompletedAt?: string | null
 }
 
+export const ROADMAP_SUBMISSION_KEY = 'improvementRoadmap'
+export const CHECKLIST_SUBMISSION_KEY = 'saleReadinessChecklist'
+
+export type SaleReadinessRoadmapStage = 'checklist' | 'report'
+
 export type SaleReadinessChecklistState = {
-  workstream: 'ws1' | 'ws2'
+  workstream?: string
   clientName: string
   generatedAt: string
   updatedAt?: string
   items: SaleReadinessChecklistItem[]
+}
+
+export function readRoadmapSubmission(submissions: Record<string, any>) {
+  return submissions[ROADMAP_SUBMISSION_KEY]
+    ?? submissions.improvementRoadmap_ws2
+    ?? submissions.improvementRoadmap_ws1
+    ?? null
+}
+
+export function readChecklistSubmission(submissions: Record<string, any>) {
+  return submissions[CHECKLIST_SUBMISSION_KEY]
+    ?? submissions.saleReadinessChecklist_ws2
+    ?? submissions.saleReadinessChecklist_ws1
+    ?? null
 }
 
 function cleanCell(value: string | undefined): string {
@@ -42,7 +61,21 @@ function stableId(parts: string[]): string {
   return `chk_${(hash >>> 0).toString(36)}`
 }
 
-function isChecklistHeading(content: string): boolean {
+export function createChecklistItem(partial: Partial<SaleReadinessChecklistItem> = {}): SaleReadinessChecklistItem {
+  return {
+    id: partial.id || `chk_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    category: String(partial.category ?? '').trim(),
+    item: String(partial.item ?? '').trim(),
+    status: String(partial.status ?? '🟡 YELLOW').trim() || '🟡 YELLOW',
+    actionNeeded: String(partial.actionNeeded ?? '').trim(),
+    advisorApproved: Boolean(partial.advisorApproved),
+    approvedAt: partial.approvedAt ?? null,
+    clientCompleted: Boolean(partial.clientCompleted),
+    clientCompletedAt: partial.clientCompletedAt ?? null,
+  }
+}
+
+function isChecklistHeading(content: string) {
   return /(^|\n)#{2,3}\s+sale-readiness checklist\b/i.test(content)
     || /(^|\n)#{2,3}\s+checklist\b/i.test(content)
 }
@@ -170,3 +203,49 @@ export function buildSaleReadinessChecklistPdfHtml(args: {
     ],
   })
 }
+
+export function exportSaleReadinessChecklistExcel(
+  items: SaleReadinessChecklistItem[],
+  clientName: string,
+) {
+  if (!items || !items.length) return
+  // Dynamically require/import xlsx to support client-side bundle execution
+  const XLSX = require('xlsx')
+
+  const rows = items.map((item, index) => {
+    let statusClean = item.status || 'Yellow'
+    if (statusClean.includes('🔴') || statusClean.toUpperCase().includes('RED')) statusClean = 'Red'
+    else if (statusClean.includes('🟡') || statusClean.toUpperCase().includes('YELLOW')) statusClean = 'Yellow'
+    else if (statusClean.includes('🟢') || statusClean.toUpperCase().includes('GREEN')) statusClean = 'Green'
+
+    return {
+      '#': index + 1,
+      'Approved': item.advisorApproved ? 'Yes' : 'No',
+      'Category': item.category,
+      'Item': item.item,
+      'Status': statusClean,
+      'Action Needed': item.actionNeeded,
+      'Done': item.clientCompleted ? 'Yes' : 'No',
+      'Completed Date': item.clientCompletedAt ? new Date(item.clientCompletedAt).toLocaleDateString() : '',
+    }
+  })
+
+  const worksheet = XLSX.utils.json_to_sheet(rows)
+  worksheet['!cols'] = [
+    { wch: 5 },  // #
+    { wch: 12 }, // Approved
+    { wch: 25 }, // Category
+    { wch: 45 }, // Item
+    { wch: 12 }, // Status
+    { wch: 55 }, // Action Needed
+    { wch: 10 }, // Done
+    { wch: 16 }, // Completed Date
+  ]
+
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Checklist')
+
+  const safeName = (clientName || 'Client').replace(/[^a-zA-Z0-9_-]/g, '_')
+  XLSX.writeFile(workbook, `${safeName}_Sale_Readiness_Checklist.xlsx`)
+}
+

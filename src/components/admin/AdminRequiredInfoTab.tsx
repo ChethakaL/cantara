@@ -458,9 +458,16 @@ export default function AdminRequiredInfoTab({
             ).map((group, index) => (
               <div key={group.groupLabel} className="space-y-3 border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
                 {activeFormTab !== 'competitor_analysis' && (
-                  <h5 className="text-sm font-bold text-slate-800">
-                    {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
-                  </h5>
+                  <div>
+                    <h5 className="text-sm font-bold text-slate-800">
+                      {activeFormTab === 'facility_review' ? facilityReviewSubgroupLabel(group.groupLabel) : group.groupLabel}
+                    </h5>
+                    {group.groupLabel === 'Capacity Model' && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Owner-stated total capacity is preferred. Daycare spots = Total – Boarding Runs if left blank.
+                      </p>
+                    )}
+                  </div>
                 )}
                 {activeFormTab === 'competitor_analysis' ? (
                   <ClientCompetitorInputsFields

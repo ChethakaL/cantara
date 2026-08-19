@@ -1,14 +1,19 @@
-import { sendEmailWithComposio } from '@/lib/composio'
+import { formatEmailBody } from '@/lib/composio/mail'
 import { getProjectEnv } from '@/lib/project-env'
 import { prisma } from '@/lib/prisma'
 import { getAIClient, resolveModel } from '@/lib/ai-client'
-import type { SalesLead, SalesLeadContactType } from '@prisma/client'
+import { getLoggedInAdvisor, sendAdvisorEmail } from '@/lib/advisor-mail'
+import type { EmailLead, SalesLeadTemplateOptions, TemplateSender } from '@/lib/sales-leads/email-template'
+import {
+  interpolateSalesLeadTemplate,
+  salesLeadEmailTemplateKey,
+} from '@/lib/sales-leads/email-template'
+import { parseEmailList, withoutEmail } from '@/lib/sales-leads/email-recipients'
 
-type EmailLead = Pick<
-  SalesLead,
-  'businessName' | 'ownerFirstName' | 'ownerLastName' | 'ownerEmail' | 'emailType' | 'city' | 'state' | 'googleRating' | 'reviewCount' | 'sqftCombined' | 'websiteUrl'
->
- & { aiResearchReport?: SalesLead['aiResearchReport']; assignedCallerId?: string | null }
+export type SalesLeadEmailRecipients = {
+  extraTo?: string[]
+  cc?: string[]
+}
 
 export class SalesLeadEmailConfigurationError extends Error {
   constructor(message: string) {
@@ -17,38 +22,19 @@ export class SalesLeadEmailConfigurationError extends Error {
   }
 }
 
-function templateKey(template: 1 | 2, contactType: SalesLeadContactType, part: 'SUBJECT' | 'BODY') {
-  return `SALES_LEAD_EMAIL_${template}_${contactType}_${part}`
+function interpolate(value: string, lead: EmailLead, sender?: TemplateSender, options?: SalesLeadTemplateOptions) {
+  return interpolateSalesLeadTemplate(value, lead, sender, options)
 }
 
-function interpolate(value: string, lead: EmailLead) {
-  const report = (lead.aiResearchReport && typeof lead.aiResearchReport === 'object' ? lead.aiResearchReport : {}) as Record<string, unknown>
-  const replacements: Record<string, string> = {
-    businessName: lead.businessName,
-    ownerFirstName: lead.ownerFirstName || '',
-    ownerLastName: lead.ownerLastName || '',
-    city: lead.city || '',
-    state: lead.state || '',
-    facilityName: lead.businessName,
-    website: lead.websiteUrl || '',
-    phone: '',
-    link: lead.websiteUrl || '',
-    googleRating: lead.googleRating ? String(lead.googleRating) : '',
-    reviewCount: lead.reviewCount ? String(lead.reviewCount) : '',
-    sqftCombined: lead.sqftCombined ? lead.sqftCombined.toLocaleString() : '',
-    facilityAndOperatingProfile: String(report.facilityAndOperatingProfile || ''),
-    aiGeneratedCompliment: String(report.recommendedPersonalization || report.businessProfileSummary || ''),
+async function resolveSalesLeadMailSenderUserId(lead: Pick<EmailLead, 'assignedCallerId'>) {
+  try {
+    const advisor = await getLoggedInAdvisor()
+    if (advisor?.id) return advisor.id
+  } catch {
+    // Cron or non-request context: fall back to the assigned caller.
   }
-  return value
-    .replace(/\{\{(\w+)\}\}/g, (_match, key) => replacements[key] ?? '')
-    .replace(/\[Facility Name\]/gi, replacements.facilityName)
-    .replace(/\[First Name\]/gi, replacements.ownerFirstName)
-    .replace(/\[Last Name\]/gi, replacements.ownerLastName)
-    .replace(/\[City\]/gi, replacements.city)
-    .replace(/\[State\]/gi, replacements.state)
-    .replace(/\[LINK\]/gi, replacements.link)
-    .replace(/\[phone\]/gi, replacements.phone)
-    .replace(/\[AI-generated[^\]]*\]/gi, replacements.aiGeneratedCompliment)
+  if (lead.assignedCallerId) return lead.assignedCallerId
+  throw new SalesLeadEmailConfigurationError('Connect your Gmail in Settings before sending sales-lead emails.')
 }
 
 function buildConfiguredSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 | 2) {
@@ -63,7 +49,7 @@ function buildConfiguredSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 | 2)
     : `Hi ${lead.ownerFirstName || 'there'},\n\nI wanted to follow up on my note about ${lead.businessName}. We speak with independent pet resort owners about practical growth opportunities and longer-term succession or exit planning, often well before a decision has been made.\n\nIf that is relevant to what you are thinking about, would you be open to a brief introduction?\n\nBest regards,\nCantara Pet Advisors`
   return {
     subject: `Growth and succession planning for ${lead.businessName}`,
-    body: interpolate(getProjectEnv(templateKey(templateNum, lead.emailType, 'BODY')) || defaultBody, lead),
+    body: interpolate(getProjectEnv(salesLeadEmailTemplateKey(templateNum, lead.emailType, 'BODY')) || defaultBody, lead),
   }
 }
 
@@ -102,12 +88,19 @@ export async function buildSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 |
       active: true,
       senderUserId: lead.assignedCallerId,
     },
+    include: { senderUser: { select: { name: true } } },
     orderBy: [{ version: 'desc' }],
   })
   if (asset) {
+    const options: SalesLeadTemplateOptions = {
+      calendarUrl: asset.calendarUrl,
+      senderPhone: asset.senderPhone,
+      guideUrl: asset.guideUrl,
+    }
+    const sender = { name: asset.senderUser?.name || null }
     return {
-      subject: interpolate(asset.subject || `Growth and succession planning for ${lead.businessName}`, lead),
-      body: interpolate(asset.body, lead),
+      subject: interpolate(asset.subject || `Growth and succession planning for ${lead.businessName}`, lead, sender, options),
+      body: interpolate(asset.body, lead, sender, options),
     }
   }
   const fallback = lead.aiResearchReport
@@ -138,11 +131,12 @@ Saved prospect research (you must use at least one specific fact from this): ${J
 }
 
 export async function sendSalesLeadEmail(
-  arg1: EmailLead | { leadId: string; toEmail: string; emailType: 'EMAIL_1' | 'EMAIL_2' },
+  arg1: (EmailLead & { emailDraftSubject?: string | null; emailDraftBody?: string | null }) | { leadId: string; toEmail: string; emailType: 'EMAIL_1' | 'EMAIL_2' },
   arg2?: 1 | 2,
+  recipients?: SalesLeadEmailRecipients,
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    let lead: EmailLead | null = null
+    let lead: EmailLead & { emailDraftSubject?: string | null; emailDraftBody?: string | null } | null = null
     let templateNum: 1 | 2 = 1
 
     if ('leadId' in arg1) {
@@ -159,17 +153,28 @@ export async function sendSalesLeadEmail(
       throw new SalesLeadEmailConfigurationError('The lead does not have an email address.')
     }
 
-    const { subject, body } = await buildSalesLeadEmailDraft(lead, templateNum)
+    const extraTo = withoutEmail(parseEmailList(recipients?.extraTo), lead.ownerEmail)
+    const cc = withoutEmail(parseEmailList(recipients?.cc), lead.ownerEmail)
 
-    const data = await sendEmailWithComposio({
+    const savedSubject = lead.emailDraftSubject?.trim()
+    const savedBody = lead.emailDraftBody?.trim()
+    const draft = savedSubject && savedBody
+      ? { subject: savedSubject, body: savedBody }
+      : await buildSalesLeadEmailDraft(lead, templateNum)
+
+    const senderUserId = await resolveSalesLeadMailSenderUserId(lead)
+    const data = await sendAdvisorEmail({
+      userId: senderUserId,
       to: lead.ownerEmail,
+      extraTo,
+      cc,
       displayName: [lead.ownerFirstName, lead.ownerLastName].filter(Boolean).join(' ') || lead.businessName,
-      subject,
-      body,
+      subject: draft.subject,
+      body: formatEmailBody(draft.body),
     })
 
     return { success: true, data }
   } catch (err: any) {
-    return { success: false, error: err.message || 'Failed to dispatch email via Composio' }
+    return { success: false, error: err.message || 'Failed to send email from the connected Gmail account' }
   }
 }

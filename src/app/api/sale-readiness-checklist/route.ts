@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { extractSaleReadinessChecklist } from '@/lib/sale-readiness-checklist'
+import {
+  CHECKLIST_SUBMISSION_KEY,
+  ROADMAP_SUBMISSION_KEY,
+  createChecklistItem,
+  extractSaleReadinessChecklist,
+  readChecklistSubmission,
+  readRoadmapSubmission,
+  type SaleReadinessChecklistItem,
+} from '@/lib/sale-readiness-checklist'
 
 export const dynamic = 'force-dynamic'
 
-function checklistKey(workstream: string) {
-  return `saleReadinessChecklist_${workstream}`
-}
-
 export async function GET(req: NextRequest) {
   const clientId = req.nextUrl.searchParams.get('clientId')
-  const workstream = req.nextUrl.searchParams.get('workstream')
   const approvedOnly = req.nextUrl.searchParams.get('approvedOnly') === '1'
-  if (!clientId || !workstream || !['ws1', 'ws2'].includes(workstream)) {
-    return new Response('clientId and workstream required', { status: 400 })
+  if (!clientId) {
+    return new Response('clientId required', { status: 400 })
   }
 
   const client = await prisma.clientProfile.findUnique({
@@ -25,14 +28,14 @@ export async function GET(req: NextRequest) {
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
     ? client.sectionSubmissions
     : {}) as Record<string, any>
-  let state = submissions[checklistKey(workstream)] ?? null
+  let state = readChecklistSubmission(submissions)
   if (!state) {
-    const roadmap = submissions[`improvementRoadmap_${workstream}`]
+    const roadmap = readRoadmapSubmission(submissions)
     if (roadmap?.markdown) {
       const items = extractSaleReadinessChecklist(roadmap.markdown, Array.isArray(roadmap.checklist) ? roadmap.checklist : [])
       if (items.length) {
         state = {
-          workstream,
+          workstream: 'sales-readiness',
           clientName: roadmap.clientName ?? client.businessName ?? 'Client',
           generatedAt: roadmap.generatedAt ?? new Date().toISOString(),
           items,
@@ -42,8 +45,8 @@ export async function GET(req: NextRequest) {
           data: {
             sectionSubmissions: {
               ...submissions,
-              [checklistKey(workstream)]: state,
-              [`improvementRoadmap_${workstream}`]: { ...roadmap, checklist: items },
+              [CHECKLIST_SUBMISSION_KEY]: state,
+              [ROADMAP_SUBMISSION_KEY]: { ...roadmap, checklist: items },
             },
           },
         })
@@ -66,10 +69,9 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const clientId = String(body.clientId || '')
-  const workstream = String(body.workstream || '')
   const itemId = String(body.itemId || '')
-  if (!clientId || !['ws1', 'ws2'].includes(workstream) || !itemId) {
-    return new Response('clientId, workstream, and itemId required', { status: 400 })
+  if (!clientId || (!itemId && !Array.isArray(body.items))) {
+    return new Response('clientId and itemId or items required', { status: 400 })
   }
 
   const client = await prisma.clientProfile.findUnique({
@@ -81,16 +83,31 @@ export async function PATCH(req: NextRequest) {
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
     ? client.sectionSubmissions
     : {}) as Record<string, any>
-  const key = checklistKey(workstream)
-  const state = submissions[key]
+  const state = readChecklistSubmission(submissions)
   if (!state || !Array.isArray(state.items)) {
     return new Response('Checklist not found', { status: 404 })
   }
 
   const now = new Date().toISOString()
-  let items = []
+  let items: SaleReadinessChecklistItem[] = Array.isArray(state.items) ? state.items : []
 
-  if (itemId === 'all') {
+  if (Array.isArray(body.items)) {
+    items = body.items.map((raw: any) => createChecklistItem(raw))
+  } else if (itemId === 'new') {
+    items = [
+      ...items,
+      createChecklistItem({
+        category: body.category || 'New category',
+        item: body.item || 'New checklist item',
+        status: body.status || '🟡 YELLOW',
+        actionNeeded: body.actionNeeded || '',
+      }),
+    ]
+  } else if (body.delete === true) {
+    const before = items.length
+    items = items.filter(item => item.id !== itemId)
+    if (items.length === before) return new Response('Checklist item not found', { status: 404 })
+  } else if (itemId === 'all') {
     items = state.items.map((item: any) => ({
       ...item,
       advisorApproved: true,
@@ -110,6 +127,10 @@ export async function PATCH(req: NextRequest) {
           next.clientCompletedAt = null
         }
       }
+      if (typeof body.category === 'string') next.category = body.category.trim()
+      if (typeof body.item === 'string') next.item = body.item.trim()
+      if (typeof body.status === 'string') next.status = body.status.trim() || next.status
+      if (typeof body.actionNeeded === 'string') next.actionNeeded = body.actionNeeded.trim()
       if (typeof body.clientCompleted === 'boolean') {
         if (!next.advisorApproved) return next
         next.clientCompleted = body.clientCompleted
@@ -120,13 +141,15 @@ export async function PATCH(req: NextRequest) {
     if (!found) return new Response('Checklist item not found', { status: 404 })
   }
 
-  const nextState = { ...state, items, updatedAt: now }
+  const nextState = { ...state, workstream: 'sales-readiness', items, updatedAt: now }
+  const roadmap = readRoadmapSubmission(submissions)
   await prisma.clientProfile.update({
     where: { id: clientId },
     data: {
       sectionSubmissions: {
         ...submissions,
-        [key]: nextState,
+        [CHECKLIST_SUBMISSION_KEY]: nextState,
+        ...(roadmap ? { [ROADMAP_SUBMISSION_KEY]: { ...roadmap, checklist: items } } : {}),
       },
     },
   })

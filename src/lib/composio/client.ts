@@ -4,6 +4,7 @@ import { getProjectEnv } from "@/lib/project-env";
 export const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
 export const QUICKBOOKS_TOOLKIT_SLUG = "QUICKBOOKS";
 export const GOOGLEDRIVE_TOOLKIT_SLUG = "GOOGLEDRIVE";
+export const GOOGLECALENDAR_TOOLKIT_SLUG = "GOOGLECALENDAR";
 export const ADMIN_DRIVE_USER_ID = "cantara-admin-drive";
 export const COMPOSIO_MAIL_USER_ID = "cantara-system-mailbox";
 export const DEFAULT_MAIL_TOOLKIT_SLUG = "GMAIL";
@@ -104,6 +105,36 @@ export function getComposioAdminId() {
 
 export function composioUserIdForClient(clientId: string) {
   return `cantara-client:${clientId}`;
+}
+
+export async function createComposioAuthLink(args: {
+  authConfigId: string
+  userId: string
+  callbackUrl: string
+  alias?: string
+  allowMultiple?: boolean
+}) {
+  const res = await composioFetch<{
+    redirect_url?: string
+    url?: string
+    connected_account_id?: string
+    id?: string
+  }>("/connected_accounts/link", {
+    method: "POST",
+    body: JSON.stringify({
+      auth_config_id: args.authConfigId,
+      user_id: args.userId,
+      callback_url: args.callbackUrl,
+      allow_multiple: Boolean(args.allowMultiple),
+      ...(args.alias ? { alias: args.alias } : {}),
+    }),
+  });
+  const redirect_url = res.redirect_url || res.url;
+  if (!redirect_url) throw new Error("Composio did not return a connection URL");
+  return {
+    redirect_url,
+    connected_account_id: res.connected_account_id || res.id || "",
+  };
 }
 
 export async function pingComposioApi() {

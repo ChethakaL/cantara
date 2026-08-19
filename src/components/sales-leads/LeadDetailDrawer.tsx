@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import {
   Building2,
   AlertTriangle,
-  Calendar,
   CalendarClock,
   CheckCircle2,
   ExternalLink,
@@ -24,6 +23,8 @@ import { Badge, Button, Input, SearchableSelect, Select, Textarea } from '@/comp
 import { CALL_RESULT_LABELS, STAGE_LABELS } from '@/lib/sales-leads/workflow'
 import { Sparkles } from 'lucide-react'
 import EnrichmentModal from '@/components/sales-leads/EnrichmentModal'
+import { ContactTypeBadges } from '@/components/sales-leads/ContactTypeBadges'
+import { EmailRecipientFields } from '@/components/sales-leads/EmailRecipientFields'
 
 type Lead = any
 
@@ -63,6 +64,19 @@ export default function LeadDetailDrawer({
   const [draftSubject, setDraftSubject] = useState('')
   const [draftBody, setDraftBody] = useState('')
   const [draftRecipient, setDraftRecipient] = useState('')
+  const [extraToEmails, setExtraToEmails] = useState<string[]>([])
+  const [ccEmails, setCcEmails] = useState<string[]>([])
+  const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null)
+  const [calendarEvents, setCalendarEvents] = useState<Array<{
+    id: string
+    title: string
+    start: string | null
+    end: string | null
+    htmlLink: string | null
+    location: string | null
+    matchReason: string
+  }>>([])
+  const [calendarLoading, setCalendarLoading] = useState(false)
   const [draftTemplateNum, setDraftTemplateNum] = useState<number>(1)
   const [emailStatusMsg, setEmailStatusMsg] = useState('')
   const [emailErrorMsg, setEmailErrorMsg] = useState('')
@@ -78,6 +92,8 @@ export default function LeadDetailDrawer({
       setDraftSubject(data.subject || '')
       setDraftBody(data.body || '')
       setDraftRecipient(data.recipientEmail || '')
+      setExtraToEmails([])
+      setCcEmails([])
       setDraftTemplateNum(data.templateNum || 1)
     } catch (err: any) {
       setEmailErrorMsg(err.message || 'Draft generation failed')
@@ -99,6 +115,18 @@ export default function LeadDetailDrawer({
       ) {
         void fetchDraft(lead.id)
       }
+      setCalendarLoading(true)
+      fetch(`/api/sales-leads/${lead.id}/calendar`, { cache: 'no-store' })
+        .then(async res => {
+          const data = await res.json()
+          setCalendarConnected(Boolean(data.connected))
+          setCalendarEvents(Array.isArray(data.events) ? data.events : [])
+        })
+        .catch(() => {
+          setCalendarConnected(false)
+          setCalendarEvents([])
+        })
+        .finally(() => setCalendarLoading(false))
     }
   }, [isOpen, lead?.id])
 
@@ -116,13 +144,22 @@ export default function LeadDetailDrawer({
       const res = await fetch(`/api/sales-leads/${lead.id}/email-draft`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject: draftSubject, bodyText: draftBody }),
+        body: JSON.stringify({
+          subject: draftSubject,
+          bodyText: draftBody,
+          extraTo: extraToEmails,
+          cc: ccEmails,
+        }),
       })
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'Email dispatch failed')
       }
-      setEmailStatusMsg(`Email ${draftTemplateNum} sent successfully to ${draftRecipient}! Stage updated to Email ${draftTemplateNum} Sent (+7 calendar days).`)
+      setEmailStatusMsg(
+        `Email ${draftTemplateNum} sent successfully to ${[draftRecipient, ...extraToEmails].filter(Boolean).join(', ')}${
+          ccEmails.length ? ` (cc ${ccEmails.join(', ')})` : ''
+        }! Stage updated to Email ${draftTemplateNum} Sent (+7 calendar days).`,
+      )
       await onUpdate(lead.id, {})
     } catch (err: any) {
       setEmailErrorMsg(err.message || 'Email dispatch failed')
@@ -198,11 +235,13 @@ export default function LeadDetailDrawer({
                 <Badge color="gold" className="text-[10px] uppercase font-bold tracking-wider">
                   {STAGE_LABELS[lead.currentStage as keyof typeof STAGE_LABELS] || lead.currentStage}
                 </Badge>
-                {lead.emailType && (
-                  <Badge color="slate" className="text-[10px] uppercase">
-                    {lead.emailType} Contact
-                  </Badge>
-                )}
+                <ContactTypeBadges
+                  email={lead.ownerEmail}
+                  phone={lead.ownerPhone}
+                  emailType={lead.emailType}
+                  phoneType={lead.phoneType}
+                  layout="row"
+                />
               </div>
               <h2 className="text-xl font-light cantara-serif text-white">{lead.businessName}</h2>
               <p className="text-xs text-slate-300 flex items-center gap-1 mt-1">
@@ -246,14 +285,13 @@ export default function LeadDetailDrawer({
                       </div>
                     )}
 
-                    <div className="text-xs space-y-1">
-                      <div className="flex justify-between text-slate-600 font-medium">
-                        <span>To Recipient:</span>
-                        <span className="font-mono text-slate-800">
-                          {draftRecipient ? `${lead.ownerFirstName || 'Owner'} (${draftRecipient})` : '⚠️ No Owner Email Set'}
-                        </span>
-                      </div>
-                    </div>
+                    <EmailRecipientFields
+                      primaryTo={draftRecipient}
+                      extraTo={extraToEmails}
+                      cc={ccEmails}
+                      onExtraToChange={setExtraToEmails}
+                      onCcChange={setCcEmails}
+                    />
 
                     <Input
                       label="Subject Line"
@@ -398,16 +436,29 @@ export default function LeadDetailDrawer({
                     {[lead.ownerFirstName, lead.ownerLastName].filter(Boolean).join(' ') ||
                       'Not specified'}
                   </div>
-                  {lead.ownerEmail && (
+                  {lead.ownerEmail ? (
                     <div className="text-slate-500 flex items-center gap-1 mt-1 truncate">
                       <Mail className="w-3 h-3 flex-shrink-0" /> {lead.ownerEmail}
                     </div>
+                  ) : (
+                    <div className="text-slate-400 mt-1">No email on file</div>
                   )}
-                  {lead.ownerPhone && (
+                  {lead.ownerPhone ? (
                     <div className="text-slate-500 flex items-center gap-1 mt-0.5">
                       <Phone className="w-3 h-3" /> {lead.ownerPhone}
                     </div>
+                  ) : (
+                    <div className="text-slate-400 mt-0.5">No phone on file</div>
                   )}
+                  <div className="mt-2">
+                    <ContactTypeBadges
+                      email={lead.ownerEmail}
+                      phone={lead.ownerPhone}
+                      emailType={lead.emailType}
+                      phoneType={lead.phoneType}
+                      layout="stack"
+                    />
+                  </div>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-lg border">
@@ -465,6 +516,53 @@ export default function LeadDetailDrawer({
                     </a>
                   )}
                 </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-lg border text-xs">
+                <div className="text-slate-400 mb-1.5 flex items-center gap-1">
+                  <CalendarClock className="w-3.5 h-3.5 text-cantara-gold" /> Calendar meetings
+                </div>
+                {calendarLoading ? (
+                  <div className="text-slate-400 flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking the connected Google Calendar...
+                  </div>
+                ) : calendarConnected === false ? (
+                  <p className="text-slate-500">
+                    Connect Google services on the advisor home page to show meetings that match this owner, email, or next stage date.
+                  </p>
+                ) : calendarEvents.length === 0 ? (
+                  <p className="text-slate-500">No matching calendar events found for this lead.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {calendarEvents.map(event => (
+                      <div key={event.id} className="rounded-lg border border-slate-200 bg-white p-2.5">
+                        <div className="font-semibold text-slate-800">{event.title}</div>
+                        <div className="text-slate-500 mt-0.5">
+                          {event.start
+                            ? new Date(event.start).toLocaleString(undefined, {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })
+                            : 'Time not set'}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-1">{event.matchReason}</div>
+                        {event.htmlLink && (
+                          <a
+                            href={event.htmlLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-cantara-navy hover:underline inline-flex items-center gap-1 mt-1 font-medium"
+                          >
+                            Open in Calendar <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* AI Prospect Research Scorecard Section */}

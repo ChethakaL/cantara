@@ -1,20 +1,24 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Save, X, Mail, User as UserIcon, Tag, Eye, Code2, Trash2 } from 'lucide-react'
+import { Loader2, Plus, Save, X, Mail, Tag, Eye, Code2, Trash2 } from 'lucide-react'
 import { Button, Card, Input, Select, Textarea } from '@/components/ui'
 
 type Asset = {
-  id?: string; 
-  senderUserId?: string | null; 
-  senderUser?: { name: string } | null; 
-  touch: number; 
-  assetType: 'EMAIL' | 'CALL';
-  contactType: 'DIRECT' | 'GENERAL'; 
-  subject?: string | null; 
-  body: string; 
-  version: number; 
-  active: boolean 
+  id?: string
+  senderUserId?: string | null
+  senderUser?: { name: string } | null
+  touch: number
+  assetType: 'EMAIL' | 'CALL'
+  contactType: 'DIRECT' | 'GENERAL'
+  subject?: string | null
+  body: string
+  senderDisplayName?: string | null
+  calendarUrl?: string | null
+  senderPhone?: string | null
+  guideUrl?: string | null
+  version: number
+  active: boolean
 }
 
 function assetLabel(asset: Pick<Asset, 'touch' | 'assetType'>) {
@@ -46,24 +50,18 @@ function resolveCurrentUserId(apiId: string | null | undefined, users: User[]): 
 function filterAssets(
   list: Asset[],
   assetTypeFilter: 'ALL' | 'EMAIL' | 'CALL',
-  senderFilter: string,
   sequenceFilter: string,
-  currentUserId: string | null,
 ) {
   return list
     .filter(asset =>
       (assetTypeFilter === 'ALL' || asset.assetType === assetTypeFilter) &&
-      (senderFilter === 'CURRENT'
-        ? (!asset.senderUserId || (!!currentUserId && asset.senderUserId === currentUserId))
-        : senderFilter === 'ALL' || (asset.senderUserId || 'GENERIC') === senderFilter) &&
       (sequenceFilter === 'ALL' || String(asset.touch) === sequenceFilter)
     )
     .slice()
     .sort((a, b) =>
       a.touch - b.touch ||
       a.assetType.localeCompare(b.assetType) ||
-      a.contactType.localeCompare(b.contactType) ||
-      (a.senderUser?.name || '').localeCompare(b.senderUser?.name || '')
+      a.contactType.localeCompare(b.contactType)
     )
 }
 
@@ -77,8 +75,6 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor')
   const [assetTypeFilter, setAssetTypeFilter] = useState<'ALL' | 'EMAIL' | 'CALL'>('ALL')
-  // Default to all senders so Email + Call templates are visible without hunting filters.
-  const [senderFilter, setSenderFilter] = useState('ALL')
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [sequenceFilter, setSequenceFilter] = useState('ALL')
 
@@ -95,7 +91,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
       setAssets(list)
       setUsers(userList)
       setCurrentUserId(me)
-      const visible = filterAssets(list, assetTypeFilter, senderFilter, sequenceFilter, me)
+      const visible = filterAssets(list, assetTypeFilter, sequenceFilter)
       setEditing(prev => {
         if (prev?.id) {
           const stillThere = list.find(a => a.id === prev.id)
@@ -123,6 +119,10 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
       contactType: 'DIRECT',
       body: '',
       subject: '',
+      senderDisplayName: '',
+      calendarUrl: '',
+      senderPhone: '',
+      guideUrl: '',
       version: 1,
       active: true,
       senderUserId: currentUserId,
@@ -170,7 +170,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
       if (!res.ok) throw new Error((await res.json()).error || 'Could not delete template')
       const remaining = assets.filter(a => a.id !== asset.id)
       setAssets(remaining)
-      const visible = filterAssets(remaining, assetTypeFilter, senderFilter, sequenceFilter, currentUserId)
+      const visible = filterAssets(remaining, assetTypeFilter, sequenceFilter)
       setEditing(prev => (prev?.id === asset.id ? (visible[0] || null) : prev))
     } catch (err: any) {
       setError(err.message)
@@ -179,8 +179,8 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
     }
   }
 
-  const selectedSender = users.find(u => u.id === editing?.senderUserId)
-  const visibleAssets = filterAssets(assets, assetTypeFilter, senderFilter, sequenceFilter, currentUserId)
+  const selectedSender = users.find(u => u.id === (editing?.senderUserId || currentUserId)) || users[0]
+  const visibleAssets = filterAssets(assets, assetTypeFilter, sequenceFilter)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
@@ -195,7 +195,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 tracking-tight">Outreach Assets & Templates</h2>
-              <p className="text-xs text-slate-500">Configure sender profiles, touch sequences, and rich email body templates.</p>
+              <p className="text-xs text-slate-500">Your email and call templates for the assigned-lead workflow.</p>
             </div>
           </div>
           <button 
@@ -238,16 +238,12 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
               </div>
 
               <div className="space-y-2">
-                <div className="grid grid-cols-3 gap-2 pb-1">
+                <div className="grid grid-cols-2 gap-2 pb-1">
                   <Select value={assetTypeFilter} onChange={e => setAssetTypeFilter(e.target.value as typeof assetTypeFilter)} className="text-[10px] h-8 py-1">
                     <option value="ALL">All Types</option><option value="EMAIL">Email</option><option value="CALL">Call</option>
                   </Select>
                   <Select value={sequenceFilter} onChange={e => setSequenceFilter(e.target.value)} className="text-[10px] h-8 py-1">
                     <option value="ALL">All Steps</option><option value="1">1</option><option value="2">2</option>
-                  </Select>
-                  <Select value={senderFilter} onChange={e => setSenderFilter(e.target.value)} className="text-[10px] h-8 py-1">
-                    <option value="CURRENT">My Assets</option><option value="ALL">All Senders</option><option value="GENERIC">Generic</option>
-                    {users.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
                   </Select>
                 </div>
                 {visibleAssets.map(asset => {
@@ -283,9 +279,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                             ? (asset.body?.trim() ? asset.body.trim().slice(0, 72) : '(Empty call script)')
                             : (asset.subject || '(No Subject)')}
                         </div>
-                        <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
-                          <span className="truncate">{asset.senderUser?.name || 'Generic Sender'}</span>
-                          
+                        <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-end">
                           <div className="flex items-center gap-1.5 shrink-0">
                             <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-medium">v{asset.version}</span>
                             {asset.id && (
@@ -316,7 +310,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                 )}
                 {!!assets.length && !visibleAssets.length && (
                   <div className="text-center py-10 text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4">
-                    No templates match these filters. Try <span className="font-semibold text-slate-600">All Senders</span> or type <span className="font-semibold text-slate-600">Call</span>.
+                    No templates match these filters. Try <span className="font-semibold text-slate-600">All Types</span> or <span className="font-semibold text-slate-600">All Steps</span>.
                   </div>
                 )}
               </div>
@@ -374,7 +368,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                   {activeTab === 'editor' ? (
                     <>
                       {/* Configuration Grid */}
-                      <div className="grid sm:grid-cols-4 gap-4 bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm">
+                      <div className="grid sm:grid-cols-3 gap-4 bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm">
                         <div>
                           <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
                             Sequence Asset
@@ -411,24 +405,53 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                           </Select>
                         </div>
 
-                        <div>
-                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                            {editing.assetType === 'CALL' ? 'Caller Profile' : 'Sender Profile'}
-                          </label>
-                          <Select 
-                            value={editing.senderUserId || ''} 
-                            onChange={e => setEditing({ ...editing, senderUserId: e.target.value || null })}
-                            className="bg-slate-50 border-slate-200 text-xs"
-                          >
-                            <option value="">Generic Fallback Advisor</option>
-                            {users.map(user => (
-                              <option key={user.id} value={user.id}>
-                                {user.name} ({user.email})
-                              </option>
-                            ))}
-                          </Select>
-                        </div>
                       </div>
+
+                      {(() => {
+                        const hasGuidePlaceholder = Boolean(
+                          editing.body &&
+                          (/\[SELL\s+ONE\s+DAY\s+GUIDE(?:\s+LINK)?\]/i.test(editing.body) ||
+                           /\{\{\s*(?:guideUrl|sellOneDayGuideUrl)\s*\}\}/i.test(editing.body) ||
+                           editing.body.includes('[SELL ONE DAY GUIDE LINK]') ||
+                           editing.body.includes('[SELL ONE DAY GUIDE]'))
+                        )
+
+                        return (
+                          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm space-y-3">
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Fill-in fields for this template</p>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                Values you type here replace [LINK] and [phone]{hasGuidePlaceholder ? ', and [SELL ONE DAY GUIDE LINK]' : ''} when a draft is generated. Leave a field blank if that placeholder should stay visible. Type the sender name directly in the template body.
+                              </p>
+                            </div>
+                            <div className={`grid sm:grid-cols-2 ${hasGuidePlaceholder ? 'lg:grid-cols-3' : ''} gap-3`}>
+                              <Input
+                                label="Phone"
+                                value={editing.senderPhone || ''}
+                                onChange={e => setEditing({ ...editing, senderPhone: e.target.value })}
+                                placeholder="e.g. (206) 202-5014"
+                                className="bg-slate-50 border-slate-200 text-xs"
+                              />
+                              <Input
+                                label="Calendar URL"
+                                value={editing.calendarUrl || ''}
+                                onChange={e => setEditing({ ...editing, calendarUrl: e.target.value })}
+                                placeholder="https://calendly.com/..."
+                                className="bg-slate-50 border-slate-200 text-xs"
+                              />
+                              {hasGuidePlaceholder && (
+                                <Input
+                                  label="Sell One Day guide URL"
+                                  value={editing.guideUrl || ''}
+                                  onChange={e => setEditing({ ...editing, guideUrl: e.target.value })}
+                                  placeholder="https://..."
+                                  className="bg-slate-50 border-slate-200 text-xs"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })()}
 
                       {/* Subject Input - Only for EMAIL */}
                       {editing.assetType === 'EMAIL' && (
@@ -447,16 +470,20 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
 
                       {/* Body Input */}
                       <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm space-y-2.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
                             {editing.assetType === 'CALL' ? 'Call Script & Talking Points' : 'Email Content Body'}
                           </label>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                            <Tag className="w-3 h-3 text-amber-500" />
-                            <span>Variables:</span>
-                            <span className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">&#123;&#123;ownerFirstName&#125;&#125;</span>
-                            <span className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">&#123;&#123;businessName&#125;&#125;</span>
-                            <span className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">&#123;&#123;city&#125;&#125;</span>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 max-w-full">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider shrink-0">
+                              <Tag className="w-3 h-3 text-amber-500" />
+                              Variables:
+                            </span>
+                            {['ownerFirstName', 'businessName', 'city', 'calendarUrl', 'phone'].map(v => (
+                              <span key={v} className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-semibold select-all">
+                                &#123;&#123;{v}&#125;&#125;
+                              </span>
+                            ))}
                           </div>
                         </div>
                         
@@ -534,10 +561,10 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                             <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs">
                               {selectedSender ? selectedSender.name[0] : 'C'}
                             </div>
-                            <div>
-                              <span className="font-semibold text-slate-800">
-                                {selectedSender ? selectedSender.name : 'Cantara Advisor'}
-                              </span>{' '}
+                          <div>
+                            <span className="font-semibold text-slate-800">
+                              {selectedSender ? selectedSender.name : 'Cantara Advisor'}
+                            </span>{' '}
                               <span className="text-slate-400">
                                 &lt;{selectedSender ? selectedSender.email : 'advisor@cantarapet.com'}&gt;
                               </span>

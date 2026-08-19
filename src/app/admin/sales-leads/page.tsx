@@ -32,6 +32,7 @@ import OutreachAssetsModal from '@/components/sales-leads/OutreachAssetsModal'
 import ExcelImportModal from '@/components/sales-leads/ExcelImportModal'
 import LeadDetailDrawer from '@/components/sales-leads/LeadDetailDrawer'
 import EnrichmentModal from '@/components/sales-leads/EnrichmentModal'
+import { ContactTypeBadges } from '@/components/sales-leads/ContactTypeBadges'
 
 type Lead = any
 
@@ -215,7 +216,10 @@ export default function SalesLeadsPage() {
 
           <div className="flex gap-2 flex-wrap items-center">
             <Button variant="outline" size="sm" onClick={() => setShowMondayConfig(true)} className="bg-white">
-              <Settings2 className="w-3.5 h-3.5 mr-1.5 text-cantara-gold" /> Monday Board Sync
+              <Settings2 className="w-3.5 h-3.5 mr-1.5 text-cantara-gold" /> Monday Configuration
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void load(true)} className="bg-white" title="Refresh & Sync from Monday.com">
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-cantara-gold ${loading ? 'animate-spin' : ''}`} /> Monday Sync
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowDriveConfig(true)} className="bg-white">
               <FolderOpen className="w-3.5 h-3.5 mr-1.5 text-green-700" /> Google Drive Briefs
@@ -225,9 +229,6 @@ export default function SalesLeadsPage() {
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowExcelImport(true)} className="bg-white">
               <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-slate-600" /> Import Excel
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => void load(true)} className="bg-white" title="Refresh & Sync from Monday.com">
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </Button>
             <Button size="sm" onClick={() => setShowNew(true)} className="gap-1">
               <Plus className="w-3.5 h-3.5" /> New Lead
@@ -394,6 +395,7 @@ export default function SalesLeadsPage() {
                 <thead>
                   <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-400 font-medium">
                     <th className="px-5 py-3">Business Prospect</th>
+                    <th className="px-4 py-3">Contact</th>
                     <th className="px-4 py-3">Stage</th>
                     <th className="px-4 py-3">Next Stage Due</th>
                     <th className="px-4 py-3">Assigned Lead</th>
@@ -439,6 +441,15 @@ export default function SalesLeadsPage() {
                               </span>
                             )}
                           </div>
+                        </td>
+
+                        <td className="px-4 py-3.5">
+                          <ContactTypeBadges
+                            email={lead.ownerEmail}
+                            phone={lead.ownerPhone}
+                            emailType={lead.emailType}
+                            phoneType={lead.phoneType}
+                          />
                         </td>
 
                         {/* Stage Badge */}

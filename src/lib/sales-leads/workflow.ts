@@ -138,6 +138,7 @@ export function startEmail(
   lead: WorkflowLead,
   template: 1 | 2,
   now = new Date(),
+  options?: { allowEarlySend?: boolean },
 ): WorkflowResult {
   const expected = template === 1 ? SalesLeadStage.EMAIL_1_DUE : SalesLeadStage.EMAIL_2_DUE
   if (lead.currentStage !== expected) {
@@ -146,7 +147,7 @@ export function startEmail(
       'INVALID_EMAIL_STAGE',
     )
   }
-  if (lead.nextActionDate && lead.nextActionDate.getTime() > now.getTime()) {
+  if (!options?.allowEarlySend && lead.nextActionDate && lead.nextActionDate.getTime() > now.getTime()) {
     throw new SalesLeadWorkflowError(
       `Email ${template} is scheduled for a future date.`,
       'EMAIL_NOT_DUE',

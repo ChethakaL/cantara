@@ -13,14 +13,13 @@ export function buildImprovementRoadmapHtml(report: RoadmapReport): string {
   const sections = parseMarkdownSections(report.markdown)
 
   return generateReportHtml({
-    title: `${report.workstreamLabel} Sales Readiness Roadmap`,
+    title: 'Sales Readiness Roadmap',
     subtitle: 'Seller Sale Readiness & Improvement Plan',
     clientName: report.clientName,
     generatedAt: report.generatedAt,
     summaryHtml: sections.length > 0 ? markdownToHtml(sections[0].content) : undefined,
     kpis: [
-      { label: 'Workstream', value: report.workstreamLabel.split('—')[0]?.trim() || report.workstream.toUpperCase() },
-      { label: 'Report Type', value: 'Sales Readiness Roadmap' },
+      { label: 'Report Type', value: 'Sales Readiness' },
       { label: 'For', value: 'Seller' },
       { label: 'Prepared By', value: 'Cantara AI' },
     ],
@@ -98,13 +97,13 @@ function markdownToHtml(markdown: string): string {
 
     html.push(`<table class="report-table"><thead><tr>${headers.map((h, hi) => {
       if (isOverviewTable && hi === redColIdx) {
-        return `<th style="text-align:center;color:#991b1b;background:#fef2f2;">${formatInline(h)}</th>`
+        return `<th style="text-align:center;color:#991b1b;background:#fef2f2;padding:6px 8px;"><div style="font-size:9px;color:#64748b;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px;">Items</div><div>${formatInline(h)}</div></th>`
       }
       if (isOverviewTable && hi === yellowColIdx) {
-        return `<th style="text-align:center;color:#92400e;background:#fffbeb;">${formatInline(h)}</th>`
+        return `<th style="text-align:center;color:#92400e;background:#fffbeb;padding:6px 8px;"><div style="font-size:9px;color:#64748b;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px;">Items</div><div>${formatInline(h)}</div></th>`
       }
       if (isOverviewTable && hi === greenColIdx) {
-        return `<th style="text-align:center;color:#065f46;background:#ecfdf5;">${formatInline(h)}</th>`
+        return `<th style="text-align:center;color:#065f46;background:#ecfdf5;padding:6px 8px;"><div style="font-size:9px;color:#64748b;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px;">Items</div><div>${formatInline(h)}</div></th>`
       }
       return `<th>${formatInline(h)}</th>`
     }).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c, i) => {

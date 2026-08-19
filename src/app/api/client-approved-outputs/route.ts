@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 import { clientPortalReleasedAt, isClientPortalAgentReleased } from '@/lib/client-approved-agents'
+import { readRoadmapSubmission } from '@/lib/sale-readiness-checklist'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,8 +45,7 @@ const AGENT_OUTPUTS: Record<string, { label: string; source: 'table' | 'submissi
   net_proceeds: { label: 'Net Proceeds Calculator', source: 'submission', key: 'netProceeds' },
   ws1Assessment: { label: 'WS1 Assessment Report', source: 'submission', key: 'assessmentReport_ws1' },
   ws2Assessment: { label: 'WS2 Assessment Report', source: 'submission', key: 'assessmentReport_ws2' },
-  ws1Roadmap: { label: 'WS1 Sales Readiness Roadmap', source: 'submission', key: 'improvementRoadmap_ws1' },
-  ws2Roadmap: { label: 'WS2 Sales Readiness Roadmap', source: 'submission', key: 'improvementRoadmap_ws2' },
+  salesReadinessRoadmap: { label: 'Sales Readiness Roadmap', source: 'submission', key: 'improvementRoadmap' },
 }
 
 export async function GET(req: NextRequest) {
@@ -127,6 +127,33 @@ export async function GET(req: NextRequest) {
     })
   }
 
+  // Also include any released agents in AGENT_OUTPUTS (e.g. Sales Readiness Roadmap or Assessment Reports)
+  for (const [key, config] of Object.entries(AGENT_OUTPUTS)) {
+    const normKey = normalizeAgentStatusKey(key)
+    if (seen.has(normKey)) continue
+    if (!isClientPortalAgentReleased(releases, key)) continue
+    seen.add(normKey)
+
+    const output = await readOutput(
+      clientId,
+      submissions,
+      config,
+      normKey,
+      client.businessName || 'Client',
+      client.businessAddress || '',
+    )
+    if (!output.markdown.trim() && !output.data) continue
+
+    outputs.push({
+      agentId: normKey,
+      agentKey: normKey,
+      agentName: config.label,
+      approvedAt: clientPortalReleasedAt(releases, key) ?? null,
+      markdown: output.markdown,
+      data: output.data,
+    })
+  }
+
   return NextResponse.json({ outputs })
 }
 
@@ -169,6 +196,14 @@ async function readOutput(
         mapData,
       },
     }
+  }
+
+  if (agentKey === 'salesReadinessRoadmap' || agentKey === 'ws1Roadmap' || agentKey === 'ws2Roadmap') {
+    const report = readRoadmapSubmission(submissions)
+    if (!report || report.stage === 'checklist' || !String(report.markdown || '').trim()) {
+      return { markdown: '', data: null }
+    }
+    return serializeValue(report)
   }
 
   if (config.source === 'submission') {

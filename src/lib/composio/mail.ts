@@ -19,7 +19,7 @@ export function getComposioMailToolkitSlug() {
 }
 
 export function getPreferredComposioMailFromEmail() {
-  return (getProjectEnv("COMPOSIO_MAIL_FROM_EMAIL") || "aliya@cantarapet.com").trim().toLowerCase();
+  return (getProjectEnv("COMPOSIO_MAIL_FROM_EMAIL") || "gabriela@cantarapet.com").trim().toLowerCase();
 }
 
 function mailConnectionListParams() {
@@ -52,7 +52,7 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
-function formatEmailBody(body: string) {
+export function formatEmailBody(body: string) {
   if (/<(?:p|br|div|strong|em|ul|ol|li)\b/i.test(body)) return body;
   return escapeHtml(body).replace(/\r?\n\r?\n/g, "<br><br>").replace(/\r?\n/g, "<br>");
 }

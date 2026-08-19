@@ -46,6 +46,8 @@ test('T1 - normal no-response path follows Day 0/7/14/21 and queues nurture', ()
     () => startEmail(current, 2, addCalendarDays(t0, 8)),
     (error: unknown) => error instanceof SalesLeadWorkflowError && error.code === 'EMAIL_NOT_DUE',
   )
+  const earlySend = startEmail(current, 2, addCalendarDays(t0, 8), { allowEarlySend: true })
+  assert.equal(earlySend.patch.currentStage, SalesLeadStage.EMAIL_2_SENT)
 
   current = apply(current, startEmail(current, 2, addCalendarDays(t0, 14)))
   assert.equal(current.currentStage, SalesLeadStage.EMAIL_2_SENT)

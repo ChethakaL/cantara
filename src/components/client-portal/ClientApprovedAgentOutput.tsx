@@ -29,11 +29,13 @@ import TeaserGeneratorTab from '@/components/teaser/TeaserGeneratorTab'
 import NetProceedsCalculator from '@/components/net-proceeds/NetProceedsCalculator'
 import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
 import OccupancyReviewTab from '@/components/occupancy-review/OccupancyReviewTab'
+import { FileSpreadsheet } from 'lucide-react'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { generateReportHtml } from '@/lib/report-export/generate-report-html'
 import { buildImprovementRoadmapHtml } from '@/lib/report-export/build-improvement-roadmap-report'
 import { parseMarkdownBlocks, serializeMarkdownBlocks, type MarkdownBlock } from '@/lib/markdown-blocks'
-import { type SaleReadinessChecklistItem } from '@/lib/sale-readiness-checklist'
+import { exportSaleReadinessChecklistExcel, type SaleReadinessChecklistItem } from '@/lib/sale-readiness-checklist'
+import { buildClientReleasedRoadmapMarkdown } from '@/lib/roadmap-flag-items'
 import { Ws2WorkbookView } from '@/components/ttm-agent/Ws2WorkbookView'
 import DigitalPresenceScorecard from '@/components/digital-presence/DigitalPresenceScorecard'
 
@@ -115,16 +117,38 @@ function StatusBadge({ value }: { value: string }) {
 }
 
 function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: 'table' }> }) {
+  const redColIdx = block.headers.findIndex(h => h.includes('🔴'))
+  const yellowColIdx = block.headers.findIndex(h => h.includes('🟡'))
+  const greenColIdx = block.headers.findIndex(h => h.includes('🟢'))
+  const isOverviewTable = redColIdx !== -1 && yellowColIdx !== -1 && greenColIdx !== -1
+
   return (
     <div className="my-6 overflow-x-auto rounded-xl border border-slate-200">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
         <thead className="bg-slate-50">
           <tr>
-            {block.headers.map((header, index) => (
-              <th key={`${header}-${index}`} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                {header}
-              </th>
-            ))}
+            {block.headers.map((header, index) => {
+              if (isOverviewTable && (index === redColIdx || index === yellowColIdx || index === greenColIdx)) {
+                const colorClass = index === redColIdx
+                  ? 'text-rose-600 bg-rose-50/50'
+                  : index === yellowColIdx
+                    ? 'text-amber-600 bg-amber-50/50'
+                    : 'text-emerald-600 bg-emerald-50/50'
+                return (
+                  <th key={`${header}-${index}`} className={`px-4 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide ${colorClass}`}>
+                    <div className="flex flex-col items-center justify-center gap-0.5">
+                      <span className="text-[9px] font-bold tracking-wider text-slate-400">Items</span>
+                      <span className="inline-flex items-center gap-1">{header}</span>
+                    </div>
+                  </th>
+                )
+              }
+              return (
+                <th key={`${header}-${index}`} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  {header}
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -132,6 +156,20 @@ function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: 'table
             <tr key={rowIndex} className="align-top">
               {block.headers.map((_, cellIndex) => {
                 const value = row[cellIndex] ?? ''
+                if (isOverviewTable && (cellIndex === redColIdx || cellIndex === yellowColIdx || cellIndex === greenColIdx)) {
+                  const count = value.trim()
+                  const hasIssues = count !== '0' && count !== ''
+                  const cellColor = cellIndex === redColIdx
+                    ? (hasIssues ? 'text-rose-700 bg-rose-50/50 font-bold' : 'text-slate-300')
+                    : cellIndex === yellowColIdx
+                      ? (hasIssues ? 'text-amber-700 bg-amber-50/50 font-bold' : 'text-slate-300')
+                      : (hasIssues ? 'text-emerald-700 bg-emerald-50/50 font-bold' : 'text-slate-300')
+                  return (
+                    <td key={cellIndex} className={`px-4 py-3 text-center text-sm ${cellColor}`}>
+                      {value}
+                    </td>
+                  )
+                }
                 return (
                   <td key={cellIndex} className="px-4 py-3 text-sm leading-6 text-slate-700">
                     {isStatusText(value) ? <StatusBadge value={value} /> : value}
@@ -222,12 +260,12 @@ function buildReleasedRoadmapMarkdown(markdown: string, items: SaleReadinessChec
 
 function ClientChecklistTable({
   clientId,
-  workstream,
+  clientName,
   items,
   onChange,
 }: {
   clientId: string
-  workstream: 'ws1' | 'ws2'
+  clientName: string
   items: SaleReadinessChecklistItem[]
   onChange: (items: SaleReadinessChecklistItem[]) => void
 }) {
@@ -241,7 +279,6 @@ function ClientChecklistTable({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientId,
-          workstream,
           itemId: item.id,
           clientCompleted: !item.clientCompleted,
         }),
@@ -263,7 +300,19 @@ function ClientChecklistTable({
   }
 
   return (
-    <div className="my-6 overflow-x-auto rounded-xl border border-slate-200">
+    <div className="my-6 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Interactive Checklist</span>
+        <button
+          type="button"
+          onClick={() => exportSaleReadinessChecklistExcel(items, clientName)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+          Download Excel
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-slate-200">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
         <thead className="bg-slate-50">
           <tr>
@@ -294,6 +343,7 @@ function ClientChecklistTable({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }
@@ -303,42 +353,50 @@ function RoadmapReleasedReport({
   clientName,
   agentName,
   markdown,
-  workstream,
 }: {
   clientId: string
   clientName: string
   agentName: string
   markdown: string
-  workstream: 'ws1' | 'ws2'
 }) {
   const [items, setItems] = useState<SaleReadinessChecklistItem[]>([])
 
   useEffect(() => {
     let cancelled = false
     async function loadChecklist() {
-      const res = await fetch(`/api/sale-readiness-checklist?clientId=${encodeURIComponent(clientId)}&workstream=${workstream}&approvedOnly=1`, { cache: 'no-store' })
+      const res = await fetch(`/api/sale-readiness-checklist?clientId=${encodeURIComponent(clientId)}&approvedOnly=1`, { cache: 'no-store' })
       if (!res.ok) return
       const data = await res.json()
       if (!cancelled) setItems(data.checklist?.items ?? [])
     }
     void loadChecklist()
     return () => { cancelled = true }
-  }, [clientId, workstream])
+  }, [clientId])
 
-  const blocks = useMemo(() => parseMarkdownBlocks(markdown), [markdown])
-  const exportMarkdown = useMemo(() => buildReleasedRoadmapMarkdown(markdown, items), [markdown, items])
+  const exportMarkdown = useMemo(() => buildClientReleasedRoadmapMarkdown(markdown, items), [markdown, items])
+  const blocks = useMemo(() => parseMarkdownBlocks(exportMarkdown), [exportMarkdown])
   const html = useMemo(() => buildImprovementRoadmapHtml({
-    workstream,
-    workstreamLabel: workstream === 'ws1' ? 'WS1 — Risk Mitigation' : 'WS2 — Profitability & Growth',
+    workstream: 'sales-readiness',
+    workstreamLabel: 'Sales Readiness',
     clientName,
     generatedAt: new Date().toISOString(),
     markdown: exportMarkdown,
-  }), [clientName, exportMarkdown, workstream])
+  }), [clientName, exportMarkdown])
   let replaceNextTable = false
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        {items.length > 0 && (
+          <button
+            type="button"
+            onClick={() => exportSaleReadinessChecklistExcel(items, clientName)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+            Download Excel
+          </button>
+        )}
         <ExportReportButton html={html} fileName={`${clientName} - ${agentName}.pdf`} label="Download PDF" advisorAction={false} />
       </div>
       <div className="rounded-xl border border-slate-200 bg-white p-5">
@@ -357,7 +415,7 @@ function RoadmapReleasedReport({
               <ClientChecklistTable
                 key={index}
                 clientId={clientId}
-                workstream={workstream}
+                clientName={clientName}
                 items={items}
                 onChange={setItems}
               />
@@ -555,20 +613,8 @@ export default function ClientApprovedAgentOutput({
     case 'net_proceeds':
       return frame(<NetProceedsCalculator clientId={clientId} clientName={clientName} readOnly />)
 
+    case 'salesReadinessRoadmap':
     case 'ws1Roadmap':
-      if (fallbackMarkdown?.trim()) {
-        return frame(
-          <RoadmapReleasedReport
-            clientId={clientId}
-            clientName={clientName}
-            agentName={agentName}
-            markdown={fallbackMarkdown}
-            workstream="ws1"
-          />,
-        )
-      }
-      return null
-
     case 'ws2Roadmap':
       if (fallbackMarkdown?.trim()) {
         return frame(
@@ -577,7 +623,6 @@ export default function ClientApprovedAgentOutput({
             clientName={clientName}
             agentName={agentName}
             markdown={fallbackMarkdown}
-            workstream="ws2"
           />,
         )
       }

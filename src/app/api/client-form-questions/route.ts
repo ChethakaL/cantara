@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { ensureCompetitorFormFields } from '@/lib/competitor-form-fields'
-import { buildOccupancyReviewInputs, occupancyInputsToFormResponses } from '@/lib/occupancy-form-fields'
+import { buildOccupancyReviewInputs, occupancyInputsToFormResponses, ensureOccupancyFormFields } from '@/lib/occupancy-form-fields'
 import { syncStructuredToFormResponses, formatProfessionalAdvisors, formatVendorDirectory } from '@/lib/sync-form-responses'
 import { normalizeOptionalFormValue } from '@/lib/client-form-na'
 
@@ -337,7 +337,12 @@ export async function GET(req: NextRequest) {
     ...syncStructuredToFormResponses(existing, client),
   }
 
-  const questions = dedupeQuestions(ensureCompetitorFormFields(rows, agentIds))
+  const questions = dedupeQuestions(
+    ensureOccupancyFormFields(
+      ensureCompetitorFormFields(rows, agentIds),
+      agentIds,
+    ),
+  )
     // Commented out for now: Google Business locations
     .filter(q => q.fieldKey !== 'googleBusinessLocations')
     .map(question => ({

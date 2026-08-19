@@ -14,6 +14,7 @@ import { deleteWorkstreamTemplate, deleteClient, getWorkstreamTemplates, saveCli
 import { type AgentDocumentSelection } from '@/lib/documentData'
 import type { Client, Workstream, BusinessType, WorkstreamTemplate } from '@/lib/store'
 import { getClientWorkstreamAgents } from '@/lib/workstream-agents'
+import ClientPortalInvitePanel from '@/components/admin/ClientPortalInvitePanel'
 
 interface Owner2Data {
   name: string
@@ -79,6 +80,7 @@ const AGENT_ICONS = {
   pricing_analysis: Tags,
   pricing_vertical: ChartNoAxesColumn,
   sales_process_review: MessageSquareText,
+  sales_readiness_roadmap: FileText,
   meeting_notes: MessageSquareText,
   net_proceeds: Calculator,
   teaser: Sparkles,
@@ -110,6 +112,7 @@ const AGENT_CATALOG = [
   { id: 'pricing_analysis', name: 'Competitive Pricing Analysis Agent', defaultDocumentIds: ['pricing_schedule', 'revenue_breakdown'] },
   { id: 'pricing_vertical', name: 'Pricing by Vertical Agent', defaultDocumentIds: ['revenue_breakdown', 'pricing_schedule'] },
   { id: 'sales_process_review', name: 'Sales Process Review Agent', defaultDocumentIds: ['sales_process_transcript', 'pricing_schedule'] },
+  { id: 'sales_readiness_roadmap', name: 'Sales Readiness Roadmap', defaultDocumentIds: [] },
   { id: 'client_location_map', name: 'Client Location Map Agent', defaultDocumentIds: [] },
   { id: 'meeting_notes', name: 'Meeting Notes Agent', defaultDocumentIds: ['meeting_notes'] },
   { id: 'net_proceeds', name: 'Net Proceeds Calculator Agent', defaultDocumentIds: [] },
@@ -132,6 +135,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentS
     { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
     { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: ['material_contracts'] },
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
+    { agentId: 'sales_readiness_roadmap', agentName: 'Sales Readiness Roadmap', documentIds: [] },
   ],
   ws2: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
@@ -143,6 +147,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentS
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent', documentIds: ['revenue_breakdown', 'pricing_schedule'] },
     { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent', documentIds: ['sales_process_transcript', 'pricing_schedule'] },
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
+    { agentId: 'sales_readiness_roadmap', agentName: 'Sales Readiness Roadmap', documentIds: [] },
   ],
   ma: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
@@ -258,6 +263,36 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
       ? initial.propertyOwnership
       : '',
   )
+
+  // Facility review mode — stored in sectionSubmissions.facilityReviewMode ('360' | 'advisor')
+  const initialFacilityReviewMode = ((initial.sectionSubmissions as any)?.facilityReviewMode === 'advisor' ? 'advisor' : '360') as '360' | 'advisor'
+  const [facilityReviewMode, setFacilityReviewMode] = useState<'360' | 'advisor'>(initialFacilityReviewMode)
+
+  const handleUpdateFacilityReviewMode = async (nextMode: '360' | 'advisor') => {
+    setFacilityReviewMode(nextMode)
+    const existingSections = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object')
+      ? client.sectionSubmissions
+      : {}
+    const nextClient = {
+      ...client,
+      sectionSubmissions: {
+        ...existingSections,
+        facilityReviewMode: nextMode,
+      } as Client['sectionSubmissions'],
+    }
+    setClient(nextClient)
+    try {
+      await fetch('/api/agent-runs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: client.id,
+          agentId: 'facility_review',
+          facilityReviewMode: nextMode,
+        }),
+      })
+    } catch {}
+  }
 
   const update = <K extends keyof Client>(key: K, val: Client[K]) =>
     setClient(p => ({ ...p, [key]: val }))
@@ -416,6 +451,7 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     } else {
       delete mergedSectionSubmissions.propertyOwnership
     }
+    mergedSectionSubmissions.facilityReviewMode = facilityReviewMode
 
     const nextPropertyOwnership: Client['propertyOwnership'] = propertyOwnership || ''
     const nextClient = {
@@ -661,6 +697,8 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
   return (
     <div className="space-y-8">
+      <ClientPortalInvitePanel clientId={client.id} />
+
       {/* Identity */}
       <section>
         <h4 className="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Client Information</h4>
@@ -1073,6 +1111,65 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
             <Plus className="w-3.5 h-3.5" /> Add Team Member
           </Button>
         )}
+      </section>
+
+      {/* Facility Review Mode */}
+      <section>
+        <h4 className="text-sm font-semibold text-slate-700 mb-2 pb-2 border-b border-slate-100 flex items-center gap-2">
+          <Camera className="w-4 h-4 text-slate-500" /> Facility Review Mode
+        </h4>
+        <p className="text-xs text-slate-500 mb-3">
+          Designate whether the client completes the 360 review form in their portal or an advisor conducts an on-site facility visit.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
+          <button
+            type="button"
+            onClick={() => void handleUpdateFacilityReviewMode('360')}
+            className={`p-4 rounded-xl border text-left transition-all ${
+              facilityReviewMode === '360'
+                ? 'border-amber-400 bg-amber-50/60 ring-1 ring-amber-400 shadow-sm'
+                : 'border-slate-200 bg-white hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <span className={`text-xs font-bold ${facilityReviewMode === '360' ? 'text-amber-800' : 'text-slate-800'}`}>
+                360 Review (Client Form)
+              </span>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                facilityReviewMode === '360' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+              }`}>
+                Standard
+              </span>
+            </div>
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              The client completes the comprehensive facility questionnaire in the client portal and uploads facility photos.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleUpdateFacilityReviewMode('advisor')}
+            className={`p-4 rounded-xl border text-left transition-all ${
+              facilityReviewMode === 'advisor'
+                ? 'border-amber-400 bg-amber-50/60 ring-1 ring-amber-400 shadow-sm'
+                : 'border-slate-200 bg-white hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <span className={`text-xs font-bold ${facilityReviewMode === 'advisor' ? 'text-amber-800' : 'text-slate-800'}`}>
+                Advisor Review (On-Site Visit)
+              </span>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                facilityReviewMode === 'advisor' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+              }`}>
+                Advisor-Led
+              </span>
+            </div>
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              Advisors conduct an on-site physical walk-through, capturing meeting notes and photos. Facility questionnaire is hidden from the client portal.
+            </p>
+          </button>
+        </div>
       </section>
 
       {/* Google Drive */}
