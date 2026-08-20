@@ -6,6 +6,7 @@ import { AdminPortalHeader } from '@/components/admin/AdminPortalHeader'
 import { Button, Input } from '@/components/ui'
 import { useAdminInboxUnread } from '@/hooks/useChatRoom'
 import GoogleServicesCard from '@/components/admin/GoogleServicesCard'
+import { DataPrivacySecurityPolicy } from '@/components/settings/DataPrivacySecurityPolicy'
 import { MONDAY_ITEM_NAME_COLUMN_ID, MONDAY_ITEM_NAME_COLUMN_LABEL } from '@/lib/monday-client-import'
 import { getAdminEmail } from '@/lib/store'
 import {
@@ -546,6 +547,8 @@ export default function AdminSettingsPage() {
             )}
           </div>
         </section>
+
+        <DataPrivacySecurityPolicy defaultOpen={false} />
       </main>
     </div>
   )

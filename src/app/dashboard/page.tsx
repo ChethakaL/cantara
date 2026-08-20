@@ -163,8 +163,8 @@ const PHASES = [
 const TOUR_STEPS = [
   {
     step: 1,
-    title: "Change Temporary Password",
-    desc: "Click the highlighted gear icon here to open Account Settings and update your temporary password to secure your account.",
+    title: "Account Settings & Data Privacy",
+    desc: "Click the highlighted gear icon here to open Account Settings where you can update your temporary password, configure email notifications, and review our Data Privacy & Security guidelines.",
   },
   {
     step: 2,
