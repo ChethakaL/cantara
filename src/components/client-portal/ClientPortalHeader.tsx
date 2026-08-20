@@ -12,17 +12,21 @@ export function ClientPortalHeader({
   showBack = true,
   active,
   highlightSettings = false,
+  tourPaused = false,
+  onResumeTour,
 }: {
   pageLabel: string
   unreadCount?: number
   showBack?: boolean
   active?: 'notifications' | 'settings'
   highlightSettings?: boolean
+  tourPaused?: boolean
+  onResumeTour?: () => void
 }) {
   const router = useRouter()
 
   return (
-    <header className={`sticky top-0 ${highlightSettings ? 'z-[61]' : 'z-40'}`} style={{ background: '#0d1829' }}>
+    <header className={`sticky top-0 ${highlightSettings ? 'z-[70]' : 'z-50'}`} style={{ background: '#0d1829' }}>
       <div className="max-w-3xl mx-auto px-4 md:px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           {showBack ? (
@@ -48,6 +52,15 @@ export function ClientPortalHeader({
               </span>
             )}
           </Link>
+          {tourPaused && onResumeTour && (
+            <button
+              type="button"
+              onClick={onResumeTour}
+              className="rounded-md border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200 transition-colors hover:bg-amber-400/20"
+            >
+              Resume tour
+            </button>
+          )}
           <Link
             href="/dashboard/settings"
             className={`relative z-[61] p-2 rounded transition-colors ${

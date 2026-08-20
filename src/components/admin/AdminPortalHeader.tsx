@@ -18,7 +18,7 @@ export function AdminPortalHeader({
   const router = useRouter()
 
   return (
-    <header className="sticky top-0 z-40" style={{ background: '#21263C' }}>
+    <header className="sticky top-0 z-50" style={{ background: '#21263C' }}>
       <div className="max-w-3xl mx-auto px-4 md:px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/admin" className="p-2 rounded hover:bg-cantara-sun/5 text-cantara-sun/50 hover:text-cantara-sun/80 transition-colors">
