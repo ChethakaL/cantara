@@ -151,6 +151,8 @@ export async function POST(req: NextRequest) {
           ownerFirstName: body.ownerFirstName || null,
           ownerLastName: body.ownerLastName || null,
           ownerPhone: body.ownerPhone || null,
+          businessPosition: body.businessPosition || null,
+          officePhone: body.officePhone || null,
           phoneType:
             body.phoneType === SalesLeadContactType.DIRECT
               ? SalesLeadContactType.DIRECT
@@ -212,7 +214,7 @@ export async function PATCH(req: NextRequest) {
     const editable = [
       'businessName', 'state', 'city', 'websiteUrl', 'googleRating',
       'reviewCount', 'sqftIndoor', 'sqftOutdoor', 'sqftCombined', 'locationType',
-      'preCallBriefUrl', 'ownerFirstName', 'ownerLastName', 'ownerPhone', 'phoneType',
+      'preCallBriefUrl', 'ownerFirstName', 'ownerLastName', 'ownerPhone', 'businessPosition', 'officePhone', 'phoneType',
       'sourceLinkPhone', 'ownerEmail', 'emailType', 'sourceLinkEmail', 'notes',
     ]
     for (const key of editable) {

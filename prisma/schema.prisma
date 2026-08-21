@@ -668,6 +668,8 @@ model SalesLead {
   ownerFirstName     String?
   ownerLastName      String?
   ownerPhone         String?
+  businessPosition   String?
+  officePhone        String?
   phoneType          SalesLeadContactType @default(GENERAL)
   sourceLinkPhone    String?
   ownerEmail         String?

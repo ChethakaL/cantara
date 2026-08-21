@@ -38,6 +38,8 @@ const MONDAY_COLUMNS: Array<{ key: string; label: string; number: number }> = [
   { number: 30, key: 'locationCount', label: '# of Locations' },
   { number: 31, key: 'generalEmail', label: 'General Email' },
   { number: 32, key: 'generalPhone', label: 'General Phone' },
+  { number: 33, key: 'businessPosition', label: 'Business Position' },
+  { number: 34, key: 'officePhone', label: 'Office Phone Number' },
 ]
 
 type Board = { id: string; name: string }
