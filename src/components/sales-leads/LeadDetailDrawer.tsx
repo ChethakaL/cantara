@@ -468,6 +468,24 @@ export default function LeadDetailDrawer({
 
                 <div className="p-3 bg-slate-50 rounded-lg border">
                   <div className="text-slate-400 mb-1 flex items-center gap-1">
+                    <User className="w-3.5 h-3.5" /> Business Position
+                  </div>
+                  <div className="font-semibold text-slate-800">
+                    {lead.businessPosition || 'Not specified'}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-lg border">
+                  <div className="text-slate-400 mb-1 flex items-center gap-1">
+                    <Phone className="w-3.5 h-3.5" /> Office Phone Number
+                  </div>
+                  <div className="font-semibold text-slate-800">
+                    {lead.officePhone || 'Not specified'}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-lg border">
+                  <div className="text-slate-400 mb-1 flex items-center gap-1">
                     <Star className="w-3.5 h-3.5 text-amber-500" /> Google Rating & Reviews
                   </div>
                   <div className="font-semibold text-slate-800">

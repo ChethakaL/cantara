@@ -3,7 +3,7 @@ import type { SalesLead, SalesLeadContactType } from '@prisma/client'
 export type EmailLead = Pick<
   SalesLead,
   'businessName' | 'ownerFirstName' | 'ownerLastName' | 'ownerEmail' | 'emailType' | 'city' | 'state' | 'googleRating' | 'reviewCount' | 'sqftCombined' | 'websiteUrl'
-> & { aiResearchReport?: SalesLead['aiResearchReport']; assignedCallerId?: string | null }
+> & { businessPosition?: string | null; officePhone?: string | null; aiResearchReport?: SalesLead['aiResearchReport']; assignedCallerId?: string | null }
 
 export type TemplateSender = { name?: string | null } | null | undefined
 
@@ -55,6 +55,8 @@ export function interpolateSalesLeadTemplate(
     facilityName: lead.businessName,
     website: lead.websiteUrl || '',
     phone: senderPhone,
+    businessPosition: lead.businessPosition || '',
+    officePhone: lead.officePhone || '',
     link: calendarUrl,
     calendarUrl,
     senderName: footerName,
@@ -73,6 +75,8 @@ export function interpolateSalesLeadTemplate(
     .replace(/\s*\[Last Name\]/gi, senderLastName ? ` ${senderLastName}` : '')
     .replace(/\[City\]/gi, replacements.city)
     .replace(/\[State\]/gi, replacements.state)
+    .replace(/\[Business Position\]/gi, replacements.businessPosition)
+    .replace(/\[Office Phone Number\]/gi, replacements.officePhone)
     .replace(/\[LINK\]/gi, calendarUrl || '[LINK]')
     .replace(/\[SELL ONE DAY GUIDE LINK\]/gi, guideUrl || '[SELL ONE DAY GUIDE LINK]')
     .replace(/\[phone\]/gi, senderPhone || '[phone]')
