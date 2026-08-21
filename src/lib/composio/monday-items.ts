@@ -418,21 +418,41 @@ export async function updateMondayBoardItem(args: {
   );
 
   if (Object.keys(cleanValues).length === 0) return true;
-  const jsonString = JSON.stringify(cleanValues);
 
+  // Prefer Monday GraphQL directly. Composio no longer exposes
+  // MONDAY_CHANGE_MULTIPLE_COLUMN_VALUES, and the old path marked SYNCED even when
+  // the status column silently failed to update.
   try {
-    const toolResult = await executeMondayTool<any>("MONDAY_CHANGE_MULTIPLE_COLUMN_VALUES", {
-      board_id: args.boardId,
-      item_id: args.itemId,
-      column_values: jsonString,
+    const result = await executeMondayGraphqlDirect({
+      query: `
+        mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+          change_multiple_column_values(
+            board_id: $boardId
+            item_id: $itemId
+            column_values: $columnValues
+          ) { id }
+        }
+      `,
+      variables: {
+        boardId: args.boardId,
+        itemId: args.itemId,
+        columnValues: cleanValues,
+      },
     });
-    if (toolResult?.successful !== false && toolResult?.data) return true;
+    if ((result?.data as any)?.change_multiple_column_values?.id) {
+      return true;
+    }
   } catch (error) {
-    // Continue to column fallback
+    console.warn("[Monday] Direct change_multiple_column_values failed:", error);
   }
 
+  const failedColumns: string[] = [];
   let updatedAny = false;
   for (const [columnId, colVal] of Object.entries(cleanValues)) {
+    const valueForTool =
+      typeof colVal === "string" || typeof colVal === "number" || typeof colVal === "boolean"
+        ? colVal
+        : JSON.stringify(colVal);
     try {
       const res = await executeMondayTool<any>("MONDAY_UPDATE_ITEM", {
         board_id: args.boardId,
@@ -440,10 +460,42 @@ export async function updateMondayBoardItem(args: {
         column_id: columnId,
         value: colVal,
       });
-      if (res?.successful !== false) updatedAny = true;
+      if (res?.successful !== false && !res?.error) {
+        updatedAny = true;
+        continue;
+      }
     } catch {
-      // Continue to next column
+      // try simple column value with stringified JSON next
     }
+
+    try {
+      const res = await executeMondayTool<any>("MONDAY_CHANGE_SIMPLE_COLUMN_VALUE", {
+        board_id: args.boardId,
+        item_id: args.itemId,
+        column_id: columnId,
+        value: typeof valueForTool === "string" ? valueForTool : String(valueForTool),
+      });
+      if (res?.successful !== false && !res?.error) {
+        updatedAny = true;
+        continue;
+      }
+      failedColumns.push(columnId);
+    } catch {
+      failedColumns.push(columnId);
+    }
+  }
+
+  if (failedColumns.length) {
+    console.warn("[Monday] Some columns failed to update", {
+      itemId: args.itemId,
+      failedColumns,
+    });
+  }
+
+  // Status/stage columns must succeed or callers will mark SYNCED incorrectly.
+  const statusLikeFailed = failedColumns.some(id => id.startsWith("color_") || id.startsWith("status"));
+  if (statusLikeFailed) {
+    throw new Error(`Monday status column update failed for item ${args.itemId}: ${failedColumns.join(", ")}`);
   }
 
   return updatedAny;
