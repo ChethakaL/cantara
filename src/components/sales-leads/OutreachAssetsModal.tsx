@@ -26,7 +26,7 @@ function assetLabel(asset: Pick<Asset, 'touch' | 'assetType'>) {
   return asset.touch === 1 ? 'Email 1' : asset.touch === 2 ? 'Email 2' : `Email ${asset.touch}`
 }
 
-type User = { id: string; name: string; email: string }
+type User = { id: string; name: string; email: string; emailFooterName?: string | null; emailFooterTitle?: string | null; emailFooterPhone?: string | null }
 
 function readAdminEmailFromCookie(): string {
   if (typeof document === 'undefined') return ''
@@ -77,6 +77,9 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
   const [assetTypeFilter, setAssetTypeFilter] = useState<'ALL' | 'EMAIL' | 'CALL'>('ALL')
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [sequenceFilter, setSequenceFilter] = useState('ALL')
+  const [footerOpen, setFooterOpen] = useState(false)
+  const [footer, setFooter] = useState({ name: '', title: '', phone: '' })
+  const [footerSaving, setFooterSaving] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -91,6 +94,8 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
       setAssets(list)
       setUsers(userList)
       setCurrentUserId(me)
+      const current = userList.find(user => user.id === me)
+      if (current) setFooter({ name: current.emailFooterName || current.name || '', title: current.emailFooterTitle || '', phone: current.emailFooterPhone || '' })
       const visible = filterAssets(list, assetTypeFilter, sequenceFilter)
       setEditing(prev => {
         if (prev?.id) {
@@ -182,6 +187,16 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
   const selectedSender = users.find(u => u.id === (editing?.senderUserId || currentUserId)) || users[0]
   const visibleAssets = filterAssets(assets, assetTypeFilter, sequenceFilter)
 
+  const saveFooter = async () => {
+    setFooterSaving(true)
+    try {
+      const res = await fetch('/api/sales-leads/assets', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(footer) })
+      if (!res.ok) throw new Error((await res.json()).error || 'Could not save sender footer')
+      setFooterOpen(false)
+      await load()
+    } catch (err: any) { setError(err.message) } finally { setFooterSaving(false) }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
@@ -198,12 +213,15 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
               <p className="text-xs text-slate-500">Your email and call templates for the assigned-lead workflow.</p>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setFooterOpen(true)} className="text-xs">Sender Footer</Button>
           <button 
             onClick={onClose}
             className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
+          </div>
         </div>
 
         {error && (
@@ -212,6 +230,18 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
             <button onClick={() => setError('')} className="text-rose-400 hover:text-rose-600">
               <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+        )}
+
+        {footerOpen && (
+          <div className="mx-6 mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-center justify-between mb-3"><div><p className="text-sm font-bold text-slate-800">Sender Footer</p><p className="text-xs text-slate-500">Enter once; it is applied to generated emails.</p></div><button onClick={() => setFooterOpen(false)}><X className="w-4 h-4 text-slate-400" /></button></div>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <Input label="Name" value={footer.name} onChange={e => setFooter({ ...footer, name: e.target.value })} placeholder="Your full name" />
+              <Input label="Title" value={footer.title} onChange={e => setFooter({ ...footer, title: e.target.value })} placeholder="Founder" />
+              <Input label="Phone" value={footer.phone} onChange={e => setFooter({ ...footer, phone: e.target.value })} placeholder="(206) 202-5014" />
+            </div>
+            <div className="flex justify-end mt-3"><Button onClick={() => void saveFooter()} disabled={footerSaving}>{footerSaving ? 'Saving...' : 'Save Footer'}</Button></div>
           </div>
         )}
 
@@ -421,7 +451,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
                             <div>
                               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Fill-in fields for this template</p>
                               <p className="mt-1 text-[11px] text-slate-500">
-                                Values you type here replace [LINK] and [phone]{hasGuidePlaceholder ? ', and [SELL ONE DAY GUIDE LINK]' : ''} when a draft is generated. Leave a field blank if that placeholder should stay visible. Type the sender name directly in the template body.
+                                Values you type here replace [LINK] and [phone]{hasGuidePlaceholder ? ', and [SELL ONE DAY GUIDE LINK]' : ''} when a draft is generated. Put [Footer] where the sender signature should appear (from Sender Footer). Leave a field blank if that placeholder should stay visible.
                               </p>
                             </div>
                             <div className={`grid sm:grid-cols-2 ${hasGuidePlaceholder ? 'lg:grid-cols-3' : ''} gap-3`}>

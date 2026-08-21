@@ -3,7 +3,7 @@ import type { SalesLead, SalesLeadContactType } from '@prisma/client'
 export type EmailLead = Pick<
   SalesLead,
   'businessName' | 'ownerFirstName' | 'ownerLastName' | 'ownerEmail' | 'emailType' | 'city' | 'state' | 'googleRating' | 'reviewCount' | 'sqftCombined' | 'websiteUrl'
-> & { businessPosition?: string | null; officePhone?: string | null; aiResearchReport?: SalesLead['aiResearchReport']; assignedCallerId?: string | null }
+> & { aiResearchReport?: SalesLead['aiResearchReport']; assignedCallerId?: string | null }
 
 export type TemplateSender = { name?: string | null } | null | undefined
 
@@ -11,6 +11,7 @@ export type SalesLeadTemplateOptions = {
   calendarUrl?: string | null
   senderPhone?: string | null
   guideUrl?: string | null
+  senderFooter?: string | null
 }
 
 export function senderLastNameFromDisplayName(name?: string | null) {
@@ -34,6 +35,10 @@ export function buildVerifiedCompliment(lead: Pick<EmailLead, 'googleRating' | '
   return 'What you\'ve built there is an impressive accomplishment.'
 }
 
+export function templateHasSenderFooterPlaceholder(value: string) {
+  return /\{\{\s*senderFooter\s*\}\}|\[\s*Footer\s*\]/i.test(value)
+}
+
 export function interpolateSalesLeadTemplate(
   value: string,
   lead: EmailLead,
@@ -46,6 +51,7 @@ export function interpolateSalesLeadTemplate(
   const calendarUrl = String(options?.calendarUrl || '').trim()
   const senderPhone = String(options?.senderPhone || '').trim()
   const guideUrl = String(options?.guideUrl || '').trim()
+  const senderFooter = String(options?.senderFooter || '').trim()
   const replacements: Record<string, string> = {
     businessName: lead.businessName,
     ownerFirstName: lead.ownerFirstName || '',
@@ -55,8 +61,6 @@ export function interpolateSalesLeadTemplate(
     facilityName: lead.businessName,
     website: lead.websiteUrl || '',
     phone: senderPhone,
-    businessPosition: lead.businessPosition || '',
-    officePhone: lead.officePhone || '',
     link: calendarUrl,
     calendarUrl,
     senderName: footerName,
@@ -66,6 +70,7 @@ export function interpolateSalesLeadTemplate(
     facilityAndOperatingProfile: String(report.facilityAndOperatingProfile || ''),
     senderLastName,
     guideUrl,
+    senderFooter,
   }
   return value
     .replace(/\{\{(\w+)\}\}/g, (_match, key) => replacements[key] ?? '')
@@ -75,8 +80,8 @@ export function interpolateSalesLeadTemplate(
     .replace(/\s*\[Last Name\]/gi, senderLastName ? ` ${senderLastName}` : '')
     .replace(/\[City\]/gi, replacements.city)
     .replace(/\[State\]/gi, replacements.state)
-    .replace(/\[Business Position\]/gi, replacements.businessPosition)
-    .replace(/\[Office Phone Number\]/gi, replacements.officePhone)
+    .replace(/\{\{\s*senderFooter\s*\}\}/gi, senderFooter || '{{senderFooter}}')
+    .replace(/\[\s*Footer\s*\]/gi, senderFooter || '[Footer]')
     .replace(/\[LINK\]/gi, calendarUrl || '[LINK]')
     .replace(/\[SELL ONE DAY GUIDE LINK\]/gi, guideUrl || '[SELL ONE DAY GUIDE LINK]')
     .replace(/\[phone\]/gi, senderPhone || '[phone]')

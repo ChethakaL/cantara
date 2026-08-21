@@ -538,6 +538,9 @@ model Session {
 model User {
   id                        String            @id @default(cuid())
   name                      String
+  emailFooterName           String?
+  emailFooterTitle          String?
+  emailFooterPhone          String?
   email                     String            @unique
   passwordHash              String
   mustChangePassword        Boolean           @default(false)
@@ -668,8 +671,6 @@ model SalesLead {
   ownerFirstName     String?
   ownerLastName      String?
   ownerPhone         String?
-  businessPosition   String?
-  officePhone        String?
   phoneType          SalesLeadContactType @default(GENERAL)
   sourceLinkPhone    String?
   ownerEmail         String?

@@ -109,6 +109,7 @@ apply_sql "Client timeline stages" "${REPO}/prisma/migrations/20260819_add_clien
 apply_sql "Outreach asset fill-in fields" "${REPO}/prisma/migrations/20260819_add_outreach_asset_fill_in_fields/migration.sql"
 apply_sql "Occupancy capacity required info restore" "${REPO}/prisma/migrations/20260818200000_restore_occupancy_capacity_required_info/migration.sql"
 apply_sql "SalesLead businessPosition and officePhone" "${REPO}/prisma/migrations/20260821_add_sales_lead_position_office_phone/migration.sql"
+apply_sql "User email footer + OutreachAsset [Footer]" "${REPO}/prisma/migrations/20260821_add_user_email_footer/migration.sql"
 
 sleep 12
 curl -sf -o /dev/null -w "local:%{http_code}\n" "http://127.0.0.1:${PORT}/" || echo "local:fail"

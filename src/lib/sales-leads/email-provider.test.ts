@@ -90,6 +90,15 @@ Call [phone].`
   assert.doesNotMatch(body, /Galante/)
 })
 
+test('[Footer] is replaced from the advisor sender footer settings', () => {
+  const template = `Looking forward to connecting.\n\n[Footer]`
+  const body = interpolateSalesLeadTemplate(template, sitStayPlay, { name: 'Chethaka Lakshitha' }, {
+    senderFooter: 'Chethaka Lakshitha\nAI Engineer\n123456789',
+  })
+  assert.match(body, /Looking forward to connecting\.\n\nChethaka Lakshitha\nAI Engineer\n123456789/)
+  assert.doesNotMatch(body, /\[Footer\]/)
+})
+
 test('5c - empty calendar and phone placeholders stay visible until filled', () => {
   const template = 'Book here: [LINK]. Call [phone].'
   const body = interpolateSalesLeadTemplate(template, sitStayPlay, { name: 'Gabriela' })

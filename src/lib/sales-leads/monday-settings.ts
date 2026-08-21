@@ -38,8 +38,6 @@ export const SALES_LEAD_MONDAY_MAPPING_FIELDS = [
   { key: 'locationCount', label: '# of Locations' },
   { key: 'generalEmail', label: 'General Email' },
   { key: 'generalPhone', label: 'General Phone' },
-  { key: 'businessPosition', label: 'Business Position' },
-  { key: 'officePhone', label: 'Office Phone Number' },
 ] as const
 
 export type SalesLeadMondayMappingKey = (typeof SALES_LEAD_MONDAY_MAPPING_FIELDS)[number]['key']
