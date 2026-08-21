@@ -41,6 +41,8 @@ export async function GET(req: NextRequest) {
   let syncSummary: Record<string, unknown> | null = null
   if (syncFromMonday) {
     try {
+      // Monday Sync is for pulling Monday → Cantara. Cantara stage changes push
+      // immediately on save/approve/cron; this only flushes any leftover outbox after.
       const inbound = await reconcileSalesLeadsFromMonday()
       const outbound = await processSalesLeadSyncOutbox()
       syncSummary = { ...inbound, outbound }
