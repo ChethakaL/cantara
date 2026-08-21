@@ -1,21 +1,29 @@
 import { NextResponse } from "next/server";
 import { getMondayConnection } from "@/lib/composio";
+import {
+  getStoredComposioMondayConnectedAccountId,
+  maskSecret,
+} from "@/lib/secure-settings";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const storedId = await getStoredComposioMondayConnectedAccountId().catch(() => null);
     const connection = await getMondayConnection();
-    const isConnected = connection && 
-      ["ACTIVE", "VERIFYING", "INITIATED"].includes(connection.status) && 
-      !connection.is_disabled;
+    const isConnected =
+      Boolean(connection) &&
+      ["ACTIVE", "VERIFYING", "INITIATED"].includes(String(connection?.status || "")) &&
+      !connection?.is_disabled;
 
     return NextResponse.json({
       connected: isConnected,
+      source: storedId ? "database" : connection?.id ? "composio" : null,
       connection: connection
         ? {
-            id: connection.id,
+            id: maskSecret(connection.id),
             status: connection.status,
+            userId: connection.user_id ?? null,
             updatedAt: connection.updated_at ?? null,
           }
         : null,
