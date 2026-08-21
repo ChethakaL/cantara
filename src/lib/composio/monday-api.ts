@@ -4,11 +4,45 @@ import {
   getComposioAdminId,
   ComposioAuthConfig,
   ComposioAuthConfigListItem,
+  ComposioConnectedAccount,
 } from "./client";
+import {
+  clearStoredComposioMondayConnectedAccountId,
+  getStoredComposioMondayConnectedAccountId,
+  saveStoredComposioMondayConnectedAccountId,
+} from "@/lib/secure-settings";
 
 export const MONDAY_TOOLKIT_SLUG = "MONDAY";
 export const ADMIN_MONDAY_USER_ID = "cantara-admin-monday";
 export const COMPOSIO_MONDAY_CLIENT_ID = "96b038435fc029e045f9ba800e66fefa";
+
+type MondayConnection = ComposioConnectedAccount & {
+  id: string;
+  status: string;
+  updated_at?: string;
+  is_disabled?: boolean;
+  user_id?: string;
+};
+
+function isUsableMondayConnection(item: {
+  status?: string;
+  is_disabled?: boolean;
+  user_id?: string;
+} | null | undefined) {
+  if (!item) return false;
+  if (item.is_disabled) return false;
+  if (!["ACTIVE", "VERIFYING", "INITIATED"].includes(String(item.status || ""))) return false;
+  const userId = String(item.user_id || "");
+  // Shared Composio orgs may contain other projects (e.g. tinyfrog). Never use those
+  // as Cantara's system Monday connection.
+  if (userId.startsWith("tinyfrog:")) return false;
+  return true;
+}
+
+function isPreferredCantaraMondayUser(userId: string | null | undefined) {
+  const id = String(userId || "");
+  return id.startsWith("admin:") || id === ADMIN_MONDAY_USER_ID;
+}
 
 export async function getMondayAuthConfigId() {
   if (process.env.COMPOSIO_MONDAY_AUTH_CONFIG_ID) {
@@ -47,6 +81,7 @@ export async function getMondayAuthConfigId() {
           "MONDAY_CREATE_UPDATE",
           "MONDAY_LIST_COLUMNS",
           "MONDAY_UPDATE_ITEM",
+          "MONDAY_CHANGE_SIMPLE_COLUMN_VALUE",
         ],
       },
     }),
@@ -95,103 +130,93 @@ export async function createMondayConnectLink(callbackUrl: string, adminId?: str
   return res;
 }
 
-export function getMondayInstallUrl() {
-  return `https://auth.monday.com/oauth2/authorize?client_id=${COMPOSIO_MONDAY_CLIENT_ID}&response_type=install`;
+async function fetchMondayConnectionById(accountId: string): Promise<MondayConnection | null> {
+  const direct = await tryComposioFetch<MondayConnection>(`/connected_accounts/${accountId}`);
+  if (!direct || !isUsableMondayConnection(direct)) return null;
+  return direct;
 }
 
-export async function getMondayConnection(adminId?: string) {
-  const userId = adminId || getComposioAdminId() || ADMIN_MONDAY_USER_ID;
-  const buildParams = (includeUser: boolean) => {
-    const params = new URLSearchParams({
-      limit: "10",
-      account_type: "ALL",
-      order_by: "updated_at",
-      order_direction: "desc",
-    });
-    if (includeUser) params.append("user_ids", userId);
-    params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
-    return params;
-  };
-  const pickConnection = (items: Array<{
-    id: string;
-    status: string;
-    updated_at?: string;
-    status_reason?: string;
-    is_disabled?: boolean;
-  }> = []) => {
-    const validStatuses = ["ACTIVE", "VERIFYING", "INITIATED"];
-    return items.find((item) => validStatuses.includes(item.status) && !item.is_disabled) ?? null;
-  };
-
-  const scopedConnections = await composioFetch<{
-    items?: Array<{
-      id: string;
-      status: string;
-      updated_at?: string;
-      status_reason?: string;
-      is_disabled?: boolean;
-      connection?: Record<string, unknown>;
-      user_id?: string;
-    }>;
-  }>(`/connected_accounts?${buildParams(true)}`);
-
-  const scoped = pickConnection(scopedConnections.items);
-  if (scoped) return scoped;
-
-  const globalConnections = await composioFetch<{
-    items?: Array<{
-      id: string;
-      status: string;
-      updated_at?: string;
-      status_reason?: string;
-      is_disabled?: boolean;
-      connection?: Record<string, unknown>;
-      user_id?: string;
-    }>;
-  }>(`/connected_accounts?${buildParams(false)}`);
-
-  return pickConnection(globalConnections.items);
-}
-
-export async function disconnectMonday(adminId?: string) {
-  const userId = adminId || getComposioAdminId() || ADMIN_MONDAY_USER_ID;
+async function listMondayConnections(userId?: string | null) {
   const params = new URLSearchParams({
     limit: "50",
     account_type: "ALL",
+    order_by: "updated_at",
+    order_direction: "desc",
   });
-  params.append("user_ids", userId);
+  if (userId) params.append("user_ids", userId);
   params.append("toolkit_slugs", MONDAY_TOOLKIT_SLUG);
+  const list = await composioFetch<{ items?: MondayConnection[] }>(`/connected_accounts?${params}`);
+  return list.items ?? [];
+}
 
-  const connections = await composioFetch<{
-    items?: Array<{ id: string; status: string }>;
-  }>(`/connected_accounts?${params}`);
-
-  const toDelete = connections.items ?? [];
-  if (toDelete.length === 0) return;
-
-  await Promise.all(
-    toDelete.map((conn) =>
-      composioFetch(`/connected_accounts/${conn.id}`, {
-        method: "DELETE",
-      }).catch((err) => console.warn(`Failed to delete Monday connection ${conn.id}:`, err))
-    )
+function pickPreferredMondayConnection(items: MondayConnection[]) {
+  const usable = items.filter((item) => isUsableMondayConnection(item));
+  return (
+    usable.find((item) => isPreferredCantaraMondayUser(item.user_id)) ||
+    usable[0] ||
+    null
   );
 }
 
-export async function executeMondayTool<T>(slug: string, argumentsPayload: Record<string, unknown>, adminId?: string) {
+/**
+ * Resolve Cantara's system Monday connection.
+ * Prefer the DB-stored Composio connected account id so cron/outbox never
+ * accidentally use another project's connection on the shared Composio org.
+ */
+export async function getMondayConnection(adminId?: string) {
+  const storedId =
+    (await getStoredComposioMondayConnectedAccountId().catch(() => null)) ||
+    process.env.COMPOSIO_MONDAY_CONNECTED_ACCOUNT_ID ||
+    null;
+
+  if (storedId) {
+    const stored = await fetchMondayConnectionById(storedId);
+    if (stored) return stored;
+  }
+
   const scopedUserId = adminId || getComposioAdminId();
-  const activeConnection = scopedUserId ? null : await getMondayConnection().catch(() => null);
-  const activeConnectionUserId =
-    typeof activeConnection?.connection?.user_id === "string"
-      ? activeConnection.connection.user_id
-      : typeof (activeConnection as any)?.user_id === "string"
-        ? (activeConnection as any).user_id
-        : null;
-  const userId = scopedUserId || activeConnectionUserId || ADMIN_MONDAY_USER_ID;
+  if (scopedUserId) {
+    const scoped = pickPreferredMondayConnection(await listMondayConnections(scopedUserId));
+    if (scoped) {
+      if (!storedId && scoped.status === "ACTIVE") {
+        await saveStoredComposioMondayConnectedAccountId(scoped.id).catch(() => null);
+      }
+      return scoped;
+    }
+  }
+
+  const global = pickPreferredMondayConnection(await listMondayConnections());
+  if (global && !storedId && global.status === "ACTIVE" && isPreferredCantaraMondayUser(global.user_id)) {
+    await saveStoredComposioMondayConnectedAccountId(global.id).catch(() => null);
+  }
+  return global;
+}
+
+export async function disconnectMonday(adminId?: string) {
+  const storedId = await getStoredComposioMondayConnectedAccountId().catch(() => null);
+  const connection = await getMondayConnection(adminId).catch(() => null);
+  const targetId = storedId || connection?.id;
+  if (targetId) {
+    await composioFetch(`/connected_accounts/${targetId}`, {
+      method: "DELETE",
+    }).catch((err) => console.warn(`Failed to delete Monday connection ${targetId}:`, err));
+  }
+  await clearStoredComposioMondayConnectedAccountId().catch(() => null);
+}
+
+export async function executeMondayTool<T>(slug: string, argumentsPayload: Record<string, unknown>, adminId?: string) {
+  const connection = await getMondayConnection(adminId).catch(() => null);
+  const userId =
+    (typeof connection?.user_id === "string" && connection.user_id) ||
+    adminId ||
+    getComposioAdminId() ||
+    ADMIN_MONDAY_USER_ID;
+
   const run = (toolSlug: string) =>
     composioFetch<{ data?: T; successful?: boolean; error?: unknown }>(`/tools/execute/${toolSlug}`, {
       method: "POST",
       body: JSON.stringify({
+        ...(connection?.id ? { connected_account_id: connection.id } : {}),
         user_id: userId,
         arguments: argumentsPayload,
       }),
@@ -255,7 +280,8 @@ export async function getMondayAuthHeader(): Promise<string | null> {
   for (const candidate of candidates) {
     if (!candidate) continue;
     const token = String(candidate).trim();
-    if (token.length <= 20) continue;
+    // Composio often returns the literal "REDACTED" for tokens on this API key.
+    if (token.length <= 20 || token.toUpperCase() === "REDACTED") continue;
     return token.startsWith("Bearer ") ? token : `Bearer ${token}`;
   }
   return null;

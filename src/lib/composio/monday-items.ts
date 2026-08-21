@@ -419,33 +419,9 @@ export async function updateMondayBoardItem(args: {
 
   if (Object.keys(cleanValues).length === 0) return true;
 
-  // Prefer Monday GraphQL directly. Composio no longer exposes
-  // MONDAY_CHANGE_MULTIPLE_COLUMN_VALUES, and the old path marked SYNCED even when
-  // the status column silently failed to update.
-  try {
-    const result = await executeMondayGraphqlDirect({
-      query: `
-        mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
-          change_multiple_column_values(
-            board_id: $boardId
-            item_id: $itemId
-            column_values: $columnValues
-          ) { id }
-        }
-      `,
-      variables: {
-        boardId: args.boardId,
-        itemId: args.itemId,
-        columnValues: cleanValues,
-      },
-    });
-    if ((result?.data as any)?.change_multiple_column_values?.id) {
-      return true;
-    }
-  } catch (error) {
-    console.warn("[Monday] Direct change_multiple_column_values failed:", error);
-  }
-
+  // Prefer Composio tools with the stored Cantara Monday connected account.
+  // Direct GraphQL needs a raw Monday token; Composio currently redacts those
+  // on this API key, so tools are the reliable write path.
   const failedColumns: string[] = [];
   let updatedAny = false;
   for (const [columnId, colVal] of Object.entries(cleanValues)) {
@@ -483,6 +459,33 @@ export async function updateMondayBoardItem(args: {
     } catch {
       failedColumns.push(columnId);
     }
+  }
+
+  if (!failedColumns.length && updatedAny) return true;
+
+  // Optional GraphQL fallback if Composio ever exposes a usable token again.
+  try {
+    const result = await executeMondayGraphqlDirect({
+      query: `
+        mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+          change_multiple_column_values(
+            board_id: $boardId
+            item_id: $itemId
+            column_values: $columnValues
+          ) { id }
+        }
+      `,
+      variables: {
+        boardId: args.boardId,
+        itemId: args.itemId,
+        columnValues: cleanValues,
+      },
+    });
+    if ((result?.data as any)?.change_multiple_column_values?.id) {
+      return true;
+    }
+  } catch (error) {
+    console.warn("[Monday] Direct change_multiple_column_values failed:", error);
   }
 
   if (failedColumns.length) {
