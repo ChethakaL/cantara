@@ -68,8 +68,6 @@ Business Name: "${lead.businessName}"
 City: "${lead.city || 'Unknown'}"
 State: "${lead.state || 'Unknown'}"
 Website: "${lead.websiteUrl || 'N/A'}"
-Business Position: "${lead.businessPosition || 'N/A'}"
-Office Phone Number: "${lead.officePhone || 'N/A'}"
 Owner Name: "${[lead.ownerFirstName, lead.ownerLastName].filter(Boolean).join(' ') || 'Unknown'}"
 Indoor SqFt: ${lead.sqftIndoor || 'N/A'}, Outdoor SqFt: ${lead.sqftOutdoor || 'N/A'}, Combined SqFt: ${lead.sqftCombined || 'N/A'}
 Google Rating: ${lead.googleRating || 'N/A'} (${lead.reviewCount || 'N/A'} reviews)

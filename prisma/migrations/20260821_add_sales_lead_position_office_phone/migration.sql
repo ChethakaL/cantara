@@ -1,2 +1,0 @@
-ALTER TABLE "SalesLead" ADD COLUMN IF NOT EXISTS "businessPosition" TEXT;
-ALTER TABLE "SalesLead" ADD COLUMN IF NOT EXISTS "officePhone" TEXT;

@@ -7,6 +7,7 @@ import type { EmailLead, SalesLeadTemplateOptions, TemplateSender } from '@/lib/
 import {
   interpolateSalesLeadTemplate,
   salesLeadEmailTemplateKey,
+  templateHasSenderFooterPlaceholder,
 } from '@/lib/sales-leads/email-template'
 import { parseEmailList, withoutEmail } from '@/lib/sales-leads/email-recipients'
 
@@ -88,19 +89,35 @@ export async function buildSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 |
       active: true,
       senderUserId: lead.assignedCallerId,
     },
-    include: { senderUser: { select: { name: true } } },
+    include: { senderUser: { select: { name: true, emailFooterName: true, emailFooterTitle: true, emailFooterPhone: true } } },
     orderBy: [{ version: 'desc' }],
   })
   if (asset) {
+    const senderFooter = [
+      asset.senderUser?.emailFooterName || asset.senderUser?.name,
+      asset.senderUser?.emailFooterTitle,
+      asset.senderUser?.emailFooterPhone,
+    ]
+      .filter(Boolean)
+      .join('\n')
     const options: SalesLeadTemplateOptions = {
       calendarUrl: asset.calendarUrl,
       senderPhone: asset.senderPhone,
       guideUrl: asset.guideUrl,
+      senderFooter,
     }
     const sender = { name: asset.senderUser?.name || null }
+    const renderedBody = interpolate(asset.body, lead, sender, options)
+    // Templates should include [Footer] / {{senderFooter}}. Only append when the
+    // asset has no footer placeholder — never stack a second signature under one
+    // that was already baked into the template body.
+    const body =
+      senderFooter && !templateHasSenderFooterPlaceholder(asset.body)
+        ? `${renderedBody.trim()}\n\n${senderFooter}`
+        : renderedBody
     return {
       subject: interpolate(asset.subject || `Growth and succession planning for ${lead.businessName}`, lead, sender, options),
-      body: interpolate(asset.body, lead, sender, options),
+      body,
     }
   }
   const fallback = lead.aiResearchReport
@@ -116,7 +133,7 @@ export async function buildSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 |
       temperature: 0.3,
       system: 'You are Cantara\'s senior M&A origination copywriter. Write credible, personalized cold outreach to an independent pet resort owner. The saved research is approved context and should be used openly: mention one or two accurate, positive specifics such as reputation, facility scale, longevity, or market position. Never invent or round up facts. Never make the email sound like an acquisition pitch, imply the owner wants to sell, or mention research or AI. Return valid JSON only with string fields subject and body.',
       messages: [{ role: 'user', content: `Create Email ${templateNum} in this style: open by saying you were researching strong/top pet resorts in the prospect\'s market; give a sincere compliment supported by one or two saved facts; explain that Cantara helps independent pet resort owners evaluate growth, succession, and exit strategies; acknowledge there is no pressure or agenda to sell; ask to hear about the owner\'s vision for the next few years and request a quick chat. Email 2 should use a different researched fact or angle while remaining a natural follow-up. Keep it 100-150 words, warm, direct, and conversational. Use this exact subject line: "Growth and succession planning for ${lead.businessName}". Sign as Cantara Pet Advisors.
-Lead: ${JSON.stringify({ businessName: lead.businessName, ownerFirstName: lead.ownerFirstName, city: lead.city, state: lead.state, businessPosition: lead.businessPosition, officePhone: lead.officePhone })}
+Lead: ${JSON.stringify({ businessName: lead.businessName, ownerFirstName: lead.ownerFirstName, city: lead.city, state: lead.state })}
 Saved prospect research (you must use at least one specific fact from this): ${JSON.stringify(lead.aiResearchReport)}` }],
     })
     const text = response.content.find(item => item.type === 'text')?.text || ''

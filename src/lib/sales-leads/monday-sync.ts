@@ -20,7 +20,6 @@ export type MondayMapping = Partial<Record<
   | 'state' | 'city' | 'websiteUrl' | 'googleRating' | 'reviewCount' | 'sqftIndoor'
   | 'sqftOutdoor' | 'sqftCombined' | 'locationType' | 'preCallBriefUrl' | 'ownerFirstName'
   | 'ownerLastName' | 'ownerPhone' | 'sourceLinkPhone' | 'ownerEmail' | 'sourceLinkEmail'
-  | 'businessPosition' | 'officePhone'
   | 'bookingDateTime' | 'notes' | 'email1Draft' | 'call1Script' | 'email2Draft' | 'call2Script'
   | 'resortAddress' | 'locationCount' | 'generalEmail' | 'generalPhone',
   string
@@ -111,8 +110,6 @@ export function mondayColumnValues(
   put('ownerFirstName', lead.ownerFirstName || null)
   put('ownerLastName', lead.ownerLastName || null)
   put('ownerPhone', phoneValue(lead.ownerPhone))
-  put('businessPosition', lead.businessPosition || null)
-  put('officePhone', phoneValue(lead.officePhone))
   put('sourceLinkPhone', linkValue(lead.sourceLinkPhone))
   put('ownerEmail', emailValue(lead.ownerEmail))
   put('sourceLinkEmail', linkValue(lead.sourceLinkEmail))
@@ -479,8 +476,6 @@ function fieldsFromMondayItem(
   const generalEmail = columnText(item, mapping.generalEmail)
   const ownerPhone = columnText(item, mapping.ownerPhone)
   const generalPhone = columnText(item, mapping.generalPhone)
-  const businessPosition = columnText(item, mapping.businessPosition)
-  const officePhone = columnText(item, mapping.officePhone)
   const assignedCallerId = resolveAssignedCallerId(item, mapping, callerByMondayId, callers)
   const stage = stageByLabel[columnText(item, mapping.currentStage).toLowerCase()] || SalesLeadStage.NEW
 
@@ -504,8 +499,6 @@ function fieldsFromMondayItem(
     ownerFirstName: columnText(item, mapping.ownerFirstName) || null,
     ownerLastName: columnText(item, mapping.ownerLastName) || null,
     ownerPhone: ownerPhone || generalPhone || null,
-    businessPosition: businessPosition || null,
-    officePhone: officePhone || null,
     phoneType: ownerPhone ? SalesLeadContactType.DIRECT : SalesLeadContactType.GENERAL,
     sourceLinkPhone: columnText(item, mapping.sourceLinkPhone) || null,
     ownerEmail: ownerEmail || generalEmail || null,
@@ -703,14 +696,6 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
       }
       const notes = columnText(item, config.mapping.notes)
       if (notes !== (lead.notes || '')) manualFields.notes = notes || null
-      const businessPosition = columnText(item, config.mapping.businessPosition)
-      const officePhone = columnText(item, config.mapping.officePhone)
-      if (businessPosition !== (lead.businessPosition || '')) {
-        manualFields.businessPosition = businessPosition || null
-      }
-      if (officePhone !== (lead.officePhone || '')) {
-        manualFields.officePhone = officePhone || null
-      }
       if (Object.keys(manualFields).length) {
         await updateSalesLeadFields(lead.id, manualFields, 'Lead details updated from Monday.')
       }
