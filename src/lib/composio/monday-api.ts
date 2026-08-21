@@ -130,6 +130,10 @@ export async function createMondayConnectLink(callbackUrl: string, adminId?: str
   return res;
 }
 
+export function getMondayInstallUrl() {
+  return `https://auth.monday.com/oauth2/authorize?client_id=${COMPOSIO_MONDAY_CLIENT_ID}&response_type=install`;
+}
+
 async function fetchMondayConnectionById(accountId: string): Promise<MondayConnection | null> {
   const direct = await tryComposioFetch<MondayConnection>(`/connected_accounts/${accountId}`);
   if (!direct || !isUsableMondayConnection(direct)) return null;
