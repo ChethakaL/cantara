@@ -70,6 +70,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       })
     }
     const updated = await approveSalesLeadEmail(lead.id, 'Admin', recipients)
+    const { processSalesLeadSyncOutbox } = await import('@/lib/sales-leads/monday-sync')
+    await processSalesLeadSyncOutbox().catch(err =>
+      console.warn('[sales-leads/email-draft] Immediate Monday outbox warning:', err),
+    )
     return NextResponse.json({ success: true, updated, recipients })
   } catch (error: any) {
     const message = error.message || 'Email sending failed'

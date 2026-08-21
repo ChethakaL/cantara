@@ -189,6 +189,21 @@ export async function approveSalesLeadEmail(
         }),
       },
     })
+    // approveSalesLeadEmail used to skip applyResult's Monday queue — stage stayed PENDING forever.
+    if (lead.mondayItemId && lead.mondayBoardId) {
+      await tx.salesLeadSyncEvent.create({
+        data: {
+          leadId: id,
+          direction: 'OUTBOUND_MONDAY',
+          status: 'PENDING',
+          payload: jsonPayload({
+            reason: 'email_approved_sent',
+            currentStage: updated.currentStage,
+            updatedAt: updated.updatedAt.toISOString(),
+          }),
+        },
+      })
+    }
     return updated
   })
 }
@@ -285,7 +300,17 @@ export async function processSalesLeadDueDates(now = new Date()) {
       })
     }
   }
-  return { examined: candidates.length, processed: processed.length, leadIds: processed, errors }
+  // Stage advances from cron must hit Monday immediately, not wait for a later sync job.
+  let mondayOutbound: Record<string, unknown> | null = null
+  if (processed.length) {
+    try {
+      const { processSalesLeadSyncOutbox } = await import('@/lib/sales-leads/monday-sync')
+      mondayOutbound = await processSalesLeadSyncOutbox()
+    } catch (error) {
+      console.warn('[sales-leads] Due-date Monday outbox warning:', error)
+    }
+  }
+  return { examined: candidates.length, processed: processed.length, leadIds: processed, errors, mondayOutbound }
 }
 
 export async function updateSalesLeadFields(

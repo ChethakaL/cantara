@@ -7,7 +7,7 @@ import {
 import { prisma } from '@/lib/prisma'
 import { getProjectEnv } from '@/lib/project-env'
 import { getStoredSalesLeadMondaySettings } from '@/lib/secure-settings'
-import { CALL_RESULT_LABELS, STAGE_LABELS } from '@/lib/sales-leads/workflow'
+import { CALL_RESULT_LABELS, STAGE_LABELS, SalesLeadWorkflowError } from '@/lib/sales-leads/workflow'
 import { matchMondayPersonName, type MatchableCaller } from '@/lib/sales-leads/caller-match'
 import {
   recordSalesLeadCall,
@@ -260,6 +260,35 @@ async function backfillUnlinkedSalesLeads() {
 
 export async function processSalesLeadSyncOutbox(limit = 50) {
   const backfill = await backfillUnlinkedSalesLeads()
+
+  // Recover leads stuck PENDING after stage changes that never queued an outbox row
+  // (e.g. older email-approve path) so Monday Sync / cron can push Cantara → Monday.
+  const stuckPending = await prisma.salesLead.findMany({
+    where: {
+      syncStatus: SalesLeadSyncStatus.PENDING,
+      mondayItemId: { not: null },
+      mondayBoardId: { not: null },
+    },
+    select: { id: true },
+    take: limit,
+  })
+  for (const lead of stuckPending) {
+    const existing = await prisma.salesLeadSyncEvent.findFirst({
+      where: { leadId: lead.id, direction: 'OUTBOUND_MONDAY', status: { in: ['PENDING', 'ERROR'] } },
+      select: { id: true },
+    })
+    if (!existing) {
+      await prisma.salesLeadSyncEvent.create({
+        data: {
+          leadId: lead.id,
+          direction: 'OUTBOUND_MONDAY',
+          status: 'PENDING',
+          payload: { reason: 'pending_sync_status_recovery' },
+        },
+      })
+    }
+  }
+
   const events = await prisma.salesLeadSyncEvent.findMany({
     // Allow more retries so leads stuck after the transaction-timeout bug can recover.
     where: { status: { in: ['PENDING', 'ERROR'] }, direction: 'OUTBOUND_MONDAY', attempts: { lt: 25 } },
@@ -291,7 +320,7 @@ export async function processSalesLeadSyncOutbox(limit = 50) {
       failed += 1
     }
   }
-  return { examined: events.length, succeeded, failed, backfill }
+  return { examined: events.length, succeeded, failed, backfill, recoveredPending: stuckPending.length }
 }
 
 export async function processSalesLeadHandoffOutbox(limit = 25) {
@@ -636,12 +665,32 @@ export async function reconcileSalesLeadsFromMonday(itemId?: string) {
           callbackDate: nextActionDate,
         })
       } else if (stage && stage !== lead.currentStage) {
-        await setSalesLeadStage({
-          id: lead.id,
-          stage,
-          nextActionDate,
-          bookingDateTime,
-        })
+        try {
+          await setSalesLeadStage({
+            id: lead.id,
+            stage,
+            nextActionDate,
+            bookingDateTime,
+          })
+        } catch (error) {
+          // Cantara owns sequence stages. If Monday is behind (or has a stage Cantara
+          // cannot accept), keep Cantara's stage and push it back to Monday.
+          const isAutomationOwned =
+            error instanceof SalesLeadWorkflowError && error.code === 'AUTOMATION_OWNED_TRANSITION'
+          if (!isAutomationOwned) throw error
+          await prisma.salesLeadSyncEvent.create({
+            data: {
+              leadId: lead.id,
+              direction: 'OUTBOUND_MONDAY',
+              status: 'PENDING',
+              payload: {
+                reason: 'cantara_stage_ahead_of_monday',
+                mondayStage: stage,
+                cantaraStage: lead.currentStage,
+              },
+            },
+          })
+        }
       }
 
       const manualFields: any = {}
