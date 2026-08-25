@@ -69,10 +69,11 @@ function activeAgentIds(client: any): string[] {
   const systemAgents = customAgents.length ? customAgents : (SYSTEM_WORKSTREAM_AGENTS[workstreamKey] ?? [])
   const clientAgents = client.ClientWorkstreamAgents?.map((a: any) => ({ agentId: a.agentId, agentName: a.agentName })) ?? []
   const ids = Array.from(new Set([...systemAgents, ...clientAgents].map(a => a.agentId).filter(id => id && id !== 'ttm')))
-  if (workstreamKey !== 'ma') {
-    return ids.filter(id => id !== 'professional_advisors')
+  if (workstreamKey === 'ma' || workstreamKey === 'both') {
+    if (!ids.includes('professional_advisors')) ids.push('professional_advisors')
+    return ids
   }
-  return ids
+  return ids.filter(id => id !== 'professional_advisors')
 }
 
 function isAdvisorFacilityReviewMode(client: any): boolean {

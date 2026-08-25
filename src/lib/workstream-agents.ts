@@ -89,10 +89,19 @@ export function getClientWorkstreamAgents(client: {
     agents = filterLeaseAgentSelection(SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? [], client.propertyOwnership)
   }
 
-  // Professional Advisors: always included for M&A.
-  // For other workstreams, only include if explicitly added to the client's
-  // workstreamAgents array (admin can opt-in via the "Add Professional Advisors" button).
-  if (client.workstream !== 'ma') {
+  // Professional Advisors: always included for M&A and BOTH (even when the
+  // client's saved workstreamAgents list omits it). For ws1/ws2 alone, only
+  // when explicitly added (admin opt-in via "Add Professional Advisors").
+  const alwaysIncludeProfessionalAdvisors =
+    client.workstream === 'ma' || client.workstream === 'both'
+  if (alwaysIncludeProfessionalAdvisors) {
+    if (!agents.some(agent => agent.agentId === 'professional_advisors')) {
+      agents = [
+        ...agents,
+        { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
+      ]
+    }
+  } else {
     const explicitlyAdded = client.workstreamAgents?.some(a => a.agentId === 'professional_advisors')
     if (!explicitlyAdded) {
       agents = agents.filter(agent => agent.agentId !== 'professional_advisors')
