@@ -196,14 +196,18 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         catalogFileName = fileNameFromCatalog(docId, [docId, parentId]) ?? catalogFileName
       }
     }
+    const fileName = status?.fileName ?? uploaded?.fileName ?? catalogFileName ?? null
+    const hasRealFile = Boolean(fileName && String(fileName).trim())
     return {
       id: docId,
-      hasDoc: status?.hasDoc ?? (uploaded?.fileName || catalogFileName ? true : null),
+      // Keep checklist hasDoc as stored. Infer hasDoc from a real file only when
+      // the checklist row is unset — never treat bare hasDoc as an uploaded file.
+      hasDoc: status?.hasDoc ?? (hasRealFile ? true : null),
       unavailableDecision: status?.unavailableDecision ?? null,
       assignedTo: status?.assignedTo ?? null,
-      uploadedAt: status?.uploadedAt ?? uploaded?.uploadedAt ?? null,
-      fileName: status?.fileName ?? uploaded?.fileName ?? catalogFileName ?? null,
-      fileUrl: status?.fileUrl ?? uploaded?.fileUrl ?? null,
+      uploadedAt: hasRealFile ? (status?.uploadedAt ?? uploaded?.uploadedAt ?? null) : status?.uploadedAt ?? null,
+      fileName: hasRealFile ? fileName : null,
+      fileUrl: hasRealFile ? (status?.fileUrl ?? uploaded?.fileUrl ?? null) : status?.fileUrl ?? null,
       notApplicable: status?.notApplicable ?? false,
     }
   }

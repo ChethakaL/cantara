@@ -126,10 +126,19 @@ export function getMultiYearUploadProgress(
   }
 }
 
+/** True only when a real file is recorded (filename / ClientDocument), not checklist hasDoc alone. */
+export function documentHasUploadedFile(
+  status: Pick<DocumentStatus, 'fileName'> | null | undefined,
+): boolean {
+  return Boolean(status?.fileName && String(status.fileName).trim())
+}
+
 export function clientDocumentAppliesToProgress(doc: DocumentDef, status: DocumentStatus): boolean {
   if (status.notApplicable || status.hasDoc === false) return false
   if (doc.type === 'required') return true
-  return status.hasDoc === true || Boolean(status.fileName)
+  // Optional docs: hasDoc=true without a file means "awaiting upload" and must not
+  // inflate "X documents uploaded" style progress. Count only real files.
+  return documentHasUploadedFile(status)
 }
 
 export function progressUnitsForDocument(
@@ -152,7 +161,7 @@ export function completedUnitsForDocument(
   if (MULTI_YEAR_UPLOAD_SLOTS[doc.id]) {
     return getMultiYearUploadProgress(doc.id, getStatus).completed
   }
-  return status.fileName ? 1 : 0
+  return documentHasUploadedFile(status) ? 1 : 0
 }
 
 export function summarizeClientPortalProgress(

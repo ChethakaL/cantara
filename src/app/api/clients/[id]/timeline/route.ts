@@ -36,7 +36,13 @@ async function getAutomaticCompletion(clientId: string) {
   const uploaded = new Set((client.ClientDocument || []).map((row: any) => row.documentId))
   const missingDocuments = required.filter(doc => {
     const status = statuses.get(doc.id)
-    return !(uploaded.has(doc.id) || Boolean(status?.hasDoc || status?.notApplicable || status?.unavailableDecision))
+    const hasRealFile = uploaded.has(doc.id) || Boolean(status?.fileName && String(status.fileName).trim())
+    const markedUnavailable =
+      status?.notApplicable === true ||
+      status?.hasDoc === false ||
+      Boolean(status?.unavailableDecision)
+    // hasDoc=true without a real file means "awaiting upload", not complete.
+    return !(hasRealFile || markedUnavailable)
   })
   const documentsComplete = required.length > 0 && missingDocuments.length === 0
   const hasAnyAgentOutput = Object.keys(submissions).some(key => /Report|report|Analysis|analysis|Review|review|Assessment|assessment|roadmap/i.test(key))
