@@ -228,6 +228,7 @@ export async function GET(req: NextRequest) {
     salesDoc,
     realEstateAppraisal,
     uploadedDocs,
+    statusesWithFiles,
   ] = await Promise.all([
     safeFind(() => prisma.ttmAnalysis.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' }, select: { status: true, createdAt: true, approvedAt: true } })),
     safeFind(() => prisma.leaseAnalysis.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } })),
@@ -244,6 +245,12 @@ export async function GET(req: NextRequest) {
     safeFind(() => prisma.clientDocument.findFirst({ where: { clientId, documentId: 'sales_process_transcript' }, orderBy: { createdAt: 'desc' }, select: { aiReviewSummary: true, aiReviewStatus: true, aiReviewedAt: true, createdAt: true } })),
     safeFind(() => (prisma as any).realEstateAppraisalReport.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } })),
     safeFind(() => prisma.clientDocument.findMany({ where: { clientId }, select: { documentId: true } })),
+    safeFind(() =>
+      prisma.clientDocumentStatus.findMany({
+        where: { clientId, fileName: { not: null } },
+        select: { documentId: true, fileName: true },
+      }),
+    ),
   ])
 
   const runChecks: Record<string, { hasRun: boolean; approved: boolean; runAt: string | null }> = {
@@ -329,12 +336,14 @@ export async function GET(req: NextRequest) {
       runAt: null,
     },
     professionalAdvisors: {
-      hasRun: Boolean(submissions.professionalAdvisors),
+      // Form-entry agent (no Run button): empty [] must not count as "already ran".
+      hasRun: Array.isArray(submissions.professionalAdvisors) && submissions.professionalAdvisors.length > 0,
       approved: manualApproval(approvals, 'professional_advisors', 'professionalAdvisors'),
       runAt: null,
     },
     vendorDirectory: {
-      hasRun: Boolean(submissions.vendorDirectory),
+      // Form-entry agent (no Run button): empty [] must not count as "already ran".
+      hasRun: Array.isArray(submissions.vendorDirectory) && submissions.vendorDirectory.length > 0,
       approved: manualApproval(approvals, 'vendor_directory', 'vendorDirectory'),
       runAt: null,
     },
@@ -416,7 +425,13 @@ export async function GET(req: NextRequest) {
     })(),
   }
 
-  const uploadedDocIds = new Set((uploadedDocs ?? []).map(d => d.documentId).filter(Boolean) as string[])
+  const uploadedDocIds = new Set<string>()
+  for (const d of uploadedDocs ?? []) {
+    if (d.documentId) uploadedDocIds.add(d.documentId)
+  }
+  for (const s of statusesWithFiles ?? []) {
+    if (s.documentId && s.fileName && String(s.fileName).trim()) uploadedDocIds.add(s.documentId)
+  }
   const hasAnyUploadedDocs = uploadedDocIds.size > 0
   const seen = new Set<string>()
   const runs: AgentRunRecord[] = []
