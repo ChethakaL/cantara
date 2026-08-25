@@ -80,8 +80,8 @@ export async function GET(req: NextRequest) {
       litigationSearch: Boolean(submissions.litigationSearch),
       employeeComp: Boolean(submissions.employeeCompReport || submissions.employeeComp),
       ownerGmAssessment: Boolean(submissions.ownerGmAssessment),
-      professionalAdvisors: Boolean(submissions.professionalAdvisors),
-      vendorDirectory: Boolean(submissions.vendorDirectory),
+      professionalAdvisors: Array.isArray(submissions.professionalAdvisors) && submissions.professionalAdvisors.length > 0,
+      vendorDirectory: Array.isArray(submissions.vendorDirectory) && submissions.vendorDirectory.length > 0,
       orgChart: Boolean(submissions.orgChart),
     }
 

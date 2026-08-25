@@ -543,7 +543,14 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     onboarding: 'slate', collection: 'gold', review: 'blue', final: 'green', closed: 'slate',
   }
 
-  const submitted = Object.values(client.documentStatuses).filter(s => s.fileName).length
+  const submitted = new Set([
+    ...Object.entries(client.documentStatuses)
+      .filter(([, s]) => Boolean(s.fileName && String(s.fileName).trim()))
+      .map(([id]) => id),
+    ...Object.entries(client.uploadedDocuments ?? {})
+      .filter(([, u]) => Boolean(u?.fileName && String(u.fileName).trim()))
+      .map(([id]) => id),
+  ]).size
   const overviewAgents = getClientWorkstreamAgents(client)
   const incompleteOverviewAgents = overviewAgents.filter(agent => !agentChecks[normalizeAgentStatusKey(agent.agentId)])
   const overviewReady = overviewAgents.length > 0 && incompleteOverviewAgents.length === 0

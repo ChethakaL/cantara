@@ -650,15 +650,28 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     )
   }
 
-  const submitted = Object.values(documentStatuses).filter(s => s.fileName || s.notApplicable).length
+  // Count only real uploads — never bare hasDoc or notApplicable as "Submitted".
+  const submittedIds = new Set<string>()
+  for (const [id, status] of Object.entries(documentStatuses)) {
+    if (status.fileName && String(status.fileName).trim()) submittedIds.add(id)
+  }
+  for (const [id, uploaded] of Object.entries(uploadedDocuments ?? {})) {
+    if (uploaded?.fileName && String(uploaded.fileName).trim()) submittedIds.add(id)
+  }
+  const submitted = submittedIds.size
+  const clearedWithoutFile = Object.values(documentStatuses).filter(status => {
+    if (status.fileName && String(status.fileName).trim()) return false
+    return status.notApplicable === true || status.hasDoc === false
+  }).length
   const total = VALUATION_DOCS.length + categories.flatMap(c => c.documents).length
+  const pending = Math.max(0, total - submitted - clearedWithoutFile)
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: 'Submitted', value: submitted, color: 'text-emerald-600' },
-          { label: 'Pending', value: total - submitted, color: 'text-amber-600' },
+          { label: 'Pending', value: pending, color: 'text-amber-600' },
           { label: 'Total Required', value: total, color: 'text-slate-700' },
         ].map(s => (
           <div key={s.label} className="text-center p-3 rounded-xl bg-slate-50 border border-slate-100">
