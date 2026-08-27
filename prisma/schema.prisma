@@ -729,6 +729,38 @@ model SalesLeadSyncEvent {
   @@index([status, createdAt])
 }
 
+/// Dedupe DocuSign → Monday "envelope completed" automations (Make replacement).
+model AutomationProcessedEnvelope {
+  id             String   @id @default(cuid())
+  envelopeId     String
+  documentKind   String
+  mondayBoardId  String?
+  mondayItemId   String?
+  status         String   @default("processed")
+  fileUrl        String?
+  error          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([envelopeId, documentKind])
+  @@index([createdAt])
+}
+
+/// Replaces Make data-store rows for buyer / prospective NDA completions.
+model AutomationBuyerNdaPending {
+  id            String    @id @default(cuid())
+  envelopeId    String    @unique
+  boardId       String
+  itemId        String
+  fileColumnId  String?
+  statusColumnId String?
+  meta          Json?
+  createdAt     DateTime  @default(now())
+  consumedAt    DateTime?
+
+  @@index([boardId, itemId])
+}
+
 model CimReport {
   id        String        @id @default(cuid())
   clientId  String        @unique
