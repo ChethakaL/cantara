@@ -49,7 +49,7 @@ export function patchRequiredInfoFormNotApplicable(
       ...sectionSubmissions,
       formNotApplicable,
       formAssignments,
-    },
+    } as unknown as Client['sectionSubmissions'],
   }
 }
 
@@ -74,6 +74,6 @@ export function patchRequiredInfoFormAssignment(
       ...sectionSubmissions,
       formAssignments,
       formNotApplicable,
-    },
+    } as unknown as Client['sectionSubmissions'],
   }
 }
