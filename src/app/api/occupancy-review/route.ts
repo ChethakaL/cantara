@@ -105,6 +105,7 @@ export async function POST(req: NextRequest) {
     const boardingRunsStr = formData.get('boardingRuns') as string
     const daycareSpotsStr = formData.get('daycareSpots') as string
     const groomingStationsStr = formData.get('groomingStations') as string
+    const bathingStationsStr = formData.get('bathingStations') as string
     const monthlyDataStr = formData.get('monthlyData') as string
 
     // Parse numeric capacity fields
@@ -112,6 +113,7 @@ export async function POST(req: NextRequest) {
     const boardingRunsNum = boardingRunsStr ? parseInt(boardingRunsStr) : 0
     const daycareSpotsNum = daycareSpotsStr ? parseInt(daycareSpotsStr) : 0
     const groomingStationsNum = groomingStationsStr ? parseInt(groomingStationsStr) : 0
+    const bathingStationsNum = bathingStationsStr ? parseInt(bathingStationsStr) : 0
 
     // Parse monthly data
     const parsedMonthlyData = monthlyDataStr ? JSON.parse(monthlyDataStr) as Array<{month: string; boardingDogs: number; daycareDogs: number}> : []
@@ -122,6 +124,7 @@ export async function POST(req: NextRequest) {
       boardingRuns: boardingRunsNum || undefined,
       daycareSpots: daycareSpotsNum || undefined,
       groomingStations: groomingStationsNum || undefined,
+      bathingStations: bathingStationsNum || undefined,
     }
 
     // Compute metrics
@@ -190,6 +193,8 @@ export async function POST(req: NextRequest) {
     if (totalBoardingRuns) capacityLines.push(`- Total boarding runs/suites: ${totalBoardingRuns}`)
     if (totalDaycareSpots) capacityLines.push(`- Total daycare spots: ${totalDaycareSpots}`)
     if (totalGroomingStations) capacityLines.push(`- Total grooming stations: ${totalGroomingStations}`)
+    if (capacityModel.groomingStations) capacityLines.push(`- Grooming stations: ${capacityModel.groomingStations}`)
+    if (capacityModel.bathingStations) capacityLines.push(`- Bathing stations: ${capacityModel.bathingStations}`)
     if (analysisPeriod) capacityLines.push(`- Analysis period: ${analysisPeriod}`)
     const capacityContext = capacityLines.length > 0
       ? `\n\n## Capacity Information Provided\n${capacityLines.join('\n')}`
@@ -229,6 +234,8 @@ Capacity Model:
 - Total Daily Capacity: ${computed.totalCapacity} dogs
 ${capacityModel.boardingRuns ? `- Boarding Runs: ${capacityModel.boardingRuns}` : ''}
 ${capacityModel.daycareSpots != null ? `- Daycare Spots: ${capacityModel.daycareSpots}` : (capacityModel.totalDailyCapacity && capacityModel.boardingRuns ? `- Daycare Spots (residual): ${computed.totalCapacity - capacityModel.boardingRuns}` : '')}
+${capacityModel.groomingStations ? `- Grooming Stations: ${capacityModel.groomingStations}` : ''}
+${capacityModel.bathingStations ? `- Bathing Stations: ${capacityModel.bathingStations}` : ''}
 
 24-Month Data Summary:
 - Average Utilization: ${computed.avgUtilization}%
@@ -246,7 +253,7 @@ Generate the report in EXACTLY this order with EXACTLY these section headings:
 Explain how the capacity utilization model was built. Reference the owner-stated total capacity. Explain: utilization = total dogs (boarding + daycare combined) / total daily capacity per day.
 
 ## 2. Capacity Model Note
-Detail the specific capacity figures used: total daily capacity, boarding runs, daycare spots (note if daycare = residual capacity Total − Boarding Runs, or if stated directly). Include grooming stations if provided.
+Detail the specific capacity figures used: total daily capacity, boarding runs, daycare spots (note if daycare = residual capacity Total − Boarding Runs, or if stated directly). Include grooming stations and bathing stations if provided.
 
 ## 3. Combined Capacity Utilization — 24-Month Trend
 Present the full monthly data in a formatted table:

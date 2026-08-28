@@ -52,6 +52,12 @@ import ClientLocationMapTab from '@/components/client-location-map/ClientLocatio
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
 import { readCompetitorSlots } from '@/lib/competitor-portal-form'
 import { FORM_FIELD_NA_VALUE, isFormFieldAnswered, isFormFieldNa } from '@/lib/client-form-na'
+import {
+  canMarkRequiredInfoFormNotApplicable,
+  isRequiredInfoFormNotApplicable,
+  patchRequiredInfoFormAssignment,
+  patchRequiredInfoFormNotApplicable,
+} from '@/lib/required-info-forms'
 import { buildTaxReadinessReferenceHtml } from '@/lib/tax-readiness'
 
 export type ClientPortalFormQuestion = {
@@ -644,14 +650,16 @@ export default function ClientDashboard() {
   const valuationDocs = getValuationDocsForWorkstream(client.workstream)
   const diligenceDocs = categories.flatMap(c => c.documents)
   const allDocs = [...valuationDocs, ...diligenceDocs]
-  const requiredAndValuationDocs = [
-    ...valuationDocs,
-    ...diligenceDocs.filter(d => d.type === 'required'),
-  ]
-  const yesDocs = diligenceDocs.filter(d => d.type !== 'required' && getDocStatus(d.id).hasDoc === true)
-  const docsNeedingAssignment = [...requiredAndValuationDocs, ...yesDocs].filter(
-    (doc, index, arr) => arr.findIndex(item => item.id === doc.id) === index,
-  )
+  const docsNeedingAssignment = allDocs.filter(doc => {
+    const status = getDocStatus(doc.id)
+    if (status.notApplicable) return false
+    if (doc.type === 'required') return true
+    if (valuationDocs.some(v => v.id === doc.id)) {
+      if (doc.type === 'conditional') return status.hasDoc !== false
+      return status.hasDoc === true
+    }
+    return status.hasDoc === true
+  })
   const allConfirmedAssigned =
     docsNeedingAssignment.length > 0 &&
     docsNeedingAssignment.every(d => getDocStatus(d.id).assignedTo || getDocStatus(d.id).fileName)
@@ -1664,7 +1672,16 @@ function AssignTab({
   }, [tourStep])
   const diligenceDocs = categories.flatMap(c => c.documents)
   const allDocs = [...valuationDocs, ...diligenceDocs]
-  const assignableDocs = allDocs.filter(d => d.type === 'required' || valuationDocs.some(v => v.id === d.id) || getStatus(d.id).hasDoc === true)
+  const assignableDocs = allDocs.filter(doc => {
+    const s = getStatus(doc.id)
+    if (s.notApplicable) return false
+    if (doc.type === 'required') return true
+    if (valuationDocs.some(v => v.id === doc.id)) {
+      if (doc.type === 'conditional') return s.hasDoc !== false
+      return s.hasDoc === true
+    }
+    return s.hasDoc === true
+  })
   const assignedDocs = assignableDocs.filter(doc => Boolean(getStatus(doc.id).assignedTo))
   const currentTeamMember = teamMembers.find(member => member.email.toLowerCase() === sessionEmail.toLowerCase())
   const currentAssigneeValues = currentTeamMember
@@ -1844,7 +1861,7 @@ function AssignTab({
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-medium text-slate-800">{doc.name}</p>
-                            <Badge color="gold">Required</Badge>
+                            {doc.type !== 'yes_no' && <Badge color="gold">Required</Badge>}
                             {s.hasDoc === false && <Badge color="amber">Not available with client</Badge>}
                           </div>
                           {doc.description && <p className="text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</p>}
@@ -1875,7 +1892,7 @@ function AssignTab({
                               (index === 0 && tourStep === 8) ? 'relative z-[61] ring-2 ring-amber-400 shadow-lg' : ''
                             }`}
                             value={s.assignedTo ?? ''}
-                            disabled={s.hasDoc === false}
+                            disabled={s.hasDoc === false || (doc.type === 'yes_no' && s.hasDoc !== true)}
                             onChange={e => setStatus(doc.id, { assignedTo: e.target.value || null })}
                           >
                             <option value="">— Assign to —</option>
@@ -1889,7 +1906,7 @@ function AssignTab({
                 </div>
               </div>
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-700">
-                Required documents and valuation documents appear here automatically. Optional documents appear here once the client confirms they have them.
+                Required documents appear here automatically. Optional valuation and diligence documents appear once the client confirms they have them.
               </div>
               {categories.map(cat =>
                 diligenceDocs
@@ -1965,6 +1982,8 @@ function AssignTab({
                       {activeFormKeys.map(formKey => {
                         const formAssignments = (client.sectionSubmissions as any)?.formAssignments ?? {}
                         const assignedTo = formAssignments[formKey] ?? (formKey === 'competitor_analysis' ? formAssignments.pricing_analysis : '') ?? ''
+                        const formNotApplicable = isRequiredInfoFormNotApplicable(client.sectionSubmissions, formKey)
+                        const showFormNa = canMarkRequiredInfoFormNotApplicable(formKey)
                         const options = [
                           { value: 'me', label: 'Me' },
                           ...teamMembers.map(m => ({ value: m.name, label: m.name })),
@@ -1972,30 +1991,51 @@ function AssignTab({
                         return (
                           <div key={formKey} className="px-5 py-4 flex items-center gap-4">
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-slate-800">{FORM_LABELS[formKey]}</p>
-                              <p className="text-xs text-slate-500 mt-1">Interactive form / questionnaire for client portal onboarding.</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-medium text-slate-800">{FORM_LABELS[formKey]}</p>
+                                {formNotApplicable && <Badge color="slate">Not applicable</Badge>}
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">
+                                {formNotApplicable
+                                  ? 'Marked not applicable — Cantara completes this during onboarding.'
+                                  : 'Interactive form / questionnaire for client portal onboarding.'}
+                              </p>
                             </div>
-                            <select
-                              className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all"
-                              value={assignedTo}
-                              onChange={async (e) => {
-                                const val = e.target.value || null
-                                const nextAssignments = { ...((client.sectionSubmissions as any)?.formAssignments ?? {}), [formKey]: val }
-                                const nextClient = {
-                                  ...client,
-                                  sectionSubmissions: {
-                                    ...(client.sectionSubmissions ?? {}),
-                                    formAssignments: nextAssignments,
-                                  }
-                                }
-                                setClient(nextClient)
-                                await saveClient(nextClient)
-                              }}
-                            >
-                              <option value="">— Assign to —</option>
-                              {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                            </select>
-                            {assignedTo && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {showFormNa && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const nextClient = patchRequiredInfoFormNotApplicable(client, formKey, !formNotApplicable)
+                                    setClient(nextClient)
+                                    await saveClient(nextClient)
+                                  }}
+                                  className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                                    formNotApplicable
+                                      ? 'border-slate-400 bg-slate-100 text-slate-600'
+                                      : 'border-slate-100 text-slate-300 hover:border-slate-300'
+                                  }`}
+                                  title={formNotApplicable ? 'Clear not applicable' : 'Not applicable — completed during onboarding'}
+                                >
+                                  N/A
+                                </button>
+                              )}
+                              <select
+                                className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                                value={assignedTo}
+                                disabled={formNotApplicable}
+                                onChange={async (e) => {
+                                  const val = e.target.value || null
+                                  const nextClient = patchRequiredInfoFormAssignment(client, formKey, val)
+                                  setClient(nextClient)
+                                  await saveClient(nextClient)
+                                }}
+                              >
+                                <option value="">— Assign to —</option>
+                                {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              </select>
+                              {assignedTo && !formNotApplicable && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                            </div>
                           </div>
                         )
                       })}
@@ -2708,16 +2748,23 @@ function AgentInformationTab({
     const assignedTo = formAssignments[formKey]
     return Boolean(assignedTo && memberAssignedTo.some(value => value.toLowerCase() === assignedTo.toLowerCase()))
   }
-  const visibleFormKeys = activeFormKeys.filter(isFormAssignedToCurrentTeamMember)
+  const visibleFormKeys = isTeamMemberSession
+    ? activeFormKeys.filter(
+        key => isFormAssignedToCurrentTeamMember(key) && !isRequiredInfoFormNotApplicable(client.sectionSubmissions, key),
+      )
+    : activeFormKeys
 
   const [activeFormTab, setActiveFormTab] = useState<string>('')
 
-  const currentIndex = visibleFormKeys.indexOf(activeFormTab)
-  const hasNext = currentIndex !== -1 && currentIndex < visibleFormKeys.length - 1
+  const navigableFormKeys = visibleFormKeys.filter(
+    key => !isRequiredInfoFormNotApplicable(client.sectionSubmissions, key),
+  )
+  const currentIndex = navigableFormKeys.indexOf(activeFormTab)
+  const hasNext = currentIndex !== -1 && currentIndex < navigableFormKeys.length - 1
   const handleNext = async () => {
     const success = await saveFormResponses()
     if (success && hasNext) {
-      setActiveFormTab(visibleFormKeys[currentIndex + 1])
+      setActiveFormTab(navigableFormKeys[currentIndex + 1])
     }
   }
 
@@ -2744,14 +2791,20 @@ function AgentInformationTab({
   }
 
   if (visibleFormKeys.length === 0) {
+    const allMarkedNotApplicable = activeFormKeys.length > 0 && activeFormKeys.every(
+      key => isRequiredInfoFormNotApplicable(client.sectionSubmissions, key),
+    )
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-6 text-sm text-slate-500">
-        No form information is assigned to you right now.
+        {allMarkedNotApplicable
+          ? 'All required-info forms are marked not applicable. Facility Review and any other applicable forms will appear here when needed.'
+          : 'No form information is assigned to you right now.'}
       </div>
     )
   }
 
   const isFormTabComplete = (key: string) => {
+    if (isRequiredInfoFormNotApplicable(client.sectionSubmissions, key)) return true
     // 1. Competitor & Pricing Inputs check
     if (key === 'competitor_analysis') {
       const competitors = readCompetitorSlots(formResponses)
@@ -2809,20 +2862,31 @@ function AgentInformationTab({
     <div id="tour-information-container" className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-1 flex flex-wrap gap-1">
         {visibleFormKeys.map(key => {
+          const formNotApplicable = isRequiredInfoFormNotApplicable(client.sectionSubmissions, key)
           const isComplete = isFormTabComplete(key)
           return (
             <button
               key={key}
               onClick={() => setActiveFormTab(key)}
               className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeFormTab === key
-                  ? 'text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                formNotApplicable
+                  ? activeFormTab === key
+                    ? 'bg-slate-200 text-slate-500 border border-slate-300'
+                    : 'text-slate-400 bg-slate-50 border border-transparent hover:bg-slate-100'
+                  : activeFormTab === key
+                    ? 'text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
               }`}
-              style={activeFormTab === key ? { background: '#0d1829' } : {}}
+              style={!formNotApplicable && activeFormTab === key ? { background: '#0d1829' } : {}}
             >
               {FORM_LABELS[key]}
-              {isComplete && <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />}
+              {formNotApplicable ? (
+                <span className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-slate-200 text-slate-500">
+                  N/A
+                </span>
+              ) : isComplete ? (
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+              ) : null}
             </button>
           )
         })}
@@ -2832,33 +2896,57 @@ function AgentInformationTab({
         <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <h4 className="text-sm font-semibold text-slate-700">{FORM_LABELS[activeFormTab]}</h4>
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-sm font-semibold text-slate-700">{FORM_LABELS[activeFormTab]}</h4>
+                {isRequiredInfoFormNotApplicable(client.sectionSubmissions, activeFormTab) && (
+                  <Badge color="slate">Not applicable</Badge>
+                )}
+              </div>
               {activeFormTab !== 'vendor_directory' && activeFormTab !== 'professional_advisors' && (
                 <p className="text-xs text-slate-500 mt-1">
-                  {activeFormTab === 'facility_review'
-                    ? 'Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.'
-                    : activeFormTab === 'occupancy_review'
-                    ? 'WS2 — Establish capacity limits and capacity model for buyer-facing analysis.'
-                    : 'Complete the fields below. Answers save automatically.'}
+                  {isRequiredInfoFormNotApplicable(client.sectionSubmissions, activeFormTab)
+                    ? 'Marked not applicable — Cantara completes this during the client onboarding call. Click N/A above to re-enable this form if needed.'
+                    : activeFormTab === 'facility_review'
+                      ? 'Complete each area below. Optional facility photos can be added in the separate section at the bottom of this page.'
+                      : activeFormTab === 'occupancy_review'
+                        ? 'WS2 — Establish capacity limits and capacity model for buyer-facing analysis.'
+                        : 'Complete the fields below. Answers save automatically.'}
                 </p>
               )}
             </div>
             {!isTeamMemberSession && (
               <div className="flex items-center gap-2 shrink-0">
+                {canMarkRequiredInfoFormNotApplicable(activeFormTab) && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const formNotApplicable = isRequiredInfoFormNotApplicable(client.sectionSubmissions, activeFormTab)
+                      const nextClient = patchRequiredInfoFormNotApplicable(client, activeFormTab, !formNotApplicable)
+                      setClient(nextClient)
+                      await saveClient(nextClient)
+                    }}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      isRequiredInfoFormNotApplicable(client.sectionSubmissions, activeFormTab)
+                        ? 'border-slate-400 bg-slate-100 text-slate-600'
+                        : 'border-slate-100 text-slate-300 hover:border-slate-300'
+                    }`}
+                    title={
+                      isRequiredInfoFormNotApplicable(client.sectionSubmissions, activeFormTab)
+                        ? 'Clear not applicable'
+                        : 'Not applicable — completed during onboarding'
+                    }
+                  >
+                    N/A
+                  </button>
+                )}
                 <span className="text-xs text-slate-400 font-medium">Assign to:</span>
                 <select
-                  className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all font-medium text-slate-600"
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white outline-none focus:border-amber-400 transition-all font-medium text-slate-600 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                   value={(client.sectionSubmissions as any)?.formAssignments?.[activeFormTab] ?? ''}
+                  disabled={isRequiredInfoFormNotApplicable(client.sectionSubmissions, activeFormTab)}
                   onChange={async (e) => {
                     const val = e.target.value || null
-                    const nextAssignments = { ...((client.sectionSubmissions as any)?.formAssignments ?? {}), [activeFormTab]: val }
-                    const nextClient = {
-                      ...client,
-                      sectionSubmissions: {
-                        ...(client.sectionSubmissions ?? {}),
-                        formAssignments: nextAssignments,
-                      }
-                    }
+                    const nextClient = patchRequiredInfoFormAssignment(client, activeFormTab, val)
                     setClient(nextClient)
                     await saveClient(nextClient)
                   }}
@@ -2873,6 +2961,16 @@ function AgentInformationTab({
             )}
           </div>
           <div className="p-5 space-y-5">
+            {isRequiredInfoFormNotApplicable(client.sectionSubmissions, activeFormTab) ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
+                <p className="text-sm font-semibold text-slate-600">This form is marked not applicable</p>
+                <p className="text-xs text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+                  {/* Cantara completes this information during the client onboarding call, so no client entry is needed here. */}
+                  Use the N/A button above to re-enable this form if that changes.
+                </p>
+              </div>
+            ) : (
+              <>
             {buildOrderedFormQuestionGroups(
               formQuestions.filter(q => {
                 return activeFormTab === 'competitor_analysis'
@@ -2932,6 +3030,8 @@ function AgentInformationTab({
                 ) : null}
               </div>
             </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -3230,6 +3330,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
             {filteredValuationDocs.map(doc => {
               const s = getStatus(doc.id)
               if (s.hasDoc === false || s.notApplicable) return null
+              if (doc.type !== 'required' && doc.type !== 'conditional' && s.hasDoc !== true && !s.fileName) return null
               const valuationUnits = uploadUnitsForDoc(doc.id)
               const valuationComplete =
                 MULTI_YEAR_UPLOAD_SLOTS[doc.id]

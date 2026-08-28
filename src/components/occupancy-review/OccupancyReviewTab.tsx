@@ -33,6 +33,7 @@ type OccupancyReport = {
     boardingRuns?: number
     daycareSpots?: number
     groomingStations?: number
+    bathingStations?: number
   }
   monthlyData?: MonthlyEntry[]
   computed?: {
@@ -160,6 +161,7 @@ export default function OccupancyReviewTab({
   const [boardingRuns, setBoardingRuns] = useState('')
   const [daycareSpotsInput, setDaycareSpotsInput] = useState('')
   const [groomingStations, setGroomingStations] = useState('')
+  const [bathingStations, setBathingStations] = useState('')
 
   // 24-month data grid
   const [monthlyData, setMonthlyData] = useState<MonthlyEntry[]>(initLast24Months)
@@ -192,11 +194,13 @@ export default function OccupancyReviewTab({
       const bRuns = inputs?.boardingRuns ?? cm?.boardingRuns
       const dSpots = inputs?.daycareSpots ?? cm?.daycareSpots
       const gStations = inputs?.groomingStations ?? cm?.groomingStations
+      const bStations = inputs?.bathingStations ?? cm?.bathingStations
 
       if (totalDaily != null) setTotalDailyCapacity(String(totalDaily))
       if (bRuns != null) setBoardingRuns(String(bRuns))
       if (dSpots != null) setDaycareSpotsInput(String(dSpots))
       if (gStations != null) setGroomingStations(String(gStations))
+      if (bStations != null) setBathingStations(String(bStations))
       if (data.report?.monthlyData?.length) {
         setMonthlyData(data.report.monthlyData)
       } else if (inputs?.monthlyData?.length) {
@@ -386,6 +390,7 @@ export default function OccupancyReviewTab({
       const effectiveDaycare = daycareSpotsInput || (computedDaycare !== null ? String(computedDaycare) : '')
       if (effectiveDaycare) formData.append('daycareSpots', effectiveDaycare)
       if (groomingStations) formData.append('groomingStations', groomingStations)
+      if (bathingStations) formData.append('bathingStations', bathingStations)
       formData.append('monthlyData', JSON.stringify(monthlyData.filter(m => m.boardingDogs > 0 || m.daycareDogs > 0)))
       for (const uploaded of uploadedFiles) {
         formData.append('files', uploaded.file)
@@ -549,6 +554,12 @@ export default function OccupancyReviewTab({
             <span className="text-xs font-medium text-slate-600">Grooming Stations</span>
             <input type="number" min="0" value={groomingStations} onChange={e => setGroomingStations(e.target.value)}
               placeholder="e.g., 6"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-slate-600">Bathing Stations</span>
+            <input type="number" min="0" value={bathingStations} onChange={e => setBathingStations(e.target.value)}
+              placeholder="e.g., 4"
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20" />
           </label>
         </div>

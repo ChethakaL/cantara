@@ -19,7 +19,7 @@ export function getComposioMailToolkitSlug() {
 }
 
 export function getPreferredComposioMailFromEmail() {
-  return (getProjectEnv("COMPOSIO_MAIL_FROM_EMAIL") || "gabriela@cantarapet.com").trim().toLowerCase();
+  return (getProjectEnv("COMPOSIO_MAIL_FROM_EMAIL") || "aliya@cantarapet.com").trim().toLowerCase();
 }
 
 function mailConnectionListParams() {

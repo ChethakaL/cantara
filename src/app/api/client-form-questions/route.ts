@@ -233,6 +233,7 @@ function compatibilitySections(client: any, existing: Record<string, any>, respo
     || 'occupancyBoardingRuns' in responses
     || 'occupancyDaycareSpots' in responses
     || 'occupancyGroomingStations' in responses
+    || 'occupancyBathingStations' in responses
     || 'occupancyMonthlyData' in responses
   ) {
     next.occupancyReviewInputs = buildOccupancyReviewInputs(merged)

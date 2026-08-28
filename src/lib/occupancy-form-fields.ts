@@ -9,6 +9,7 @@ export type OccupancyReviewInputs = {
   boardingRuns?: number
   daycareSpots?: number
   groomingStations?: number
+  bathingStations?: number
   monthlyData?: OccupancyMonthlyEntry[]
   updatedAt?: string
 }
@@ -18,6 +19,7 @@ const OCCUPANCY_FIELD_KEYS = [
   'occupancyBoardingRuns',
   'occupancyDaycareSpots',
   'occupancyGroomingStations',
+  'occupancyBathingStations',
   'occupancyMonthlyData',
 ] as const
 
@@ -88,6 +90,7 @@ export function buildOccupancyReviewInputs(responses: Record<string, string>): O
     boardingRuns: parseOptionalNumber(responses.occupancyBoardingRuns),
     daycareSpots: parseOptionalNumber(responses.occupancyDaycareSpots),
     groomingStations: parseOptionalNumber(responses.occupancyGroomingStations),
+    bathingStations: parseOptionalNumber(responses.occupancyBathingStations),
     monthlyData,
     updatedAt: new Date().toISOString(),
   }
@@ -100,6 +103,7 @@ export function occupancyInputsToFormResponses(inputs: OccupancyReviewInputs | u
     occupancyBoardingRuns: inputs.boardingRuns != null ? String(inputs.boardingRuns) : '',
     occupancyDaycareSpots: inputs.daycareSpots != null ? String(inputs.daycareSpots) : '',
     occupancyGroomingStations: inputs.groomingStations != null ? String(inputs.groomingStations) : '',
+    occupancyBathingStations: inputs.bathingStations != null ? String(inputs.bathingStations) : '',
     occupancyMonthlyData: formatOccupancyMonthlyData(inputs.monthlyData),
   }
 }
@@ -175,6 +179,20 @@ export const OCCUPANCY_CAPACITY_FIELD_DEFS: OccupancyFormFieldDef[] = [
     groupKey: 'occupancy_capacity',
     groupLabel: 'Capacity Model',
     sortOrder: 430,
+  },
+  {
+    agentId: 'occupancy_review',
+    agentName: 'Occupancy Review Agent',
+    fieldKey: 'occupancyBathingStations',
+    label: 'Bathing Stations',
+    description: 'Optional. Number of bathing stations if applicable.',
+    inputType: 'number',
+    placeholder: 'e.g., 4',
+    required: false,
+    options: null,
+    groupKey: 'occupancy_capacity',
+    groupLabel: 'Capacity Model',
+    sortOrder: 440,
   },
 ]
 

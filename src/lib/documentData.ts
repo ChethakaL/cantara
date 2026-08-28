@@ -45,7 +45,7 @@ export const VALUATION_DOCS: DocumentDef[] = [
     id: 'accountant_statements',
     name: 'Accountant-Prepared Financial Statements',
     description: 'Three fiscal years of accountant-prepared financial statements. Upload all years in one PDF/ZIP, or one file per year.',
-    type: 'required',
+    type: 'yes_no',
     workstreams: ['ws1', 'ws2', 'both', 'ma'],
   },
   {
@@ -88,7 +88,7 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
       { id: 'shareholder_agreement', name: "Shareholder's Agreement", description: 'Applicable if your business has a shareholders agreement. For multi-location businesses this lives at the parent entity level.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'], parentOnly: true },
       { id: 'business_licenses', name: 'Business Licenses (City + County)', description: 'All current business licenses.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
       { id: 'zoning_approval', name: 'Zoning Approval / CUP / Use Permit', description: 'Zoning approval documentation.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true, flagged: true, flagNote: 'Priority review item — zoning varies by municipality.' },
-      { id: 'certificate_occupancy', name: 'Certificate of Occupancy', description: 'Current certificate of occupancy.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
+      { id: 'certificate_occupancy', name: 'Certificate of Occupancy', description: 'Current certificate of occupancy.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
       { id: 'building_permits', name: 'Building Permits (if renovation done)', description: 'Applicable if any renovations have been done at this location.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
       { id: 'health_safety', name: 'Health & Safety Inspection Reports', description: 'Any health and safety inspection reports.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
       { id: 'violations', name: 'Violations / Citations (last 36 months)', description: 'Disclose violations. If yes, upload supporting documents.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
@@ -121,14 +121,14 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
     documents: [
       { id: 'employee_list', name: 'Employee List (titles, hours, compensation)', description: 'Full employee list with job title, average weekly hours, and compensation. Do not include SSNs. Download the Excel template from Document Upload if helpful.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'], perBranch: true },
       { id: 'org_chart', name: 'Organizational Chart', description: 'Current org chart.', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
-      { id: 'key_employee_contracts', name: 'Key Employee / Manager Contracts', description: 'Employment agreements for key staff.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
+      { id: 'key_employee_contracts', name: 'Key Employee / Manager Contracts & Employee Bonus Agreements', description: 'Employment agreements and employee bonus agreements for key staff.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'sop_manual', name: 'Operations / SOP Manual', description: 'Standard operating procedures documentation.', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'insurance_policies', name: 'Insurance Policies (all active)', description: 'All active business insurance policies.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'material_contracts', name: 'Vendor Contracts', description: 'Upload the actual contract documents (PDFs) for all vendor, supplier, software, and service agreements: (1) exceeding $5,000/year or (2) agreements longer than 12 months in length. If there is no agreement with the vendor, write out the agreement details on a spreadsheet and upload the document containing the details.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'sales_process_transcript', name: 'Sales Call Transcript / Recording', description: 'Cantara collects discovery/sales call transcripts for the Sales Process Review agent (admin upload).', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'meeting_notes', name: 'Meeting Notes / Call Notes', description: 'Cantara advisor meeting notes and call transcripts for the Meeting Notes agent (admin upload).', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'litigation_search_docs', name: 'Lien Search / Court Records', description: 'Formal lien search results, title reports, or court record documents from attorney or title company.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
-      { id: 'occupancy_review', name: 'Occupancy Review Data', description: 'Upload the occupancy report or spreadsheet containing capacity and monthly boarding/daycare counts. The Occupancy Review Agent will extract the inputs from this document. Download the sample CSV below. Please replace the sample data with 24 months of your actual data.', type: 'required', workstreams: ['ws2', 'both'] },
+      { id: 'occupancy_review', name: 'Occupancy Review Data', description: 'Upload the occupancy report or spreadsheet containing capacity and monthly boarding/daycare counts. Download the sample CSV below. Please replace the sample data with 24 months of your actual data.', type: 'required', workstreams: ['ws2', 'both'] },
     ],
   },
   {
@@ -136,7 +136,7 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
     title: 'Customer & Revenue',
     icon: 'Users',
     documents: [
-      { id: 'revenue_breakdown', name: 'Revenue Breakdown by Service Line', description: 'Revenue split between boarding, daycare, grooming, training, etc.', type: 'required', workstreams: ['ws2', 'both', 'ma'] },
+      { id: 'revenue_breakdown', name: 'Revenue Breakdown by Service Line (36 months)', description: 'Revenue split between boarding, daycare, grooming, training, etc. for the last 36 months — 3 fiscal years and trailing twelve months (TTM).', type: 'required', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'customer_count', name: 'Active Customer Count (last 12 months)', description: 'Legacy checklist item — not used by any agent (revenue agents use Revenue Breakdown and Pricing Schedule). Hidden from client portal.', type: 'required', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'pricing_schedule', name: 'Current Pricing Schedule', description: 'Current rates for all services.', type: 'required', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'online_reviews', name: 'Online Review Summary (Google / Yelp)', description: 'Screenshots or export of review profiles.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },

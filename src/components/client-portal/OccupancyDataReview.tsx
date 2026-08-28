@@ -20,6 +20,7 @@ type OccupancyReport = {
     boardingRuns?: number
     daycareSpots?: number
     groomingStations?: number
+    bathingStations?: number
   }
   monthlyData?: MonthlyEntry[]
   computed?: {
@@ -96,7 +97,7 @@ export function OccupancyDataReview({ clientId }: { clientId: string }) {
           {report.capacityModel && (
             <div className="mb-4 rounded-lg border border-emerald-200/80 bg-white p-3">
               <h4 className="text-xs font-bold text-emerald-900 mb-2">Capacity Model</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-xs">
                 <div>
                   <span className="block text-slate-500 font-medium">Total Daily Capacity</span>
                   <span className="block font-semibold text-slate-800">{report.capacityModel.totalDailyCapacity || '—'}</span>
@@ -112,6 +113,10 @@ export function OccupancyDataReview({ clientId }: { clientId: string }) {
                 <div>
                   <span className="block text-slate-500 font-medium">Grooming Stations</span>
                   <span className="block font-semibold text-slate-800">{report.capacityModel.groomingStations || '—'}</span>
+                </div>
+                <div>
+                  <span className="block text-slate-500 font-medium">Bathing Stations</span>
+                  <span className="block font-semibold text-slate-800">{report.capacityModel.bathingStations || '—'}</span>
                 </div>
               </div>
             </div>
