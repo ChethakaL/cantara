@@ -40,15 +40,24 @@ export function getStructuredFormTemplateFilename(fieldKey: StructuredFormFieldK
   return 'Cantara Software & Vendors Template.xlsx'
 }
 
+const PIPE_DELIMITER = ' | '
+
+function splitPipeLine(line: string): string[] {
+  if (line.includes(PIPE_DELIMITER)) {
+    return line.split(PIPE_DELIMITER)
+  }
+  // Legacy rows used bare pipes with trimmed cells.
+  return line.split('|').map(part => part.trim())
+}
+
 export function parsePipeRows(value: string, fieldKey: StructuredFormFieldKey): Record<string, string>[] {
   const columns = STRUCTURED_FORM_COLUMNS[fieldKey]
   return String(value || '')
     .replace(/\\n/g, '\n')
     .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
+    .filter(line => line.trim().length > 0)
     .map(line => {
-      const parts = line.split('|').map(part => part.trim())
+      const parts = splitPipeLine(line)
       return columns.reduce<Record<string, string>>((row, column, index) => {
         row[column.key] = parts[index] ?? ''
         return row
@@ -59,7 +68,7 @@ export function parsePipeRows(value: string, fieldKey: StructuredFormFieldKey): 
 
 export function serializePipeRows(rows: Record<string, string>[], fieldKey: StructuredFormFieldKey): string {
   const columns = STRUCTURED_FORM_COLUMNS[fieldKey]
-  return rows.map(row => columns.map(column => row[column.key] ?? '').join(' | ')).join('\n')
+  return rows.map(row => columns.map(column => row[column.key] ?? '').join(PIPE_DELIMITER)).join('\n')
 }
 
 function normalizeHeader(value: unknown): string {

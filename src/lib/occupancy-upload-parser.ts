@@ -38,9 +38,11 @@ export function parseOccupancyUpload(bytes: Buffer, fileName: string): Occupancy
   const boardingCapacities: number[] = []
   const daycareCapacities: number[] = []
   const groomingCounts: number[] = []
+  const bathingCounts: number[] = []
   const kennelOccupancyIndex = find('kennel occupancy')
   const daycareOccupancyIndex = find('daycare pet occupancy', 'daycare occupancy')
   const groomingIndex = find('grooming')
+  const bathingIndex = find('bathing')
 
   for (const row of rows.slice(1) as unknown[][]) {
     if (String(row[0] ?? '').trim().toLowerCase() === 'average') continue
@@ -49,6 +51,7 @@ export function parseOccupancyUpload(bytes: Buffer, fileName: string): Occupancy
     const boarding = number(row[boardingIndex])
     const daycare = number(row[daycareIndex])
     if (groomingIndex >= 0 && number(row[groomingIndex]) > 0) groomingCounts.push(number(row[groomingIndex]))
+    if (bathingIndex >= 0 && number(row[bathingIndex]) > 0) bathingCounts.push(number(row[bathingIndex]))
     const current = aggregates.get(key) ?? { boarding: 0, daycare: 0, days: 0 }
     current.boarding += boarding
     current.daycare += daycare
@@ -75,10 +78,12 @@ export function parseOccupancyUpload(bytes: Buffer, fileName: string): Occupancy
   // This export has grooming appointments but no grooming-utilization column.
   // Use the observed peak concurrent daily count as the best available station estimate.
   const groomingStations = groomingCounts.length ? Math.max(...groomingCounts) : undefined
+  const bathingStations = bathingCounts.length ? Math.max(...bathingCounts) : undefined
   return {
     ...(boardingRuns != null ? { boardingRuns } : {}),
     ...(daycareSpots != null ? { daycareSpots } : {}),
     ...(groomingStations != null ? { groomingStations } : {}),
+    ...(bathingStations != null ? { bathingStations } : {}),
     ...(boardingRuns != null || daycareSpots != null ? { totalDailyCapacity: (boardingRuns ?? 0) + (daycareSpots ?? 0) } : {}),
     monthlyData,
     updatedAt: new Date().toISOString(),

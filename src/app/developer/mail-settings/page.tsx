@@ -267,7 +267,7 @@ export default function DeveloperMailSettingsPage() {
                   <p className="mt-1 text-sm text-slate-500">
                     {status?.configured
                       ? `Sending from ${status.connectedEmail || status.accountId || 'selected Composio account'}`
-                      : 'Connect gabriela@cantarapet.com to send invitations.'}
+                      : 'Connect aliya@cantarapet.com to send portal emails (invites, OTP, reminders).'}
                   </p>
                   {status?.accountStatus && <p className="mt-1 text-xs text-slate-400">Composio status: {status.accountStatus}</p>}
                   {status?.accountError && (
