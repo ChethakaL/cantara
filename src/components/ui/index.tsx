@@ -35,7 +35,7 @@ export function Button({ variant = 'primary', size = 'md', className, children, 
 interface BadgeProps { children: React.ReactNode; color?: 'gold' | 'green' | 'red' | 'blue' | 'slate' | 'gray' | 'amber'; className?: string }
 export function Badge({ children, color = 'slate', className }: BadgeProps) {
   const colors = {
-    gold: 'border-cantara-gold/30 text-cantara-navy',
+    gold: 'bg-amber-100/90 text-amber-900 border-amber-300 font-medium',
     green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     red: 'bg-rose-50 text-rose-700 border-rose-200',
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -44,7 +44,7 @@ export function Badge({ children, color = 'slate', className }: BadgeProps) {
     amber: 'bg-amber-50 text-amber-800 border-amber-200',
   }
   return (
-    <span className={cn('inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border', colors[color], color === 'gold' && 'bg-[#CAA15F]/10', className)}>
+    <span className={cn('inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border', colors[color], className)}>
       {children}
     </span>
   )

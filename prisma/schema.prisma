@@ -541,6 +541,7 @@ model User {
   emailFooterName           String?
   emailFooterTitle          String?
   emailFooterPhone          String?
+  emailFooterHtml           String?
   email                     String            @unique
   passwordHash              String
   mustChangePassword        Boolean           @default(false)

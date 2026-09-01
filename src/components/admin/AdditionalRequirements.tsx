@@ -103,7 +103,14 @@ export default function AdditionalRequirementsAdmin({ clientId }: { clientId: st
                       </Badge>
                       {req.question && <Badge color="blue">Question</Badge>}
                       {req.requestUpload && <Badge color="gold">Upload Requested</Badge>}
-                      {req.assignedTo && <Badge color="slate">Assigned to {req.assignedTo}</Badge>}
+                      {req.assignedTo && (
+                        <Badge color="slate">
+                          Assigned to{' '}
+                          {req.assignedTo.trim().toLowerCase() === 'me' || req.assignedTo.trim().toLowerCase() === 'self'
+                            ? 'Client'
+                            : req.assignedTo}
+                        </Badge>
+                      )}
                       {req.sourceDocumentName && <Badge color="slate">{req.sourceDocumentName}</Badge>}
                     </div>
                   </div>

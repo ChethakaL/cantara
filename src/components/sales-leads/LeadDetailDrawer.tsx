@@ -25,6 +25,8 @@ import { Sparkles } from 'lucide-react'
 import EnrichmentModal from '@/components/sales-leads/EnrichmentModal'
 import { ContactTypeBadges } from '@/components/sales-leads/ContactTypeBadges'
 import { EmailRecipientFields } from '@/components/sales-leads/EmailRecipientFields'
+import { EmailFooterPreview } from '@/components/sales-leads/EmailFooterPreview'
+import { combineEmailDraftBody, splitEmailDraftBody } from '@/lib/sales-leads/email-draft-body'
 
 type Lead = any
 
@@ -62,7 +64,8 @@ export default function LeadDetailDrawer({
   const [draftLoading, setDraftLoading] = useState(false)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [draftSubject, setDraftSubject] = useState('')
-  const [draftBody, setDraftBody] = useState('')
+  const [draftMessage, setDraftMessage] = useState('')
+  const [draftHtmlFooter, setDraftHtmlFooter] = useState<string | null>(null)
   const [draftRecipient, setDraftRecipient] = useState('')
   const [extraToEmails, setExtraToEmails] = useState<string[]>([])
   const [ccEmails, setCcEmails] = useState<string[]>([])
@@ -95,7 +98,9 @@ export default function LeadDetailDrawer({
         )
       }
       setDraftSubject(data.subject || '')
-      setDraftBody(data.body || '')
+      const split = splitEmailDraftBody(data.body || '')
+      setDraftMessage(split.message)
+      setDraftHtmlFooter(split.htmlFooter)
       setDraftRecipient(data.recipientEmail || '')
       setExtraToEmails([])
       setCcEmails([])
@@ -151,7 +156,7 @@ export default function LeadDetailDrawer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subject: draftSubject,
-          bodyText: draftBody,
+          bodyText: combineEmailDraftBody(draftMessage, draftHtmlFooter),
           extraTo: extraToEmails,
           cc: ccEmails,
         }),
@@ -307,10 +312,26 @@ export default function LeadDetailDrawer({
 
                     <Textarea
                       label="Email Body Draft"
-                      value={draftBody}
-                      onChange={e => setDraftBody(e.target.value)}
-                      className="h-32 text-xs bg-white font-mono leading-relaxed"
+                      value={draftMessage}
+                      onChange={e => setDraftMessage(e.target.value)}
+                      className="min-h-[160px] text-xs bg-white leading-relaxed"
                     />
+
+                    {draftHtmlFooter && (
+                      <div className="space-y-2">
+                        <label className="block text-xs font-semibold text-slate-600">
+                          Email signature preview
+                        </label>
+                        <p className="text-[11px] text-slate-500">
+                          Rendered from your saved Sender Footer. Edit the message above; the signature is managed in Outreach Assets.
+                        </p>
+                        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white p-3">
+                          <div className="mx-auto w-full max-w-[640px] origin-top-left scale-[0.92] sm:scale-100">
+                            <EmailFooterPreview html={draftHtmlFooter} />
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex justify-end gap-2 pt-1">
                       <Button

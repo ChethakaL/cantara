@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { SalesLeadContactType } from '@prisma/client'
 import {
+  buildSenderFooterFromUser,
   buildVerifiedCompliment,
   interpolateSalesLeadTemplate,
   senderLastNameFromDisplayName,
@@ -97,6 +98,29 @@ test('[Footer] is replaced from the advisor sender footer settings', () => {
   })
   assert.match(body, /Looking forward to connecting\.\n\nChethaka Lakshitha\nAI Engineer\n123456789/)
   assert.doesNotMatch(body, /\[Footer\]/)
+})
+
+test('HTML sender footer takes precedence over simple text fields', () => {
+  const footer = buildSenderFooterFromUser({
+    name: 'Craig Pollack',
+    emailFooterName: 'Ignored Name',
+    emailFooterTitle: 'Ignored Title',
+    emailFooterPhone: 'Ignored Phone',
+    emailFooterHtml: '<table><tr><td>Craig Pollack</td></tr></table>',
+  })
+  assert.match(footer, /<table>/)
+  assert.doesNotMatch(footer, /Ignored Name/)
+})
+
+test('simple sender footer is built from name, title, and phone', () => {
+  const footer = buildSenderFooterFromUser({
+    name: 'Chethaka Lakshitha',
+    emailFooterName: 'Chethaka Lakshitha',
+    emailFooterTitle: 'AI Engineer',
+    emailFooterPhone: '123456789',
+    emailFooterHtml: '',
+  })
+  assert.equal(footer, 'Chethaka Lakshitha\nAI Engineer\n123456789')
 })
 
 test('5c - empty calendar and phone placeholders stay visible until filled', () => {

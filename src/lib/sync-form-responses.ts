@@ -1,3 +1,42 @@
+import { normalizeOptionalFormValue } from '@/lib/client-form-na'
+import type { DigitalAssetFormData } from '@/lib/digital-presence/types'
+
+function pickFirstMeaningful(...values: (string | undefined | null)[]): string {
+  for (const value of values) {
+    const normalized = normalizeOptionalFormValue(value)
+    if (normalized) return normalized
+  }
+  return ''
+}
+
+/** Merge digital presence inputs from structured form + shared required-info responses. */
+export function buildDigitalPresenceFormData(
+  existing: Record<string, any>,
+  client?: {
+    businessName?: string | null
+    websiteUrl?: string | null
+  },
+): DigitalAssetFormData {
+  const dp = existing.digitalPresenceForm ?? {}
+  const responses = existing.agentFormResponses ?? {}
+
+  return {
+    businessName: pickFirstMeaningful(dp.businessName, client?.businessName),
+    websiteUrl: pickFirstMeaningful(dp.websiteUrl, responses.businessWebsite, client?.websiteUrl),
+    googleBusinessProfileUrl: pickFirstMeaningful(dp.googleBusinessProfileUrl, responses.googleBusinessProfileUrl),
+    googleBusinessLocations: pickFirstMeaningful(dp.googleBusinessLocations, responses.googleBusinessLocations),
+    facebookHandle: pickFirstMeaningful(dp.facebookHandle, responses.facebookHandle),
+    instagramHandle: pickFirstMeaningful(dp.instagramHandle, responses.instagramHandle),
+    tiktokHandle: pickFirstMeaningful(dp.tiktokHandle, responses.tiktokHandle),
+    bookingPlatformUrl: pickFirstMeaningful(dp.bookingPlatformUrl, responses.bookingPlatformUrl),
+    yelpUrl: pickFirstMeaningful(dp.yelpUrl, responses.yelpUrl),
+    nextdoorUrl: pickFirstMeaningful(dp.nextdoorUrl, responses.nextdoorUrl),
+    linkedinUrl: pickFirstMeaningful(dp.linkedinUrl, responses.linkedinUrl),
+    glassdoorUrl: pickFirstMeaningful(dp.glassdoorUrl, responses.glassdoorUrl),
+    bbbUrl: pickFirstMeaningful(dp.bbbUrl, responses.bbbUrl),
+  }
+}
+
 export function formatProfessionalAdvisors(value: unknown): string {
   if (!Array.isArray(value)) return ''
   return value.map((advisor: any) => [

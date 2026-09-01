@@ -15,7 +15,7 @@ async function getCurrentAdmin() {
   if (!email) return null
   return prisma.user.findFirst({
     where: { email, role: 'ADMIN' },
-    select: { id: true, name: true, email: true, emailFooterName: true, emailFooterTitle: true, emailFooterPhone: true },
+    select: { id: true, name: true, email: true, emailFooterName: true, emailFooterTitle: true, emailFooterPhone: true, emailFooterHtml: true },
   })
 }
 
@@ -43,8 +43,13 @@ export async function PATCH(req: NextRequest) {
   const text = (value: unknown) => String(value ?? '').trim() || null
   const user = await prisma.user.update({
     where: { id: currentUser.id },
-    data: { emailFooterName: text(body.name), emailFooterTitle: text(body.title), emailFooterPhone: text(body.phone) },
-    select: { id: true, name: true, email: true, emailFooterName: true, emailFooterTitle: true, emailFooterPhone: true },
+    data: {
+      emailFooterName: text(body.name),
+      emailFooterTitle: text(body.title),
+      emailFooterPhone: text(body.phone),
+      emailFooterHtml: text(body.html),
+    },
+    select: { id: true, name: true, email: true, emailFooterName: true, emailFooterTitle: true, emailFooterPhone: true, emailFooterHtml: true },
   })
   return NextResponse.json({ user })
 }

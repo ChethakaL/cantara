@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { ExternalLink, FileText, Loader2, Plus, Trash2 } from 'lucide-react'
-import { buildDocumentUploadStatusSummary, type ClientUploadedFile } from '@/lib/client-document-upload'
+import { buildDocumentUploadStatusSummary, documentUploadFormatHint, getDocumentUploadAccept, validateDocumentUpload, type ClientUploadedFile } from '@/lib/client-document-upload'
 
 export type DocumentUploadStatusSummary = ReturnType<typeof buildDocumentUploadStatusSummary>
 
@@ -35,9 +35,13 @@ export function DocumentUploadPanel({
     onStatusChange?.(buildDocumentUploadStatusSummary(files))
   }, [files, onStatusChange])
 
+  const formatHint = documentUploadFormatHint(uploadDocumentId)
+  const accept = getDocumentUploadAccept(uploadDocumentId)
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     disabled: uploading || !uploaderEmail,
     multiple: true,
+    accept,
     onDrop: async accepted => {
       if (!accepted.length || !uploaderEmail) return
       setUploading(true)
@@ -47,6 +51,10 @@ export function DocumentUploadPanel({
       try {
         for (let index = 0; index < accepted.length; index++) {
           const file = accepted[index]
+          const validationError = validateDocumentUpload(uploadDocumentId, file)
+          if (validationError) {
+            throw new Error(validationError)
+          }
           setUploadProgress(`Uploading ${index + 1} of ${accepted.length}…`)
           const form = new FormData()
           form.append('file', file)
@@ -162,6 +170,7 @@ export function DocumentUploadPanel({
 
       <p className="text-[10px] text-slate-400 leading-relaxed">
         You can upload one or more files. New uploads are added — they never replace existing files.
+        {formatHint ? ` ${formatHint}` : ''}
       </p>
 
       {error && <p className="text-xs text-rose-600">{error}</p>}

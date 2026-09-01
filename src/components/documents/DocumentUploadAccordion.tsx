@@ -52,7 +52,13 @@ export function DocumentUploadAccordion({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium text-slate-800">{title}</p>
-              {assignedTo && <Badge color="slate">{assignedTo}</Badge>}
+              {assignedTo && (
+                <Badge color="slate">
+                  {assignedTo.trim().toLowerCase() === 'me' || assignedTo.trim().toLowerCase() === 'self'
+                    ? 'Owner'
+                    : assignedTo}
+                </Badge>
+              )}
               {statusBadge}
               {deadlineBadge}
               {isComplete && <CheckCircle className="h-4 w-4 text-emerald-500" aria-label="Complete" />}

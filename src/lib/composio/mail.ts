@@ -53,8 +53,20 @@ function escapeHtml(value: string) {
 }
 
 export function formatEmailBody(body: string) {
-  if (/<(?:p|br|div|strong|em|ul|ol|li)\b/i.test(body)) return body;
+  if (/<(?:p|br|div|strong|em|ul|ol|li|table|style|span|a|img|td|tr)\b/i.test(body)) return body;
   return escapeHtml(body).replace(/\r?\n\r?\n/g, "<br><br>").replace(/\r?\n/g, "<br>");
+}
+
+/** Convert plain-text email bodies to HTML while preserving embedded HTML footers/signatures. */
+export function formatSalesLeadEmailBody(body: string) {
+  const trimmed = body.trim()
+  if (!trimmed) return trimmed
+  const htmlStart = trimmed.search(/<(?:style|table|div|html)\b/i)
+  if (htmlStart === -1) return formatEmailBody(trimmed)
+  const plainPart = trimmed.slice(0, htmlStart).trimEnd()
+  const htmlPart = trimmed.slice(htmlStart).trim()
+  const formattedPlain = plainPart ? formatEmailBody(plainPart) : ''
+  return formattedPlain ? `${formattedPlain}\n\n${htmlPart}` : htmlPart
 }
 
 function buildComposioMailArguments(args: { to: string; displayName?: string; subject: string; body: string }) {

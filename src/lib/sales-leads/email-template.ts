@@ -14,6 +14,35 @@ export type SalesLeadTemplateOptions = {
   senderFooter?: string | null
 }
 
+export type SenderFooterUser = {
+  name?: string | null
+  emailFooterName?: string | null
+  emailFooterTitle?: string | null
+  emailFooterPhone?: string | null
+  emailFooterHtml?: string | null
+}
+
+export function senderFooterUsesHtml(user?: SenderFooterUser | null): boolean {
+  return Boolean(String(user?.emailFooterHtml || '').trim())
+}
+
+export function buildSenderFooterFromUser(user?: SenderFooterUser | null): string {
+  const htmlFooter = String(user?.emailFooterHtml || '').trim()
+  if (htmlFooter) return htmlFooter
+  return [
+    user?.emailFooterName || user?.name,
+    user?.emailFooterTitle,
+    user?.emailFooterPhone,
+  ]
+    .map(part => String(part || '').trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+export function isHtmlEmailContent(value: string): boolean {
+  return /<(table|style|div|html|body|span|a|img|td|tr)\b/i.test(value)
+}
+
 export function senderLastNameFromDisplayName(name?: string | null) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
   return parts.length >= 2 ? parts.slice(1).join(' ') : ''
