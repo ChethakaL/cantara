@@ -26,6 +26,36 @@ interface OtherCostItem {
   amount: string
 }
 
+interface RealEstateLoan {
+  id: string
+  description: string
+  currentBalance: string
+  estimatedPayoff: string
+}
+
+type RealEstateDisposition = 'sell' | 'retain'
+type RealEstateCommissionMode = 'percent' | 'dollar'
+type RealEstateTransferTaxMode = 'percent' | 'dollar'
+
+interface RealEstateState {
+  disposition: RealEstateDisposition
+  propertyTaxAssessedValue: string
+  expectedSalePrice: string
+  sellerOwnershipPercent: string
+  sellerFinancedDeferred: string
+  loans: RealEstateLoan[]
+  commissionMode: RealEstateCommissionMode
+  commissionPercent: string
+  commissionDollar: string
+  legalFees: string
+  titleEscrowClosing: string
+  transferTaxMode: RealEstateTransferTaxMode
+  transferTaxPercent: string
+  transferTaxDollar: string
+  is1031Exchange: boolean
+  estimatedTaxLiability: string
+}
+
 interface NetProceedsState {
   enterpriseValuation: string
   estimatedCashAtClosing: string
@@ -53,6 +83,8 @@ interface NetProceedsState {
   stateTaxRate: string
   federalTaxMode: 'percent' | 'dollar'
   stateTaxMode: 'percent' | 'dollar'
+  // Real estate module
+  realEstate?: RealEstateState
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +97,29 @@ function makeDebtInstrument(): DebtInstrument {
 
 function makeOtherCost(): OtherCostItem {
   return { id: crypto.randomUUID(), description: '', amount: '' }
+}
+
+function makeRealEstateLoan(): RealEstateLoan {
+  return { id: crypto.randomUUID(), description: '', currentBalance: '', estimatedPayoff: '' }
+}
+
+const DEFAULT_REAL_ESTATE: RealEstateState = {
+  disposition: 'sell',
+  propertyTaxAssessedValue: '',
+  expectedSalePrice: '',
+  sellerOwnershipPercent: '100',
+  sellerFinancedDeferred: '',
+  loans: [makeRealEstateLoan()],
+  commissionMode: 'percent',
+  commissionPercent: '',
+  commissionDollar: '',
+  legalFees: '',
+  titleEscrowClosing: '',
+  transferTaxMode: 'dollar',
+  transferTaxPercent: '',
+  transferTaxDollar: '',
+  is1031Exchange: false,
+  estimatedTaxLiability: '',
 }
 
 const DEFAULT_STATE: NetProceedsState = {
@@ -210,6 +265,9 @@ function buildNetProceedsReportHtml(
   clientName: string,
   calc: ReturnType<typeof buildNetProceedsCalculation>,
   form: NetProceedsState,
+  reCalc?: ReturnType<typeof buildRealEstateCalculation>,
+  showREFull?: boolean,
+  showRERetain?: boolean,
 ) {
   const rows = [
     ['1. Enterprise Value (EV)', formatUSD(calc.ev)],
@@ -251,20 +309,73 @@ function buildNetProceedsReportHtml(
     ['Total Transaction Costs', formatUSD(calc.totalTransactionCosts)],
   ]
 
+  const reSections: { title: string; content: string }[] = []
+  if (showRERetain) {
+    reSections.push({ title: 'Real Estate Disposition', content: '<p>Real Estate Retained and Leased to Buyer — no real estate sale proceeds included.</p>' })
+  }
+  if (showREFull && reCalc) {
+    const reWaterfallRows = [
+      ['1. Estimated Real Estate Sale Price', formatUSD(reCalc.salePrice)],
+      ['2. - Seller-Financed / Deferred RE Proceeds', formatUSD(-reCalc.sellerFinancedDeferred)],
+      ['3. - Total Real Estate Debt Payoff', formatUSD(-reCalc.totalDebtPayoff)],
+      ['4. - Total Real Estate Transaction Costs', formatUSD(-reCalc.totalTransactionCosts)],
+      ['5. = Net Property Proceeds Before Ownership Allocation', formatUSD(reCalc.netPropertyProceedsBeforeOwnership)],
+      [`6. × Seller Ownership ${(reCalc.ownershipPct * 100).toFixed(1)}%`, formatUSD(reCalc.sellerShareBeforeTax)],
+      ['7. = Seller\'s Share Before Tax', formatUSD(reCalc.sellerShareBeforeTax)],
+      [`8. - Estimated RE Tax Liability${reCalc.is1031 ? ' (1031 — $0)' : ''}`, formatUSD(-reCalc.taxLiability)],
+      [reCalc.is1031 ? '9. = Net RE Proceeds for 1031 Exchange' : '9. = Net Cash to Seller from RE', formatUSD(reCalc.netRealEstateProceeds)],
+    ]
+    reSections.push({ title: 'Real Estate Proceeds Waterfall', content: buildHtmlTable(['Line Item', 'Amount'], reWaterfallRows) })
+
+    const reDebtRows = reCalc.loanDetails.length
+      ? reCalc.loanDetails.map((l) => [l.description || 'Unnamed loan', formatUSD(l.currentBalance), formatUSD(l.estimatedPayoff)])
+      : [['No loans entered', '-', '-']]
+    reSections.push({ title: 'Real Estate Debt Schedule', content: buildHtmlTable(['Loan / Mortgage', 'Current Balance', 'Est. Payoff at Closing'], reDebtRows) })
+
+    const reCostRows = [
+      ['Brokerage / Commission', formatUSD(reCalc.commission)],
+      ['Legal Fees', formatUSD(reCalc.legalFees)],
+      ['Title, Escrow & Closing Costs', formatUSD(reCalc.titleEscrow)],
+      ['Transfer Taxes', formatUSD(reCalc.transferTax)],
+      ['Total RE Transaction Costs', formatUSD(reCalc.totalTransactionCosts)],
+    ]
+    reSections.push({ title: 'Real Estate Transaction Costs', content: buildHtmlTable(['Cost', 'Amount'], reCostRows, { totalRow: true }) })
+
+    const combinedRows = [
+      ['Operating Company — Cash to Seller', formatUSD(calc.netCashPostTax)],
+      [reCalc.is1031 ? 'Real Estate — Proceeds for 1031 Exchange' : 'Real Estate — Cash to Seller', formatUSD(reCalc.netRealEstateProceeds)],
+      [reCalc.is1031 ? 'Est. Combined Transaction Proceeds at Closing' : 'Est. Combined Cash to Seller at Closing', formatUSD(calc.netCashPostTax + reCalc.netRealEstateProceeds)],
+    ]
+    reSections.push({ title: 'Combined Transaction Summary', content: buildHtmlTable(['Line Item', 'Amount'], combinedRows) })
+
+    if (reCalc.is1031) {
+      reSections.push({
+        title: '1031 Exchange Disclosure',
+        content: '<p><strong>1031 Exchange Assumption:</strong> For purposes of this net proceeds estimate, a planned 1031 exchange assumes $0 real estate tax payable from the current transaction. Cantara does not evaluate 1031 eligibility, replacement-property requirements, deferred tax basis, or future tax consequences.</p>',
+      })
+    }
+  }
+
+  const kpis = [
+    { label: 'Enterprise Value', value: formatUSD(calc.ev) },
+    { label: 'Cash at Close Post-Tax', value: formatUSD(calc.netCashPostTax) },
+    { label: 'Deferred Post-Tax', value: formatUSD(calc.netDeferredPostTax) },
+    { label: 'Total Post-Tax Proceeds', value: formatUSD(calc.estimatedTotalProceedsPostTax) },
+  ]
+  if (showREFull && reCalc) {
+    kpis.push({ label: reCalc.is1031 ? 'RE 1031 Proceeds' : 'RE Cash to Seller', value: formatUSD(reCalc.netRealEstateProceeds) })
+    kpis.push({ label: 'Combined Total', value: formatUSD(calc.netCashPostTax + reCalc.netRealEstateProceeds) })
+  }
+
   return generateReportHtml({
     title: 'Seller Net Proceeds Report',
     subtitle: 'Estimated Closing Proceeds Waterfall',
     clientName,
     generatedAt: new Date().toISOString(),
-    summary: `Estimated total proceeds after taxes are ${formatUSD(calc.estimatedTotalProceedsPostTax)} based on enterprise value of ${formatUSD(calc.ev)}, closing cash of ${formatUSD(calc.cashAtClosing)}, debt payoffs of ${formatUSD(calc.totalDebt)}, transaction costs of ${formatUSD(calc.totalTransactionCosts)}, and withheld/deferred consideration of ${formatUSD(calc.totalWithheld)}.`,
-    kpis: [
-      { label: 'Enterprise Value', value: formatUSD(calc.ev) },
-      { label: 'Cash at Close Post-Tax', value: formatUSD(calc.netCashPostTax) },
-      { label: 'Deferred Post-Tax', value: formatUSD(calc.netDeferredPostTax) },
-      { label: 'Total Post-Tax Proceeds', value: formatUSD(calc.estimatedTotalProceedsPostTax) },
-    ],
+    summary: `Estimated total proceeds after taxes are ${formatUSD(calc.estimatedTotalProceedsPostTax)} based on enterprise value of ${formatUSD(calc.ev)}, closing cash of ${formatUSD(calc.cashAtClosing)}, debt payoffs of ${formatUSD(calc.totalDebt)}, transaction costs of ${formatUSD(calc.totalTransactionCosts)}, and withheld/deferred consideration of ${formatUSD(calc.totalWithheld)}.${showREFull && reCalc ? ` Real estate net proceeds: ${formatUSD(reCalc.netRealEstateProceeds)}.` : ''}`,
+    kpis,
     sections: [
-      { title: 'Net Proceeds Waterfall', content: buildHtmlTable(['Line Item', 'Amount'], rows) },
+      { title: 'Operating Company — Net Proceeds Waterfall', content: buildHtmlTable(['Line Item', 'Amount'], rows) },
       {
         title: 'Working Capital & Deferred Revenue',
         content: buildHtmlTable(['Input', 'Amount'], [
@@ -287,6 +398,7 @@ function buildNetProceedsReportHtml(
           ['Total Estimated Taxes', '-', formatUSD(calc.totalEstimatedTaxes)],
         ]),
       },
+      ...reSections,
     ],
   })
 }
@@ -361,6 +473,55 @@ function buildNetProceedsCalculation(form: NetProceedsState) {
   }
 }
 
+function buildRealEstateCalculation(re: RealEstateState) {
+  const salePrice = parseNum(re.expectedSalePrice)
+  const sellerFinancedDeferred = parseNum(re.sellerFinancedDeferred)
+  const ownershipPct = parseNum(re.sellerOwnershipPercent) / 100
+
+  // Debt
+  const loanDetails = re.loans.map((l) => ({
+    ...l,
+    currentBalance: parseNum(l.currentBalance),
+    estimatedPayoff: parseNum(l.estimatedPayoff),
+  }))
+  const totalDebtPayoff = loanDetails.reduce((sum, l) => sum + l.estimatedPayoff, 0)
+
+  // Transaction costs
+  const commission = re.commissionMode === 'percent'
+    ? salePrice * (parseNum(re.commissionPercent) / 100)
+    : parseNum(re.commissionDollar)
+  const legalFees = parseNum(re.legalFees)
+  const titleEscrow = parseNum(re.titleEscrowClosing)
+  const transferTax = re.transferTaxMode === 'percent'
+    ? salePrice * (parseNum(re.transferTaxPercent) / 100)
+    : parseNum(re.transferTaxDollar)
+  const totalTransactionCosts = commission + legalFees + titleEscrow + transferTax
+
+  // Waterfall
+  const netPropertyProceedsBeforeOwnership = salePrice - sellerFinancedDeferred - totalDebtPayoff - totalTransactionCosts
+  const sellerShareBeforeTax = netPropertyProceedsBeforeOwnership * ownershipPct
+  const taxLiability = re.is1031Exchange ? 0 : parseNum(re.estimatedTaxLiability)
+  const netRealEstateProceeds = sellerShareBeforeTax - taxLiability
+
+  return {
+    salePrice,
+    sellerFinancedDeferred,
+    ownershipPct,
+    loanDetails,
+    totalDebtPayoff,
+    commission,
+    legalFees,
+    titleEscrow,
+    transferTax,
+    totalTransactionCosts,
+    netPropertyProceedsBeforeOwnership,
+    sellerShareBeforeTax,
+    taxLiability,
+    netRealEstateProceeds,
+    is1031: re.is1031Exchange,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tax Mode Toggle
 // ---------------------------------------------------------------------------
@@ -405,12 +566,15 @@ function TaxModeToggle({
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
+  propertyOwnership?: 'lease' | 'owns' | ''
 }
 
-export default function NetProceedsCalculator({ clientId, clientName, readOnly = false }: Props) {
+export default function NetProceedsCalculator({ clientId, clientName, readOnly = false, propertyOwnership }: Props) {
   const [form, setForm] = useState<NetProceedsState>(DEFAULT_STATE)
   const [savedBadge, setSavedBadge] = useState(false)
   const [loaded, setLoaded] = useState(false)
+
+  const ownsRealEstate = propertyOwnership === 'owns'
 
   // Load saved data on mount
   useEffect(() => {
@@ -421,6 +585,7 @@ export default function NetProceedsCalculator({ clientId, clientName, readOnly =
         const json = await res.json()
         const loaded = (json?.data ?? json) as Partial<NetProceedsState> | null
         if (loaded) {
+          const loadedRE = loaded.realEstate as Partial<RealEstateState> | undefined
           setForm({
             ...DEFAULT_STATE,
             ...loaded,
@@ -429,6 +594,13 @@ export default function NetProceedsCalculator({ clientId, clientName, readOnly =
               : [makeDebtInstrument()],
             sellerObligations: ensureIds(loaded.sellerObligations, makeOtherCost),
             otherCosts: ensureIds(loaded.otherCosts, makeOtherCost),
+            realEstate: loadedRE ? {
+              ...DEFAULT_REAL_ESTATE,
+              ...loadedRE,
+              loans: ensureIds(loadedRE.loans, makeRealEstateLoan).length > 0
+                ? ensureIds(loadedRE.loans, makeRealEstateLoan)
+                : [makeRealEstateLoan()],
+            } : DEFAULT_REAL_ESTATE,
           })
         }
       } catch {
@@ -509,11 +681,38 @@ export default function NetProceedsCalculator({ clientId, clientName, readOnly =
     setForm((prev) => ({ ...prev, otherCosts: prev.otherCosts.filter((c) => c.id !== id) }))
   }
 
+  // Real estate helpers
+  const re = form.realEstate ?? DEFAULT_REAL_ESTATE
+  function setRE<K extends keyof RealEstateState>(key: K, value: RealEstateState[K]) {
+    setForm((prev) => ({ ...prev, realEstate: { ...(prev.realEstate ?? DEFAULT_REAL_ESTATE), [key]: value } }))
+  }
+  function updateRELoan(id: string, field: keyof Omit<RealEstateLoan, 'id'>, value: string) {
+    setForm((prev) => {
+      const loans = (prev.realEstate ?? DEFAULT_REAL_ESTATE).loans.map((l) => (l.id === id ? { ...l, [field]: value } : l))
+      return { ...prev, realEstate: { ...(prev.realEstate ?? DEFAULT_REAL_ESTATE), loans } }
+    })
+  }
+  function addRELoan() {
+    setForm((prev) => {
+      const cur = prev.realEstate ?? DEFAULT_REAL_ESTATE
+      return { ...prev, realEstate: { ...cur, loans: [...cur.loans, makeRealEstateLoan()] } }
+    })
+  }
+  function removeRELoan(id: string) {
+    setForm((prev) => {
+      const cur = prev.realEstate ?? DEFAULT_REAL_ESTATE
+      return { ...prev, realEstate: { ...cur, loans: cur.loans.length > 1 ? cur.loans.filter((l) => l.id !== id) : cur.loans } }
+    })
+  }
+
   // ---------------------------------------------------------------------------
   // Calculations
   // ---------------------------------------------------------------------------
 
   const calc = useMemo(() => buildNetProceedsCalculation(form), [form])
+  const reCalc = useMemo(() => buildRealEstateCalculation(re), [re])
+  const showREModule = ownsRealEstate
+  const showREFull = showREModule && re.disposition === 'sell'
 
   function handleReset() {
     setForm(DEFAULT_STATE)
@@ -593,6 +792,38 @@ export default function NetProceedsCalculator({ clientId, clientName, readOnly =
     lines.push(`= Estimated Cash to Seller on Withheld/Deferred (Post-Tax),${formatUSD(calc.netDeferredPostTax)}`)
     lines.push(`13. Total Net Proceeds Pre-Tax (incl. Deferred),${formatUSD(calc.totalNetProceedsPreTax)}`)
     lines.push(`14. = Estimated Total Proceeds on Sale (Post-Tax),${formatUSD(calc.estimatedTotalProceedsPostTax)}`)
+
+    if (showREModule && re.disposition === 'retain') {
+      lines.push('')
+      lines.push('--- Real Estate ---')
+      lines.push('Real Estate Retained and Leased to Buyer — no real estate sale proceeds included.')
+    }
+
+    if (showREFull) {
+      lines.push('')
+      lines.push('--- Real Estate Proceeds Waterfall ---')
+      lines.push(`1. Estimated Real Estate Sale Price,${formatUSD(reCalc.salePrice)}`)
+      lines.push(`2. - Seller-Financed / Deferred RE Proceeds,${formatUSD(-reCalc.sellerFinancedDeferred)}`)
+      lines.push(`3. - Total Real Estate Debt Payoff,${formatUSD(-reCalc.totalDebtPayoff)}`)
+      for (const l of reCalc.loanDetails) {
+        lines.push(`  ${l.description || 'Unnamed'},Balance: ${formatUSD(l.currentBalance)},Payoff: ${formatUSD(l.estimatedPayoff)}`)
+      }
+      lines.push(`4. - Total RE Transaction Costs,${formatUSD(-reCalc.totalTransactionCosts)}`)
+      lines.push(`  Brokerage / Commission,${formatUSD(reCalc.commission)}`)
+      lines.push(`  Legal Fees,${formatUSD(reCalc.legalFees)}`)
+      lines.push(`  Title Escrow & Closing,${formatUSD(reCalc.titleEscrow)}`)
+      lines.push(`  Transfer Taxes,${formatUSD(reCalc.transferTax)}`)
+      lines.push(`5. = Net Property Proceeds Before Ownership Allocation,${formatUSD(reCalc.netPropertyProceedsBeforeOwnership)}`)
+      lines.push(`6. x Seller Ownership ${(reCalc.ownershipPct * 100).toFixed(1)}%,${formatUSD(reCalc.sellerShareBeforeTax)}`)
+      lines.push(`7. = Seller Share Before Tax,${formatUSD(reCalc.sellerShareBeforeTax)}`)
+      lines.push(`8. - Estimated RE Tax Liability${reCalc.is1031 ? ' (1031 — $0)' : ''},${formatUSD(-reCalc.taxLiability)}`)
+      lines.push(`9. = ${reCalc.is1031 ? 'Net RE Proceeds for 1031 Exchange' : 'Net Cash to Seller from RE'},${formatUSD(reCalc.netRealEstateProceeds)}`)
+      lines.push('')
+      lines.push('--- Combined Transaction Summary ---')
+      lines.push(`Operating Company — Cash to Seller,${formatUSD(calc.netCashPostTax)}`)
+      lines.push(`${reCalc.is1031 ? 'Real Estate — Proceeds for 1031 Exchange' : 'Real Estate — Cash to Seller'},${formatUSD(reCalc.netRealEstateProceeds)}`)
+      lines.push(`${reCalc.is1031 ? 'Estimated Combined Transaction Proceeds at Closing' : 'Estimated Combined Cash to Seller at Closing'},${formatUSD(calc.netCashPostTax + reCalc.netRealEstateProceeds)}`)
+    }
 
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -700,6 +931,81 @@ export default function NetProceedsCalculator({ clientId, clientName, readOnly =
             <ResultRow label="14. = Estimated Total Proceeds on Sale (Post-Tax)" value={calc.estimatedTotalProceedsPostTax} bold highlight />
           </div>
         </Card>
+
+        {/* Read-only real estate module */}
+        {showREModule && re.disposition === 'retain' && (
+          <Card className="overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 bg-amber-50/50">
+              <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Real Estate Disposition</p>
+            </div>
+            <div className="px-4 py-4 text-sm text-slate-600">
+              Real Estate Retained and Leased to Buyer — no real estate sale proceeds included.
+            </div>
+          </Card>
+        )}
+
+        {showREFull && (
+          <>
+            <Card className="overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 bg-amber-50/50">
+                <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Real Estate Proceeds — Waterfall</p>
+              </div>
+              <div>
+                <ResultRow label="1. Estimated Real Estate Sale Price" value={reCalc.salePrice} bold />
+                <ResultRow label={`2. \u2212 Seller-Financed / Deferred Real Estate Proceeds`} value={-reCalc.sellerFinancedDeferred} negative />
+                <SectionHeader>Real Estate Debt Payoff</SectionHeader>
+                {reCalc.loanDetails.map((l) =>
+                  l.estimatedPayoff > 0 ? (
+                    <ResultRow key={l.id} label={l.description || 'Unnamed loan'} value={l.estimatedPayoff} source={`Current Balance: ${formatUSD(l.currentBalance)}`} indent />
+                  ) : null
+                )}
+                <ResultRow label={`3. \u2212 Total Real Estate Debt Payoff`} value={-reCalc.totalDebtPayoff} bold negative />
+                <SectionDivider />
+                <SectionHeader>Real Estate Transaction Costs</SectionHeader>
+                {reCalc.commission > 0 && <ResultRow label="Real Estate Brokerage / Commission" value={reCalc.commission} indent />}
+                {reCalc.legalFees > 0 && <ResultRow label="Legal Fees" value={reCalc.legalFees} indent />}
+                {reCalc.titleEscrow > 0 && <ResultRow label="Title, Escrow & Closing Costs" value={reCalc.titleEscrow} indent />}
+                {reCalc.transferTax > 0 && <ResultRow label="Transfer Taxes" value={reCalc.transferTax} indent />}
+                <ResultRow label={`4. \u2212 Total Real Estate Transaction Costs`} value={-reCalc.totalTransactionCosts} bold negative />
+                <SectionDivider />
+                <ResultRow label="5. = Net Property Proceeds Before Ownership Allocation" value={reCalc.netPropertyProceedsBeforeOwnership} bold />
+                <SectionDivider />
+                <ResultRow label={`6. × Seller Ownership ${(reCalc.ownershipPct * 100).toFixed(1)}%`} value={reCalc.sellerShareBeforeTax} bold />
+                <SectionDivider />
+                <ResultRow label="7. = Seller's Share of Real Estate Proceeds Before Tax" value={reCalc.sellerShareBeforeTax} bold highlight />
+                <SectionDivider />
+                <ResultRow label={`8. \u2212 Estimated Real Estate Tax Liability${reCalc.is1031 ? ' (1031 Exchange — $0)' : ''}`} value={-reCalc.taxLiability} negative />
+                <SectionDivider />
+                <div className="my-1" />
+                <ResultRow
+                  label={reCalc.is1031 ? '9. = Estimated Net Real Estate Proceeds Available for 1031 Exchange' : '9. = Estimated Net Cash to Seller from Real Estate'}
+                  value={reCalc.netRealEstateProceeds}
+                  bold highlightYellow
+                />
+                <div className="py-2" />
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 bg-emerald-50/50">
+                <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-widest">Combined Transaction Summary</p>
+              </div>
+              <div>
+                <ResultRow label="Operating Company — Cash to Seller" value={calc.netCashPostTax} bold />
+                <SectionDivider />
+                <ResultRow label={reCalc.is1031 ? 'Real Estate — Proceeds Available for 1031 Exchange' : 'Real Estate — Cash to Seller'} value={reCalc.netRealEstateProceeds} bold />
+                <SectionDivider />
+                <div className="my-1" />
+                <ResultRow
+                  label={reCalc.is1031 ? 'Estimated Combined Transaction Proceeds at Closing' : 'Estimated Combined Cash to Seller at Closing'}
+                  value={calc.netCashPostTax + reCalc.netRealEstateProceeds}
+                  bold highlightYellow
+                />
+                <div className="py-2" />
+              </div>
+            </Card>
+          </>
+        )}
       </div>
     )
   }
@@ -737,7 +1043,7 @@ export default function NetProceedsCalculator({ clientId, clientName, readOnly =
             {hasInput && (
               <>
                 <ExportReportButton
-                  html={buildNetProceedsReportHtml(clientName, calc, form)}
+                  html={buildNetProceedsReportHtml(clientName, calc, form, reCalc, showREFull, showREModule && re.disposition === 'retain')}
                   fileName={`net-proceeds-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
                   label="Export PDF"
                 />
@@ -1036,6 +1342,230 @@ export default function NetProceedsCalculator({ clientId, clientName, readOnly =
               Add cost
             </Button>
           </Card>
+
+          {/* ============================================================= */}
+          {/* REAL ESTATE MODULE (conditional)                               */}
+          {/* ============================================================= */}
+          {showREModule && (
+            <>
+              <div className="border-t-2 border-amber-200 pt-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-2 rounded-lg bg-amber-50 border border-amber-200">
+                    <DollarSign className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-800">Real Estate Disposition</h4>
+                    <p className="text-[10px] text-slate-400">Seller owns their real estate</p>
+                  </div>
+                </div>
+              </div>
+
+              <Card className="p-4 space-y-3">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Real Estate Disposition</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRE('disposition', 'sell')}
+                    className={cn(
+                      'flex-1 px-3 py-2.5 rounded-lg border text-xs font-semibold transition-colors',
+                      re.disposition === 'sell'
+                        ? 'bg-amber-50 border-amber-300 text-amber-800'
+                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                    )}
+                  >
+                    Sell Real Estate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRE('disposition', 'retain')}
+                    className={cn(
+                      'flex-1 px-3 py-2.5 rounded-lg border text-xs font-semibold transition-colors',
+                      re.disposition === 'retain'
+                        ? 'bg-slate-100 border-slate-300 text-slate-700'
+                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                    )}
+                  >
+                    Retain &amp; Lease to Buyer
+                  </button>
+                </div>
+                {re.disposition === 'retain' && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                    Real Estate Retained and Leased to Buyer — no real estate sale proceeds included.
+                  </div>
+                )}
+              </Card>
+
+              {showREFull && (
+                <>
+                  {/* RE Inputs */}
+                  <Card className="p-4 space-y-3">
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Real Estate Sale Inputs</p>
+                    <Input
+                      label="Property Tax Assessed Value (informational)"
+                      placeholder="1,500,000"
+                      value={re.propertyTaxAssessedValue}
+                      onChange={(e) => setRE('propertyTaxAssessedValue', e.target.value)}
+                    />
+                    <p className="text-[10px] text-slate-400">Informational only — not used in calculations.</p>
+                    <Input
+                      label="Estimated Fair Market Value / Expected Sale Price"
+                      placeholder="2,000,000"
+                      value={re.expectedSalePrice}
+                      onChange={(e) => setRE('expectedSalePrice', e.target.value)}
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <Input
+                        label="Seller Ownership % of Real Estate"
+                        placeholder="100"
+                        value={re.sellerOwnershipPercent}
+                        onChange={(e) => setRE('sellerOwnershipPercent', e.target.value)}
+                      />
+                      <Input
+                        label="Seller-Financed / Deferred RE Proceeds ($)"
+                        placeholder="0"
+                        value={re.sellerFinancedDeferred}
+                        onChange={(e) => setRE('sellerFinancedDeferred', e.target.value)}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400">Ownership % is applied after property-level debt and costs. Seller-financed amount is deducted from proceeds available at closing.</p>
+                  </Card>
+
+                  {/* RE Debt Schedule */}
+                  <Card className="p-4 space-y-3">
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Real Estate Debt Schedule</p>
+                    {re.loans.map((loan, idx) => (
+                      <div key={loan.id} className="space-y-2 p-3 rounded-lg bg-slate-50 border border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-slate-600">Loan / Mortgage #{idx + 1}</p>
+                          {re.loans.length > 1 && (
+                            <button type="button" onClick={() => removeRELoan(loan.id)} className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <Input
+                          label="Loan / Mortgage Description"
+                          placeholder="e.g. First Mortgage, HELOC"
+                          value={loan.description}
+                          onChange={(e) => updateRELoan(loan.id, 'description', e.target.value)}
+                        />
+                        <div className="grid grid-cols-2 gap-3">
+                          <Input
+                            label="Current Balance ($)"
+                            placeholder="800,000"
+                            value={loan.currentBalance}
+                            onChange={(e) => updateRELoan(loan.id, 'currentBalance', e.target.value)}
+                          />
+                          <Input
+                            label="Estimated Payoff at Closing ($)"
+                            placeholder="810,000"
+                            value={loan.estimatedPayoff}
+                            onChange={(e) => updateRELoan(loan.id, 'estimatedPayoff', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    <Button variant="outline" size="sm" onClick={addRELoan} className="w-full">
+                      <Plus className="w-3.5 h-3.5" />
+                      Add loan / mortgage
+                    </Button>
+                    <p className="text-[10px] text-slate-400">Current Balance is informational. Estimated Payoff at Closing should capture lender payoff charges or prepayment costs.</p>
+                  </Card>
+
+                  {/* RE Transaction Costs */}
+                  <Card className="p-4 space-y-3">
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Real Estate Transaction Costs</p>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium text-slate-600">
+                          Real Estate Brokerage / Commission {re.commissionMode === 'percent' ? '(%)' : '($)'}
+                        </label>
+                        <TaxModeToggle mode={re.commissionMode} onChange={(m) => setRE('commissionMode', m as RealEstateCommissionMode)} />
+                      </div>
+                      <Input
+                        placeholder={re.commissionMode === 'percent' ? '5' : '100,000'}
+                        value={re.commissionMode === 'percent' ? re.commissionPercent : re.commissionDollar}
+                        onChange={(e) => setRE(re.commissionMode === 'percent' ? 'commissionPercent' : 'commissionDollar', e.target.value)}
+                      />
+                    </div>
+                    <Input
+                      label="Legal Fees ($)"
+                      placeholder="15,000"
+                      value={re.legalFees}
+                      onChange={(e) => setRE('legalFees', e.target.value)}
+                    />
+                    <Input
+                      label="Title, Escrow & Closing Costs ($)"
+                      placeholder="10,000"
+                      value={re.titleEscrowClosing}
+                      onChange={(e) => setRE('titleEscrowClosing', e.target.value)}
+                    />
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium text-slate-600">
+                          Transfer Taxes {re.transferTaxMode === 'percent' ? '(%)' : '($)'}
+                        </label>
+                        <TaxModeToggle mode={re.transferTaxMode} onChange={(m) => setRE('transferTaxMode', m as RealEstateTransferTaxMode)} />
+                      </div>
+                      <Input
+                        placeholder={re.transferTaxMode === 'percent' ? '1.5' : '30,000'}
+                        value={re.transferTaxMode === 'percent' ? re.transferTaxPercent : re.transferTaxDollar}
+                        onChange={(e) => setRE(re.transferTaxMode === 'percent' ? 'transferTaxPercent' : 'transferTaxDollar', e.target.value)}
+                      />
+                    </div>
+                  </Card>
+
+                  {/* RE Tax / 1031 */}
+                  <Card className="p-4 space-y-3">
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Real Estate Tax / 1031 Exchange</p>
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-slate-600">1031 Exchange Planned?</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRE('is1031Exchange', false)}
+                          className={cn(
+                            'flex-1 px-3 py-2 rounded-lg border text-xs font-semibold transition-colors',
+                            !re.is1031Exchange ? 'bg-slate-700 text-white border-slate-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                          )}
+                        >
+                          No
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRE('is1031Exchange', true)}
+                          className={cn(
+                            'flex-1 px-3 py-2 rounded-lg border text-xs font-semibold transition-colors',
+                            re.is1031Exchange ? 'bg-slate-700 text-white border-slate-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                          )}
+                        >
+                          Yes
+                        </button>
+                      </div>
+                    </div>
+                    {re.is1031Exchange ? (
+                      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700 space-y-2">
+                        <p className="font-medium">Estimated Real Estate Tax Liability: $0</p>
+                        <p className="text-[10px] text-blue-600 leading-relaxed">
+                          <strong>1031 Exchange Assumption:</strong> For purposes of this net proceeds estimate, a planned 1031 exchange assumes $0 real estate tax payable from the current transaction. Cantara does not evaluate 1031 eligibility, replacement-property requirements, deferred tax basis, or future tax consequences.
+                        </p>
+                      </div>
+                    ) : (
+                      <Input
+                        label="Estimated Real Estate Tax Liability ($)"
+                        placeholder="150,000"
+                        value={re.estimatedTaxLiability}
+                        onChange={(e) => setRE('estimatedTaxLiability', e.target.value)}
+                      />
+                    )}
+                    {!re.is1031Exchange && (
+                      <p className="text-[10px] text-slate-400">This is the individual seller&apos;s tax liability on their ownership share. Enter the amount as provided by the seller or CPA.</p>
+                    )}
+                  </Card>
+                </>
+              )}
+            </>
+          )}
         </div>
 
         {/* ================================================================ */}
@@ -1163,6 +1693,128 @@ export default function NetProceedsCalculator({ clientId, clientName, readOnly =
               <div className="py-2" />
             </div>
           </Card>
+
+          {/* ============================================================= */}
+          {/* REAL ESTATE RESULTS (conditional)                               */}
+          {/* ============================================================= */}
+          {showREModule && re.disposition === 'retain' && (
+            <Card className="overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 bg-amber-50/50">
+                <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Real Estate Disposition</p>
+              </div>
+              <div className="px-4 py-4 text-sm text-slate-600">
+                Real Estate Retained and Leased to Buyer — no real estate sale proceeds included.
+              </div>
+            </Card>
+          )}
+
+          {showREFull && (
+            <>
+              <Card className="overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 bg-amber-50/50">
+                  <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest">Real Estate Proceeds — Waterfall</p>
+                </div>
+                <div>
+                  <ResultRow label="1. Estimated Real Estate Sale Price" value={reCalc.salePrice} bold />
+                  <ResultRow label={`2. \u2212 Seller-Financed / Deferred Real Estate Proceeds`} value={-reCalc.sellerFinancedDeferred} negative />
+
+                  <SectionHeader>Real Estate Debt Payoff</SectionHeader>
+                  {reCalc.loanDetails.map((l) =>
+                    l.estimatedPayoff > 0 ? (
+                      <ResultRow
+                        key={l.id}
+                        label={l.description || 'Unnamed loan'}
+                        value={l.estimatedPayoff}
+                        source={`Current Balance: ${formatUSD(l.currentBalance)}`}
+                        indent
+                      />
+                    ) : null
+                  )}
+                  <ResultRow label={`3. \u2212 Total Real Estate Debt Payoff`} value={-reCalc.totalDebtPayoff} bold negative />
+
+                  <SectionDivider />
+                  <SectionHeader>Real Estate Transaction Costs</SectionHeader>
+                  {reCalc.commission > 0 && <ResultRow label="Real Estate Brokerage / Commission" value={reCalc.commission} indent />}
+                  {reCalc.legalFees > 0 && <ResultRow label="Legal Fees" value={reCalc.legalFees} indent />}
+                  {reCalc.titleEscrow > 0 && <ResultRow label="Title, Escrow & Closing Costs" value={reCalc.titleEscrow} indent />}
+                  {reCalc.transferTax > 0 && <ResultRow label="Transfer Taxes" value={reCalc.transferTax} indent />}
+                  <ResultRow label={`4. \u2212 Total Real Estate Transaction Costs`} value={-reCalc.totalTransactionCosts} bold negative />
+
+                  <SectionDivider />
+                  <ResultRow label="5. = Net Property Proceeds Before Ownership Allocation" value={reCalc.netPropertyProceedsBeforeOwnership} bold />
+
+                  <SectionDivider />
+                  <ResultRow label={`6. × Seller Ownership ${(reCalc.ownershipPct * 100).toFixed(1)}%`} value={reCalc.sellerShareBeforeTax} source="Seller's share of real estate proceeds" bold />
+
+                  <SectionDivider />
+                  <ResultRow label="7. = Seller's Share of Real Estate Proceeds Before Tax" value={reCalc.sellerShareBeforeTax} bold highlight />
+
+                  <SectionDivider />
+                  <ResultRow
+                    label={`8. \u2212 Estimated Real Estate Tax Liability${reCalc.is1031 ? ' (1031 Exchange — $0)' : ''}`}
+                    value={-reCalc.taxLiability}
+                    negative
+                  />
+
+                  <SectionDivider />
+                  <div className="my-1" />
+                  <ResultRow
+                    label={reCalc.is1031
+                      ? '9. = Estimated Net Real Estate Proceeds Available for 1031 Exchange'
+                      : '9. = Estimated Net Cash to Seller from Real Estate'
+                    }
+                    value={reCalc.netRealEstateProceeds}
+                    bold
+                    highlightYellow
+                  />
+                  <div className="py-2" />
+
+                  {reCalc.is1031 && (
+                    <div className="mx-4 mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-[10px] text-blue-600 leading-relaxed">
+                      <strong>1031 Exchange Assumption:</strong> For purposes of this net proceeds estimate, a planned 1031 exchange assumes $0 real estate tax payable from the current transaction. Cantara does not evaluate 1031 eligibility, replacement-property requirements, deferred tax basis, or future tax consequences.
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              {/* Combined Summary */}
+              <Card className="overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 bg-emerald-50/50">
+                  <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-widest">Combined Transaction Summary</p>
+                </div>
+                <div>
+                  <ResultRow
+                    label="Operating Company — Cash to Seller"
+                    value={calc.netCashPostTax}
+                    source="Post-tax operating company proceeds"
+                    bold
+                  />
+                  <SectionDivider />
+                  <ResultRow
+                    label={reCalc.is1031
+                      ? 'Real Estate — Proceeds Available for 1031 Exchange'
+                      : 'Real Estate — Cash to Seller'
+                    }
+                    value={reCalc.netRealEstateProceeds}
+                    source={reCalc.is1031 ? '1031 exchange — no cash at closing' : 'Post-tax real estate proceeds'}
+                    bold
+                  />
+                  <SectionDivider />
+                  <div className="my-1" />
+                  <ResultRow
+                    label={reCalc.is1031
+                      ? 'Estimated Combined Transaction Proceeds at Closing'
+                      : 'Estimated Combined Cash to Seller at Closing'
+                    }
+                    value={calc.netCashPostTax + reCalc.netRealEstateProceeds}
+                    bold
+                    highlightYellow
+                  />
+                  <div className="py-2" />
+                </div>
+              </Card>
+            </>
+          )}
 
           {!hasInput && (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">

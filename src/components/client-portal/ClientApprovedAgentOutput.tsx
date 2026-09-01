@@ -50,6 +50,7 @@ export type ClientApprovedClient = {
   dba?: string | null
   totalEmployeesSelfReported?: number | string | null
   employmentTypeBreakdown?: string | null
+  propertyOwnership?: 'lease' | 'owns' | '' | null
 }
 
 type ClientApprovedAgentOutputProps = {
@@ -627,7 +628,7 @@ export default function ClientApprovedAgentOutput({
       return frame(<TeaserGeneratorTab clientId={clientId} clientName={clientName} readOnly />)
 
     case 'net_proceeds':
-      return frame(<NetProceedsCalculator clientId={clientId} clientName={clientName} readOnly />)
+      return frame(<NetProceedsCalculator clientId={clientId} clientName={clientName} readOnly propertyOwnership={client.propertyOwnership || undefined} />)
 
     case 'salesReadinessRoadmap':
     case 'ws1Roadmap':

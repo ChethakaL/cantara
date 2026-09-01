@@ -884,7 +884,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <MeetingNotesTab clientId={client.id} clientName={client.name} />
             )} */}
             {activeTab === 'net-proceeds' && (
-              <NetProceedsCalculator clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
+              <NetProceedsCalculator clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} propertyOwnership={client.propertyOwnership} />
             )}
             {activeTab === 'teaser' && (
               <TeaserGeneratorTab clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
