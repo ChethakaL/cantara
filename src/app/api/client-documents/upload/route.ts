@@ -6,6 +6,7 @@ import { ensureClientDriveSubfolder, uploadClientDocumentToDrive } from "@/lib/c
 import { assertS3Configured, buildPresignedFileUrl, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 import { syncDocumentStatusForUpload } from "@/lib/client-document-status-sync";
+import { isPdfUpload, validateDocumentUpload } from "@/lib/client-document-upload";
 import { parseOccupancyUpload } from "@/lib/occupancy-upload-parser";
 import { occupancyInputsToFormResponses } from "@/lib/occupancy-form-fields";
 
@@ -154,6 +155,11 @@ export async function POST(req: NextRequest) {
       return new Response("Missing upload fields", { status: 400 });
     }
 
+    const uploadValidationError = validateDocumentUpload(documentId, file);
+    if (uploadValidationError) {
+      return new Response(uploadValidationError, { status: 400 });
+    }
+
     console.info("[client-documents/upload] Start", {
       clientId,
       documentId,
@@ -193,7 +199,7 @@ export async function POST(req: NextRequest) {
     });
 
     const isInsurancePdf =
-      documentId === "insurance_claims_12m" && (file.type || "").includes("pdf");
+      documentId === "insurance_claims_12m" && isPdfUpload(file);
     let occupancyInputs = null;
     if (documentId === "occupancy_review") {
       try {

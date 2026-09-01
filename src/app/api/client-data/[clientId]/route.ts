@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { syncStructuredToFormResponses } from '@/lib/sync-form-responses'
+import { buildDigitalPresenceFormData, syncStructuredToFormResponses } from '@/lib/sync-form-responses'
 
 export async function GET(req: NextRequest, { params }: { params: { clientId: string } }) {
   const { clientId } = params
@@ -9,10 +9,17 @@ export async function GET(req: NextRequest, { params }: { params: { clientId: st
 
   const client = await (prisma as any).clientProfile.findUnique({
     where: { id: clientId },
-    select: { sectionSubmissions: true },
+    select: {
+      businessName: true,
+      websiteUrl: true,
+      sectionSubmissions: true,
+    },
   })
 
   const data = (client?.sectionSubmissions as Record<string, any>) ?? {}
+  if (section === 'digitalPresenceForm') {
+    return NextResponse.json(buildDigitalPresenceFormData(data, client))
+  }
   return NextResponse.json(data[section] ?? null)
 }
 

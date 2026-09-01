@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui'
+import { formatDocumentUploadAcceptAttribute, validateDocumentUpload } from '@/lib/client-document-upload'
 
 export function ClientDocumentUpload({
   clientId,
@@ -22,8 +23,10 @@ export function ClientDocumentUpload({
   variant?: 'dropzone' | 'button'
 }) {
   const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
   const [displayName, setDisplayName] = useState(currentFileName ?? '')
   const inputRef = useRef<HTMLInputElement>(null)
+  const accept = formatDocumentUploadAcceptAttribute(documentId)
 
   useEffect(() => {
     setDisplayName(currentFileName ?? '')
@@ -31,7 +34,13 @@ export function ClientDocumentUpload({
 
   const uploadFile = async (file: File) => {
     if (!file || !uploaderEmail) return
+    const validationError = validateDocumentUpload(documentId, file)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
     setUploading(true)
+    setError('')
     try {
       const form = new FormData()
       form.append('file', file)
@@ -65,6 +74,7 @@ export function ClientDocumentUpload({
           ref={inputRef}
           type="file"
           className="hidden"
+          accept={accept}
           onChange={e => {
             const file = e.target.files?.[0]
             if (file) void uploadFile(file)
@@ -80,11 +90,13 @@ export function ClientDocumentUpload({
           {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           {uploading ? 'Uploading…' : uploadLabel}
         </Button>
+        {error && <p className="w-full text-xs text-rose-600">{error}</p>}
       </>
     )
   }
 
   return (
+    <div className="space-y-2">
     <label
       className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs transition-all ${
         uploading
@@ -97,6 +109,7 @@ export function ClientDocumentUpload({
       <input
         type="file"
         className="hidden"
+        accept={accept}
         disabled={uploading || !uploaderEmail}
         onChange={e => {
           const file = e.target.files?.[0]
@@ -107,5 +120,7 @@ export function ClientDocumentUpload({
       {uploading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Upload className="h-3.5 w-3.5 shrink-0" />}
       <span className="truncate font-medium">{uploading ? 'Uploading…' : uploadLabel}</span>
     </label>
+    {error && <p className="text-xs text-rose-600">{error}</p>}
+    </div>
   )
 }

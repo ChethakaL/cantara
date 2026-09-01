@@ -717,7 +717,23 @@ export default function ImprovementRoadmapTab({
   [report, clientName])
 
   if (loading) {
-    return <div className="h-48 flex items-center justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-emerald-500 rounded-full animate-spin" /></div>
+    return (
+      <div className="space-y-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-800">Sales Readiness Roadmap</h2>
+            <p className="text-xs text-slate-500 mt-1">Seller-facing plan built from whatever agent outputs have already run</p>
+          </div>
+        </div>
+        <Card className="p-16 text-center">
+          <div className="mx-auto flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+            <p className="text-sm font-semibold text-slate-800">Loading Sales Readiness Roadmap...</p>
+            <p className="text-xs text-slate-500">Retrieving latest checklist and report data</p>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -728,12 +744,26 @@ export default function ImprovementRoadmapTab({
           <p className="text-xs text-slate-500 mt-1">Seller-facing plan built from whatever agent outputs have already run</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {!readOnly && (
-            <Button size="sm" variant="outline" onClick={() => void generate('checklist')} disabled={generating !== null || editingChecklist}>
-              <RefreshCw className={cn('w-3.5 h-3.5', generating === 'checklist' && 'animate-spin')} />
-              {hasChecklist ? 'Regenerate Checklist' : 'Generate Checklist'}
+          {hasFullReport && (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => void generate('report')}
+              disabled={generating !== null || approvedCount === 0 || editingChecklist}
+            >
+              <RefreshCw className={cn('w-3.5 h-3.5', generating === 'report' && 'animate-spin')} />
+              {generating === 'report' ? 'Generating...' : 'Re-run Roadmap'}
             </Button>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void generate('checklist')}
+            disabled={generating !== null || editingChecklist}
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', generating === 'checklist' && 'animate-spin')} />
+            {hasChecklist ? 'Regenerate Checklist' : 'Generate Checklist'}
+          </Button>
           {hasFullReport && (
             <ExportReportButton html={html} fileName={`${clientName} - Sales Readiness Roadmap.pdf`} label="Export PDF" />
           )}
@@ -761,21 +791,38 @@ export default function ImprovementRoadmapTab({
         </Card>
       )}
 
+      {generating === 'report' && (
+        <Card className="p-8 border-emerald-200 bg-emerald-50/50">
+          <div className="flex items-start gap-4">
+            <Loader2 className="mt-1 h-5 w-5 text-emerald-600 animate-spin shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-slate-800">Generating Sales Readiness Roadmap</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Compiling the full seller-facing roadmap from your {approvedCount} approved checklist item{approvedCount === 1 ? '' : 's'}. This takes 20-40 seconds.
+              </p>
+              <div className="mt-5 space-y-3">
+                <div className="h-3 w-2/3 animate-pulse rounded bg-emerald-100" />
+                <div className="h-3 w-full animate-pulse rounded bg-emerald-100" />
+                <div className="h-3 w-5/6 animate-pulse rounded bg-emerald-100" />
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {hasChecklist ? (
         <>
-          {!readOnly && (
-            <ChecklistApprovalPanel
-              clientId={clientId}
-              clientName={clientName}
-              items={checklistItems}
-              sourceAgents={report?.sourceAgents ?? []}
-              disabled={generating !== null}
-              onUpdated={(items) => setReport(current => current ? { ...current, checklist: items } : current)}
-              onEditingChange={setEditingChecklist}
-            />
-          )}
+          <ChecklistApprovalPanel
+            clientId={clientId}
+            clientName={clientName}
+            items={checklistItems}
+            sourceAgents={report?.sourceAgents ?? []}
+            disabled={generating !== null}
+            onUpdated={(items) => setReport(current => current ? { ...current, checklist: items } : current)}
+            onEditingChange={setEditingChecklist}
+          />
 
-          {!readOnly && !hasFullReport && (
+          {!hasFullReport && (
             <Card className="flex flex-wrap items-center justify-between gap-3 border-emerald-100 bg-emerald-50/40 p-4">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-800">Step 2 — Generate the full report</p>
@@ -805,7 +852,7 @@ export default function ImprovementRoadmapTab({
             </Card>
           )}
 
-          {!readOnly && hasFullReport && (
+          {hasFullReport && (
             generating === 'report' ? (
               <Card className="flex flex-wrap items-center justify-between gap-3 border-emerald-100 bg-emerald-50/40 p-4">
                 <div className="flex items-center gap-3">
@@ -817,7 +864,7 @@ export default function ImprovementRoadmapTab({
               <div className="flex justify-end">
                 <Button size="sm" variant="outline" onClick={() => void generate('report')} disabled={generating !== null || approvedCount === 0 || editingChecklist}>
                   <RefreshCw className="w-3.5 h-3.5" />
-                  Regenerate Full Report
+                  Re-run Roadmap
                 </Button>
               </div>
             )

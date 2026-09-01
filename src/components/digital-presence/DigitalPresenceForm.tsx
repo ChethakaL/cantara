@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Globe,
   MapPin,
@@ -80,19 +80,33 @@ const EMPTY_FORM: DigitalAssetFormData = {
 };
 
 export default function DigitalPresenceForm({ onSubmit, loading, initialData, clientName, clientWebsite }: Props) {
+  const appliedInitialData = useRef(false)
   const [form, setForm] = useState<DigitalAssetFormData>({
     ...EMPTY_FORM,
+    businessName: initialData?.businessName || clientName || '',
+    websiteUrl: initialData?.websiteUrl || clientWebsite || '',
     ...initialData,
   });
 
-  // Pre-populate from client props if fields are empty
+  // Apply async prefill once client/required-info data arrives after mount.
+  useEffect(() => {
+    if (!initialData || appliedInitialData.current) return
+    appliedInitialData.current = true
+    setForm({
+      ...EMPTY_FORM,
+      ...initialData,
+      businessName: initialData.businessName || clientName || '',
+      websiteUrl: initialData.websiteUrl || clientWebsite || '',
+    })
+  }, [initialData, clientName, clientWebsite])
+
   useEffect(() => {
     setForm(f => ({
       ...f,
       businessName: f.businessName || clientName || '',
       websiteUrl: f.websiteUrl || clientWebsite || '',
-    }));
-  }, [clientName, clientWebsite]);
+    }))
+  }, [clientName, clientWebsite])
 
   const [errors, setErrors] = useState<Partial<Record<keyof DigitalAssetFormData, string>>>({});
 

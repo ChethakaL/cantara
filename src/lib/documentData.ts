@@ -107,11 +107,10 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
       { id: 'contractor_1099_agreements', name: 'Forms 1099-NEC / 1099-MISC + Contractor Agreements', description: 'All Forms 1099-NEC and 1099-MISC issued for the last 3 years, plus underlying independent contractor agreements.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'sales_use_tax_3yr', name: 'State Sales & Use Tax Returns (3 Years)', description: 'State sales and use tax returns filed for the last 3 years, including all schedules and payment records.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'irs_tax_notices_3yr', name: 'IRS / State Tax Notices & Audit Correspondence (3 Years)', description: 'Any IRS or state tax agency notices, audit correspondence, or deficiency letters received in the last 3 years.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
-      { id: 'balance_sheet', name: 'Balance Sheet (current + 2 prior years)', description: 'Current and prior two years balance sheets.', type: 'required', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'accounts_payable', name: 'Accounts Payable Aging', description: 'Current A/P aging report.', type: 'yes_no', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'bank_statements', name: 'Bank Statements (12 months)', description: 'Last 12 months of business bank statements.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'loan_docs', name: 'Loan Documents / Line of Credit', description: 'Any outstanding loans or lines of credit.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
-      { id: 'insurance_claims_12m', name: 'Insurance Claims (last 12 months)', description: 'In the last 12 months have you claimed any insurance claims? If yes, upload the insurance claim document.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
+      { id: 'insurance_claims_12m', name: 'Insurance Claims (last 12 months)', description: 'In the last 12 months have you claimed any insurance claims? If yes, upload the insurance claim document as a PDF.', type: 'yes_no', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
     ],
   },
   {

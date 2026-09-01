@@ -1,10 +1,11 @@
-import { formatEmailBody } from '@/lib/composio/mail'
+import { formatSalesLeadEmailBody } from '@/lib/composio/mail'
 import { getProjectEnv } from '@/lib/project-env'
 import { prisma } from '@/lib/prisma'
 import { getAIClient, resolveModel } from '@/lib/ai-client'
 import { getLoggedInAdvisor, sendAdvisorEmail } from '@/lib/advisor-mail'
 import type { EmailLead, SalesLeadTemplateOptions, TemplateSender } from '@/lib/sales-leads/email-template'
 import {
+  buildSenderFooterFromUser,
   interpolateSalesLeadTemplate,
   salesLeadEmailTemplateKey,
   templateHasSenderFooterPlaceholder,
@@ -89,17 +90,11 @@ export async function buildSalesLeadEmailDraft(lead: EmailLead, templateNum: 1 |
       active: true,
       senderUserId: lead.assignedCallerId,
     },
-    include: { senderUser: { select: { name: true, emailFooterName: true, emailFooterTitle: true, emailFooterPhone: true } } },
+    include: { senderUser: { select: { name: true, emailFooterName: true, emailFooterTitle: true, emailFooterPhone: true, emailFooterHtml: true } } },
     orderBy: [{ version: 'desc' }],
   })
   if (asset) {
-    const senderFooter = [
-      asset.senderUser?.emailFooterName || asset.senderUser?.name,
-      asset.senderUser?.emailFooterTitle,
-      asset.senderUser?.emailFooterPhone,
-    ]
-      .filter(Boolean)
-      .join('\n')
+    const senderFooter = buildSenderFooterFromUser(asset.senderUser)
     const options: SalesLeadTemplateOptions = {
       calendarUrl: asset.calendarUrl,
       senderPhone: asset.senderPhone,
@@ -187,7 +182,7 @@ export async function sendSalesLeadEmail(
       cc,
       displayName: [lead.ownerFirstName, lead.ownerLastName].filter(Boolean).join(' ') || lead.businessName,
       subject: draft.subject,
-      body: formatEmailBody(draft.body),
+      body: formatSalesLeadEmailBody(draft.body),
     })
 
     return { success: true, data }

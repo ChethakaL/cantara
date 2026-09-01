@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Plus, Save, X, Mail, Tag, Eye, Code2, Trash2 } from 'lucide-react'
 import { Button, Card, Input, Select, Textarea } from '@/components/ui'
+import { EmailFooterPreview } from '@/components/sales-leads/EmailFooterPreview'
 
 type Asset = {
   id?: string
@@ -26,7 +27,7 @@ function assetLabel(asset: Pick<Asset, 'touch' | 'assetType'>) {
   return asset.touch === 1 ? 'Email 1' : asset.touch === 2 ? 'Email 2' : `Email ${asset.touch}`
 }
 
-type User = { id: string; name: string; email: string; emailFooterName?: string | null; emailFooterTitle?: string | null; emailFooterPhone?: string | null }
+type User = { id: string; name: string; email: string; emailFooterName?: string | null; emailFooterTitle?: string | null; emailFooterPhone?: string | null; emailFooterHtml?: string | null }
 
 function readAdminEmailFromCookie(): string {
   if (typeof document === 'undefined') return ''
@@ -78,7 +79,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [sequenceFilter, setSequenceFilter] = useState('ALL')
   const [footerOpen, setFooterOpen] = useState(false)
-  const [footer, setFooter] = useState({ name: '', title: '', phone: '' })
+  const [footer, setFooter] = useState({ name: '', title: '', phone: '', html: '' })
   const [footerSaving, setFooterSaving] = useState(false)
 
   const load = async () => {
@@ -95,7 +96,14 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
       setUsers(userList)
       setCurrentUserId(me)
       const current = userList.find(user => user.id === me)
-      if (current) setFooter({ name: current.emailFooterName || current.name || '', title: current.emailFooterTitle || '', phone: current.emailFooterPhone || '' })
+      if (current) {
+        setFooter({
+          name: current.emailFooterName || current.name || '',
+          title: current.emailFooterTitle || '',
+          phone: current.emailFooterPhone || '',
+          html: current.emailFooterHtml || '',
+        })
+      }
       const visible = filterAssets(list, assetTypeFilter, sequenceFilter)
       setEditing(prev => {
         if (prev?.id) {
@@ -186,6 +194,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
 
   const selectedSender = users.find(u => u.id === (editing?.senderUserId || currentUserId)) || users[0]
   const visibleAssets = filterAssets(assets, assetTypeFilter, sequenceFilter)
+  const footerUsesHtml = Boolean(footer.html.trim())
 
   const saveFooter = async () => {
     setFooterSaving(true)
@@ -224,6 +233,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
           </div>
         </div>
 
+        <div className="flex-1 min-h-0 overflow-y-auto">
         {error && (
           <div className="mx-6 mt-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs font-medium text-rose-700 flex items-center justify-between">
             <span>{error}</span>
@@ -235,13 +245,91 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
 
         {footerOpen && (
           <div className="mx-6 mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <div className="flex items-center justify-between mb-3"><div><p className="text-sm font-bold text-slate-800">Sender Footer</p><p className="text-xs text-slate-500">Enter once; it is applied to generated emails.</p></div><button onClick={() => setFooterOpen(false)}><X className="w-4 h-4 text-slate-400" /></button></div>
-            <div className="grid sm:grid-cols-3 gap-3">
-              <Input label="Name" value={footer.name} onChange={e => setFooter({ ...footer, name: e.target.value })} placeholder="Your full name" />
-              <Input label="Title" value={footer.title} onChange={e => setFooter({ ...footer, title: e.target.value })} placeholder="Founder" />
-              <Input label="Phone" value={footer.phone} onChange={e => setFooter({ ...footer, phone: e.target.value })} placeholder="(206) 202-5014" />
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-bold text-slate-800">Sender Footer</p>
+                <p className="text-xs text-slate-500">Enter once; applied to generated emails via [Footer] or {'{{senderFooter}}'}.</p>
+              </div>
+              <button onClick={() => setFooterOpen(false)}><X className="w-4 h-4 text-slate-400" /></button>
             </div>
-            <div className="flex justify-end mt-3"><Button onClick={() => void saveFooter()} disabled={footerSaving}>{footerSaving ? 'Saving...' : 'Save Footer'}</Button></div>
+
+            <div className="grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-start">
+              <div className="space-y-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Simple text footer</p>
+                <div className="grid sm:grid-cols-1 gap-3">
+                  <Input
+                    label="Name"
+                    value={footer.name}
+                    onChange={e => setFooter({ ...footer, name: e.target.value })}
+                    placeholder="Your full name"
+                    disabled={footerUsesHtml}
+                  />
+                  <Input
+                    label="Title"
+                    value={footer.title}
+                    onChange={e => setFooter({ ...footer, title: e.target.value })}
+                    placeholder="Founder"
+                    disabled={footerUsesHtml}
+                  />
+                  <Input
+                    label="Phone"
+                    value={footer.phone}
+                    onChange={e => setFooter({ ...footer, phone: e.target.value })}
+                    placeholder="(206) 202-5014"
+                    disabled={footerUsesHtml}
+                  />
+                </div>
+                {footerUsesHtml && (
+                  <p className="text-[11px] text-slate-500">Text fields are ignored while an HTML footer is saved.</p>
+                )}
+              </div>
+
+              <div className="hidden lg:flex flex-col items-center justify-center px-2 pt-10">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">or</span>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">HTML email signature</p>
+                  {footerUsesHtml && (
+                    <button
+                      type="button"
+                      onClick={() => setFooter(prev => ({ ...prev, html: '' }))}
+                      className="text-[11px] font-medium text-rose-600 hover:text-rose-700"
+                    >
+                      Clear HTML
+                    </button>
+                  )}
+                </div>
+                <Textarea
+                  value={footer.html}
+                  onChange={e => setFooter({ ...footer, html: e.target.value })}
+                  placeholder="Paste your full HTML email signature here (table-based signatures supported)."
+                  className="min-h-[220px] bg-white border-slate-200 text-[11px] font-mono leading-relaxed"
+                />
+                <p className="text-[11px] text-slate-500">
+                  When HTML is provided, it replaces the simple text footer above and renders in outgoing emails.
+                </p>
+              </div>
+            </div>
+
+            {footerUsesHtml && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Preview</p>
+                <p className="text-[11px] text-slate-500 mb-3">
+                  Shown in light mode so text stays visible. Recipients&apos; email apps may still adapt colors for dark mode.
+                </p>
+                <div className="overflow-x-auto rounded-lg border border-slate-100 bg-white p-2">
+                  <EmailFooterPreview html={footer.html} />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end mt-4">
+              <Button onClick={() => void saveFooter()} disabled={footerSaving}>
+                {footerSaving ? 'Saving...' : 'Save Footer'}
+              </Button>
+            </div>
           </div>
         )}
 
@@ -251,7 +339,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
             <span className="text-xs text-slate-400 font-medium">Loading templates...</span>
           </div>
         ) : (
-          <div className="grid md:grid-cols-[340px_1fr] flex-1 min-h-0 overflow-hidden">
+          <div className="grid md:grid-cols-[340px_1fr] min-h-[520px]">
             
             {/* Sidebar Assets List */}
             <div className="bg-white border-r border-slate-200/80 p-4 flex flex-col gap-3 overflow-y-auto">
@@ -631,6 +719,7 @@ export default function OutreachAssetsModal({ isOpen, onClose }: { isOpen: boole
 
           </div>
         )}
+        </div>
       </Card>
     </div>
   )

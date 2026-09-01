@@ -9,6 +9,7 @@ import { fetchClientDocumentsBatch, mergeUploadedFiles, type FilesByDocumentId }
 import type { ClientUploadedFile } from '@/lib/client-document-upload'
 import { VALUATION_DOCS, getDocsForAgentSelections, getDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
 import {
+  CLIENT_PORTAL_HIDDEN_DOC_IDS,
   MULTI_YEAR_UPLOAD_SLOTS,
   getMultiYearCombinedId,
   getMultiYearUploadProgress,
@@ -186,20 +187,33 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     return files.length === 1 ? files[0].fileName : `${files.length} files uploaded`
   }
 
-  const getResolvedStatus = (docId: string): DocumentStatus => {
-    const status = getStatus(docId)
-    const uploaded = uploadedDocuments[docId]
-    let catalogFileName = fileNameFromCatalog(docId)
-    if (docId.endsWith('__combined')) {
-      const parentId = docId.slice(0, -'__combined'.length)
+  const getResolvedStatus = (docId?: string | null): DocumentStatus => {
+    const validId = String(docId ?? '')
+    if (!validId) {
+      return {
+        id: '',
+        hasDoc: null,
+        unavailableDecision: null,
+        assignedTo: null,
+        uploadedAt: null,
+        fileName: null,
+        fileUrl: null,
+        notApplicable: false,
+      }
+    }
+    const status = getStatus(validId)
+    const uploaded = uploadedDocuments[validId]
+    let catalogFileName = fileNameFromCatalog(validId)
+    if (validId.endsWith('__combined')) {
+      const parentId = validId.slice(0, -'__combined'.length)
       if (isMultiYearParentDocId(parentId)) {
-        catalogFileName = fileNameFromCatalog(docId, [docId, parentId]) ?? catalogFileName
+        catalogFileName = fileNameFromCatalog(validId, [validId, parentId]) ?? catalogFileName
       }
     }
     const fileName = status?.fileName ?? uploaded?.fileName ?? catalogFileName ?? null
     const hasRealFile = Boolean(fileName && String(fileName).trim())
     return {
-      id: docId,
+      id: validId,
       // Keep checklist hasDoc as stored. Infer hasDoc from a real file only when
       // the checklist row is unset — never treat bare hasDoc as an uploaded file.
       hasDoc: status?.hasDoc ?? (hasRealFile ? true : null),
@@ -365,14 +379,18 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
 
   const countFiles = (docId: string, aliasIds?: string[]) => getFilesForSlot(docId, aliasIds).length
 
-  const renderAdminStatusBadge = (docId: string) => {
+  const renderAdminStatusBadge = (doc: { id: string; type?: string } | string) => {
+    const docId = typeof doc === 'string' ? doc : doc?.id
+    const docType = typeof doc === 'object' ? doc?.type : undefined
+    if (!docId) return null
     const s = getResolvedStatus(docId)
     const hasFiles = countFiles(docId) > 0
-    if (s.notApplicable) return <Badge color="slate">N/A</Badge>
-    if (s.hasDoc === false) return <Badge color="amber">Client does not have</Badge>
+    if (s.notApplicable || s.hasDoc === false) return <Badge color="amber">Client does not have</Badge>
     if (hasFiles) return null
-    if (s.hasDoc === true && !s.fileName) return <Badge color="gold">Awaiting upload</Badge>
-    if (s.assignedTo) return <Badge color="gold">{s.assignedTo}</Badge>
+    if (CLIENT_PORTAL_HIDDEN_DOC_IDS.has(docId)) return <Badge color="gray">Not started</Badge>
+    if (docType === 'required' || s.hasDoc === true || Boolean(s.assignedTo)) {
+      return <Badge color="gold">Awaiting upload</Badge>
+    }
     return <Badge color="gray">Not started</Badge>
   }
 
@@ -462,10 +480,9 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     doc: { id: string; name: string; description?: string; flagged?: boolean; flagNote?: string; type?: string },
     sectionId: string,
   ) => {
-    const resolvedStatus = getResolvedStatus(doc.id)
     const shouldForceOpen =
       doc.type === 'required' &&
-      resolvedStatus.hasDoc === false &&
+      getResolvedStatus(doc.id).hasDoc === false &&
       (!isAgentExcludedForDocument(doc.id) || Boolean(reopenedUnavailableDocs[doc.id]))
     const progress = getMultiYearUploadProgress(doc.id, id => getResolvedStatus(id))
     const combinedId = getMultiYearCombinedId(doc.id)
@@ -475,20 +492,25 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
       countFiles(combinedId, [combinedId, doc.id]) +
       labels.reduce((sum, _, index) => sum + countFiles(`${doc.id}__year_${index + 1}`), 0)
 
+    const multiYearStatusBadge = totalFiles > 0
+      ? (
+        <Badge color={progress.completed === progress.total ? 'green' : progress.completed > 0 ? 'gold' : 'slate'}>
+          {progress.completed === progress.total ? 'All years' : `${progress.completed}/${progress.total} years`}
+        </Badge>
+      )
+      : renderAdminStatusBadge(doc)
+
     return (
       <DocumentUploadAccordion
         key={`${doc.id}-multi-${refreshKey}`}
         tone="admin"
         title={doc.name}
         description={doc.description}
+        assignedTo={getResolvedStatus(doc.id).assignedTo}
         defaultOpen={shouldForceOpen}
         fileCount={totalFiles}
         isComplete={progress.completed === progress.total && progress.total > 0}
-        statusBadge={
-          <Badge color={progress.completed === progress.total ? 'green' : progress.completed > 0 ? 'gold' : 'slate'}>
-            {progress.completed === progress.total ? 'All years' : `${progress.completed}/${progress.total} years`}
-          </Badge>
-        }
+        statusBadge={multiYearStatusBadge}
         headerActions={renderAdminToolbar(doc, { layout: 'header' })}
       >
         {doc.flagged && doc.flagNote && (
@@ -602,10 +624,11 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         tone="admin"
         title={doc.name}
         description={doc.description}
+        assignedTo={resolvedStatus.assignedTo}
         defaultOpen={shouldForceOpen}
         fileCount={files.length}
         isComplete={isComplete}
-        statusBadge={renderAdminStatusBadge(doc.id)}
+        statusBadge={renderAdminStatusBadge(doc)}
         headerActions={renderAdminToolbar(doc, { layout: 'header' })}
       >
         {doc.flagged && doc.flagNote && (
