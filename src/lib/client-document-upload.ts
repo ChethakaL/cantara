@@ -190,37 +190,25 @@ const ACCEPT_BY_RULE: Record<UploadRuleKind, Record<string, string[]>> = {
 }
 
 const ALLOWED_LABEL_BY_RULE: Record<UploadRuleKind, string> = {
-  pdf: 'PDF',
-  excel: 'Excel (.xlsx or .xls)',
-  pdf_or_excel: 'PDF or Excel',
-  pdf_or_docx: 'PDF or Word (.docx)',
-  transcript: 'PDF, Word, or plain text (.txt)',
-  spreadsheet: 'CSV or Excel (.csv, .xlsx, .xls)',
-  pdf_or_image: 'PDF or image (PNG, JPG)',
-  spreadsheet_or_pdf: 'PDF, CSV, or Excel',
+  pdf: 'PDF only',
+  excel: 'Excel only (.xlsx or .xls)',
+  pdf_or_excel: 'PDF or Excel only',
+  pdf_or_docx: 'PDF or Word only',
+  transcript: 'PDF, Word, or .txt only',
+  spreadsheet: 'CSV or Excel only',
+  pdf_or_image: 'PDF or image only (PNG, JPG)',
+  spreadsheet_or_pdf: 'PDF, CSV, or Excel only',
 }
 
 const HINT_BY_RULE: Record<UploadRuleKind, string> = {
-  pdf: 'PDF files only.',
-  excel: 'Excel files only (.xlsx or .xls).',
-  pdf_or_excel: 'Upload a PDF or Excel file.',
-  pdf_or_docx: 'Upload a PDF or Word document.',
-  transcript: 'Upload a PDF, Word, or plain-text transcript.',
-  spreadsheet: 'Upload a CSV or Excel spreadsheet with your occupancy data.',
-  pdf_or_image: 'Upload a PDF or a clear photo/scan (PNG or JPG).',
-  spreadsheet_or_pdf: 'Upload a PDF or spreadsheet (CSV/Excel).',
-}
-
-const DOCUMENT_HINT_OVERRIDES: Partial<Record<string, string>> = {
-  insurance_claims_12m:
-    'PDF files only. The Insurance Review Agent cannot process images or other file types.',
-  monthly_pl_excel: 'Excel only (.xlsx or .xls). Required for the Valuation Agent.',
-  monthly_bs_excel: 'Excel only (.xlsx or .xls). Required for the Valuation Agent.',
-  leases: 'PDF only. Lease Analysis requires PDF lease documents.',
-  material_contracts: 'Upload contract PDFs, or an Excel spreadsheet if there is no formal agreement.',
-  occupancy_review:
-    'CSV or Excel only. Download the sample CSV and replace it with 24 months of your data.',
-  sales_process_transcript: 'PDF, Word, or plain text (.txt). Used by the Sales Process Review agent.',
+  pdf: 'PDF only.',
+  excel: 'Excel only (.xlsx or .xls).',
+  pdf_or_excel: 'PDF or Excel only.',
+  pdf_or_docx: 'PDF or Word only.',
+  transcript: 'PDF, Word, or .txt only.',
+  spreadsheet: 'CSV or Excel only.',
+  pdf_or_image: 'PDF or image only (PNG, JPG).',
+  spreadsheet_or_pdf: 'PDF, CSV, or Excel only.',
 }
 
 function fileMatchesRule(file: Pick<File, 'name' | 'type'>, rule: UploadRuleKind): boolean {
@@ -277,8 +265,6 @@ export function validateDocumentUpload(documentId: string, file: Pick<File, 'nam
 }
 
 export function documentUploadFormatHint(documentId: string): string | null {
-  const normalized = normalizeDocumentSlotId(documentId)
-  if (DOCUMENT_HINT_OVERRIDES[normalized]) return DOCUMENT_HINT_OVERRIDES[normalized]!
   const rule = getUploadRule(documentId)
   if (!rule) return null
   return HINT_BY_RULE[rule]
