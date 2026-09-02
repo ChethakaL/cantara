@@ -350,7 +350,9 @@ export default function ClientDashboard() {
   const showPasswordTour = tourStep !== null && !tourPaused
 
   useEffect(() => {
-    if (tourStep === null || !client) return
+    // Only drive tabs while the password onboarding tour is actually active.
+    // Stale localStorage tour steps must not reset the tab on every client poll.
+    if (!mustChangePassword || tourStep === null) return
 
     if (tourStep >= 1 && tourStep <= 5) {
       setPhase('overview')
@@ -374,7 +376,7 @@ export default function ClientDashboard() {
       }, 100)
       return () => clearTimeout(timer)
     }
-  }, [tourStep, client])
+  }, [tourStep, mustChangePassword])
 
   useEffect(() => {
     if (tourStep === null || !mustChangePassword || !client) return
@@ -423,14 +425,23 @@ export default function ClientDashboard() {
       const savedTourPaused = typeof window !== 'undefined' && localStorage.getItem('cantara_client_tour_paused') === 'true'
       setSessionEmail(email || '')
       setMustChangePassword(requiresPasswordChange)
-      setTourStep(
-        savedTourPaused
-          ? null
-          : Number.isInteger(savedTourStep) && savedTourStep >= 2
-            ? savedTourStep
-            : (requiresPasswordChange ? 1 : null),
-      )
-      setTourPaused(savedTourPaused)
+      // Tour is only for first-login password onboarding. Clear leftover browser
+      // tour state after password is already changed so tabs no longer get reset.
+      if (!requiresPasswordChange && typeof window !== 'undefined') {
+        localStorage.removeItem('cantara_client_tour_step')
+        localStorage.removeItem('cantara_client_tour_paused')
+        setTourStep(null)
+        setTourPaused(false)
+      } else {
+        setTourStep(
+          savedTourPaused
+            ? null
+            : Number.isInteger(savedTourStep) && savedTourStep >= 2
+              ? savedTourStep
+              : (requiresPasswordChange ? 1 : null),
+        )
+        setTourPaused(savedTourPaused)
+      }
       let found = clientId ? await getClient(clientId) : null
       if (!found) {
         const all = await getClients()
@@ -444,6 +455,15 @@ export default function ClientDashboard() {
         setClient(found)
         setDocStatuses(found.documentStatuses ?? {})
         setRequirements(await getRequirements(found.id))
+        // Prefer server flag over stale browser state.
+        if (!found.mustChangePassword) {
+          setMustChangePassword(false)
+          setTourStep(null)
+          setTourPaused(false)
+          localStorage.setItem('cantara_client_must_change_password', JSON.stringify(false))
+          localStorage.removeItem('cantara_client_tour_step')
+          localStorage.removeItem('cantara_client_tour_paused')
+        }
       }
     }
     load()
