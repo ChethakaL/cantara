@@ -1,5 +1,5 @@
--- CreateTable
-CREATE TABLE "AgentAnalysisRun" (
+-- Idempotent: AgentAnalysisRun table for agent run history and comparison.
+CREATE TABLE IF NOT EXISTS "AgentAnalysisRun" (
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "agentKey" TEXT NOT NULL,
@@ -12,13 +12,18 @@ CREATE TABLE "AgentAnalysisRun" (
     "aiModel" TEXT,
     "version" INTEGER NOT NULL DEFAULT 1,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "AgentAnalysisRun_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "AgentAnalysisRun_clientId_agentKey_createdAt_idx" ON "AgentAnalysisRun"("clientId", "agentKey", "createdAt");
+CREATE INDEX IF NOT EXISTS "AgentAnalysisRun_clientId_agentKey_createdAt_idx"
+  ON "AgentAnalysisRun"("clientId", "agentKey", "createdAt");
 
--- AddForeignKey
-ALTER TABLE "AgentAnalysisRun" ADD CONSTRAINT "AgentAnalysisRun_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "ClientProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "AgentAnalysisRun"
+    ADD CONSTRAINT "AgentAnalysisRun_clientId_fkey"
+    FOREIGN KEY ("clientId") REFERENCES "ClientProfile"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

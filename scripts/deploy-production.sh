@@ -112,6 +112,8 @@ apply_sql "Occupancy bathing stations field" "${REPO}/prisma/migrations/20260828
 apply_sql "SalesLead businessPosition and officePhone" "${REPO}/prisma/migrations/20260821_add_sales_lead_position_office_phone/migration.sql"
 apply_sql "User email footer + OutreachAsset [Footer]" "${REPO}/prisma/migrations/20260821_add_user_email_footer/migration.sql"
 apply_sql "User email footer HTML" "${REPO}/prisma/migrations/20260901_add_user_email_footer_html/migration.sql"
+apply_sql "Agent AI provider columns" "${REPO}/prisma/migrations/20260902_add_agent_ai_provider/migration.sql"
+apply_sql "AgentAnalysisRun history table" "${REPO}/prisma/migrations/20260902_add_agent_analysis_run/migration.sql"
 
 sleep 12
 curl -sf -o /dev/null -w "local:%{http_code}\n" "http://127.0.0.1:${PORT}/" || echo "local:fail"
