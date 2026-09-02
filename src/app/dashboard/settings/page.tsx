@@ -91,8 +91,15 @@ export default function ClientSettingsPage() {
 
   const finishSettingsTour = () => {
     setShowPasswordTour(false)
-    localStorage.setItem('cantara_client_tour_step', '2')
-    localStorage.setItem('cantara_client_tour_paused', 'false')
+    // Only continue the dashboard tour while password onboarding is still required.
+    const stillRequiresPassword = Boolean(JSON.parse(localStorage.getItem('cantara_client_must_change_password') || 'false'))
+    if (stillRequiresPassword) {
+      localStorage.setItem('cantara_client_tour_step', '2')
+      localStorage.setItem('cantara_client_tour_paused', 'false')
+    } else {
+      localStorage.removeItem('cantara_client_tour_step')
+      localStorage.removeItem('cantara_client_tour_paused')
+    }
     router.push('/dashboard')
   }
 
