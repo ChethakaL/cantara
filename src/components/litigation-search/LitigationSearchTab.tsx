@@ -365,7 +365,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       aiProvider: provider,
       aiModel: resolveAgentModelId(provider),
     })
-    await reloadRuns()
+    await reloadRuns({ selectNewest: true })
   }
 
   useEffect(() => {

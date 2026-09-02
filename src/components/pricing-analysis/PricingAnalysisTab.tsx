@@ -332,7 +332,7 @@ export default function PricingAnalysisTab({
         aiProvider: provider,
         aiModel: resolveAgentModelId(provider),
       })
-      await reloadRuns()
+      await reloadRuns({ selectNewest: true })
     } catch (err: any) {
       setError(err.message || 'Analysis failed')
     } finally {

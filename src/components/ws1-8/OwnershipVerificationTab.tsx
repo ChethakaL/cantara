@@ -501,7 +501,7 @@ export default function OwnershipVerificationTab({
 
   useEffect(() => {
     if (status === 'complete' && rawMarkdown) {
-      void reload().then(() => {
+      void reload({ selectNewest: true }).then(() => {
         showToast('Analysis completed successfully')
       })
       clearAll()

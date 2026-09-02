@@ -182,7 +182,7 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
         aiModel: resolveAgentModelId(provider),
       })
       setStartingNew(false)
-      await reloadRuns()
+      await reloadRuns({ selectNewest: true })
     } catch (err: any) {
       setError(err.message || 'Failed to run analysis')
     } finally {

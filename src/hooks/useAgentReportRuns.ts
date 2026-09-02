@@ -13,6 +13,11 @@ export type StoredAgentReport = AgentRunHistoryItem & {
 
 export const GENERIC_AGENT_RUNS_API = '/api/agent-analysis-runs'
 
+export type AgentReportRunsReloadOptions = {
+  /** After a fresh analysis, select the newest run instead of keeping the current selection. */
+  selectNewest?: boolean
+}
+
 function normalizeReportList(data: unknown): StoredAgentReport[] {
   if (Array.isArray(data)) return data as StoredAgentReport[]
   if (data && typeof data === 'object') {
@@ -55,7 +60,7 @@ export function useAgentReportRuns(
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (options?: AgentReportRunsReloadOptions) => {
     const params = new URLSearchParams({ clientId })
     if (agentKey) params.set('agentKey', agentKey)
     const res = await fetch(`${apiPath}?${params.toString()}`, { cache: 'no-store' })
@@ -63,7 +68,11 @@ export function useAgentReportRuns(
     const data = await res.json()
     const list = normalizeReportList(data)
     setRuns(list)
-    setActiveId((current) => (current && list.some((run) => run.id === current) ? current : list[0]?.id ?? null))
+    if (options?.selectNewest) {
+      setActiveId(list[0]?.id ?? null)
+    } else {
+      setActiveId((current) => (current && list.some((run) => run.id === current) ? current : list[0]?.id ?? null))
+    }
     return list
   }, [apiPath, clientId, agentKey])
 

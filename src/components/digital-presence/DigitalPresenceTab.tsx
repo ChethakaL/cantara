@@ -247,7 +247,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
                 aiProvider: provider,
                 aiModel: modelId,
               });
-              await reloadRuns();
+              await reloadRuns({ selectNewest: true });
             } catch (saveError: any) {
               setError(saveError?.message ?? 'Report saved but run history failed to record. Restart the dev server and re-run, or click Re-run Analysis.');
             }
