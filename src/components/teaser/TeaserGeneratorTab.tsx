@@ -210,7 +210,7 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
         aiProvider: provider,
         aiModel: resolveAgentModelId(provider),
       })
-      await reloadRuns()
+      await reloadRuns({ selectNewest: true })
     } catch (err: any) {
       console.error('[Teaser] Generation error:', err)
       setError(err.message || 'Failed to generate teaser')

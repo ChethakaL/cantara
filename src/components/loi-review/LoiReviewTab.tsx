@@ -165,7 +165,7 @@ export default function LoiReviewTab({
         aiProvider: provider,
         aiModel: resolveAgentModelId(provider),
       })
-      await reloadRuns()
+      await reloadRuns({ selectNewest: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate LOI review.')
     } finally {

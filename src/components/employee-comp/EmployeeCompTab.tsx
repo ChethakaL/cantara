@@ -321,7 +321,7 @@ export default function EmployeeCompTab({
           aiProvider: provider,
           aiModel: resolveAgentModelId(provider),
         })
-        await reloadRuns()
+        await reloadRuns({ selectNewest: true })
         setSaved(true)
       } catch (saveErr: any) {
         setError(saveErr.message || 'Analysis completed but failed to save')

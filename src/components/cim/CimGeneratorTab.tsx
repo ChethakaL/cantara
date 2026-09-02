@@ -246,7 +246,7 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
         aiProvider: provider,
         aiModel: resolveAgentModelId(provider),
       })
-      await reloadRuns()
+      await reloadRuns({ selectNewest: true })
     } catch (err: any) {
       console.error('[CIM] Generation error:', err)
       setError(err.message || 'Failed to generate CIM')

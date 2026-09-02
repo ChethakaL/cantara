@@ -246,7 +246,7 @@ export default function OwnerGmAssessmentTab({
         aiModel: resolveAgentModelId(provider),
       })
       setStartingNew(false)
-      await reloadRuns()
+      await reloadRuns({ selectNewest: true })
     } catch (err: any) {
       if (mountedRef.current) setError(err?.message ?? 'Analysis failed')
     } finally {

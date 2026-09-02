@@ -189,7 +189,7 @@ export default function PricingByVerticalTab({
       aiProvider: provider,
       aiModel: resolveAgentModelId(provider),
     })
-    await reloadRuns()
+    await reloadRuns({ selectNewest: true })
   }
 
   const onDrop = useCallback((accepted: File[]) => {

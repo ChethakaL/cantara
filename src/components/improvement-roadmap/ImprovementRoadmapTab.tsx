@@ -689,7 +689,7 @@ export default function ImprovementRoadmapTab({
       aiProvider: provider,
       aiModel: resolveAgentModelId(provider),
     })
-    await reloadRuns()
+    await reloadRuns({ selectNewest: true })
   }
 
   const generate = async (nextStage: 'checklist' | 'report') => {

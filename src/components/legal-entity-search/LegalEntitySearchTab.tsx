@@ -270,7 +270,7 @@ export default function LegalEntitySearchTab({
 
   useEffect(() => {
     if (status === 'complete' && rawMarkdown) {
-      void reload().then(() => {
+      void reload({ selectNewest: true }).then(() => {
         setToast({ message: 'Legal entity search analysis completed', type: 'success' })
       })
       clearAll()

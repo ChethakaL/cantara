@@ -521,7 +521,7 @@ export default function TaxLiabilityReviewTab({
 
   useEffect(() => {
     if (status === 'complete' && rawMarkdown) {
-      void reload().then(() => {
+      void reload({ selectNewest: true }).then(() => {
         setToast({ message: 'Tax liability review completed', type: 'success' })
       })
       clearAll()

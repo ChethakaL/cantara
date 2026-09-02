@@ -372,7 +372,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
       aiProvider: provider,
       aiModel: resolveAgentModelId(provider),
     })
-    await reloadRuns()
+    await reloadRuns({ selectNewest: true })
   }
 
   const updateRunMode = async (nextMode: 'standard' | 'advisor') => {

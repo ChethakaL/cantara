@@ -186,8 +186,7 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client', re
         aiProvider: provider,
         aiModel: resolveAgentModelId(provider, 'opus'),
       })
-      await reloadRuns()
-      await load({ silent: true })
+      await reloadRuns({ selectNewest: true })
     } catch (err: any) {
       console.error('[InsuranceReviewTab] Agent run failed', err)
       setError(err?.message ?? 'Insurance Review Agent failed')

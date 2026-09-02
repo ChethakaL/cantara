@@ -162,7 +162,7 @@ export default function PermitsZoningTab({
 
   useEffect(() => {
     if (status === 'complete' && rawMarkdown) {
-      void reload().then(() => {
+      void reload({ selectNewest: true }).then(() => {
         showToast('Analysis completed successfully')
       })
       clearAll()

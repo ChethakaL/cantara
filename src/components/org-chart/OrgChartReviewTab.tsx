@@ -173,7 +173,7 @@ export default function OrgChartReviewTab({
           aiProvider: provider,
           aiModel: resolveAgentModelId(provider),
         })
-        await reloadRuns()
+        await reloadRuns({ selectNewest: true })
         setSavedBadge(true)
         setTimeout(() => setSavedBadge(false), 2000)
       } catch (saveErr: any) {
