@@ -13,6 +13,13 @@ import { ExportReportButton } from '@/components/report-export/ExportReportButto
 import { buildEmployeeCompReportHtml } from '@/lib/report-export/build-employee-comp-report'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -199,9 +206,29 @@ export default function EmployeeCompTab({
   const [employees, setEmployees] = useState<EmployeeCompRow[]>([])
   const [hasData, setHasData] = useState(false)
   const [hydrated, setHydrated] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.employeeComp)
 
   // Load saved data on mount
   useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      const payload = activeRun.report as EmployeeCompReport
+      if (payload?.employees?.length) {
+        setEmployees(payload.employees)
+        setHasData(true)
+      }
+      setHydrated(true)
+      return
+    }
     const loadSaved = async () => {
       try {
         const res = await fetch(`/api/client-data/${clientId}?section=employeeCompReport`)
@@ -215,7 +242,17 @@ export default function EmployeeCompTab({
       } catch { /* ignore */ } finally { setHydrated(true) }
     }
     loadSaved()
-  }, [clientId])
+  }, [clientId, activeRun, loadingRuns])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    const payload = (full?.report ?? null) as EmployeeCompReport | null
+    if (payload?.employees?.length) {
+      setEmployees(payload.employees)
+      setHasData(true)
+    }
+  }
 
   const summary = recalcSummary(employees)
 
@@ -246,13 +283,19 @@ export default function EmployeeCompTab({
         if (!file) throw new Error('Please upload a file first')
         const formData = new FormData()
         formData.append('file', file)
+        formData.append('provider', provider)
+        formData.append('modelId', resolveAgentModelId(provider))
         res = await fetch('/api/employee-comp/analyze', { method: 'POST', body: formData })
       } else {
         if (!freeText.trim()) throw new Error('Please paste some payroll data first')
         res = await fetch('/api/employee-comp/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ freeText }),
+          body: JSON.stringify({
+            freeText,
+            provider,
+            modelId: resolveAgentModelId(provider),
+          }),
         })
       }
 
@@ -270,6 +313,15 @@ export default function EmployeeCompTab({
           body: JSON.stringify({ section: 'employeeCompReport', data }),
         })
         if (!saveRes.ok) throw new Error('Save failed')
+        await saveAgentAnalysisRunClient({
+          clientId,
+          agentKey: AGENT_RUN_KEYS.employeeComp,
+          fileName: `${clientName} — Employee Compensation`,
+          report: data,
+          aiProvider: provider,
+          aiModel: resolveAgentModelId(provider),
+        })
+        await reloadRuns()
         setSaved(true)
       } catch (saveErr: any) {
         setError(saveErr.message || 'Analysis completed but failed to save')
@@ -393,6 +445,19 @@ export default function EmployeeCompTab({
 
   return (
     <div className="space-y-6">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={analyzing}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       {/* Header */}
       <div>
         <h2 className="text-lg font-semibold text-slate-800">Employee Compensation Report</h2>
@@ -501,7 +566,8 @@ export default function EmployeeCompTab({
 
           {/* Analyze button (upload & paste modes only) */}
           {mode !== 'manual' && (
-            <button
+            <div className="space-y-3">
+              <button
               onClick={handleAnalyze}
               disabled={(mode === 'upload' && !file) || (mode === 'paste' && !freeText.trim()) || analyzing}
               className={cn(
@@ -523,6 +589,7 @@ export default function EmployeeCompTab({
                 </>
               )}
             </button>
+            </div>
           )}
         </>
       )}

@@ -9,6 +9,11 @@ import { Button, Card } from '@/components/ui'
 import { Loader2, Play } from 'lucide-react'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { generateReportHtml } from '@/lib/report-export/generate-report-html'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
+import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
+import { useAgentReportRuns } from '@/hooks/useAgentReportRuns'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
 
 function escapeExportHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -75,19 +80,23 @@ function reportHtml(markdown: string, clientName: string) {
   })
 }
 
-export default function RealEstateAppraisalTab({ clientId, clientName }: { clientId: string; clientName: string; readOnly?: boolean }) {
-  const [report, setReport] = useState<any>(null)
+export default function RealEstateAppraisalTab({ clientId, clientName, readOnly = false }: { clientId: string; clientName: string; readOnly?: boolean }) {
   const [document, setDocument] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState('')
   const [newAnalysis, setNewAnalysis] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const { runs, historyItems, activeRun, activeId, setActiveId, reload } = useAgentReportRuns(
+    '/api/real-estate-appraisal/reports',
+    clientId,
+  )
+  const report = activeRun
 
   const load = () => Promise.all([
-    fetch('/api/real-estate-appraisal/reports?clientId=' + encodeURIComponent(clientId), { cache: 'no-store' }).then(res => res.ok ? res.json() : null),
+    reload(),
     fetch('/api/client-documents?clientId=' + encodeURIComponent(clientId) + '&documentId=real_estate_appraisal', { cache: 'no-store' }).then(res => res.ok ? res.json() : null),
-  ]).then(([nextReport, nextDocument]) => {
-    setReport(nextReport)
+  ]).then(([, nextDocument]) => {
     setDocument(nextDocument?.document ?? null)
   }).catch(error => {
     console.error('[RealEstateAppraisalTab] load failed', error)
@@ -123,6 +132,8 @@ export default function RealEstateAppraisalTab({ clientId, clientName }: { clien
           fileName: document.fileName,
           mediaType: document.mimeType || blob.type || 'application/pdf',
           base64,
+          provider,
+          modelId: resolveAgentModelId(provider),
         }),
       })
       if (!response.ok) throw new Error(await response.text())
@@ -144,6 +155,13 @@ export default function RealEstateAppraisalTab({ clientId, clientName }: { clien
             <p className="mt-1 text-xs text-stone-500">Generated {report.createdAt ? new Date(report.createdAt).toLocaleString() : '—'}</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <AgentReportHistoryBar
+              runs={historyItems}
+              activeId={activeId}
+              onSelect={(run) => setActiveId(run.id)}
+              activeProvider={report?.aiProvider}
+              activeModel={report?.aiModel}
+            />
             <Button variant="outline" size="sm" onClick={() => setNewAnalysis(true)}>+ New Analysis</Button>
             <ExportReportButton html={reportHtml(report.markdown, clientName)} fileName={'real-estate-appraisal-' + clientName.replace(/\s+/g, '-').toLowerCase()} />
           </div>
@@ -182,6 +200,9 @@ export default function RealEstateAppraisalTab({ clientId, clientName }: { clien
           )}
 
           <div className="flex flex-wrap items-center gap-3">
+            {!readOnly && (
+              <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={running} />
+            )}
             <ClientDocumentUpload
               clientId={clientId}
               documentId="real_estate_appraisal"

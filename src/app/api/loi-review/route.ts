@@ -1,7 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -32,15 +37,19 @@ export async function POST(req: NextRequest) {
 
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
+    const provider = parseAnalyzeProvider(formData.get('provider'))
+    const modelId = resolveAnalyzeModelId(provider, formData.get('modelId'))
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
+    }
+
     const client = await prisma.clientProfile.findUnique({
       where: { id: clientId },
       select: { businessName: true, sectionSubmissions: true },
     })
     if (!client) return new Response('Client not found', { status: 404 })
 
-    if (!(await hasAIConfigured())) return new Response('AI not configured', { status: 500 })
-
-    // Process uploaded LOI files
     const fileEntries: Array<{ name: string; base64: string; mediaType: string }> = []
     const files = formData.getAll('files') as File[]
     for (const file of files) {
@@ -57,25 +66,22 @@ export async function POST(req: NextRequest) {
       return new Response('At least one LOI document is required', { status: 400 })
     }
 
-    // Build document context
     const documentContext = `\n\n## Uploaded LOI Documents\n${fileEntries.map(f => `- ${f.name} (${f.mediaType})`).join('\n')}`
 
-    // Build Claude message content blocks
-    const contentBlocks: Anthropic.ContentBlockParam[] = []
+    const contentBlocks: AgentMessageBlock[] = []
 
-    // Add document content blocks (PDF as document, others as text)
     for (const file of fileEntries) {
       if (file.mediaType === 'application/pdf') {
         contentBlocks.push({
           type: 'document',
+          title: file.name,
           source: {
             type: 'base64',
             media_type: 'application/pdf',
             data: file.base64,
           },
-        } as any)
+        })
       } else {
-        // For DOCX and other formats, decode and include as text
         const decoded = Buffer.from(file.base64, 'base64').toString('utf-8')
         contentBlocks.push({
           type: 'text',
@@ -84,7 +90,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Add the main analysis prompt
     contentBlocks.push({
       type: 'text',
       text: `Review and compare all Letters of Intent (LOIs) submitted for **${clientName || client.businessName}**.${documentContext}
@@ -166,13 +171,7 @@ Flag any missing term that creates ambiguity or risk for the seller.
 Format the entire report in clean markdown with tables, bold emphasis, and clear hierarchy. Use specific dollar amounts, percentages, and dates from the documents wherever possible.`,
     })
 
-    const anthropic = await requireAIClient()
-
-    const result = await anthropic.messages.create({
-      model: resolveModel('claude-sonnet-4-20250514'),
-      max_tokens: 16000,
-      temperature: 0.15,
-      system: `You are a senior M&A advisor specializing in reviewing and comparing Letters of Intent (LOIs) for middle-market transactions at Cantara Advisors.
+    const systemPrompt = `You are a senior M&A advisor specializing in reviewing and comparing Letters of Intent (LOIs) for middle-market transactions at Cantara Advisors.
 
 You have deep expertise in deal structuring, purchase price negotiations, earnout mechanics, working capital adjustments, and closing conditions. You have reviewed hundreds of LOIs across various industries and deal sizes.
 
@@ -198,15 +197,16 @@ Your reports must be:
 - **Seller-focused**: Frame analysis from the seller's perspective and interests.
 - **Beautiful formatting**: Use markdown with clear hierarchy, comparison tables, bullet points, and bold emphasis.
 
-Return markdown only. Do not include any preamble or meta-commentary.`,
-      messages: [{ role: 'user', content: contentBlocks }],
-    })
+Return markdown only. Do not include any preamble or meta-commentary.`
 
-    const markdown = result.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map(b => b.text)
-      .join('\n')
-      .trim()
+    const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
+      createAgentMessage({
+        system: systemPrompt,
+        content: contentBlocks,
+        maxTokens: 16000,
+        temperature: 0.15,
+      }),
+    )
 
     const report = {
       clientName: clientName || client.businessName,
@@ -217,7 +217,6 @@ Return markdown only. Do not include any preamble or meta-commentary.`,
       },
     }
 
-    // Save to sectionSubmissions.loiReview
     const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
       ? client.sectionSubmissions
       : {}) as Record<string, any>

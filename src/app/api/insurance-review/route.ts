@@ -3,6 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseStoredInsuranceReview, serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 import { assertS3Configured, s3BucketName, s3Client } from "@/lib/s3";
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from "@/lib/agent-analyze-provider";
+import { resolveAgentModelId } from "@/lib/agent-model-provider.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,10 +79,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     assertS3Configured();
-    const { clientId } = await req.json();
+    const { clientId, provider: rawProvider, modelId: requestedModelId } = await req.json();
 
     if (!clientId) {
       return new Response("Missing clientId", { status: 400 });
+    }
+
+    const provider = parseAnalyzeProvider(rawProvider);
+    const modelId = requestedModelId
+      ? resolveAnalyzeModelId(provider, requestedModelId)
+      : resolveAgentModelId(provider, "opus");
+    if (provider === "openai") {
+      const gate = await assertOpenAiConfiguredForAnalyze();
+      if (gate) return gate;
     }
 
     const document = await (prisma as any).clientDocument.findFirst({
@@ -115,6 +130,8 @@ export async function POST(req: NextRequest) {
     const review = await summarizeInsuranceClaimPdf({
       fileName: document.fileName,
       base64: bytes.toString("base64"),
+      provider,
+      modelId,
     });
 
     await (prisma as any).clientDocument.update({

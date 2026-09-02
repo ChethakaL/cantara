@@ -10,6 +10,8 @@ export type TransitionComplexity = 'High' | 'Medium' | 'Low' | 'Unknown'
 export interface WS16Persistence {
   markdown: string
   createdAt: string
+  aiProvider?: string | null
+  aiModel?: string | null
   metadata?: {
     flags?: Array<{ id: string; status: FlagStatus }>
     releasedAt?: string | null

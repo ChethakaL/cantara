@@ -1,16 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { CompetitorPricingInput, PriceMatrixRow, PricingAnalysisReport, PricingSummaryRow } from './types'
 import { normalizePricingReport } from './normalize-report'
-import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
-
-function extractText(result: Anthropic.Messages.Message): string {
-  return result.content
-    .filter((block) => block.type === 'text')
-    .map((block) => ('text' in block ? block.text : ''))
-    .join('')
-    .trim()
-}
+import { createAgentMessage } from '@/lib/llm-completion'
 
 type SellerDaycarePrice = {
   service: 'Daycare - Full Day' | 'Daycare - Half Day'
@@ -164,8 +154,6 @@ export async function analyzePricing(args: {
   competitors: CompetitorPricingInput[]
   competitorData: any
 }): Promise<PricingAnalysisReport> {
-    const client = await requireAIClient()
-
   const systemPrompt = `You are the Competitive Pricing Analysis Agent for Cantara, an M&A advisory platform for pet businesses.
 
 You receive seller and competitor pricing data (website research and optional admin-provided text). Produce a clean two-table comparison for a pet resort M&A advisory.
@@ -252,20 +240,13 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
     competitorData: args.competitorData,
   }
 
-  const response = await client.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 9000,
-    temperature: 0,
+  const rawText = await createAgentMessage({
     system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: `Pricing research context:\n${JSON.stringify(context, null, 2)}\n\nReturn the detailed competitor pricing analysis JSON.` }],
-      },
-    ],
+    content: `Pricing research context:\n${JSON.stringify(context, null, 2)}\n\nReturn the detailed competitor pricing analysis JSON.`,
+    maxTokens: 9000,
+    temperature: 0,
   })
 
-  const rawText = extractText(response)
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
   const parsed = JSON.parse(cleaned) as unknown
   const normalized = normalizePricingReport(parsed)

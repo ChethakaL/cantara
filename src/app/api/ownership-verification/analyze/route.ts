@@ -14,6 +14,11 @@ const require = createRequire(import.meta.url)
 const mammoth: { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } = require('mammoth')
 import sharp from 'sharp'
 import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import {
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+  maybeOpenAiStreamFromBlocks,
+} from '@/lib/agent-analyze-provider'
 
 // Agent spec: claude-sonnet-4-20250514, temperature 0
 // Architecture: WS1-8 Corporate Ownership Verification
@@ -26,8 +31,17 @@ type MessageStream = AsyncIterable<any> & { controller: { abort: () => void } }
 
 export async function POST(req: NextRequest) {
   try {
-    const { documents, clientName, state, dba, entityType, clientId } =
-      await req.json()
+    const body = await req.json()
+    const {
+      documents,
+      clientName,
+      state,
+      dba,
+      entityType,
+      clientId,
+      provider: rawProvider,
+      modelId: requestedModelId,
+    } = body
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
       return new Response('No documents provided', { status: 400 })
@@ -244,6 +258,17 @@ export async function POST(req: NextRequest) {
         text: `Please analyze the ${documents.length} corporate/ownership document(s) above for ${clientName}. Produce the full Corporate Ownership Verification Report as specified in your instructions. Document names: ${documents.map((d: any) => d.name).join(', ')}`,
       },
     ]
+
+    const provider = parseAnalyzeProvider(rawProvider)
+    const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+    const openAiResponse = await maybeOpenAiStreamFromBlocks({
+      provider,
+      modelId,
+      system: WS18_SYSTEM_PROMPT,
+      userContent,
+      maxTokens: 8000,
+    })
+    if (openAiResponse) return openAiResponse
 
     const client = await requireAIClient()
 

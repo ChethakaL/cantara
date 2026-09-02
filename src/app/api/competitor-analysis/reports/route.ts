@@ -30,25 +30,22 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { clientId, fileName, report, parsed } = body;
+    const { clientId, fileName, report, parsed, aiProvider, aiModel } = body;
 
     if (!clientId || !fileName || !report) {
       return new Response("Missing required fields", { status: 400 });
     }
 
-    const existing = await prisma.competitorAnalysis.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: "desc" },
+    const saved = await prisma.competitorAnalysis.create({
+      data: {
+        clientId,
+        fileName,
+        report,
+        parsed,
+        aiProvider: aiProvider || 'bedrock',
+        aiModel: aiModel || null,
+      },
     });
-
-    const saved = existing
-      ? await prisma.competitorAnalysis.update({
-          where: { id: existing.id },
-          data: { fileName, report, parsed },
-        })
-      : await prisma.competitorAnalysis.create({
-          data: { clientId, fileName, report, parsed },
-        });
 
     return NextResponse.json(saved);
   } catch (error) {

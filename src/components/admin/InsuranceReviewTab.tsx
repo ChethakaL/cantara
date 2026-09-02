@@ -9,6 +9,13 @@ import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFram
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import { ClientApprovedEmptyState } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildInsuranceReportHtml } from '@/lib/report-export/build-insurance-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 interface InsuranceSummary {
   summary: string
@@ -59,6 +66,16 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client', re
   const [isEditing, setIsEditing] = useState(false)
   const [draftSummary, setDraftSummary] = useState<InsuranceSummary | null>(null)
   const [saving, setSaving] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.insuranceReview)
 
   const saveChanges = async () => {
     if (!draftSummary) return
@@ -144,15 +161,32 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client', re
       const res = await fetch('/api/insurance-review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId }),
+        body: JSON.stringify({
+          clientId,
+          provider,
+          modelId: resolveAgentModelId(provider, 'opus'),
+        }),
         cache: 'no-store',
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
         throw new Error(text || 'Insurance Review Agent failed')
       }
-      await res.json()
+      const data = await res.json()
       logDebug('Insurance review agent completed — refreshing component')
+      if (mountedRef.current) {
+        setDocument(data.document ?? null)
+        setSummary(data.summary ?? null)
+      }
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.insuranceReview,
+        fileName: data.document?.fileName ?? `${clientName} — Insurance Review`,
+        report: { summary: data.summary, document: data.document },
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider, 'opus'),
+      })
+      await reloadRuns()
       await load({ silent: true })
     } catch (err: any) {
       console.error('[InsuranceReviewTab] Agent run failed', err)
@@ -222,8 +256,24 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client', re
   }
 
   useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      const payload = activeRun.report as { summary?: InsuranceSummary; document?: InsuranceDoc }
+      if (payload.summary) setSummary(payload.summary)
+      if (payload.document) setDocument(payload.document)
+      setLoading(false)
+      return
+    }
     void load()
-  }, [load])
+  }, [activeRun, loadingRuns, load])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    const payload = (full?.report ?? null) as { summary?: InsuranceSummary; document?: InsuranceDoc } | null
+    if (payload?.summary) setSummary(payload.summary)
+    if (payload?.document) setDocument(payload.document)
+  }
 
   if (loading) {
     return (
@@ -250,20 +300,31 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client', re
 
   return (
     <div className="space-y-5">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={running || deleting}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-amber-50 border border-amber-200">
-                <Bot className="w-4 h-4 text-amber-600" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">Insurance Claim Review</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Review insurance claims from the last 24 months. Upload claim documents in the Documents tab for AI-powered summary and resolution status.</p>
-              </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 shrink-0">
+              <Bot className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">Insurance Claim Review</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Review insurance claims from the last 24 months. Upload claim documents in the Documents tab for AI-powered summary and resolution status.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {document && (
               <Button
                 size="sm"
@@ -283,6 +344,7 @@ export default function InsuranceReviewTab({ clientId, clientName = 'Client', re
               size="sm"
               onClick={() => void runAgent()}
               disabled={!document || running || deleting}
+              className="gap-1.5 font-medium"
             >
               {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
               {running ? 'Running...' : 'Run Agent'}

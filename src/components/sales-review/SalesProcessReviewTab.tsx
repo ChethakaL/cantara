@@ -3,12 +3,19 @@ import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 import { ClientApprovedEmptyState } from '@/components/client-portal/AgentClientPortalFrame'
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, Bot, CheckCircle, FileText, Loader2, RefreshCw, Save, Trash2, Upload } from 'lucide-react'
+import { AlertCircle, Bot, CheckCircle, FileText, Loader2, RefreshCw, Save, Upload } from 'lucide-react'
 import { Badge, Button, Textarea } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildSalesReviewReportHtml } from '@/lib/report-export/build-sales-review-report'
 import { getAdminEmail } from '@/lib/store'
 import type { SalesProcessReviewResult } from '@/lib/sales-review/types'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
@@ -69,12 +76,22 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
   const [running, setRunning] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState(false)
   const [hasTranscript, setHasTranscript] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
   const [result, setResult] = useState<SalesProcessReviewResult | null>(null)
   const [draft, setDraft] = useState<ReturnType<typeof makeDraft> | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [startingNew, setStartingNew] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.salesProcessReview)
 
   const editMode = Boolean(draft)
 
@@ -96,7 +113,25 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
     }
   }, [clientId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    if (loadingRuns || startingNew) return
+    if (activeRun?.report) {
+      setResult(activeRun.report as SalesProcessReviewResult)
+      setLoading(false)
+      return
+    }
+    void load()
+  }, [activeRun, loadingRuns, load, startingNew])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setStartingNew(false)
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    if (full?.report) {
+      setResult(full.report as SalesProcessReviewResult)
+      setDraft(null)
+    }
+  }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -128,11 +163,26 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
       const res = await fetch('/api/sales-review/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId }),
+        body: JSON.stringify({
+          clientId,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
       })
       if (!res.ok) throw new Error(await readFriendlyError(res, 'Analysis failed.'))
-      setResult(await res.json())
+      const nextResult = await res.json()
+      setResult(nextResult)
       setDraft(null)
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.salesProcessReview,
+        fileName: fileName ?? `${clientName} — Sales Process Review`,
+        report: nextResult,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      setStartingNew(false)
+      await reloadRuns()
     } catch (err: any) {
       setError(err.message || 'Failed to run analysis')
     } finally {
@@ -161,25 +211,12 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
     }
   }
 
-  const resetReview = async () => {
-    setDeleting(true)
+  // Keep prior runs; clear current view so advisor can upload/run again.
+  const handleNewAnalysis = () => {
     setError(null)
-    try {
-      const res = await fetch('/api/client-documents', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, documentId: 'sales_process_transcript' }),
-      })
-      if (!res.ok) throw new Error(await readFriendlyError(res, 'Failed to reset sales process review.'))
-      setHasTranscript(false)
-      setFileName(null)
-      setResult(null)
-      setDraft(null)
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to reset sales process review')
-    } finally {
-      setDeleting(false)
-    }
+    setResult(null)
+    setDraft(null)
+    setStartingNew(true)
   }
 
   if (loading) {
@@ -192,6 +229,19 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
 
   return (
     <div className="space-y-5">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={running || uploading || saving}
+          historyItems={historyItems}
+          activeId={startingNew ? null : activeId}
+          onSelectRun={selectRun}
+          activeProvider={startingNew ? null : activeRun?.aiProvider}
+          activeModel={startingNew ? null : activeRun?.aiModel}
+          activeVersion={startingNew ? null : activeRun?.version}
+        />
+      )}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -226,10 +276,10 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
                 </Button>
               </>
             )}
-            {hasTranscript && (
-              <Button size="sm" variant="danger" onClick={() => void resetReview()} disabled={running || uploading || saving || deleting}>
-                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                {deleting ? 'Deleting...' : 'Reset'}
+            {result && (
+              <Button size="sm" variant="outline" onClick={handleNewAnalysis} disabled={running || uploading || saving}>
+                <RefreshCw className="w-3.5 h-3.5" />
+                New Analysis
               </Button>
             )}
             <Button size="sm" onClick={runAnalysis} disabled={!hasTranscript || running || uploading || saving}>

@@ -13,6 +13,13 @@ import type { LitigationSearchResult } from '@/lib/litigation-search/search'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildLitigationReportHtml } from '@/lib/report-export/build-litigation-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 // ── US States ────────────────────────────────────────────────────────────────
 
@@ -296,6 +303,16 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [hydrated, setHydrated] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.litigationSearch)
   const reportHtml = useMemo(() => {
     const result = searchResult || docResult
     return result ? buildLitigationReportHtml(result, clientName) : ''
@@ -304,6 +321,14 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
   useEffect(() => {
     let cancelled = false
     async function loadSaved() {
+      if (loadingRuns) return
+      if (activeRun?.report) {
+        const payload = activeRun.report as { searchResult?: LitigationSearchResult; docResult?: LitigationSearchResult }
+        if (payload.searchResult) setSearchResult(payload.searchResult)
+        if (payload.docResult) setDocResult(payload.docResult)
+        if (!cancelled) setHydrated(true)
+        return
+      }
       try {
         const res = await fetch(`/api/client-data/${clientId}?section=litigationSearch`, { cache: 'no-store' })
         if (!res.ok) return
@@ -321,7 +346,27 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
     }
     void loadSaved()
     return () => { cancelled = true }
-  }, [clientId])
+  }, [clientId, activeRun, loadingRuns])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    const payload = (full?.report ?? null) as { searchResult?: LitigationSearchResult; docResult?: LitigationSearchResult } | null
+    if (payload?.searchResult) setSearchResult(payload.searchResult)
+    if (payload?.docResult) setDocResult(payload.docResult)
+  }
+
+  const persistLitigationRun = async (nextSearch: LitigationSearchResult | null, nextDoc: LitigationSearchResult | null) => {
+    await saveAgentAnalysisRunClient({
+      clientId,
+      agentKey: AGENT_RUN_KEYS.litigationSearch,
+      fileName: `${clientName} — Litigation Search`,
+      report: { searchResult: nextSearch, docResult: nextDoc },
+      aiProvider: provider,
+      aiModel: resolveAgentModelId(provider),
+    })
+    await reloadRuns()
+  }
 
   useEffect(() => {
     if (!searchResult && !docResult) return
@@ -370,7 +415,14 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       const res = await fetch('/api/litigation-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessName: businessName.trim(), ownerName: ownerName.trim(), state, county: county.trim() }),
+        body: JSON.stringify({
+          businessName: businessName.trim(),
+          ownerName: ownerName.trim(),
+          state,
+          county: county.trim(),
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
       })
       if (!res.ok) {
         const msg = await res.text()
@@ -379,12 +431,13 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       const data: LitigationSearchResult = await res.json()
       setSearchResult(data)
       setEditMode(false)
+      await persistLitigationRun(data, docResult)
     } catch (err: any) {
       setSearchError(err.message || 'Search failed')
     } finally {
       setSearching(false)
     }
-  }, [businessName, ownerName, state, county])
+  }, [businessName, ownerName, state, county, provider, docResult])
 
   // ── Upload handler ─────────────────────────────────────────────────────────
 
@@ -397,6 +450,8 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
     try {
       const formData = new FormData()
       formData.append('file', uploadFile)
+      formData.append('provider', provider)
+      formData.append('modelId', resolveAgentModelId(provider))
 
       const res = await fetch('/api/litigation-search', {
         method: 'POST',
@@ -409,12 +464,13 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       const data: LitigationSearchResult = await res.json()
       setDocResult(data)
       setEditMode(false)
+      await persistLitigationRun(searchResult, data)
     } catch (err: any) {
       setDocError(err.message || 'Analysis failed')
     } finally {
       setAnalyzing(false)
     }
-  }, [uploadFile])
+  }, [uploadFile, provider, searchResult])
 
   // ── Drag & drop ────────────────────────────────────────────────────────────
 
@@ -439,6 +495,19 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
 
   return (
     <div className="space-y-6">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={searching || analyzing}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       {/* Header */}
       <div>
         <h2 className="text-lg font-bold text-slate-800 tracking-tight">Litigation & Lien Search</h2>

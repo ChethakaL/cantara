@@ -9,6 +9,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildLeaseAnalysisSystemPrompt } from "@/lib/lease-analysis/prompt";
 import { createRequire } from "module";
 import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import { parseAgentAiProvider } from "@/lib/agent-model-provider";
+import { resolveAgentModelId } from "@/lib/agent-model-provider.server";
+import { createTextStreamResponse, streamTextCompletion } from "@/lib/llm-completion";
+import { hasOpenAiConfigured } from "@/lib/openai-client";
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require("pdf-parse") as {
@@ -48,10 +52,17 @@ type PdfReadability = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { documents } = await req.json();
+    const body = await req.json();
+    const { documents, provider: rawProvider, modelId: requestedModelId } = body;
+    const provider = parseAgentAiProvider(rawProvider);
+    const modelId = String(requestedModelId || resolveAgentModelId(provider));
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
         return new Response("No documents provided", { status: 400 });
+    }
+
+    if (provider === "openai" && !(await hasOpenAiConfigured())) {
+      return new Response("OpenAI API key is not configured. Add it in Admin Settings.", { status: 400 });
     }
 
     if (documents.length > MAX_DOCUMENTS) {
@@ -69,11 +80,34 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const systemPrompt = buildLeaseAnalysisSystemPrompt(new Date());
+    const readability = await Promise.all(normalizedDocuments.map(inspectPdfReadability));
+
+    if (provider === "openai") {
+      const userText = [
+        buildDocumentManifest(readability),
+        "",
+        ...readability.map((item, index) => {
+          const title = normalizedDocuments[index]?.name || item.name;
+          return `=== DOCUMENT ${index + 1}: ${title} ===\n${item.extractedText.trim() || "[No readable text extracted from this PDF.]"} \n=== END DOCUMENT ${index + 1} ===`;
+        }),
+        "",
+        `Please analyze the ${documents.length} lease document(s) provided above. Produce the full analysis report as specified in your instructions. Document names: ${normalizedDocuments.map((d) => d.name).join(", ")}`,
+      ].join("\n");
+
+      const stream = await streamTextCompletion({
+        provider,
+        model: modelId,
+        system: systemPrompt,
+        userText,
+        maxTokens: 16000,
+      });
+      return createTextStreamResponse(stream);
+    }
+
     const client = await requireAIClient();
 
     console.log(`[API Analyze] Starting streaming analysis for ${documents.length} documents.`);
-    const systemPrompt = buildLeaseAnalysisSystemPrompt(new Date());
-    const readability = await Promise.all(normalizedDocuments.map(inspectPdfReadability));
     const pdfBlockPages = readability.reduce((sum, item) => (
       shouldSendAsPdfBlock(item) ? sum + (item.pages ?? MAX_UPSTREAM_PDF_PAGES + 1) : sum
     ), 0);

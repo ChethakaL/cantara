@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage } from '@/lib/llm-completion'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 import { gatherCompletedAgentOutputs } from '@/lib/completed-agent-outputs'
 import {
   CHECKLIST_SUBMISSION_KEY,
@@ -90,13 +96,18 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const clientId = String(body.clientId || '')
   const stage = String(body.stage || 'checklist') as SaleReadinessRoadmapStage
+  const provider = parseAnalyzeProvider(body.provider)
+  const modelId = resolveAnalyzeModelId(provider, body.modelId)
   if (!clientId || (stage !== 'checklist' && stage !== 'report')) {
     return new Response('clientId and stage (checklist|report) required', { status: 400 })
+  }
+  if (provider === 'openai') {
+    const gate = await assertOpenAiConfiguredForAnalyze()
+    if (gate) return gate
   }
 
   const client = await loadClient(clientId)
   if (!client) return new Response('Client not found', { status: 404 })
-  if (!(await hasAIConfigured())) return new Response('AI not configured', { status: 500 })
 
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
   const assignedAgents = getClientWorkstreamAgents({
@@ -123,7 +134,9 @@ export async function POST(req: NextRequest) {
       : Array.isArray(existingReport?.checklist) ? existingReport.checklist : [])
 
   if (stage === 'checklist') {
-    const markdown = await generateChecklistMarkdown({ clientName, agentData })
+    const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
+      generateChecklistMarkdown({ clientName, agentData }),
+    )
     const checklistItems = extractSaleReadinessChecklist(markdown, existingItems)
     if (!checklistItems.length) {
       return NextResponse.json({ error: 'The checklist could not be generated from the current agent outputs. Try again after more agents have run.' }, { status: 422 })
@@ -146,12 +159,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Approve at least one checklist item before generating the full report.' }, { status: 409 })
   }
 
-  const markdown = await generateFullReportMarkdown({
-    clientName,
-    agentData,
-    approved,
-    skipped: existingItems.filter(item => !item.advisorApproved),
-  })
+  const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
+    generateFullReportMarkdown({
+      clientName,
+      agentData,
+      approved,
+      skipped: existingItems.filter(item => !item.advisorApproved),
+    }),
+  )
   const report = await saveRoadmap(clientId, submissions, {
     workstream: 'sales-readiness',
     workstreamLabel: ROADMAP_LABEL,
@@ -248,15 +263,9 @@ async function generateChecklistMarkdown(args: {
   clientName: string
   agentData: Array<{ agentName: string; excerpt: string }>
 }) {
-  const anthropic = await requireAIClient()
-  const result = await anthropic.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 8000,
-    temperature: 0.15,
+  return createAgentMessage({
     system: `You are a senior M&A advisor at Cantara Pet Advisors. You create a sale-readiness checklist from completed diligence agent outputs only. Do not invent findings that are not supported by the source data. Return markdown only.`,
-    messages: [{
-      role: 'user',
-      content: `Create a Sale-Readiness Checklist for **${args.clientName}** using ONLY the completed agent outputs below.
+    content: `Create a Sale-Readiness Checklist for **${args.clientName}** using ONLY the completed agent outputs below.
 
 Completed agents: ${args.agentData.map(agent => agent.agentName).join(', ')}
 
@@ -281,9 +290,9 @@ Return exactly this structure:
 ## Source Data
 
 ${agentDataBlock(args.agentData)}`,
-    }],
+    maxTokens: 8000,
+    temperature: 0.15,
   })
-  return result.content.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
 }
 
 async function generateFullReportMarkdown(args: {
@@ -293,11 +302,7 @@ async function generateFullReportMarkdown(args: {
   skipped: SaleReadinessChecklistItem[]
 }) {
   const firstName = args.clientName.split(' ')[0] || 'Seller'
-  const anthropic = await requireAIClient()
-  const result = await anthropic.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 16000,
-    temperature: 0.15,
+  return createAgentMessage({
     system: `You are a senior M&A advisor at Cantara Pet Advisors who specializes in helping sellers prepare their businesses for acquisition. You create clear, actionable Sales Readiness Roadmaps that tell sellers exactly what to fix, in what order, and why it matters for their deal.
 
 Your reports are:
@@ -320,9 +325,7 @@ CRITICAL RULES:
 - Do not recommend requiring a standalone Seller Non-Compete
 
 Return markdown only. Do not include any preamble.`,
-    messages: [{
-      role: 'user',
-      content: `Generate a comprehensive Sales Readiness Roadmap for **${args.clientName}**.
+    content: `Generate a comprehensive Sales Readiness Roadmap for **${args.clientName}**.
 
 This is a SELLER-FACING document. The advisor has already reviewed and edited the checklist. Use the approved items EXACTLY as written — including the advisor's wording for category, item, status, and action needed. Do not replace their text with your own phrasing.
 
@@ -399,7 +402,7 @@ Provide a thorough category-by-category breakdown for APPROVED findings only. Us
 Completed agents: ${args.agentData.map(agent => agent.agentName).join(', ')}
 
 ${agentDataBlock(args.agentData)}`,
-    }],
+    maxTokens: 16000,
+    temperature: 0.15,
   })
-  return result.content.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
 }

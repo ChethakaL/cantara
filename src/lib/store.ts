@@ -118,6 +118,8 @@ export interface LeaseAnalysis {
   createdAt: string
   report: string
   parsed: ParsedLeaseReport | null
+  aiProvider?: string | null
+  aiModel?: string | null
 }
 
 export interface ContractAnalysis {
@@ -127,6 +129,8 @@ export interface ContractAnalysis {
   createdAt: string
   report: string
   parsed: any | null
+  aiProvider?: string | null
+  aiModel?: string | null
 }
 
 export interface CompetitorAnalysis {
@@ -360,6 +364,8 @@ export async function saveLeaseAnalysis(data: {
     fileName: string;
     report: string;
     parsed: ParsedLeaseReport;
+    aiProvider?: string;
+    aiModel?: string;
 }) {
     try {
         const res = await fetch('/api/lease-analysis/reports', {
@@ -428,6 +434,8 @@ export async function saveContractAnalysis(data: {
   fileName: string;
   report: string;
   parsed: any;
+  aiProvider?: string;
+  aiModel?: string;
 }) {
   try {
     const res = await fetch('/api/contract-analysis/reports', {
@@ -496,6 +504,8 @@ export async function saveCompetitorAnalysis(data: {
   fileName: string;
   report: string;
   parsed: any;
+  aiProvider?: string;
+  aiModel?: string | null;
 }) {
   try {
     const res = await fetch('/api/competitor-analysis/reports', {

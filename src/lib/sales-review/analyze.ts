@@ -1,10 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
 import mammoth from 'mammoth'
 import { createRequire } from 'module'
 import { buildSalesProcessReviewSystemPrompt, normalizeSalesProcessResult } from './prompt'
 import type { SalesProcessReviewResult } from './types'
-import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import type { AgentAiProvider } from '@/lib/agent-model-provider'
+import { requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage } from '@/lib/llm-completion'
 
 const require = createRequire(import.meta.url)
 const { PDFParse } = require('pdf-parse') as {
@@ -72,6 +72,8 @@ export async function extractTranscriptText(buffer: Buffer, mimeType: string, fi
 export async function analyzeSalesProcessTranscript(args: {
   transcriptText: string
   businessName: string
+  provider?: AgentAiProvider
+  modelId?: string
 }): Promise<SalesProcessReviewResult> {
     const trimmed = args.transcriptText.trim()
   if (!trimmed) {
@@ -90,22 +92,33 @@ export async function analyzeSalesProcessTranscript(args: {
     todayIso,
   })
 
-  const client = await requireAIClient()
-
+  const provider = args.provider ?? 'bedrock'
   const userText = `--- TRANSCRIPT / NOTES START ---\n${trimmed.slice(0, MAX_TRANSCRIPT_CHARS)}\n--- TRANSCRIPT / NOTES END ---`
 
-  const result = await client.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 8192,
-    temperature: 0,
-    system,
-    messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }],
-  })
-
-  const text = result.content
-    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
+  let text: string
+  if (provider === 'openai') {
+    text = await createAgentMessage({
+      provider,
+      model: args.modelId,
+      system,
+      content: userText,
+      maxTokens: 8192,
+      temperature: 0,
+    })
+  } else {
+    const client = await requireAIClient()
+    const result = await client.messages.create({
+      model: resolveModel('claude-sonnet-4-20250514'),
+      max_tokens: 8192,
+      temperature: 0,
+      system,
+      messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }],
+    })
+    text = result.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+  }
 
   const parsed = parseJsonFromClaude(text)
   return normalizeSalesProcessResult(parsed)

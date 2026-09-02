@@ -17,7 +17,9 @@ export default function LeaseAnalysisPage() {
     rawMarkdown, 
     report, 
     error,
-    clearAll
+    clearAll,
+    provider,
+    setProvider,
   } = useLeaseAnalysis()
 
   return (
@@ -58,6 +60,8 @@ export default function LeaseAnalysisPage() {
                 removeDocument={removeDocument}
                 status={status}
                 onAnalyze={analyze}
+                provider={provider}
+                onProviderChange={setProvider}
               />
             </div>
           ) : (

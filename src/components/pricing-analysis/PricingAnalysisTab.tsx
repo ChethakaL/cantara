@@ -28,6 +28,13 @@ import {
   classifyPricingService,
   type PricingServiceVertical,
 } from '@/lib/pricing-analysis/service-vertical'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 const STATUS_COLORS: Record<string, { badge: 'red' | 'green' | 'blue' | 'slate'; label: string }> = {
   underpriced: { badge: 'red', label: 'Underpriced' },
@@ -157,6 +164,16 @@ export default function PricingAnalysisTab({
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const lastSavedSnapshotRef = useRef<string>('')
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.pricingAnalysis)
 
   useEffect(() => {
     if (!readOnly) return
@@ -199,6 +216,15 @@ export default function PricingAnalysisTab({
 
   // Load saved data on mount
   useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      const normalized = normalizePricingReport(activeRun.report)
+      if (normalized) {
+        setResult(normalized)
+        markSavedSnapshot(normalized)
+      }
+      return
+    }
     const loadSaved = async () => {
       try {
         const res = await fetch(`/api/pricing-analysis?clientId=${encodeURIComponent(clientId)}&includePrefill=1`)
@@ -219,7 +245,17 @@ export default function PricingAnalysisTab({
       } catch { /* ignore */ }
     }
     loadSaved()
-  }, [clientId, markSavedSnapshot])
+  }, [clientId, markSavedSnapshot, activeRun, loadingRuns])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    const normalized = normalizePricingReport(full?.report)
+    if (normalized) {
+      setResult(normalized)
+      markSavedSnapshot(normalized)
+    }
+  }
 
   // Auto-save while editing (debounced) so refresh does not lose manual edits
   useEffect(() => {
@@ -273,6 +309,8 @@ export default function PricingAnalysisTab({
           sellerWebsiteUrl: sellerWebsiteUrl.trim(),
           sellerManualPricingText: sellerManualPricingText.trim(),
           competitors: completeCompetitors,
+          provider,
+          modelId: resolveAgentModelId(provider),
         }),
       })
       if (!res.ok) {
@@ -286,6 +324,15 @@ export default function PricingAnalysisTab({
       setEditMode(false)
       setRerunComplete(true)
       setTimeout(() => setRerunComplete(false), 3500)
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.pricingAnalysis,
+        fileName: `${clientName} — Pricing Analysis`,
+        report: data,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns()
     } catch (err: any) {
       setError(err.message || 'Analysis failed')
     } finally {
@@ -542,6 +589,19 @@ export default function PricingAnalysisTab({
   if (result) {
     return (
       <div className="space-y-6">
+        {!readOnly && (
+          <AgentRunToolbar
+            provider={provider}
+            onProviderChange={setProvider}
+            disabled={analyzing}
+            historyItems={historyItems}
+            activeId={activeId}
+            onSelectRun={selectRun}
+            activeProvider={activeRun?.aiProvider}
+            activeModel={activeRun?.aiModel}
+            activeVersion={activeRun?.version}
+          />
+        )}
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -1061,6 +1121,19 @@ export default function PricingAnalysisTab({
   // ── Upload view ─────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={analyzing}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       <div>
         <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
         <p className="text-xs text-slate-400 mt-0.5">
@@ -1112,7 +1185,9 @@ export default function PricingAnalysisTab({
         </div>
       )}
 
-      <button
+      {!readOnly && (
+        <>
+        <button
         onClick={handleAnalyze}
         disabled={analyzing || !sellerWebsiteUrl.trim() || competitors.filter(c => c.name.trim() && c.websiteUrl.trim()).length !== 5}
         className={cn(
@@ -1142,6 +1217,8 @@ export default function PricingAnalysisTab({
         <Save className="w-4 h-4" />
         {savingInputs ? 'Saving...' : inputsSaved ? 'Saved' : 'Save Inputs'}
       </button>
+        </>
+      )}
     </div>
   )
 }

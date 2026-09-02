@@ -8,6 +8,13 @@ import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildAssessmentReportHtml } from '@/lib/report-export/build-assessment-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 type AssessmentReport = {
   workstream: string
@@ -75,10 +82,37 @@ export default function AssessmentReportTab({
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { provider, setProvider } = useAgentAiProvider()
+  const agentKey = workstream === 'ws1' ? AGENT_RUN_KEYS.ws1Assessment : AGENT_RUN_KEYS.ws2Assessment
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, agentKey)
 
   const wsLabel = workstream === 'ws1' ? 'WS1 — Risk Mitigation' : 'WS2 — Profitability & Growth'
 
-  const load = async () => {
+  useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      setReport(activeRun.report as AssessmentReport)
+      setLoading(false)
+      return
+    }
+    void loadFromApi()
+  }, [activeRun, loadingRuns, clientId, workstream])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    if (full?.report) setReport(full.report as AssessmentReport)
+  }
+
+  const loadFromApi = async () => {
     setLoading(true)
     setError(null)
     try {
@@ -100,11 +134,21 @@ export default function AssessmentReportTab({
       const res = await fetch('/api/assessment-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, workstream }),
+        body: JSON.stringify({ clientId, workstream, provider, modelId: resolveAgentModelId(provider) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to generate assessment report.')
       setReport(data.report)
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey,
+        fileName: `${clientName} — ${wsLabel} Internal Assessment`,
+        report: data.report,
+        markdown: data.report?.markdown,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate assessment report.')
     } finally {
@@ -112,18 +156,29 @@ export default function AssessmentReportTab({
     }
   }
 
-  useEffect(() => { void load() }, [clientId, workstream])
-
   const html = useMemo(() =>
     report ? buildAssessmentReportHtml(report) : '',
   [report])
 
-  if (loading) {
+  if (loading || loadingRuns) {
     return <div className="h-48 flex items-center justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-amber-500 rounded-full animate-spin" /></div>
   }
 
   return (
     <div className="space-y-5">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={generating}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-slate-800">Internal Assessment</h2>

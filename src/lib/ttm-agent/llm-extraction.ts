@@ -5,11 +5,11 @@
  * messy financial data; deterministic TypeScript handles all arithmetic.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicApiKey } from "@/lib/secure-settings"
 import * as XLSX from "xlsx";
 import { CANTARA_TAXONOMY, type TaxonomyEntry } from "@/lib/ttm-agent/taxonomy";
-import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import { getActiveAgentModelId, getActiveAgentProvider } from "@/lib/agent-llm-context";
+import { requireAIClient, resolveModel } from "@/lib/ai-client";
+import { createAgentMessage } from "@/lib/llm-completion";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,8 +107,29 @@ const LLM_MODEL = "claude-sonnet-4-20250514";
 const LLM_TEMPERATURE = 0;
 const LLM_MAX_TOKENS = 8192;
 
-async function getClient() {
-  return requireAIClient();
+async function llmJsonCompletion(system: string, userContent: string): Promise<string> {
+  const provider = getActiveAgentProvider();
+  if (provider === "openai") {
+    return createAgentMessage({
+      provider,
+      model: getActiveAgentModelId(),
+      system,
+      content: userContent,
+      maxTokens: LLM_MAX_TOKENS,
+      temperature: LLM_TEMPERATURE,
+    });
+  }
+
+  const client = await requireAIClient();
+  const response = await client.messages.create({
+    model: resolveModel(LLM_MODEL),
+    temperature: LLM_TEMPERATURE,
+    max_tokens: LLM_MAX_TOKENS,
+    system,
+    messages: [{ role: "user", content: userContent }],
+  });
+
+  return response.content[0].type === "text" ? response.content[0].text : "";
 }
 
 /**
@@ -294,8 +315,6 @@ export async function extractFinancialsWithLLM(
   plData: string,
   bsData: string | null,
 ): Promise<ExtractedFinancials> {
-  const client = await getClient();
-
   const userContent = [
     "Here is the Profit & Loss data:\n\n" + plData,
     bsData
@@ -305,16 +324,7 @@ export async function extractFinancialsWithLLM(
   ].join("");
 
   try {
-    const response = await client.messages.create({
-      model: resolveModel(LLM_MODEL),
-      temperature: LLM_TEMPERATURE,
-      max_tokens: LLM_MAX_TOKENS,
-      system: FINANCIALS_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userContent }],
-    });
-
-    const text =
-      response.content[0].type === "text" ? response.content[0].text : "";
+    const text = await llmJsonCompletion(FINANCIALS_SYSTEM_PROMPT, userContent);
 
     // Strip any accidental markdown fences
     const cleaned = text
@@ -391,8 +401,6 @@ export async function extractAddbacksWithLLM(
   periods: ExtractedFinancials["periods"],
   plExpenseData?: string | null,
 ): Promise<ExtractedAddbacks> {
-  const client = await getClient();
-
   const periodContext = periods
     .map((p) => `${p.label} — ${p.startMonth} to ${p.endMonth}`)
     .join("\n");
@@ -410,16 +418,7 @@ export async function extractAddbacksWithLLM(
   ].join("");
 
   try {
-    const response = await client.messages.create({
-      model: resolveModel(LLM_MODEL),
-      temperature: LLM_TEMPERATURE,
-      max_tokens: LLM_MAX_TOKENS,
-      system: ADDBACKS_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userContent }],
-    });
-
-    const text =
-      response.content[0].type === "text" ? response.content[0].text : "";
+    const text = await llmJsonCompletion(ADDBACKS_SYSTEM_PROMPT, userContent);
 
     const cleaned = text
       .replace(/^```(?:json)?\s*/i, "")

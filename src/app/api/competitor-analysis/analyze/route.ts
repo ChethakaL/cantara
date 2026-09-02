@@ -4,6 +4,12 @@ import { buildCompetitorAnalysisReport } from '@/lib/competitor-analysis/claude-
 import { findNearbyCompetitors, lookupSpecifiedCompetitors, inferPetBusinessCategory, lookupSubjectBusiness } from '@/lib/competitor-analysis/google-places';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
 import { CompetitorAnalysisFormData } from '@/lib/competitor-analysis/types';
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider';
+import { hasOpenAiConfigured } from '@/lib/openai-client';
 
 export const maxDuration = 180;
 const DEFAULT_PET_CATEGORY = 'pet resort';
@@ -20,12 +26,19 @@ function isGenericPetCategory(category: string | undefined): boolean {
 
 export async function POST(req: NextRequest) {
   let formData: CompetitorAnalysisFormData;
+  let rawProvider: unknown;
+  let requestedModelId: unknown;
   try {
     const body = await req.json();
     formData = body?.formData;
+    rawProvider = body?.provider;
+    requestedModelId = body?.modelId;
   } catch {
     return new Response('Invalid JSON body', { status: 400 });
   }
+
+  const provider = parseAnalyzeProvider(rawProvider);
+  const modelId = resolveAnalyzeModelId(provider, requestedModelId);
 
   if (!formData?.businessName?.trim() || !formData?.businessAddress?.trim()) {
     return new Response(
@@ -41,12 +54,19 @@ export async function POST(req: NextRequest) {
 
   const googleApiKey = process.env.GOOGLE_SERVICES_API;
   const tavilyApiKey = process.env.TAVILY_API_KEY;
+  const aiConfigured =
+    provider === 'openai' ? await hasOpenAiConfigured() : await hasAIConfigured();
 
-  if (!googleApiKey || !(await hasAIConfigured())) {
+  if (!googleApiKey || !aiConfigured) {
     return new Response(
       JSON.stringify({ error: 'Competitor analysis is not configured correctly.' }),
       { status: 500 }
     );
+  }
+
+  if (provider === 'openai') {
+    const gate = await assertOpenAiConfiguredForAnalyze();
+    if (gate) return gate;
   }
 
   const encoder = new TextEncoder();
@@ -183,6 +203,8 @@ export async function POST(req: NextRequest) {
           competitors: nearby.competitors,
           competitorWebsiteResearch,
           discoveredCompetitors: nearby.discoveredCompetitors,
+          provider,
+          modelId,
         });
 
         report.discoveredCompetitors = nearby.discoveredItems.map((item) => {

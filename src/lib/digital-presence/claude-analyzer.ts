@@ -1,5 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import { requireAIClient, resolveModel } from "@/lib/ai-client"
+import type { AgentAiProvider } from "@/lib/agent-model-provider";
+import { createAgentMessage } from "@/lib/llm-completion";
 import {
   ChannelResearchData,
   DigitalAssetFormData,
@@ -172,21 +173,34 @@ Important rules:
 export async function analyzeWithClaude(
   formData: DigitalAssetFormData,
   researchData: ChannelResearchData[],
+  options?: { provider?: AgentAiProvider; modelId?: string },
 ): Promise<DigitalPresenceReport> {
-  const client = await requireAIClient();
+  const provider = options?.provider ?? 'bedrock';
   const prompt = buildPrompt(formData, researchData);
 
-  const response = await client.messages.create({
-    model: resolveModel('claude-opus-4-5'),
-    max_tokens: 4096,
-    temperature: 0,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const rawText = response.content
-    .filter(b => b.type === 'text')
-    .map(b => (b as any).text)
-    .join('');
+  let rawText: string;
+  if (provider === 'openai') {
+    rawText = await createAgentMessage({
+      provider,
+      model: options?.modelId,
+      system: '',
+      content: prompt,
+      maxTokens: 4096,
+      temperature: 0,
+    });
+  } else {
+    const client = await requireAIClient();
+    const response = await client.messages.create({
+      model: resolveModel('claude-opus-4-5'),
+      max_tokens: 4096,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    rawText = response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('');
+  }
 
   let parsed: any;
   try {

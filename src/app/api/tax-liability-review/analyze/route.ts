@@ -13,6 +13,11 @@ const require = createRequire(import.meta.url)
 const mammoth: { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } = require('mammoth')
 import sharp from 'sharp'
 import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import {
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+  maybeOpenAiStreamFromBlocks,
+} from '@/lib/agent-analyze-provider'
 
 export const maxDuration = 300
 
@@ -22,8 +27,17 @@ type MessageStream = AsyncIterable<any> & { controller: { abort: () => void } }
 
 export async function POST(req: NextRequest) {
   try {
-    const { documents, clientName, state, entityType, fiscalYearEnd, numberOfEmployees } =
-      await req.json()
+    const body = await req.json()
+    const {
+      documents,
+      clientName,
+      state,
+      entityType,
+      fiscalYearEnd,
+      numberOfEmployees,
+      provider: rawProvider,
+      modelId: requestedModelId,
+    } = body
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
       return new Response('No documents provided', { status: 400 })
@@ -141,6 +155,17 @@ export async function POST(req: NextRequest) {
         text: `Please analyze the ${documents.length} tax document(s) above for ${clientName}. Produce the full Tax Liability Review Report as specified in your instructions and use the tax readiness reference context to call out missing/incomplete document groups. Document names: ${documents.map((d: any) => d.name).join(', ')}`,
       },
     ]
+
+    const provider = parseAnalyzeProvider(rawProvider)
+    const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+    const openAiResponse = await maybeOpenAiStreamFromBlocks({
+      provider,
+      modelId,
+      system: WS111_SYSTEM_PROMPT,
+      userContent,
+      maxTokens: 20000,
+    })
+    if (openAiResponse) return openAiResponse
 
     const client = await requireAIClient()
 

@@ -331,18 +331,17 @@ export function AdminReviewDashboard({
               </div>
             )}
 
-            {/* Items */}
-            {current.entries.filter(({ flag: rawFlag }) => {
+            {/* Items — use full section index for synthetic IDs (not filtered index) */}
+            {current.entries.map(({ item, flag: rawFlag }, entryIndex) => {
               const resolved = rawFlag?.resolutionStatus === 'ACTIONED'
-              if (resolved) return false
-              return true
-            }).map(({ item, flag: rawFlag }, i) => {
+              if (resolved) return null
+
               // If flag is null, try to find a matching one by title (check unresolved first, then resolved)
               const flag = rawFlag
                 ?? analysis.flags.find(f => f.section === current.section && f.title === item.title && f.resolutionStatus !== 'ACTIONED')
                 ?? analysis.flags.find(f => f.section === current.section && f.title === item.title)
                 ?? null
-              const flagId = flag?.id ?? `synthetic-${current.section}-${i}`
+              const flagId = flag?.id ?? `synthetic-${current.section}-${entryIndex}`
               const key = flagId
               const isOpen = openDetails[key] ?? false
               const code = codesByFlag[flagId] ?? String(flag?.payload?.assignedCantaraCode ?? item.payload?.suggestedCode ?? '')
@@ -463,28 +462,33 @@ export function AdminReviewDashboard({
                               return null
                             })()}
                             <Button size="sm" variant="outline" disabled={savingFlag === flagId || !isCodeValid}
+                              className="h-8 font-medium gap-1.5"
                               onClick={() => void submitAction(flagId, 'RESOLVE', { assignedCantaraCode: code })}>
-                              Confirm
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Confirm
                             </Button>
                             <Button size="sm" variant="outline" disabled={savingFlag === flagId}
+                              className="h-8 font-medium text-slate-600 hover:text-rose-700 hover:border-rose-200 hover:bg-rose-50/60 transition-colors"
                               onClick={() => void submitAction(flagId, 'OVERRIDE', { assignedCantaraCode: null, excludedFromMapping: true })}>
                               Exclude
                             </Button>
-                            <Button size="sm" disabled={savingFlag === flagId}
+                            <Button size="sm" variant="outline" disabled={savingFlag === flagId}
+                              className="h-8 font-medium border-amber-200 bg-amber-50/70 text-amber-800 hover:bg-amber-100 hover:border-amber-300 transition-colors gap-1.5"
                               onClick={() => void submitAction(flagId, 'ESCALATE_CLIENT')}>
-                              <Send className="w-3 h-3" /> Escalate
+                              <Send className="w-3 h-3 text-amber-600" /> Escalate
                             </Button>
                           </>
                         ) : (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[11px] text-slate-400 italic">LLM note — use "Acknowledge All Notes" above or:</span>
                             <Button size="sm" variant="outline" disabled={savingFlag === flagId}
+                              className="h-8 font-medium gap-1.5"
                               onClick={() => void submitAction(flagId, 'RESOLVE')}>
-                              Acknowledge
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Acknowledge
                             </Button>
-                            <Button size="sm" disabled={savingFlag === flagId}
+                            <Button size="sm" variant="outline" disabled={savingFlag === flagId}
+                              className="h-8 font-medium border-amber-200 bg-amber-50/70 text-amber-800 hover:bg-amber-100 hover:border-amber-300 transition-colors gap-1.5"
                               onClick={() => void submitAction(flagId, 'ESCALATE_CLIENT')}>
-                              <Send className="w-3 h-3" /> Escalate
+                              <Send className="w-3 h-3 text-amber-600" /> Escalate
                             </Button>
                           </div>
                         )}

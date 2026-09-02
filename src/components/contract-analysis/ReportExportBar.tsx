@@ -7,9 +7,10 @@ interface Props {
   clientName: string
   onNewAnalysis: () => void
   onDelete?: () => void
+  hideNewAnalysis?: boolean
 }
 
-export function ReportExportBar({ reportMarkdown, clientName, onNewAnalysis, onDelete }: Props) {
+export function ReportExportBar({ reportMarkdown, clientName, onNewAnalysis, onDelete, hideNewAnalysis = false }: Props) {
   const handleExport = () => {
     const blob = new Blob([reportMarkdown], { type: 'text/markdown' })
     const url = URL.createObjectURL(blob)
@@ -27,9 +28,11 @@ export function ReportExportBar({ reportMarkdown, clientName, onNewAnalysis, onD
         <Download className="w-3.5 h-3.5" /> Export
       </Button>
       
-      <Button variant="outline" size="sm" onClick={onNewAnalysis} className="gap-2">
-        <Plus className="w-3.5 h-3.5" /> New Analysis
-      </Button>
+      {!hideNewAnalysis && (
+        <Button variant="outline" size="sm" onClick={onNewAnalysis} className="gap-2">
+          <Plus className="w-3.5 h-3.5" /> New Analysis
+        </Button>
+      )}
 
       {onDelete && (
         <Button

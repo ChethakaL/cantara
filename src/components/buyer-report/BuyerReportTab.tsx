@@ -9,6 +9,13 @@ import { ExportReportButton } from '@/components/report-export/ExportReportButto
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildBuyerReportHtml } from '@/lib/report-export/build-buyer-report'
 import { getStatusBadgeKind, isStatusCell } from '@/lib/report-export/status-cell'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 type BuyerReport = {
   workstream: string
@@ -97,10 +104,56 @@ export default function BuyerReportTab({
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [roadmapReady, setRoadmapReady] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems: allHistoryItems,
+    activeRun: allActiveRun,
+    activeId: allActiveId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.buyerReport)
+
+  const runsForWorkstream = useMemo(
+    () => runs.filter((run) => {
+      const meta = run.metadata as { workstream?: string } | null | undefined
+      return meta?.workstream === workstream || (!meta?.workstream && run.report && (run.report as BuyerReport).workstream === workstream)
+    }),
+    [runs, workstream],
+  )
+
+  const historyItems = useMemo(
+    () => runsForWorkstream.map((run) => allHistoryItems.find((item) => item.id === run.id)!).filter(Boolean),
+    [runsForWorkstream, allHistoryItems],
+  )
+
+  const activeRun = useMemo(
+    () => runsForWorkstream.find((run) => run.id === allActiveId) ?? runsForWorkstream[0] ?? null,
+    [runsForWorkstream, allActiveId],
+  )
+
+  const activeId = activeRun?.id ?? null
 
   const wsLabel = workstream === 'ws1' ? 'WS1 — Risk Mitigation' : 'WS2 — Profitability & Growth'
 
-  const load = async () => {
+  useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      setReport(activeRun.report as BuyerReport)
+      setLoading(false)
+      return
+    }
+    void loadFromApi()
+  }, [activeRun, loadingRuns, clientId, workstream])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    if (full?.report) setReport(full.report as BuyerReport)
+  }
+
+  const loadFromApi = async () => {
     setLoading(true)
     setError(null)
     try {
@@ -123,11 +176,22 @@ export default function BuyerReportTab({
       const res = await fetch('/api/buyer-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, workstream }),
+        body: JSON.stringify({ clientId, workstream, provider, modelId: resolveAgentModelId(provider) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to generate buyer report.')
       setReport(data.report)
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.buyerReport,
+        fileName: `${clientName} — ${wsLabel} Buyer Report`,
+        report: data.report,
+        markdown: data.report?.markdown,
+        metadata: { workstream },
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate buyer report.')
     } finally {
@@ -135,24 +199,33 @@ export default function BuyerReportTab({
     }
   }
 
-  useEffect(() => { void load() }, [clientId, workstream])
-
   const html = useMemo(() =>
     report ? buildBuyerReportHtml(report) : '',
   [report])
 
-  if (loading) {
+  if (loading || loadingRuns) {
     return <div className="h-48 flex items-center justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" /></div>
   }
 
   return (
     <div className="space-y-5">
+      <AgentRunToolbar
+        provider={provider}
+        onProviderChange={setProvider}
+        disabled={generating}
+        historyItems={historyItems}
+        activeId={activeId}
+        onSelectRun={selectRun}
+        activeProvider={activeRun?.aiProvider}
+        activeModel={activeRun?.aiModel}
+        activeVersion={activeRun?.version}
+      />
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-slate-800">Buyer Report</h2>
           <p className="text-xs text-slate-500 mt-1">{wsLabel} — Buyer-Facing Acquisition Summary</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-end gap-2">
           <Button size="sm" variant="outline" onClick={generate} disabled={generating || !roadmapReady} title={!roadmapReady ? 'Run the Sales Readiness Roadmap first' : undefined}>
             <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
             {report ? 'Regenerate' : 'Generate Report'}

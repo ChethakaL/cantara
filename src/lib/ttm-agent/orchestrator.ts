@@ -484,6 +484,8 @@ export async function runTtmAgent(args: {
   clientId: string;
   triggeredByName?: string;
   preparedDocuments: PreparedDocumentInput[];
+  aiProvider?: string;
+  aiModel?: string;
 }) {
   console.log(`[TTM] ▶ Starting WS2-1 agent for client=${args.clientId} triggered by ${args.triggeredByName ?? "system"}`);
   const inputDocuments = await loadLatestInputDocuments(args.clientId);
@@ -508,7 +510,8 @@ export async function runTtmAgent(args: {
       status: "RUNNING",
       hitlStatus: "PENDING_REVIEW",
       inputFingerprint: hashInputSnapshot(inputSnapshot),
-      model: TTM_AGENT_MODEL,
+      aiProvider: args.aiProvider ?? "bedrock",
+      model: args.aiModel ?? TTM_AGENT_MODEL,
       temperature: TTM_AGENT_TEMPERATURE,
       maxTokens: TTM_AGENT_MAX_TOKENS,
       inputSnapshot,

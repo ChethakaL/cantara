@@ -8,40 +8,46 @@ datasource db {
 }
 
 model LeaseAnalysis {
-  id        String        @id @default(cuid())
-  clientId  String
-  fileName  String
-  report    String
-  parsed    Json?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id         String        @id @default(cuid())
+  clientId   String
+  fileName   String
+  report     String
+  parsed     Json?
+  aiProvider String        @default("bedrock")
+  aiModel    String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  client     ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
 }
 
 model ContractAnalysis {
-  id        String        @id @default(cuid())
-  clientId  String
-  fileName  String
-  report    String
-  parsed    Json?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id         String        @id @default(cuid())
+  clientId   String
+  fileName   String
+  report     String
+  parsed     Json?
+  aiProvider String        @default("bedrock")
+  aiModel    String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  client     ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
 }
 
 model CompetitorAnalysis {
-  id        String        @id @default(cuid())
-  clientId  String
-  fileName  String
-  report    String
-  parsed    Json?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  client    ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id         String        @id @default(cuid())
+  clientId   String
+  fileName   String
+  report     String
+  parsed     Json?
+  aiProvider String        @default("bedrock")
+  aiModel    String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  client     ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
 }
@@ -52,6 +58,8 @@ model EmployeeObligationsReport {
   markdown      String
   documentNames String[]      @default([])
   metadata      Json?
+  aiProvider    String        @default("bedrock")
+  aiModel       String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -65,6 +73,8 @@ model RealEstateAppraisalReport {
   markdown      String
   documentNames String[]      @default([])
   metadata      Json?
+  aiProvider    String        @default("bedrock")
+  aiModel       String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -79,6 +89,7 @@ model TtmAnalysis {
   status            TtmRunStatus        @default(RUNNING)
   hitlStatus        TtmHitlStatus       @default(PENDING_REVIEW)
   inputFingerprint  String
+  aiProvider        String              @default("bedrock")
   model             String
   temperature       Float
   maxTokens         Int
@@ -359,6 +370,7 @@ model ClientProfile {
   PermitsZoningReports         PermitsZoningReport[]
   LegalEntitySearchReports     LegalEntitySearchReport[]
   TaxLiabilityReports          TaxLiabilityReport[]
+  AgentAnalysisRuns            AgentAnalysisRun[]
   Questions                    Question[]
   TeamMembers                  TeamMember[]
   TeaserReport                 TeaserReport?
@@ -754,6 +766,8 @@ model OwnershipVerificationReport {
   markdown      String
   documentNames String[]      @default([])
   metadata      Json?
+  aiProvider    String        @default("bedrock")
+  aiModel       String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -767,6 +781,8 @@ model PermitsZoningReport {
   markdown      String
   documentNames String[]      @default([])
   metadata      Json?
+  aiProvider    String        @default("bedrock")
+  aiModel       String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -780,6 +796,8 @@ model LegalEntitySearchReport {
   markdown      String
   documentNames String[]      @default([])
   metadata      Json?
+  aiProvider    String        @default("bedrock")
+  aiModel       String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -793,11 +811,32 @@ model TaxLiabilityReport {
   markdown      String
   documentNames String[]      @default([])
   metadata      Json?
+  aiProvider    String        @default("bedrock")
+  aiModel       String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
+}
+
+model AgentAnalysisRun {
+  id            String        @id @default(cuid())
+  clientId      String
+  agentKey      String
+  fileName      String?
+  report        Json          @default("{}")
+  markdown      String?
+  documentNames String[]      @default([])
+  metadata      Json?
+  aiProvider    String        @default("bedrock")
+  aiModel       String?
+  version       Int           @default(1)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  client        ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, agentKey, createdAt])
 }
 
 model AgentFormQuestion {

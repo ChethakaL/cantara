@@ -8,6 +8,13 @@ import { DigitalAssetFormData, DigitalPresenceReport, AnalysisStatus } from '@/l
 import { cn } from '@/components/ui';
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly';
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab';
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider';
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns';
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar';
+import { resolveAgentModelId } from '@/lib/agent-model-provider';
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys';
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client';
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel';
 
 interface ProgressEvent {
   type: 'progress';
@@ -49,6 +56,40 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
   const [lastFormData, setLastFormData] = useState<DigitalAssetFormData | null>(null);
   const [manualOverrides, setManualOverrides] = useState<ManualOverride[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const { provider, setProvider } = useAgentAiProvider();
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.digitalPresence);
+
+  useEffect(() => {
+    if (loadingRuns) return;
+    if (!activeRun?.report) {
+      setInitialLoadDone(true);
+      return;
+    }
+    const payload = activeRun.report as DigitalPresenceReport;
+    if (payload?.businessName || payload?.channels?.length) {
+      setReport(payload);
+      setStatus('complete');
+    }
+    setInitialLoadDone(true);
+  }, [activeRun, loadingRuns]);
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id);
+    const full = runs.find((item) => item.id === run.id);
+    const payload = (full?.report ?? null) as DigitalPresenceReport | null;
+    if (payload) {
+      setReport(payload);
+      setStatus('complete');
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -66,32 +107,17 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     return () => { cancelled = true; };
   }, [clientId]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadSavedReport() {
-      try {
-        const res = await fetch(`/api/client-data/${clientId}?section=digitalPresence`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled && data) {
-          setReport(data as DigitalPresenceReport);
-          setStatus('complete');
-        }
-      } catch {
-        // Saved report is optional.
-      } finally {
-        if (!cancelled) setInitialLoadDone(true);
-      }
-    }
-    void loadSavedReport();
-    return () => { cancelled = true; };
-  }, [clientId]);
-
-  async function persistReport(nextReport: DigitalPresenceReport) {
+  async function persistReport(nextReport: DigitalPresenceReport, runMeta?: { aiProvider: string; aiModel: string }) {
     const res = await fetch(`/api/client-data/${clientId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ section: 'digitalPresence', data: nextReport }),
+      body: JSON.stringify({
+        section: 'digitalPresence',
+        data: {
+          ...nextReport,
+          ...(runMeta ? { aiProvider: runMeta.aiProvider, aiModel: runMeta.aiModel } : {}),
+        },
+      }),
     });
     if (!res.ok) {
       const message = await res.text().catch(() => '');
@@ -165,7 +191,11 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
       const res = await fetch('/api/digital-presence/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ formData }),
+        body: JSON.stringify({
+          formData,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -207,9 +237,19 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
             setReport(finalReport);
             setStatus('complete');
             try {
-              await persistReport(finalReport);
+              const modelId = resolveAgentModelId(provider);
+              await persistReport(finalReport, { aiProvider: provider, aiModel: modelId });
+              await saveAgentAnalysisRunClient({
+                clientId,
+                agentKey: AGENT_RUN_KEYS.digitalPresence,
+                fileName: `${finalReport.businessName} — Digital Presence`,
+                report: finalReport,
+                aiProvider: provider,
+                aiModel: modelId,
+              });
+              await reloadRuns();
             } catch (saveError: any) {
-              setError(saveError?.message ?? 'Digital Presence report save failed.');
+              setError(saveError?.message ?? 'Report saved but run history failed to record. Restart the dev server and re-run, or click Re-run Analysis.');
             }
           } else if (event.type === 'error') {
             throw new Error(event.error ?? 'Analysis failed.');
@@ -254,6 +294,20 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
 
   return (
     <div className="space-y-5">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={isLoading}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
+
       {/* Status strip */}
       {(isLoading || status === 'complete') && (
         <div className={cn(
@@ -276,13 +330,15 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
 
       {/* Idle -> form */}
       {status === 'idle' && !readOnly && (
-        <DigitalPresenceForm
-          onSubmit={handleSubmit}
-          loading={false}
-          initialData={lastFormData ?? undefined}
-          clientName={clientName}
-          clientWebsite={clientWebsite}
-        />
+        <div className="space-y-4">
+          <DigitalPresenceForm
+            onSubmit={handleSubmit}
+            loading={false}
+            initialData={lastFormData ?? undefined}
+            clientName={clientName}
+            clientWebsite={clientWebsite}
+          />
+        </div>
       )}
 
       {/* Loading -> live log */}

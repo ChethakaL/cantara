@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
-import { FileText, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button, Card, Modal } from '@/components/ui'
 import type { LeaseAnalysis } from '@/lib/store'
 import { saveLeaseAnalysis, getLeaseAnalyses, deleteLeaseAnalysis, updateLeaseAnalysis } from '@/lib/store'
@@ -13,6 +13,8 @@ import { AnalysisProgress } from '../lease-analysis/AnalysisProgress'
 import { LeaseReport } from '../lease-analysis/LeaseReport'
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
+import { AgentRunHistoryPanel } from '@/components/admin/AgentRunHistoryPanel'
+import { formatAgentProviderLabel } from '@/lib/agent-model-provider'
 
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
@@ -25,7 +27,7 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
-  
+  const [composingNew, setComposingNew] = useState(false)
   const { 
     documents: uploads, 
     addDocuments, 
@@ -35,7 +37,10 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
     rawMarkdown, 
     report: streamedReport, 
     error: analysisError,
-    clearAll
+    clearAll,
+    provider,
+    setProvider,
+    lastModelId,
   } = useLeaseAnalysis(clientId)
 
   const loadAnalyses = useCallback(async () => {
@@ -46,7 +51,7 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
 
   const beginNewAnalysis = useCallback(() => {
     clearAll()
-    setActiveAnalysis(null)
+    setComposingNew(true)
   }, [clearAll])
 
   const handleDeleteConfirmed = async () => {
@@ -79,10 +84,10 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
 
   useEffect(() => {
     loadAnalyses().then(data => {
-        if (data.length > 0 && !activeAnalysis) setActiveAnalysis(data[0])
-        setInitialLoadDone(true)
+      if (data.length > 0) setActiveAnalysis(current => current ?? data[0])
+      setInitialLoadDone(true)
     })
-  }, [loadAnalyses, activeAnalysis])
+  }, [loadAnalyses])
 
   // Save report when complete
   useEffect(() => {
@@ -94,14 +99,17 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
         fileName: allNames,
         report: rawMarkdown,
         parsed: streamedReport,
+        aiProvider: provider,
+        aiModel: lastModelId ?? undefined,
       }).then((saved) => {
         // Use DB-generated ID so deletes work on first click.
         if (saved?.id) setActiveAnalysis(saved)
+        setComposingNew(false)
         loadAnalyses()
         clearAll()
       })
     }
-  }, [status, streamedReport, clientId, rawMarkdown, uploads, loadAnalyses, clearAll])
+  }, [status, streamedReport, clientId, rawMarkdown, uploads, loadAnalyses, clearAll, provider, lastModelId])
 
   // Use either the historical active analysis or the live streamed one
   const displayReport = (status === 'streaming' || status === 'complete') && streamedReport 
@@ -112,7 +120,10 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
     ? uploads.map(d => d.name).join(', ')
     : activeAnalysis?.fileName || ''
 
-  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(displayReport), 'Lease Analysis')
+  const showUploader = !readOnly && status === 'idle' && (composingNew || analyses.length === 0 || uploads.length > 0)
+  const showReport = Boolean(displayReport) && !composingNew
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, showReport, 'Lease Analysis')
   if (readOnlyGate) return readOnlyGate
 
   return (
@@ -123,32 +134,32 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
           <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Lease Analysis</h3>
           <p className="text-xs text-slate-400 mt-0.5">Upload lease PDFs to run full M&A due diligence analysis</p>
           <p className="text-xs text-slate-400 mt-1">Lease documents can also be uploaded in the Documents tab.</p>
+          {activeAnalysis?.aiProvider && !composingNew && (
+            <p className="text-xs text-slate-500 mt-1">
+              Viewing run: {formatAgentProviderLabel(activeAnalysis.aiProvider)}
+              {activeAnalysis.aiModel ? ` · ${activeAnalysis.aiModel}` : ''}
+            </p>
+          )}
         </div>
-        {analyses.length > 0 && (
+        <div className="flex items-center gap-2">
+          <AgentRunHistoryPanel
+            runs={analyses}
+            activeId={activeAnalysis?.id}
+            onSelect={(run) => {
+              const found = analyses.find((analysis) => analysis.id === run.id)
+              if (found) {
+                setComposingNew(false)
+                setActiveAnalysis(found)
+              }
+            }}
+          />
+        {analyses.length > 0 && !composingNew && (
           <Button variant="outline" size="sm" className="gap-2" onClick={beginNewAnalysis} data-advisor-action>
             <Plus className="w-3.5 h-3.5" /> New Analysis
           </Button>
         )}
-      </div>
-
-      {/* Prior analyses selector */}
-      {analyses.length > 1 && status === 'idle' && (
-        <div className="flex gap-2 flex-wrap">
-          {analyses.map(a => (
-            <button
-              key={a.id}
-              onClick={() => setActiveAnalysis(a)}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
-                activeAnalysis?.id === a.id ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'
-              }`}
-            >
-              <FileText className="w-3 h-3 inline mr-1.5" />
-              {a.fileName.length > 30 ? a.fileName.slice(0, 30) + '…' : a.fileName}
-              <span className="ml-2 text-slate-400">{new Date(a.createdAt).toLocaleDateString()}</span>
-            </button>
-          ))}
         </div>
-      )}
+      </div>
 
       {/* Main Content Area */}
       <div className="space-y-6">
@@ -160,11 +171,11 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
             ) : analysisError ? (
               <div className="text-center space-y-4">
                 <p className="text-sm text-rose-500 font-medium">{analysisError}</p>
-                <Button variant="outline" size="sm" onClick={clearAll}>Try Again</Button>
+                <Button variant="outline" size="sm" onClick={beginNewAnalysis}>Try Again</Button>
               </div>
             ) : null}
           </Card>
-        ) : !readOnly && (analyses.length === 0 || uploads.length > 0) ? (
+        ) : showUploader ? (
           <div data-advisor-action>
           <LeaseUploader 
             documents={uploads}
@@ -172,20 +183,23 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
             removeDocument={removeDocument}
             status={status}
             onAnalyze={analyze}
+            provider={provider}
+            onProviderChange={setProvider}
           />
           </div>
         ) : null}
 
         {/* Report Display */}
-        {displayReport && (
+        {showReport && (
           <LeaseReport 
-            report={displayReport}
+            report={displayReport!}
             fileName={displayFileName}
             clientName={clientName}
             onNewAnalysis={beginNewAnalysis}
             onDelete={activeAnalysis ? () => setDeleteOpen(true) : undefined}
             onReportUpdated={!readOnly && activeAnalysis && status === 'idle' ? handleReportUpdated : undefined}
             adminMode={!readOnly && Boolean(activeAnalysis && status === 'idle')}
+            hideNewAnalysis
           />
         )}
       </div>

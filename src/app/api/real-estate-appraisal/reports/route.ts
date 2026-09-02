@@ -5,13 +5,13 @@ export async function GET(req: NextRequest) {
   const clientId = req.nextUrl.searchParams.get('clientId')
   if (!clientId) return new Response('clientId required', { status: 400 })
   try {
-    const report = await prisma.realEstateAppraisalReport.findFirst({
+    const reports = await prisma.realEstateAppraisalReport.findMany({
       where: { clientId },
       orderBy: { createdAt: 'desc' },
     })
-    return NextResponse.json(report)
+    return NextResponse.json({ report: reports[0] ?? null, reports })
   } catch (error) {
     console.error('[real-estate-appraisal/reports]', error)
-    return NextResponse.json(null)
+    return NextResponse.json({ report: null, reports: [] })
   }
 }

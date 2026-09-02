@@ -19,6 +19,7 @@ interface Props {
   onDelete?: () => void
   onReportUpdated?: (report: IContractReport) => Promise<void>
   adminMode?: boolean
+  hideNewAnalysis?: boolean
 }
 
 const REPORT_TABS = [
@@ -28,7 +29,7 @@ const REPORT_TABS = [
   { key: 'documents', label: 'Documents', icon: Folder },
 ]
 
-export function ContractReport({ report, fileName, clientName, onNewAnalysis, onDelete, onReportUpdated, adminMode = false }: Props) {
+export function ContractReport({ report, fileName, clientName, onNewAnalysis, onDelete, onReportUpdated, adminMode = false, hideNewAnalysis = false }: Props) {
   const [activeTab, setActiveTab] = useState('snapshot')
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<IContractReport | null>(null)
@@ -127,6 +128,7 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
             clientName={clientName}
             onNewAnalysis={onNewAnalysis}
             onDelete={onDelete}
+            hideNewAnalysis={hideNewAnalysis}
           />
           </div>
         </div>

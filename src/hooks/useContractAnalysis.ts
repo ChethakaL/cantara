@@ -2,6 +2,8 @@ import { useState, useCallback } from "react";
 import { AnalysisStatus, ContractDocument, ContractReport } from "@/lib/contract-analysis/types";
 import { convertPdfToBase64 } from "@/lib/contract-analysis/pdf-to-base64";
 import { parseReport } from "@/lib/contract-analysis/parse-report";
+import type { AgentAiProvider } from "@/lib/agent-model-provider";
+import { resolveAgentModelId } from "@/lib/agent-model-provider";
 
 export function useContractAnalysis(clientId?: string) {
   const [documents, setDocuments] = useState<ContractDocument[]>([]);
@@ -9,6 +11,8 @@ export function useContractAnalysis(clientId?: string) {
   const [rawMarkdown, setRawMarkdown] = useState("");
   const [report, setReport] = useState<ContractReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [provider, setProvider] = useState<AgentAiProvider>("bedrock");
+  const [lastModelId, setLastModelId] = useState<string | null>(null);
 
   const addDocuments = async (files: File[]) => {
     const pdfFiles = files.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
@@ -82,7 +86,12 @@ export function useContractAnalysis(clientId?: string) {
       const res = await fetch("/api/contract-analysis/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documents, clientId }),
+        body: JSON.stringify({
+          documents,
+          clientId,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
       });
 
       if (!res.ok) {
@@ -110,12 +119,13 @@ export function useContractAnalysis(clientId?: string) {
 
       const parsed = parseReport(accumulated);
       setReport(parsed);
+      setLastModelId(resolveAgentModelId(provider));
       setStatus("complete");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred during analysis.");
       setStatus("error");
     }
-  }, [documents, clientId]);
+  }, [documents, clientId, provider]);
 
   return {
     documents,
@@ -128,5 +138,8 @@ export function useContractAnalysis(clientId?: string) {
     report,
     error,
     clientId,
+    provider,
+    setProvider,
+    lastModelId,
   };
 }

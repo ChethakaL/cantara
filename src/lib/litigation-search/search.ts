@@ -1,5 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
 
 const TAVILY_API_URL = 'https://api.tavily.com/search'
 const FETCH_TIMEOUT_MS = 20000
@@ -58,182 +57,7 @@ function extractJsonObject(text: string): string {
   return cleaned.slice(start, end + 1)
 }
 
-export async function searchPublicRecords(args: {
-  businessName: string
-  ownerName: string
-  state: string
-  county?: string
-  city?: string
-}): Promise<LitigationSearchResult> {
-    const client = await requireAIClient()
-
-  const searchQueries = [
-    `${args.businessName} ${args.ownerName} court records ${args.county ? args.county + ' County' : ''} ${args.state}`,
-    `${args.businessName} UCC filing ${args.state} secretary of state`,
-    `${args.businessName} ${args.ownerName} lawsuit litigation`,
-    `${args.businessName} lien judgment ${args.state}`,
-    `${args.ownerName} bankruptcy filing`,
-  ]
-
-  const prompt = usesBedrock()
-    ? await buildBedrockLitigationPrompt(args, searchQueries)
-    : buildAnthropicWebSearchPrompt(args, searchQueries)
-
-  const response = usesBedrock()
-    ? await client.messages.create({
-        model: resolveModel('claude-sonnet-4-20250514'),
-        max_tokens: 4000,
-        temperature: 0,
-        messages: [{ role: 'user', content: prompt }],
-      })
-    : await client.messages.create({
-        model: resolveModel('claude-sonnet-4-20250514'),
-        max_tokens: 4000,
-        temperature: 0,
-        tools: [{
-          type: 'web_search_20260209' as any,
-          name: 'web_search',
-          max_uses: 8,
-          allowed_callers: ['direct'],
-        }],
-        messages: [{ role: 'user', content: prompt }],
-      })
-
-  const searchRequests = usesBedrock()
-    ? searchQueries.length
-    : (response.usage?.server_tool_use?.web_search_requests ?? 0)
-  const textBlocks = response.content.filter((b) => b.type === 'text')
-  const rawText = textBlocks.map((b) => ('text' in b ? b.text : '')).join('').trim()
-  const cleaned = extractJsonObject(rawText)
-
-  try {
-    const parsed = JSON.parse(cleaned)
-    if (searchRequests === 0) {
-      throw new Error('Claude returned JSON without using web_search')
-    }
-    return {
-      ...parsed,
-      searchesPerformed: Array.isArray(parsed.searchesPerformed) ? parsed.searchesPerformed : searchQueries,
-      generatedAt: new Date().toISOString(),
-    }
-  } catch {
-    return {
-      summary: searchRequests > 0
-        ? 'Claude web search ran, but the analysis response could not be parsed into the required report JSON.'
-        : usesBedrock()
-          ? 'Web search results were gathered, but the analysis response could not be parsed into the required report JSON.'
-          : 'Claude did not invoke web_search. Please retry; if this persists, check Anthropic web search availability for this API key/model.',
-      findings: [],
-      riskLevel: 'low' as const,
-      searchesPerformed: searchQueries,
-      generatedAt: new Date().toISOString(),
-    }
-  }
-}
-
-export async function analyzeUploadedDocument(args: {
-  fileName: string
-  base64: string
-  mediaType: string
-}): Promise<LitigationSearchResult> {
-    const client = await requireAIClient()
-
-  const content: any[] = []
-
-  if (args.mediaType === 'application/pdf') {
-    content.push({
-      type: 'document',
-      source: { type: 'base64', media_type: 'application/pdf', data: args.base64 },
-    })
-  } else if (args.mediaType.startsWith('image/')) {
-    content.push({
-      type: 'image',
-      source: { type: 'base64', media_type: args.mediaType, data: args.base64 },
-    })
-  }
-
-  content.push({
-    type: 'text',
-    text: `You are a litigation and lien search analyst for an M&A advisory firm. Review this uploaded document (${args.fileName}) and extract all litigation, lien, judgment, UCC filing, or bankruptcy information.
-
-Return ONLY valid JSON:
-{
-  "summary": "2-4 sentence summary",
-  "findings": [
-    {
-      "type": "litigation|lien|judgment|ucc_filing|bankruptcy|other",
-      "title": "Brief title",
-      "description": "Details including dates and amounts",
-      "severity": "high|medium|low|clear",
-      "source": "Document: ${args.fileName}",
-      "date": "Date if known"
-    }
-  ],
-  "riskLevel": "high|medium|low|clear",
-  "searchesPerformed": ["Document review: ${args.fileName}"]
-}`,
-  })
-
-  const response = await client.messages.create({
-    model: resolveModel('claude-opus-4-5'),
-    max_tokens: 3000,
-    temperature: 0,
-    messages: [{ role: 'user', content }],
-  })
-
-  const rawText = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => ('text' in b ? b.text : ''))
-    .join('').trim()
-  const cleaned = extractJsonObject(rawText)
-  const parsed = JSON.parse(cleaned)
-  return { ...parsed, generatedAt: new Date().toISOString() }
-}
-
-function buildAnthropicWebSearchPrompt(
-  args: { businessName: string; ownerName: string; state: string; county?: string; city?: string },
-  searchQueries: string[],
-) {
-  return `You are a litigation and lien search analyst for an M&A advisory firm. Use the web_search tool to search public web sources for litigation, liens, judgments, UCC filings, or bankruptcy filings related to this business and its owner.
-
-Business: ${args.businessName}
-Owner: ${args.ownerName}
-State: ${args.state}
-${args.county ? `County: ${args.county}` : ''}
-${args.city ? `City: ${args.city}` : ''}
-
-Run these searches with web_search:
-${searchQueries.map((query, i) => `${i + 1}. ${query}`).join('\n')}
-
-Look for:
-1. Court records and lawsuits involving the business or owner
-2. UCC filings against the business
-3. Tax liens or other liens
-4. Judgments against the business or owner
-5. Bankruptcy filings
-
-After searching, return JSON:
-
-{
-  "summary": "2-4 sentence summary of overall findings",
-  "findings": [
-    {
-      "type": "litigation|lien|judgment|ucc_filing|bankruptcy|other",
-      "title": "Brief title of finding",
-      "description": "What was found, including dates and amounts if available",
-      "severity": "high|medium|low|clear",
-      "source": "URL or source description",
-      "date": "Date if known"
-    }
-  ],
-  "riskLevel": "high|medium|low|clear",
-  "searchesPerformed": ["list of search queries executed"]
-}
-
-If nothing is found, return riskLevel "clear" with an empty findings array and a summary stating no public records were found in searched public web sources. Return ONLY valid JSON. Do not say you will search; perform the searches first.`
-}
-
-async function buildBedrockLitigationPrompt(
+async function buildLitigationPrompt(
   args: { businessName: string; ownerName: string; state: string; county?: string; city?: string },
   searchQueries: string[],
 ) {
@@ -288,4 +112,102 @@ Return JSON only:
 }
 
 If nothing relevant is found in the search results, return riskLevel "clear" with an empty findings array. Return ONLY valid JSON.`
+}
+
+export async function searchPublicRecords(args: {
+  businessName: string
+  ownerName: string
+  state: string
+  county?: string
+  city?: string
+}): Promise<LitigationSearchResult> {
+  const searchQueries = [
+    `${args.businessName} ${args.ownerName} court records ${args.county ? args.county + ' County' : ''} ${args.state}`,
+    `${args.businessName} UCC filing ${args.state} secretary of state`,
+    `${args.businessName} ${args.ownerName} lawsuit litigation`,
+    `${args.businessName} lien judgment ${args.state}`,
+    `${args.ownerName} bankruptcy filing`,
+  ]
+
+  const prompt = await buildLitigationPrompt(args, searchQueries)
+
+  const rawText = await createAgentMessage({
+    system: 'You are a litigation and lien search analyst for an M&A advisory firm. Return only valid JSON.',
+    content: prompt,
+    maxTokens: 4000,
+    temperature: 0,
+  })
+
+  const cleaned = extractJsonObject(rawText)
+
+  try {
+    const parsed = JSON.parse(cleaned)
+    return {
+      ...parsed,
+      searchesPerformed: Array.isArray(parsed.searchesPerformed) ? parsed.searchesPerformed : searchQueries,
+      generatedAt: new Date().toISOString(),
+    }
+  } catch {
+    return {
+      summary: 'Web search results were gathered, but the analysis response could not be parsed into the required report JSON.',
+      findings: [],
+      riskLevel: 'low' as const,
+      searchesPerformed: searchQueries,
+      generatedAt: new Date().toISOString(),
+    }
+  }
+}
+
+export async function analyzeUploadedDocument(args: {
+  fileName: string
+  base64: string
+  mediaType: string
+}): Promise<LitigationSearchResult> {
+  const content: AgentMessageBlock[] = []
+
+  if (args.mediaType === 'application/pdf') {
+    content.push({
+      type: 'document',
+      title: args.fileName,
+      source: { type: 'base64', media_type: 'application/pdf', data: args.base64 },
+    })
+  } else if (args.mediaType.startsWith('image/')) {
+    content.push({
+      type: 'image',
+      source: { media_type: args.mediaType, data: args.base64 },
+    })
+  }
+
+  content.push({
+    type: 'text',
+    text: `You are a litigation and lien search analyst for an M&A advisory firm. Review this uploaded document (${args.fileName}) and extract all litigation, lien, judgment, UCC filing, or bankruptcy information.
+
+Return ONLY valid JSON:
+{
+  "summary": "2-4 sentence summary",
+  "findings": [
+    {
+      "type": "litigation|lien|judgment|ucc_filing|bankruptcy|other",
+      "title": "Brief title",
+      "description": "Details including dates and amounts",
+      "severity": "high|medium|low|clear",
+      "source": "Document: ${args.fileName}",
+      "date": "Date if known"
+    }
+  ],
+  "riskLevel": "high|medium|low|clear",
+  "searchesPerformed": ["Document review: ${args.fileName}"]
+}`,
+  })
+
+  const rawText = await createAgentMessage({
+    system: 'You are a litigation and lien search analyst for an M&A advisory firm. Return only valid JSON.',
+    content,
+    maxTokens: 3000,
+    temperature: 0,
+  })
+
+  const cleaned = extractJsonObject(rawText)
+  const parsed = JSON.parse(cleaned)
+  return { ...parsed, generatedAt: new Date().toISOString() }
 }

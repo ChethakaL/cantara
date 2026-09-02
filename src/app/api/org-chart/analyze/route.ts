@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeOrgChart } from '@/lib/org-chart/analyze'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
 
 export const maxDuration = 120
 
@@ -9,6 +14,13 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File
     if (!file) return new Response('No file provided', { status: 400 })
 
+    const provider = parseAnalyzeProvider(formData.get('provider'))
+    const modelId = resolveAnalyzeModelId(provider, formData.get('modelId'))
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer())
     const base64 = buffer.toString('base64')
     const mediaType = file.type || 'application/octet-stream'
@@ -17,6 +29,8 @@ export async function POST(req: NextRequest) {
       fileName: file.name,
       base64,
       mediaType,
+      provider,
+      modelId,
     })
     return NextResponse.json(result)
   } catch (error: any) {

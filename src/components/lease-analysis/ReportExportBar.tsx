@@ -10,9 +10,10 @@ interface Props {
   onNewAnalysis: () => void
   onDelete?: () => void
   report?: LeaseReport
+  hideNewAnalysis?: boolean
 }
 
-export function ReportExportBar({ clientName, onNewAnalysis, onDelete, report }: Props) {
+export function ReportExportBar({ clientName, onNewAnalysis, onDelete, report, hideNewAnalysis = false }: Props) {
   const handleExportExcel = () => {
     if (!report) {
       alert('Excel export is not available until the parsed lease report has loaded.')
@@ -101,9 +102,11 @@ export function ReportExportBar({ clientName, onNewAnalysis, onDelete, report }:
         <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
       </Button>
       
-      <Button variant="outline" size="sm" onClick={onNewAnalysis} className="gap-2">
-        <Plus className="w-3.5 h-3.5" /> New Analysis
-      </Button>
+      {!hideNewAnalysis && (
+        <Button variant="outline" size="sm" onClick={onNewAnalysis} className="gap-2">
+          <Plus className="w-3.5 h-3.5" /> New Analysis
+        </Button>
+      )}
 
       {onDelete && (
         <Button

@@ -1,20 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
 import type { PricingVerticalReport } from './types'
 import type { ServicePricingRow } from './types'
 import type { WebsiteResearchData } from '@/lib/competitor-analysis/types'
 import { safeParseModelJson } from '@/lib/pricing-vertical/parse-model-json'
 import { mergeVerticalSummariesForRerun, normalizeVerticalSummary } from '@/lib/pricing-vertical/normalize-vertical-summaries'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
-import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
-
-function extractText(result: Anthropic.Messages.Message): string {
-  return result.content
-    .filter((block) => block.type === 'text')
-    .map((block) => ('text' in block ? block.text : ''))
-    .join('')
-    .trim()
-}
+import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
 
 export async function analyzePricingByVertical(args: {
   fileName?: string
@@ -32,7 +22,6 @@ export async function analyzePricingByVertical(args: {
   /** When set, model must copy these structures verbatim and only refresh summaries/flags/narrative. */
   existingReport?: PricingVerticalReport | null
 }): Promise<PricingVerticalReport> {
-    const client = await requireAIClient()
   const isRerun = Boolean(args.existingReport)
 
   const fullSystemPrompt = `You are the Pricing by Vertical Analysis Agent for Cantara, an M&A advisory platform for pet businesses.
@@ -188,19 +177,21 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
       })}`
     : ''
 
-  const content: Anthropic.Messages.MessageParam['content'] = []
+  const content: AgentMessageBlock[] = []
 
   if (args.base64 && args.mediaType) {
-    const documentSource: Anthropic.Messages.Base64ImageSource | Anthropic.Messages.Base64PDFSource =
-      args.mediaType === 'application/pdf'
-        ? { type: 'base64' as const, media_type: 'application/pdf' as const, data: args.base64 }
-        : { type: 'base64' as const, media_type: args.mediaType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp', data: args.base64 }
-
-    const documentBlock: Anthropic.Messages.DocumentBlockParam | Anthropic.Messages.ImageBlockParam =
-      args.mediaType === 'application/pdf'
-        ? { type: 'document' as const, source: documentSource as Anthropic.Messages.Base64PDFSource }
-        : { type: 'image' as const, source: documentSource as Anthropic.Messages.Base64ImageSource }
-    content.push(documentBlock)
+    if (args.mediaType === 'application/pdf') {
+      content.push({
+        type: 'document',
+        title: args.fileName,
+        source: { type: 'base64', media_type: 'application/pdf', data: args.base64 },
+      })
+    } else if (args.mediaType.startsWith('image/')) {
+      content.push({
+        type: 'image',
+        source: { media_type: args.mediaType, data: args.base64 },
+      })
+    }
   }
 
   content.push({
@@ -212,20 +203,13 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
     }`,
   })
 
-  const response = await client.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: isRerun ? 8192 : 12000,
-    temperature: 0,
+  const rawText = await createAgentMessage({
     system: isRerun ? rerunSystemPrompt : fullSystemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content,
-      },
-    ],
+    content,
+    maxTokens: isRerun ? 8192 : 12000,
+    temperature: 0,
   })
 
-  const rawText = extractText(response)
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
   const parsed = safeParseModelJson(cleaned) as Record<string, unknown>
 

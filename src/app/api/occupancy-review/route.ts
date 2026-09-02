@@ -1,7 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client, s3BucketName, buildPresignedFileUrl } from '@/lib/s3'
@@ -132,13 +137,18 @@ export async function POST(req: NextRequest) {
 
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
+    const provider = parseAnalyzeProvider(formData.get('provider'))
+    const modelId = resolveAnalyzeModelId(provider, formData.get('modelId'))
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
+    }
+
     const client = await prisma.clientProfile.findUnique({
       where: { id: clientId },
       select: { businessName: true, sectionSubmissions: true },
     })
     if (!client) return new Response('Client not found', { status: 404 })
-
-    if (!(await hasAIConfigured())) return new Response('AI not configured', { status: 500 })
 
     // Process uploaded files
     const fileEntries: Array<{ name: string; base64: string; mediaType: string }> = []
@@ -200,22 +210,21 @@ export async function POST(req: NextRequest) {
       ? `\n\n## Capacity Information Provided\n${capacityLines.join('\n')}`
       : ''
 
-    // Build Claude message content blocks
-    const contentBlocks: Anthropic.ContentBlockParam[] = []
+    // Build message content blocks
+    const contentBlocks: AgentMessageBlock[] = []
 
-    // Add document content blocks (PDF as document, others as text)
     for (const file of fileEntries) {
       if (file.mediaType === 'application/pdf') {
         contentBlocks.push({
           type: 'document',
+          title: file.name,
           source: {
             type: 'base64',
             media_type: 'application/pdf',
             data: file.base64,
           },
-        } as any)
+        })
       } else {
-        // For CSV/XLSX, decode and include as text
         const decoded = Buffer.from(file.base64, 'base64').toString('utf-8')
         contentBlocks.push({
           type: 'text',
@@ -224,7 +233,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Add the main analysis prompt
     contentBlocks.push({
       type: 'text',
       text: `Generate a buyer-facing occupancy analysis report for **${clientName || client.businessName}**.
@@ -270,13 +278,7 @@ For a prospective buyer: at average utilization of ${computed?.avgUtilization ??
 Return markdown only. No preamble.`,
     })
 
-    const anthropic = await requireAIClient()
-
-    const result = await anthropic.messages.create({
-      model: resolveModel('claude-sonnet-4-20250514'),
-      max_tokens: 12000,
-      temperature: 0.15,
-      system: `You are a senior pet resort industry analyst specializing in occupancy optimization and capacity utilization for M&A due diligence at Cantara Pet Advisors.
+    const systemPrompt = `You are a senior pet resort industry analyst specializing in occupancy optimization and capacity utilization for M&A due diligence at Cantara Pet Advisors.
 
 You produce detailed, data-driven occupancy analysis reports that help buyers and sellers understand the true capacity and revenue potential of pet care businesses.
 
@@ -287,15 +289,16 @@ Your reports must be:
 - **Actionable**: Every finding should connect to a revenue optimization opportunity.
 - **Beautiful formatting**: Use markdown with clear hierarchy, tables, bullet points, and bold emphasis.
 
-Return markdown only. Do not include any preamble or meta-commentary.`,
-      messages: [{ role: 'user', content: contentBlocks }],
-    })
+Return markdown only. Do not include any preamble or meta-commentary.`
 
-    const markdown = result.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map(b => b.text)
-      .join('\n')
-      .trim()
+    const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
+      createAgentMessage({
+        system: systemPrompt,
+        content: contentBlocks,
+        maxTokens: 12000,
+        temperature: 0.15,
+      }),
+    )
 
     const report = {
       clientName: clientName || client.businessName,

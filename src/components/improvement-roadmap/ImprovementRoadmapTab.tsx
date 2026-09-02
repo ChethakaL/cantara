@@ -6,6 +6,13 @@ import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildImprovementRoadmapHtml } from '@/lib/report-export/build-improvement-roadmap-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 import { getStatusBadgeKind, isStatusCell } from '@/lib/report-export/status-cell'
 import { createChecklistItem, exportSaleReadinessChecklistExcel, type SaleReadinessChecklistItem, type SaleReadinessRoadmapStage } from '@/lib/sale-readiness-checklist'
 import { isFlagTitleLine, isItemApprovedInMarkdown, normalizeTitleKey, toggleItemApprovalInMarkdown } from '@/lib/roadmap-flag-items'
@@ -621,6 +628,16 @@ export default function ImprovementRoadmapTab({
   const [generating, setGenerating] = useState<'checklist' | 'report' | null>(null)
   const [editingChecklist, setEditingChecklist] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.salesReadinessRoadmap)
 
   const stage = report?.stage ?? 'checklist'
   const checklistItems = report?.checklist ?? []
@@ -630,7 +647,7 @@ export default function ImprovementRoadmapTab({
   const hasChecklist = Boolean(report)
   const hasFullReport = stage === 'report' && Boolean(report?.markdown?.trim())
 
-  const load = async () => {
+  const loadFromApi = async () => {
     setLoading(true)
     setError(null)
     try {
@@ -645,6 +662,36 @@ export default function ImprovementRoadmapTab({
     }
   }
 
+  useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      setReport(activeRun.report as RoadmapReport)
+      setLoading(false)
+      return
+    }
+    void loadFromApi()
+  }, [activeRun, loadingRuns, clientId])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    if (full?.report) setReport(full.report as RoadmapReport)
+  }
+
+  const persistRun = async (nextReport: RoadmapReport) => {
+    await saveAgentAnalysisRunClient({
+      clientId,
+      agentKey: AGENT_RUN_KEYS.salesReadinessRoadmap,
+      fileName: `${clientName} — Sales Readiness ${nextReport.stage === 'report' ? 'Roadmap' : 'Checklist'}`,
+      report: nextReport,
+      markdown: nextReport.markdown,
+      metadata: { stage: nextReport.stage },
+      aiProvider: provider,
+      aiModel: resolveAgentModelId(provider),
+    })
+    await reloadRuns()
+  }
+
   const generate = async (nextStage: 'checklist' | 'report') => {
     setGenerating(nextStage)
     setError(null)
@@ -655,29 +702,29 @@ export default function ImprovementRoadmapTab({
         const res = await fetch('/api/improvement-roadmap', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems }),
+          body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, provider, modelId: resolveAgentModelId(provider) }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to generate roadmap.')
         setReport(data.report)
+        await persistRun(data.report)
         return
       }
       const res = await fetch('/api/improvement-roadmap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, stage: nextStage }),
+        body: JSON.stringify({ clientId, stage: nextStage, provider, modelId: resolveAgentModelId(provider) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Failed to generate ${nextStage === 'checklist' ? 'checklist' : 'roadmap'}.`)
       setReport(data.report)
+      await persistRun(data.report)
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to generate ${nextStage === 'checklist' ? 'checklist' : 'roadmap'}.`)
     } finally {
       setGenerating(null)
     }
   }
-
-  useEffect(() => { void load() }, [clientId])
 
   const reportRef = useRef(report)
   reportRef.current = report
@@ -716,7 +763,7 @@ export default function ImprovementRoadmapTab({
     }) : '',
   [report, clientName])
 
-  if (loading) {
+  if (loading || loadingRuns) {
     return (
       <div className="space-y-5">
         <div className="flex items-start justify-between">
@@ -738,6 +785,19 @@ export default function ImprovementRoadmapTab({
 
   return (
     <div className="space-y-5">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={generating !== null}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-slate-800">Sales Readiness Roadmap</h2>
@@ -852,24 +912,6 @@ export default function ImprovementRoadmapTab({
             </Card>
           )}
 
-          {hasFullReport && (
-            generating === 'report' ? (
-              <Card className="flex flex-wrap items-center justify-between gap-3 border-emerald-100 bg-emerald-50/40 p-4">
-                <div className="flex items-center gap-3">
-                  <span className="h-4 w-4 rounded-full border-2 border-emerald-200 border-t-emerald-600 animate-spin" />
-                  <p className="text-sm font-semibold text-slate-800">Generating report</p>
-                </div>
-              </Card>
-            ) : (
-              <div className="flex justify-end">
-                <Button size="sm" variant="outline" onClick={() => void generate('report')} disabled={generating !== null || approvedCount === 0 || editingChecklist}>
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Re-run Roadmap
-                </Button>
-              </div>
-            )
-          )}
-
           {hasFullReport && report && (
             <InlineEditableMarkdownReport
               report={report}
@@ -894,12 +936,9 @@ export default function ImprovementRoadmapTab({
             <MapPin className="w-7 h-7 text-emerald-500" />
           </div>
           <h3 className="text-lg font-semibold text-slate-800 mb-2">Sales Readiness Roadmap</h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
-            First generate a checklist from every agent output that has already run, including custom workstreams. Approve the items you agree with, then generate the full seller-facing report.
+          <p className="text-sm text-slate-500 max-w-md mx-auto">
+            Use <strong>Generate Checklist</strong> above to build a checklist from every agent output that has already run, including custom workstreams. Approve the items you agree with, then generate the full seller-facing report.
           </p>
-          <Button onClick={() => void generate('checklist')} disabled={generating !== null}>
-            Generate Checklist
-          </Button>
         </Card>
       )}
     </div>

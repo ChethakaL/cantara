@@ -147,5 +147,7 @@ export interface WS111Flag {
 export interface WS111Persistence {
   markdown: string
   createdAt: string
+  aiProvider?: string | null
+  aiModel?: string | null
   metadata?: any
 }

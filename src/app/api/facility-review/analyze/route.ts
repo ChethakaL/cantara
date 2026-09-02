@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeFacilityImages } from '@/lib/facility-review/analyze'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
 
 export const maxDuration = 180
 
@@ -19,6 +24,13 @@ export async function POST(req: NextRequest) {
     if (!businessName) return new Response('Business name is required', { status: 400 })
     if (files.length > MAX_IMAGES) return new Response(`Maximum ${MAX_IMAGES} images per run`, { status: 400 })
 
+    const provider = parseAnalyzeProvider(formData.get('provider'))
+    const modelId = resolveAnalyzeModelId(provider, formData.get('modelId'))
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
+    }
+
     const images = await Promise.all(files.map(async (file, index) => {
       if (!ALLOWED_TYPES.has(file.type)) throw new Error(`${file.name}: unsupported image type`)
       if (file.size > MAX_IMAGE_BYTES) throw new Error(`${file.name}: image exceeds 5 MB limit`)
@@ -31,7 +43,7 @@ export async function POST(req: NextRequest) {
       }
     }))
 
-    const report = await analyzeFacilityImages({ businessName, location, notes, images })
+    const report = await analyzeFacilityImages({ businessName, location, notes, images, provider, modelId })
     return NextResponse.json(report)
   } catch (error: any) {
     console.error('[facility-review] analysis error:', error)

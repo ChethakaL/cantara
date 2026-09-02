@@ -24,6 +24,10 @@ import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildEmployeeObligationsReportHtml } from '@/lib/report-export/build-employee-obligations-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
+import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
+import { useAgentReportRuns } from '@/hooks/useAgentReportRuns'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PREMIUM UI COMPONENTS: Modal & Toast
@@ -474,7 +478,6 @@ export default function EmployeeObligationsTab({
 }: EmployeeObligationsTabProps) {
   const [savedReport, setSavedReport] = useState<WS16Persistence | null>(null)
   const [flags, setFlags] = useState<Flag[]>([])
-  const [loadingReport, setLoadingReport] = useState(true)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [activeTab, setActiveTab] = useState('summary')
@@ -485,6 +488,10 @@ export default function EmployeeObligationsTab({
   const [savingMarkdown, setSavingMarkdown] = useState(false)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
+  const { historyItems, activeRun, activeId, setActiveId, reload, loading: loadingReport } = useAgentReportRuns(
+    '/api/employee-obligations/reports',
+    clientId,
+  )
 
   useEffect(() => {
     if (!readOnly) return
@@ -494,6 +501,7 @@ export default function EmployeeObligationsTab({
 
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS16Analysis({ clientId, clientName, state, dba, totalEmployeesSelfReported: totalEmployeesSelfReported ?? undefined, employmentTypeBreakdown: employmentTypeBreakdown ?? undefined })
+  const { provider, setProvider } = useAgentAiProvider()
 
   const mergeFlagStatuses = (parsedFlags: Flag[], metadata?: ReviewMetadata) => {
     const savedStatuses = new Map((metadata?.flags ?? []).map(flag => [flag.id, flag.status]))
@@ -530,29 +538,23 @@ export default function EmployeeObligationsTab({
   const showToast = (message: string, type: 'success' | 'error' = 'success') => setToast({ message, type })
 
   useEffect(() => {
-    setLoadingReport(true)
-    fetch(`/api/employee-obligations/reports?clientId=${clientId}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.report) {
-          setSavedReport(data.report)
-          const { flags: pFlags } = parseWS16Markdown(data.report.markdown, clientName)
-          setFlags(mergeFlagStatuses(pFlags || [], data.report.metadata))
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoadingReport(false))
-  }, [clientId, clientName])
+    if (!activeRun?.markdown) {
+      if (!loadingReport) setSavedReport(null)
+      return
+    }
+    setSavedReport(activeRun as WS16Persistence)
+    const { flags: pFlags } = parseWS16Markdown(activeRun.markdown, clientName)
+    setFlags(mergeFlagStatuses(pFlags || [], activeRun.metadata as ReviewMetadata | undefined))
+  }, [activeRun, clientName, loadingReport])
 
   useEffect(() => {
     if (status === 'complete' && rawMarkdown) {
-      setSavedReport({ markdown: rawMarkdown, createdAt: new Date().toISOString() })
-      const { flags: pFlags } = parseWS16Markdown(rawMarkdown, clientName)
-      setFlags(mergeFlagStatuses(pFlags || []))
+      void reload().then(() => {
+        showToast('Analysis completed successfully')
+      })
       clearAll()
-      showToast('Analysis completed successfully')
     }
-  }, [status, rawMarkdown, clearAll, clientName])
+  }, [status, rawMarkdown, clearAll, reload])
 
   const { report: extractedReport } = parseWS16Markdown(
     savedReport?.markdown || '',
@@ -733,7 +735,10 @@ export default function EmployeeObligationsTab({
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="p-10 border-stone-200 shadow-sm">
-            <WS16Uploader clientId={clientId} onDocumentsReady={setDocuments} onAnalyze={analyze} isLoading={isRunning} />
+            {!readOnly && (
+              <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isRunning} className="mb-6" />
+            )}
+            <WS16Uploader clientId={clientId} onDocumentsReady={setDocuments} onAnalyze={() => analyze(provider)} isLoading={isRunning} />
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
           </Card>
         </div>
@@ -782,19 +787,25 @@ export default function EmployeeObligationsTab({
   ]
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
-        <div className="min-w-0 flex-1">
-          <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
-        </div>
-        <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
+    <div className="space-y-4">
+      <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
+
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <AgentReportHistoryBar
+          runs={historyItems}
+          activeId={activeId}
+          onSelect={(run) => setActiveId(run.id)}
+          activeProvider={savedReport?.aiProvider}
+          activeModel={savedReport?.aiModel}
+        />
+        <AdvisorActions className="flex flex-wrap items-center gap-2">
           {!readOnly && (editMode ? (
             <>
-              <Button variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown}>Cancel</Button>
-              <Button onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>{savingMarkdown ? 'Saving...' : 'Save Final Version'}</Button>
+              <Button size="sm" variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown}>Cancel</Button>
+              <Button size="sm" onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>{savingMarkdown ? 'Saving...' : 'Save Final Version'}</Button>
             </>
           ) : (
-            <Button variant="outline" onClick={startEditing}>Edit Output</Button>
+            <Button size="sm" variant="outline" onClick={startEditing}>Edit Output</Button>
           ))}
           <ExportReportButton
             html={buildEmployeeObligationsReportHtml(report, flags, clientName)}

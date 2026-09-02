@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
-import { FileText, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button, Card, Modal } from '@/components/ui'
 import type { ContractAnalysis } from '@/lib/store'
 import { deleteContractAnalysis, getContractAnalyses, saveContractAnalysis, updateContractAnalysis } from '@/lib/store'
@@ -12,6 +12,8 @@ import { AnalysisProgress } from '../contract-analysis/AnalysisProgress'
 import { ContractReport } from '../contract-analysis/ContractReport'
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
+import { AgentRunHistoryPanel } from '@/components/admin/AgentRunHistoryPanel'
+import { formatAgentProviderLabel } from '@/lib/agent-model-provider'
 
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
@@ -24,6 +26,7 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
+  const [composingNew, setComposingNew] = useState(false)
 
   const {
     documents: uploads,
@@ -35,6 +38,9 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
     report: streamedReport,
     error: analysisError,
     clearAll,
+    provider,
+    setProvider,
+    lastModelId,
   } = useContractAnalysis(clientId)
 
   const loadAnalyses = useCallback(async () => {
@@ -42,6 +48,11 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
     setAnalyses(data)
     return data
   }, [clientId])
+
+  const beginNewAnalysis = useCallback(() => {
+    clearAll()
+    setComposingNew(true)
+  }, [clearAll])
 
   const handleDeleteConfirmed = async () => {
     const id = activeAnalysis?.id
@@ -73,10 +84,10 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
 
   useEffect(() => {
     loadAnalyses().then((data) => {
-      if (data.length > 0 && !activeAnalysis) setActiveAnalysis(data[0])
+      if (data.length > 0) setActiveAnalysis(current => current ?? data[0])
       setInitialLoadDone(true)
     })
-  }, [loadAnalyses, activeAnalysis])
+  }, [loadAnalyses])
 
   useEffect(() => {
     if (status === 'complete' && streamedReport) {
@@ -87,13 +98,16 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
         fileName: allNames,
         report: rawMarkdown,
         parsed: streamedReport,
+        aiProvider: provider,
+        aiModel: lastModelId ?? undefined,
       }).then((saved) => {
         if (saved?.id) setActiveAnalysis(saved)
+        setComposingNew(false)
         loadAnalyses()
         clearAll()
       })
     }
-  }, [status, streamedReport, clientId, rawMarkdown, uploads, loadAnalyses, clearAll])
+  }, [status, streamedReport, clientId, rawMarkdown, uploads, loadAnalyses, clearAll, provider, lastModelId])
 
   const displayReport = (status === 'streaming' || status === 'complete') && streamedReport
     ? streamedReport
@@ -105,7 +119,10 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
     ? uploads.map((doc) => doc.name).join(', ')
     : activeAnalysis?.fileName || ''
 
-  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(displayReport), 'Material Contracts')
+  const showUploader = !readOnly && status === 'idle' && (composingNew || analyses.length === 0 || uploads.length > 0)
+  const showReport = Boolean(displayReport) && !composingNew
+
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, showReport, 'Material Contracts')
   if (readOnlyGate) return readOnlyGate
 
   return (
@@ -115,31 +132,32 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
           <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Contract Analysis</h3>
           <p className="text-xs text-slate-400 mt-0.5">Upload business contracts to evaluate saleability, counterparty restrictions, and buyer risk</p>
           <p className="text-xs text-slate-400 mt-1">Material contracts can also be uploaded in the Documents tab.</p>
+          {activeAnalysis?.aiProvider && !composingNew && (
+            <p className="text-xs text-slate-500 mt-1">
+              Viewing run: {formatAgentProviderLabel(activeAnalysis.aiProvider)}
+              {activeAnalysis.aiModel ? ` · ${activeAnalysis.aiModel}` : ''}
+            </p>
+          )}
         </div>
-        {analyses.length > 0 && (
-          <Button variant="outline" size="sm" className="gap-2" onClick={clearAll} data-advisor-action>
-            <Plus className="w-3.5 h-3.5" /> New Analysis
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <AgentRunHistoryPanel
+            runs={analyses}
+            activeId={activeAnalysis?.id}
+            onSelect={(run) => {
+              const found = analyses.find((analysis) => analysis.id === run.id)
+              if (found) {
+                setComposingNew(false)
+                setActiveAnalysis(found)
+              }
+            }}
+          />
+          {analyses.length > 0 && !composingNew && (
+            <Button variant="outline" size="sm" className="gap-2" onClick={beginNewAnalysis} data-advisor-action>
+              <Plus className="w-3.5 h-3.5" /> New Analysis
+            </Button>
+          )}
+        </div>
       </div>
-
-      {analyses.length > 1 && status === 'idle' && (
-        <div className="flex gap-2 flex-wrap">
-          {analyses.map((analysis) => (
-            <button
-              key={analysis.id}
-              onClick={() => setActiveAnalysis(analysis)}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
-                activeAnalysis?.id === analysis.id ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'
-              }`}
-            >
-              <FileText className="w-3 h-3 inline mr-1.5" />
-              {analysis.fileName.length > 30 ? `${analysis.fileName.slice(0, 30)}…` : analysis.fileName}
-              <span className="ml-2 text-slate-400">{new Date(analysis.createdAt).toLocaleDateString()}</span>
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className="space-y-6">
         {status !== 'idle' ? (
@@ -149,11 +167,11 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
             ) : analysisError ? (
               <div className="text-center space-y-4">
                 <p className="text-sm text-rose-500 font-medium">{analysisError}</p>
-                <Button variant="outline" size="sm" onClick={clearAll}>Try Again</Button>
+                <Button variant="outline" size="sm" onClick={beginNewAnalysis}>Try Again</Button>
               </div>
             ) : null}
           </Card>
-        ) : !readOnly && (analyses.length === 0 || uploads.length > 0) ? (
+        ) : showUploader ? (
           <div data-advisor-action>
           <ContractUploader
             documents={uploads}
@@ -161,19 +179,22 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
             removeDocument={removeDocument}
             status={status}
             onAnalyze={analyze}
+            provider={provider}
+            onProviderChange={setProvider}
           />
           </div>
         ) : null}
 
-        {displayReport && (
+        {showReport && (
           <ContractReport
-            report={displayReport}
+            report={displayReport!}
             fileName={displayFileName}
             clientName={clientName}
-            onNewAnalysis={clearAll}
+            onNewAnalysis={beginNewAnalysis}
             onDelete={!readOnly && activeAnalysis ? () => setDeleteOpen(true) : undefined}
             adminMode={!readOnly}
             onReportUpdated={!readOnly ? handleReportUpdated : undefined}
+            hideNewAnalysis
           />
         )}
       </div>

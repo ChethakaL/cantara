@@ -270,6 +270,7 @@ export interface TtmAnalysisView {
   status: TtmRunStatus;
   hitlStatus: TtmHitlStatus;
   inputFingerprint: string;
+  aiProvider?: string | null;
   model: string;
   temperature: number;
   maxTokens: number;

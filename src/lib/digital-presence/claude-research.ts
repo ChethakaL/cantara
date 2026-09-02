@@ -1,4 +1,5 @@
-import { requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import type { AgentAiProvider } from "@/lib/agent-model-provider";
+import { agentWebSearch } from "@/lib/agent-web-search";
 import {
   ChannelType,
   ChannelResearchData,
@@ -12,77 +13,6 @@ export type ProgressCallback = (
   completed: number,
   total: number
 ) => void
-
-async function claudeWebSearch(
-  queries: string[],
-  businessName: string,
-  channelLabel: string,
-): Promise<TavilySearchResult[]> {
-  const client = await requireAIClient()
-
-  const prompt = `Search for the following information about "${businessName}" for a ${channelLabel} digital presence audit. For each search result, extract the key metrics (ratings, review counts, follower counts, engagement data, etc.) accurately.
-
-Search queries to execute:
-${queries.map((q, i) => `${i + 1}. ${q}`).join('\n')}
-
-After searching, return a JSON array of findings:
-[
-  {
-    "title": "Result title",
-    "url": "Source URL",
-    "content": "Key information found including exact metrics, ratings, review counts, follower counts etc.",
-    "score": 0.9
-  }
-]
-
-IMPORTANT: Report exact numbers as found on the source websites. Do not estimate or round. If a Google Business Profile shows 4.3 stars with 287 reviews, report exactly "4.3 stars" and "287 reviews". Return ONLY the JSON array.`
-
-  try {
-    const response = usesBedrock()
-      ? await client.messages.create({
-          model: resolveModel('claude-sonnet-4-20250514'),
-          max_tokens: 2000,
-          temperature: 0,
-          messages: [{ role: 'user', content: prompt }],
-        })
-      : await client.messages.create({
-          model: resolveModel('claude-sonnet-4-20250514'),
-          max_tokens: 2000,
-          temperature: 0,
-          tools: [{ type: 'web_search_20250305' as any, name: 'web_search' }],
-          messages: [{ role: 'user', content: prompt }],
-        })
-
-    // Extract text from response (after web search tool calls)
-    const textBlocks = response.content.filter((b) => b.type === 'text')
-    const rawText = textBlocks.map((b) => ('text' in b ? b.text : '')).join('').trim()
-    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
-
-    try {
-      const results = JSON.parse(cleaned)
-      if (Array.isArray(results)) {
-        return results.map((r: any) => ({
-          title: r.title ?? '',
-          url: r.url ?? '',
-          content: r.content ?? '',
-          score: r.score ?? 0.8,
-        }))
-      }
-    } catch {
-      // If JSON parsing fails, create a single result from the raw text
-      return [{
-        title: `${channelLabel} Research`,
-        url: '',
-        content: rawText.slice(0, 2000),
-        score: 0.7,
-      }]
-    }
-  } catch (err: any) {
-    console.error(`[Claude Research] Error for ${channelLabel}:`, err?.message)
-  }
-
-  return []
-}
 
 function normaliseHandle(handle: string, platform: string): string {
   handle = handle.trim().replace(/^@/, '')
@@ -103,7 +33,8 @@ function stripProtocol(url: string): string {
 export async function researchAllChannels(
   formData: DigitalAssetFormData,
   _tavilyKey: string, // kept for interface compat but unused
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options?: { provider?: AgentAiProvider; modelId?: string },
 ): Promise<ChannelResearchData[]> {
     const { businessName } = formData
 
@@ -244,7 +175,13 @@ export async function researchAllChannels(
   const results: ChannelResearchData[] = []
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i]
-    const searchResults = await claudeWebSearch(task.queries, businessName, task.label)
+    const searchResults: TavilySearchResult[] = await agentWebSearch({
+      queries: task.queries,
+      businessName,
+      channelLabel: task.label,
+      provider: options?.provider,
+      modelId: options?.modelId,
+    })
     results.push({
       channelType: task.channelType,
       inputUrl: task.inputUrl,
@@ -255,4 +192,20 @@ export async function researchAllChannels(
   }
 
   return results
+}
+
+// Legacy export kept for any direct imports — delegates to shared agent web search.
+export async function claudeWebSearch(
+  queries: string[],
+  businessName: string,
+  channelLabel: string,
+  options?: { provider?: AgentAiProvider; modelId?: string },
+): Promise<TavilySearchResult[]> {
+  return agentWebSearch({
+    queries,
+    businessName,
+    channelLabel,
+    provider: options?.provider,
+    modelId: options?.modelId,
+  });
 }
