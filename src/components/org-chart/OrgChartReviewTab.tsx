@@ -8,6 +8,13 @@ import type { OrgChartAnalysis } from '@/lib/org-chart/analyze'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildOrgChartReportHtml } from '@/lib/report-export/build-org-chart-report'
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
   'application/pdf': ['.pdf'],
@@ -77,9 +84,26 @@ export default function OrgChartReviewTab({
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedBadge, setSavedBadge] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.orgChartReview)
 
   // Load saved data on mount
   useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      const payload = activeRun.report as OrgChartAnalysis
+      if (payload?.summary) setResult(payload)
+      setHydrated(true)
+      return
+    }
     const loadSaved = async () => {
       try {
         const res = await fetch(`/api/client-data/${clientId}?section=orgChart`)
@@ -92,7 +116,13 @@ export default function OrgChartReviewTab({
       } catch { /* ignore */ } finally { setHydrated(true) }
     }
     loadSaved()
-  }, [clientId])
+  }, [clientId, activeRun, loadingRuns])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    if (full?.report) setResult(full.report as OrgChartAnalysis)
+  }
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) {
@@ -115,6 +145,8 @@ export default function OrgChartReviewTab({
     try {
       const formData = new FormData()
       formData.append('file', file)
+      formData.append('provider', provider)
+      formData.append('modelId', resolveAgentModelId(provider))
       const res = await fetch('/api/org-chart/analyze', {
         method: 'POST',
         body: formData,
@@ -132,6 +164,16 @@ export default function OrgChartReviewTab({
           body: JSON.stringify({ section: 'orgChart', data }),
         })
         if (!saveRes.ok) throw new Error('Save failed')
+        await saveAgentAnalysisRunClient({
+          clientId,
+          agentKey: AGENT_RUN_KEYS.orgChartReview,
+          fileName: file.name,
+          report: data,
+          documentNames: [file.name],
+          aiProvider: provider,
+          aiModel: resolveAgentModelId(provider),
+        })
+        await reloadRuns()
         setSavedBadge(true)
         setTimeout(() => setSavedBadge(false), 2000)
       } catch (saveErr: any) {
@@ -243,6 +285,19 @@ export default function OrgChartReviewTab({
     const readiness = READINESS_CONFIG[result.transitionReadiness] || READINESS_CONFIG.medium
     return (
       <div className="space-y-6">
+        {!readOnly && (
+          <AgentRunToolbar
+            provider={provider}
+            onProviderChange={setProvider}
+            disabled={analyzing}
+            historyItems={historyItems}
+            activeId={activeId}
+            onSelectRun={selectRun}
+            activeProvider={activeRun?.aiProvider}
+            activeModel={activeRun?.aiModel}
+            activeVersion={activeRun?.version}
+          />
+        )}
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -572,6 +627,19 @@ export default function OrgChartReviewTab({
   // ── Upload view ───────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={analyzing}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       <div>
         <h2 className="text-lg font-semibold text-slate-800">Org Chart Upload &amp; Review</h2>
         <p className="text-xs text-slate-400 mt-0.5">Upload an org chart to analyze key-person dependencies and transition readiness for {clientName}</p>

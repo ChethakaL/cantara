@@ -18,6 +18,13 @@ import type {
   AssessmentFlag,
   FlagSeverity,
 } from '@/lib/owner-gm-assessment/types'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -100,15 +107,25 @@ export default function OwnerGmAssessmentTab({
 }) {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
-  const [deleting, setDeleting] = useState(false)
   const [assessment, setAssessment] = useState<OwnerGmAssessment | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [startingNew, setStartingNew] = useState(false)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedSnapshotRef = useRef('')
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.ownerGmAssessment)
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -136,6 +153,21 @@ export default function OwnerGmAssessmentTab({
   }, [clientId])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (loadingRuns || startingNew) return
+    if (activeRun?.report) {
+      setAssessment(activeRun.report as OwnerGmAssessment)
+      setLoading(false)
+    }
+  }, [activeRun, loadingRuns, startingNew])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setStartingNew(false)
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    if (full?.report) setAssessment(full.report as OwnerGmAssessment)
+  }
 
   useEffect(() => {
     if (assessment) lastSavedSnapshotRef.current = JSON.stringify(assessment)
@@ -193,7 +225,7 @@ export default function OwnerGmAssessmentTab({
       const res = await fetch('/api/owner-gm-assessment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, fileName: file.name, base64, mediaType }),
+        body: JSON.stringify({ clientId, fileName: file.name, base64, mediaType, provider, modelId: resolveAgentModelId(provider) }),
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
@@ -204,6 +236,17 @@ export default function OwnerGmAssessmentTab({
         setAssessment(data.assessment)
         lastSavedSnapshotRef.current = JSON.stringify(data.assessment)
       }
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.ownerGmAssessment,
+        fileName: file.name,
+        report: data.assessment,
+        documentNames: [file.name],
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      setStartingNew(false)
+      await reloadRuns()
     } catch (err: any) {
       if (mountedRef.current) setError(err?.message ?? 'Analysis failed')
     } finally {
@@ -211,25 +254,13 @@ export default function OwnerGmAssessmentTab({
     }
   }
 
-  // ── Reset ──
-  const resetAssessment = async () => {
-    setDeleting(true)
+  // ── New analysis (keeps run history; does not delete prior runs) ──
+  const handleNewAnalysis = () => {
     setError(null)
     setAssessment(null)
     setFileName(null)
-    try {
-      const res = await fetch(`/api/owner-gm-assessment?clientId=${encodeURIComponent(clientId)}`, {
-        method: 'DELETE',
-        cache: 'no-store',
-      })
-      if (!res.ok) throw new Error('Failed to reset assessment')
-      await load({ silent: true })
-    } catch (err: any) {
-      await load({ silent: true })
-      if (mountedRef.current) setError(err?.message ?? 'Failed to reset assessment')
-    } finally {
-      if (mountedRef.current) setDeleting(false)
-    }
+    setEditMode(false)
+    setStartingNew(true)
   }
 
   // ── Loading state ──
@@ -247,6 +278,19 @@ export default function OwnerGmAssessmentTab({
 
   return (
     <div className="space-y-5">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={running}
+          historyItems={historyItems}
+          activeId={startingNew ? null : activeId}
+          onSelectRun={selectRun}
+          activeProvider={startingNew ? null : activeRun?.aiProvider}
+          activeModel={startingNew ? null : activeRun?.aiModel}
+          activeVersion={startingNew ? null : activeRun?.version}
+        />
+      )}
       {/* Header bar */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex items-start justify-between gap-4">
@@ -267,12 +311,12 @@ export default function OwnerGmAssessmentTab({
             {assessment && (
               <Button
                 size="sm"
-                variant="danger"
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void resetAssessment() }}
-                disabled={running || deleting}
+                variant="outline"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleNewAnalysis() }}
+                disabled={running}
               >
-                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                {deleting ? 'Deleting...' : 'Reset'}
+                <RefreshCw className="w-3.5 h-3.5" />
+                New Analysis
               </Button>
             )}
           </AdvisorActions>

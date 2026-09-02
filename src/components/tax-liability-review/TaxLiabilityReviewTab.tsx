@@ -15,6 +15,10 @@ import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFram
 import { buildTaxLiabilityReportHtml } from '@/lib/report-export/build-tax-liability-report'
 import { TAX_READINESS_DOCUMENT_GROUPS, buildTaxReadinessReferenceHtml } from '@/lib/tax-readiness'
 import { Upload, FileText, X, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
+import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
+import { useAgentReportRuns } from '@/hooks/useAgentReportRuns'
 
 const markdownComponents = {
   h1: ({ children }: { children?: React.ReactNode }) => (
@@ -155,12 +159,14 @@ function DocumentUploader({
   onAnalyze,
   isLoading,
   missingRequiredCount = 0,
+  providerBar,
 }: {
   documents: UploadedDoc[]
   onDocumentsReady: (docs: UploadedDoc[]) => void
   onAnalyze: () => void
   isLoading: boolean
   missingRequiredCount?: number
+  providerBar?: React.ReactNode
 }) {
   const handleFiles = useCallback(async (fileList: FileList) => {
     const newDocs: UploadedDoc[] = []
@@ -224,6 +230,7 @@ function DocumentUploader({
               {missingRequiredCount} required tax document group{missingRequiredCount === 1 ? '' : 's'} still missing. Upload the missing files in Document Upload before running this agent.
             </div>
           )}
+          {providerBar}
           <Button onClick={onAnalyze} disabled={isLoading || missingRequiredCount > 0} className="w-full mt-4">
             {isLoading ? 'Analyzing...' : `Analyze ${documents.length} Document${documents.length !== 1 ? 's' : ''}`}
           </Button>
@@ -414,7 +421,6 @@ export default function TaxLiabilityReviewTab({
 }: TaxLiabilityReviewTabProps) {
   const [savedReport, setSavedReport] = useState<WS111Persistence | null>(null)
   const [flags, setFlags] = useState<WS111Flag[]>([])
-  const [loadingReport, setLoadingReport] = useState(true)
   const [activeTab, setActiveTab] = useState<'report' | 'flags'>('report')
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [taxDocGroups, setTaxDocGroups] = useState<TaxDocumentGroupStatus[]>([])
@@ -423,6 +429,11 @@ export default function TaxLiabilityReviewTab({
 
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS111Analysis({ clientId, clientName, state, entityType })
+  const { provider, setProvider } = useAgentAiProvider()
+  const { historyItems, activeRun, activeId, setActiveId, reload, loading: loadingReport } = useAgentReportRuns(
+    '/api/tax-liability-review/reports',
+    clientId,
+  )
 
   const isRunning = status === 'uploading' || status === 'streaming'
   const [draftLoaded, setDraftLoaded] = useState(false)
@@ -498,31 +509,25 @@ export default function TaxLiabilityReviewTab({
   }, [clientId, documents, draftLoaded, isRunning, savedReport])
 
   useEffect(() => {
-    setLoadingReport(true)
-    fetch(`/api/tax-liability-review/reports?clientId=${clientId}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.report) {
-          setSavedReport(data.report)
-          const { flags: pFlags } = parseWS111Markdown(data.report.markdown, clientName)
-          const savedStatuses = new Map(((data.report.metadata as any)?.flags ?? []).map((f: any) => [f.id, f.status]))
-          setFlags(pFlags.map(f => ({ ...f, status: (savedStatuses.get(f.id) as any) ?? 'pending' })))
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoadingReport(false))
-  }, [clientId, clientName])
+    if (!activeRun?.markdown) {
+      if (!loadingReport) setSavedReport(null)
+      return
+    }
+    setSavedReport(activeRun as WS111Persistence)
+    const { flags: pFlags } = parseWS111Markdown(activeRun.markdown, clientName)
+    const savedStatuses = new Map(((activeRun.metadata as any)?.flags ?? []).map((f: any) => [f.id, f.status]))
+    setFlags(pFlags.map(f => ({ ...f, status: (savedStatuses.get(f.id) as any) ?? 'pending' })))
+  }, [activeRun, clientName, loadingReport])
 
   useEffect(() => {
     if (status === 'complete' && rawMarkdown) {
-      setSavedReport({ markdown: rawMarkdown, createdAt: new Date().toISOString() })
-      const { flags: pFlags } = parseWS111Markdown(rawMarkdown, clientName)
-      setFlags(pFlags)
+      void reload().then(() => {
+        setToast({ message: 'Tax liability review completed', type: 'success' })
+      })
       clearAll()
       void fetch(`/api/tax-liability-review/draft?clientId=${encodeURIComponent(clientId)}`, { method: 'DELETE' })
-      setToast({ message: 'Tax liability review completed', type: 'success' })
     }
-  }, [status, rawMarkdown, clearAll, clientName, clientId])
+  }, [status, rawMarkdown, clearAll, reload, clientId])
 
   const handleFlagUpdate = async (id: string, action: 'confirmed' | 'na') => {
     const nextFlags = flags.map(f => (f.id === id ? { ...f, status: action as any } : f))
@@ -599,9 +604,12 @@ export default function TaxLiabilityReviewTab({
             <DocumentUploader
               documents={documents}
               onDocumentsReady={setDocuments}
-              onAnalyze={analyze}
+              onAnalyze={() => analyze(provider)}
               isLoading={isRunning}
               missingRequiredCount={missingRequiredCount}
+              providerBar={!readOnly ? (
+                <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isRunning} />
+              ) : undefined}
             />
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
           </Card>
@@ -674,6 +682,13 @@ export default function TaxLiabilityReviewTab({
           </div>
         </div>
         <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
+          <AgentReportHistoryBar
+            runs={historyItems}
+            activeId={activeId}
+            onSelect={(run) => setActiveId(run.id)}
+            activeProvider={savedReport?.aiProvider}
+            activeModel={savedReport?.aiModel}
+          />
           {!readOnly && (
             <>
               <Button variant="outline" size="sm" onClick={handleNewAnalysis}>+ New Analysis</Button>

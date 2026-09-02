@@ -17,7 +17,10 @@ import {
   WS2_REVENUE_VERTICAL_SYSTEM_PROMPT,
 } from "@/lib/ttm-agent/prompt";
 import { ParsedAccountantStatements, TtmAgentSummary } from "@/lib/ttm-agent/types";
-import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import { getAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import { createAgentMessage } from "@/lib/llm-completion";
+import type { AgentMessageBlock } from "@/lib/llm-completion";
+import { getActiveAgentProvider } from "@/lib/agent-llm-context";
 
 type MappingSuggestion = {
   accountName: string;
@@ -79,6 +82,7 @@ async function withAnthropicRetry<T>(label: string, fn: () => Promise<T>) {
 }
 
 async function getClient() {
+  if (getActiveAgentProvider() === "openai") return null;
   return getAIClient();
 }
 
@@ -223,7 +227,23 @@ export async function suggestCantaraMappings(
   if (!accounts.length) return [] as MappingSuggestion[];
 
   const client = await getClient();
-  if (!client) return [] as MappingSuggestion[];
+  if (!client) {
+    try {
+      const result = await withAnthropicRetry("TTM GL mapping suggestion", () =>
+        createAgentMessage({
+          system: HELPER_SYSTEM_PROMPT,
+          content: [{ type: "text", text: buildGlMappingPrompt(accounts, allowedCodes) }],
+          maxTokens: TTM_AGENT_MAX_TOKENS,
+          temperature: TTM_AGENT_TEMPERATURE,
+        }),
+      );
+      const parsed = parseJson<{ mappings: MappingSuggestion[] }>(result);
+      return parsed.mappings ?? [];
+    } catch (error) {
+      console.warn("OpenAI mapping assistance unavailable. Continuing with deterministic mappings only.", error);
+      return [] as MappingSuggestion[];
+    }
+  }
 
   try {
     const result = await withAnthropicRetry("TTM GL mapping suggestion", () =>
@@ -253,7 +273,16 @@ export async function suggestCantaraMappings(
 export async function extractAccountantStatementsFromPdf(fileName: string, base64: string) {
   const client = await getClient();
   if (!client) {
-    throw new Error("ANTHROPIC_API_KEY is required to parse accountant statement PDFs.");
+    const text = await createAgentMessage({
+      system: HELPER_SYSTEM_PROMPT,
+      content: [
+        { type: "document", title: fileName, source: { type: "base64", media_type: "application/pdf", data: base64 } },
+        { type: "text", text: buildAccountantPdfPrompt(fileName) },
+      ],
+      maxTokens: TTM_AGENT_MAX_TOKENS,
+      temperature: TTM_AGENT_TEMPERATURE,
+    });
+    return parseJson<ParsedAccountantStatements>(text);
   }
 
   const result = await withAnthropicRetry("TTM accountant PDF extraction", () =>
@@ -292,16 +321,7 @@ export async function summarizeTtmAnalysis(payload: Record<string, unknown>) {
   return buildDeterministicTtmSummary(payload);
 }
 
-type ReportContentBlock =
-  | { type: "text"; text: string }
-  | {
-      type: "document";
-      source: {
-        type: "base64";
-        media_type: "application/pdf";
-        data: string;
-      };
-    };
+type ReportContentBlock = AgentMessageBlock;
 
 async function generateStructuredReport(args: {
   label: string;
@@ -311,7 +331,16 @@ async function generateStructuredReport(args: {
 }) {
   const client = await getClient();
   if (!client) {
-    throw new Error("ANTHROPIC_API_KEY is required to run WS2 financial agents.");
+    const text = await withAnthropicRetry(args.label, () =>
+      createAgentMessage({
+        system: args.systemPrompt,
+        content: args.content,
+        maxTokens: args.maxTokens,
+        temperature: TTM_AGENT_TEMPERATURE,
+      }),
+    );
+    logClaudeResponse(args.label, { content: [{ type: "text", text }] } as Anthropic.Messages.Message);
+    return text;
   }
 
   const result = await withAnthropicRetry(args.label, () =>

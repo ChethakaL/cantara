@@ -35,6 +35,10 @@ import { buildCompetitorReportHtml } from '@/lib/report-export/build-competitor-
 import { formatPetBusinessCategories } from '@/lib/pet-business-categories';
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly';
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame';
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider';
+import { AgentProviderBar } from '@/components/admin/AgentProviderBar';
+import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar';
+import { resolveAgentModelId } from '@/lib/agent-model-provider';
 
 interface ProgressEvent {
   type: 'progress';
@@ -1352,6 +1356,7 @@ export default function CompetitorAnalysisTab({
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [report, setReport] = useState<CompetitorAnalysisReport | null>(null);
   const [savedAnalysis, setSavedAnalysis] = useState<SavedCompetitorAnalysis | null>(null);
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedCompetitorAnalysis[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1360,6 +1365,7 @@ export default function CompetitorAnalysisTab({
   const [log, setLog] = useState<LogEntry[]>([]);
   const [currentPhase, setCurrentPhase] = useState<'research' | 'analyze' | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const { provider, setProvider } = useAgentAiProvider();
 
   const [isEditingSummaries, setIsEditingSummaries] = useState(false);
   const [draftExecutiveSummary, setDraftExecutiveSummary] = useState('');
@@ -1488,6 +1494,7 @@ export default function CompetitorAnalysisTab({
         }
         const analyses = await getCompetitorAnalyses(clientId);
         if (cancelled) return;
+        setSavedAnalyses(analyses);
         const latest = analyses[0] ?? null;
         setSavedAnalysis(latest);
         if (latest?.parsed) {
@@ -1556,6 +1563,8 @@ export default function CompetitorAnalysisTab({
             ...form,
             radiusMiles: form.radiusMiles ?? 5,
           },
+          provider,
+          modelId: resolveAgentModelId(provider),
         }),
       });
 
@@ -1601,8 +1610,11 @@ export default function CompetitorAnalysisTab({
                 fileName: `${form.businessName} Competitor Analysis`,
                 report: JSON.stringify(normalizedReport),
                 parsed: normalizedReport,
+                aiProvider: provider,
+                aiModel: resolveAgentModelId(provider),
               });
               setSavedAnalysis(saved ?? null);
+              setSavedAnalyses((current) => [saved, ...current.filter((item) => item?.id !== saved?.id)].filter(Boolean) as SavedCompetitorAnalysis[]);
               // Persist form inputs so they reload next session
               await fetch(`/api/client-data/${clientId}`, {
                 method: 'PUT',
@@ -1667,6 +1679,8 @@ export default function CompetitorAnalysisTab({
           },
           subject: report.clientProfile,
           competitor,
+          provider,
+          modelId: resolveAgentModelId(provider),
         }),
       });
 
@@ -1810,7 +1824,8 @@ export default function CompetitorAnalysisTab({
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-2 space-y-3">
+              <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isLoading} />
               <Button type="submit" size="lg" className="w-full justify-center gap-3" disabled={saving}>
                 <Search className="w-4 h-4" />
                 Run Competitor Analysis
@@ -1879,6 +1894,34 @@ export default function CompetitorAnalysisTab({
           </div>
           <Button variant="outline" onClick={handleReset}>
             Try Again
+          </Button>
+        </div>
+      )}
+
+      {status === 'complete' && report && (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <AgentReportHistoryBar
+            runs={savedAnalyses.map((analysis) => ({
+              id: analysis.id,
+              fileName: analysis.fileName,
+              createdAt: analysis.createdAt,
+              aiProvider: (analysis as any).aiProvider,
+              aiModel: (analysis as any).aiModel,
+            }))}
+            activeId={savedAnalysis?.id}
+            onSelect={(run) => {
+              const selected = savedAnalyses.find((analysis) => analysis.id === run.id)
+              if (!selected) return
+              setSavedAnalysis(selected)
+              if (selected.parsed) {
+                setReport(normalizeReport(selected.parsed as CompetitorAnalysisReport))
+              }
+            }}
+            activeProvider={(savedAnalysis as any)?.aiProvider}
+            activeModel={(savedAnalysis as any)?.aiModel}
+          />
+          <Button variant="outline" size="sm" onClick={handleReset}>
+            + New Analysis
           </Button>
         </div>
       )}

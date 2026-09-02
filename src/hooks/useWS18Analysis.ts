@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import type { AgentAiProvider } from '@/lib/agent-model-provider'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
 
 export type UploadStatus = 'idle' | 'uploading' | 'streaming' | 'complete' | 'error'
 
@@ -37,7 +39,7 @@ export function useWS18Analysis({ clientId, clientName, state, dba, entityType }
     setError(null)
   }, [])
 
-  const analyze = useCallback(async () => {
+  const analyze = useCallback(async (provider: AgentAiProvider = 'bedrock') => {
     if (documents.length === 0) return
     setStatus('uploading')
     setRawMarkdown('')
@@ -58,6 +60,8 @@ export function useWS18Analysis({ clientId, clientName, state, dba, entityType }
             base64: d.base64,
             mediaType: d.mediaType,
           })),
+          provider,
+          modelId: resolveAgentModelId(provider),
         }),
       })
 
@@ -94,6 +98,8 @@ export function useWS18Analysis({ clientId, clientName, state, dba, entityType }
           clientId,
           markdown: accumulated,
           documentNames: documents.map(d => d.name),
+          aiProvider: provider,
+          aiModel: resolveAgentModelId(provider),
         }),
       })
 

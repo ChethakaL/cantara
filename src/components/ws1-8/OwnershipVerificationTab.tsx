@@ -23,6 +23,10 @@ import remarkGfm from 'remark-gfm'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildOwnershipVerificationReportHtml } from '@/lib/report-export/build-ownership-verification-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
+import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
+import { useAgentReportRuns } from '@/hooks/useAgentReportRuns'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PREMIUM UI COMPONENTS: Modal & Toast
@@ -435,7 +439,6 @@ export default function OwnershipVerificationTab({
 }: OwnershipVerificationTabProps) {
   const [savedReport, setSavedReport] = useState<WS18Persistence | null>(null)
   const [flags, setFlags] = useState<WS18Flag[]>([])
-  const [loadingReport, setLoadingReport] = useState(true)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [activeTab, setActiveTab] = useState('summary')
@@ -446,6 +449,10 @@ export default function OwnershipVerificationTab({
   const [savingMarkdown, setSavingMarkdown] = useState(false)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
+  const { historyItems, activeRun, activeId, setActiveId, reload, loading: loadingReport } = useAgentReportRuns(
+    '/api/ownership-verification/reports',
+    clientId,
+  )
 
   useEffect(() => {
     if (!readOnly) return
@@ -455,6 +462,7 @@ export default function OwnershipVerificationTab({
 
   const { documents, setDocuments, clearAll, analyze, status, rawMarkdown, error } =
     useWS18Analysis({ clientId, clientName, state, dba, entityType })
+  const { provider, setProvider } = useAgentAiProvider()
 
   const mergeFlagStatuses = (parsedFlags: WS18Flag[], metadata?: ReviewMetadata) => {
     const savedStatuses = new Map((metadata?.flags ?? []).map(flag => [flag.id, flag.status]))
@@ -482,29 +490,23 @@ export default function OwnershipVerificationTab({
   const showToast = (message: string, type: 'success' | 'error' = 'success') => setToast({ message, type })
 
   useEffect(() => {
-    setLoadingReport(true)
-    fetch(`/api/ownership-verification/reports?clientId=${clientId}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.report) {
-          setSavedReport(data.report)
-          const { flags: pFlags } = parseWS18Markdown(data.report.markdown, clientName)
-          setFlags(mergeFlagStatuses(pFlags || [], data.report.metadata))
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoadingReport(false))
-  }, [clientId, clientName])
+    if (!activeRun?.markdown) {
+      if (!loadingReport) setSavedReport(null)
+      return
+    }
+    setSavedReport(activeRun as WS18Persistence)
+    const { flags: pFlags } = parseWS18Markdown(activeRun.markdown, clientName)
+    setFlags(mergeFlagStatuses(pFlags || [], activeRun.metadata as ReviewMetadata | undefined))
+  }, [activeRun, clientName, loadingReport])
 
   useEffect(() => {
     if (status === 'complete' && rawMarkdown) {
-      setSavedReport({ markdown: rawMarkdown, createdAt: new Date().toISOString() })
-      const { flags: pFlags } = parseWS18Markdown(rawMarkdown, clientName)
-      setFlags(mergeFlagStatuses(pFlags || []))
+      void reload().then(() => {
+        showToast('Analysis completed successfully')
+      })
       clearAll()
-      showToast('Analysis completed successfully')
     }
-  }, [status, rawMarkdown, clearAll, clientName])
+  }, [status, rawMarkdown, clearAll, reload])
 
   const { report: extractedReport } = parseWS18Markdown(
     savedReport?.markdown || '',
@@ -681,7 +683,10 @@ export default function OwnershipVerificationTab({
       <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="p-10 border-stone-200 shadow-sm">
-            <WS18Uploader clientId={clientId} onDocumentsReady={setDocuments} onAnalyze={analyze} isLoading={isRunning} />
+            {!readOnly && (
+              <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isRunning} className="mb-6" />
+            )}
+            <WS18Uploader clientId={clientId} onDocumentsReady={setDocuments} onAnalyze={() => analyze(provider)} isLoading={isRunning} />
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
           </Card>
         </div>
@@ -729,19 +734,25 @@ export default function OwnershipVerificationTab({
   ]
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
-        <div className="min-w-0 flex-1">
-          <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
-        </div>
-        <AdvisorActions className="flex flex-wrap items-center gap-2 xl:justify-end">
+    <div className="space-y-4">
+      <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
+
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <AgentReportHistoryBar
+          runs={historyItems}
+          activeId={activeId}
+          onSelect={(run) => setActiveId(run.id)}
+          activeProvider={savedReport?.aiProvider}
+          activeModel={savedReport?.aiModel}
+        />
+        <AdvisorActions className="flex flex-wrap items-center gap-2">
           {!readOnly && (editMode ? (
             <>
-              <Button variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown}>Cancel</Button>
-              <Button onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>{savingMarkdown ? 'Saving...' : 'Save Final Version'}</Button>
+              <Button size="sm" variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown}>Cancel</Button>
+              <Button size="sm" onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>{savingMarkdown ? 'Saving...' : 'Save Final Version'}</Button>
             </>
           ) : (
-            <Button variant="outline" onClick={startEditing}>Edit Output</Button>
+            <Button size="sm" variant="outline" onClick={startEditing}>Edit Output</Button>
           ))}
           <ExportReportButton
             html={buildOwnershipVerificationReportHtml(report, flags, clientName)}

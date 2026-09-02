@@ -62,13 +62,13 @@ async function saveAdvisors(clientId: string, advisors: Advisor[]) {
   })
 }
 
-function WillingBadge({ status }: { status: WillingStatus }) {
-  const map: Record<WillingStatus, { color: 'green' | 'red' | 'slate'; label: string }> = {
+function WillingBadge({ status }: { status?: string | null }) {
+  const map: Record<string, { color: 'green' | 'red' | 'slate'; label: string }> = {
     yes: { color: 'green', label: 'Yes' },
     no: { color: 'red', label: 'No' },
     unknown: { color: 'slate', label: 'Unknown' },
   }
-  const cfg = map[status]
+  const cfg = map[status ?? ''] ?? map.unknown
   return <Badge color={cfg.color}>{cfg.label}</Badge>
 }
 

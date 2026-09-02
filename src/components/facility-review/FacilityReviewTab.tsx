@@ -8,6 +8,13 @@ import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import type { FacilityRating, FacilityReviewReport, FacilityImpact, FacilityEffort } from '@/lib/facility-review/types'
 import { buildFacilityReviewReportHtml } from '@/lib/report-export/build-facility-review-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 const ACCEPTED_TYPES = {
   'image/jpeg': ['.jpg', '.jpeg'],
@@ -244,6 +251,16 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.facilityReview)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedSnapshotRef = useRef('')
 
@@ -313,6 +330,50 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
     }
     void loadSaved()
   }, [clientId])
+
+  useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      const payload = activeRun.report as FacilityReviewReport
+      if (payload?.overallScore) {
+        setReport(payload)
+        lastSavedSnapshotRef.current = JSON.stringify(payload)
+        const meta = activeRun.metadata as { runMode?: 'standard' | 'advisor' } | null | undefined
+        if (meta?.runMode === 'advisor' || payload.reportVersion?.includes('Advisor Visit')) {
+          setReportRunMode('advisor')
+        }
+      }
+      setHydrated(true)
+    }
+  }, [activeRun, loadingRuns])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    if (full?.report) {
+      const payload = full.report as FacilityReviewReport
+      setReport(payload)
+      const meta = full.metadata as { runMode?: 'standard' | 'advisor' } | null | undefined
+      if (meta?.runMode === 'advisor' || payload.reportVersion?.includes('Advisor Visit')) {
+        setReportRunMode('advisor')
+      } else {
+        setReportRunMode('standard')
+      }
+    }
+  }
+
+  const persistFacilityRun = async (nextReport: FacilityReviewReport, runMode: 'standard' | 'advisor') => {
+    await saveAgentAnalysisRunClient({
+      clientId,
+      agentKey: AGENT_RUN_KEYS.facilityReview,
+      fileName: `${nextReport.businessName || clientName} — Facility Review`,
+      report: nextReport,
+      metadata: { runMode },
+      aiProvider: provider,
+      aiModel: resolveAgentModelId(provider),
+    })
+    await reloadRuns()
+  }
 
   const updateRunMode = async (nextMode: 'standard' | 'advisor') => {
     setRunMode(nextMode)
@@ -424,6 +485,8 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
         ? `Seller intake form responses:\n${facilityIntakeEntries.map(([label, value]) => `- ${label}: ${value}`).join('\n')}`
         : 'Seller intake form responses: not provided.'
       form.append('notes', [intakeText, notes.trim() ? `Admin notes:\n${notes.trim()}` : 'Admin notes: none.'].join('\n\n'))
+      form.append('provider', provider)
+      form.append('modelId', resolveAgentModelId(provider))
       for (const section of PHOTO_SECTIONS) {
         for (const image of existingSectionImages[section.key]) {
           if (!image.fileUrl) continue
@@ -461,6 +524,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
       } catch (saveErr: any) {
         setError(saveErr.message || 'Analysis completed but failed to save')
       }
+      await persistFacilityRun(nextReport, 'standard')
       requestAnimationFrame(() => {
         reportTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
@@ -576,6 +640,7 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
       } catch (saveErr: any) {
         setError(saveErr.message || 'Analysis completed but failed to save')
       }
+      await persistFacilityRun(nextReport, 'advisor')
       requestAnimationFrame(() => {
         reportTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
@@ -602,6 +667,19 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
   if (report) {
     return (
       <div ref={reportTopRef} className="space-y-6">
+        {!readOnly && (
+          <AgentRunToolbar
+            provider={provider}
+            onProviderChange={setProvider}
+            disabled={analyzing || saving}
+            historyItems={historyItems}
+            activeId={activeId}
+            onSelectRun={selectRun}
+            activeProvider={activeRun?.aiProvider}
+            activeModel={activeRun?.aiModel}
+            activeVersion={activeRun?.version}
+          />
+        )}
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -947,6 +1025,19 @@ export default function FacilityReviewTab({ clientId, clientName, businessAddres
 
   return (
     <div className="space-y-6">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={analyzing || savingIntake || savingDraft}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-slate-800">Facility Review Agent</h2>

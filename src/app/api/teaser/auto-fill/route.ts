@@ -1,18 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { prisma } from '@/lib/prisma'
 import { TeaserInputData } from '@/lib/teaser/types'
 import { generateTeaserWithAI, ClientContext } from '@/lib/teaser/ai-autofill'
-import { hasAIConfigured } from "@/lib/ai-client"
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId } = await req.json()
+    const { clientId, provider: rawProvider, modelId: requestedModelId } = await req.json()
     if (!clientId) {
       return new Response('clientId is required', { status: 400 })
+    }
+
+    const provider = parseAnalyzeProvider(rawProvider)
+    const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
     }
 
     // ── 1. Load client profile ──────────────────────────────────────────
@@ -110,37 +121,37 @@ export async function POST(req: NextRequest) {
     }
 
     // ── AI-powered auto-fill (falls back to static logic below) ────────
-    if (await hasAIConfigured()) {
-      try {
-        const aiContext: ClientContext = {
-          clientProfile: client,
-          ttmAnalysis: latestAnalysis,
-          recast,
-          leaseReport,
-          competitorReport,
-          digitalPresence,
-          insuranceDoc,
-          employeeReport,
-        }
-        const autoFilled = await generateTeaserWithAI(aiContext)
-        return NextResponse.json({
-          autoFilled,
-          sources: {
-            client: true,
-            ttmAnalysis: !!latestAnalysis,
-            recast: !!recast,
-            lease: !!leaseReport,
-            competitor: !!competitorReport,
-            digitalPresence: !!digitalPresence,
-            employeeObligations: !!employeeReport,
-            insurance: !!insuranceDoc,
-            aiGenerated: true,
-          },
-        })
-      } catch (aiError: any) {
-        console.warn('AI teaser generation failed, falling back to static:', aiError?.message)
-        // Fall through to static logic below
+    try {
+      const aiContext: ClientContext = {
+        clientProfile: client,
+        ttmAnalysis: latestAnalysis,
+        recast,
+        leaseReport,
+        competitorReport,
+        digitalPresence,
+        insuranceDoc,
+        employeeReport,
       }
+      const autoFilled = await runWithAgentLlmContext({ provider, modelId }, () =>
+        generateTeaserWithAI(aiContext),
+      )
+      return NextResponse.json({
+        autoFilled,
+        sources: {
+          client: true,
+          ttmAnalysis: !!latestAnalysis,
+          recast: !!recast,
+          lease: !!leaseReport,
+          competitor: !!competitorReport,
+          digitalPresence: !!digitalPresence,
+          employeeObligations: !!employeeReport,
+          insurance: !!insuranceDoc,
+          aiGenerated: true,
+        },
+      })
+    } catch (aiError: any) {
+      console.warn('AI teaser generation failed, falling back to static:', aiError?.message)
+      // Fall through to static logic below
     }
 
     // ── Static fallback ────────────────────────────────────────────────

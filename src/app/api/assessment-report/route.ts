@@ -1,7 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage } from '@/lib/llm-completion'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 
 export const dynamic = 'force-dynamic'
@@ -29,8 +34,14 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const clientId = String(body.clientId || '')
   const workstream = String(body.workstream || '') as 'ws1' | 'ws2'
+  const provider = parseAnalyzeProvider(body.provider)
+  const modelId = resolveAnalyzeModelId(provider, body.modelId)
   if (!clientId || !['ws1', 'ws2'].includes(workstream)) {
     return new Response('clientId and workstream (ws1|ws2) required', { status: 400 })
+  }
+  if (provider === 'openai') {
+    const gate = await assertOpenAiConfiguredForAnalyze()
+    if (gate) return gate
   }
 
   const client = await prisma.clientProfile.findUnique({
@@ -44,15 +55,7 @@ export async function POST(req: NextRequest) {
 
   const wsLabel = workstream === 'ws1' ? 'Workstream 1 — Risk Mitigation' : 'Workstream 2 — Profitability & Growth'
 
-  if (!(await hasAIConfigured())) return new Response('AI not configured', { status: 500 })
-
-  const anthropic = await requireAIClient()
-
-  const result = await anthropic.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 16000,
-    temperature: 0.15,
-    system: `You are a senior M&A advisory analyst at Cantara Pet Advisors. You produce beautiful, comprehensive, investment-grade assessment reports that synthesize findings from multiple due diligence agents into a single cohesive document.
+  const systemPrompt = `You are a senior M&A advisory analyst at Cantara Pet Advisors. You produce beautiful, comprehensive, investment-grade assessment reports that synthesize findings from multiple due diligence agents into a single cohesive document.
 
 Your reports are read by managing directors, buyers, and deal teams. They must be:
 - **Exhaustive**: Cover every agent's findings — do not skip or summarize away important details
@@ -61,10 +64,9 @@ Your reports are read by managing directors, buyers, and deal teams. They must b
 - **Actionable**: Every finding should connect to a recommendation
 - **Beautiful formatting**: Use markdown with clear hierarchy, tables, bullet points, and bold emphasis
 
-Return markdown only. Do not include any preamble or meta-commentary.`,
-    messages: [{
-      role: 'user',
-      content: `Generate a comprehensive ${wsLabel} Assessment Report for **${client.businessName}**.
+Return markdown only. Do not include any preamble or meta-commentary.`
+
+  const userPrompt = `Generate a comprehensive ${wsLabel} Assessment Report for **${client.businessName}**.
 
 This is a high-stakes M&A due diligence assessment. The report MUST be detailed, thorough, and suitable for presentation to a buyer's deal team.
 
@@ -150,11 +152,16 @@ List any areas where agent data was limited and what additional investigation is
 ## Agent Data Available
 
 ${agentData.map(a => `### ${a.agentName}
-${a.excerpt || 'No data available for this agent.'}`).join('\n\n')}`,
-    }],
-  })
+${a.excerpt || 'No data available for this agent.'}`).join('\n\n')}`
 
-  const markdown = result.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim()
+  const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
+    createAgentMessage({
+      system: systemPrompt,
+      content: userPrompt,
+      maxTokens: 16000,
+      temperature: 0.15,
+    }),
+  )
 
   const report = {
     workstream,

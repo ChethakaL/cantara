@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { analyzePricingByVertical } from '@/lib/pricing-vertical/analyze'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 import type { PricingVerticalReport } from '@/lib/pricing-vertical/types'
 import type { ServicePricingRow } from '@/lib/pricing-vertical/types'
 import { researchWebsite } from '@/lib/competitor-analysis/website-research'
@@ -68,6 +74,8 @@ export async function POST(req: NextRequest) {
       websiteUrl: websiteUrlOverride,
       reanalyzeFromEdits,
       existingReport,
+      provider: rawProvider,
+      modelId: requestedModelId,
     } = await req.json()
 
     if (!clientId) {
@@ -137,17 +145,25 @@ export async function POST(req: NextRequest) {
         : null
     const documentEvidence = await collectPricingDocumentEvidence(clientId)
 
-    // Run analysis
-    const analyzedReport = await analyzePricingByVertical({
-      fileName,
-      base64,
-      mediaType,
-      revenueByVertical,
-      businessName: clientProfile.businessName,
-      websiteResearch,
-      documentEvidence,
-      existingReport: reanalyzeFromEdits ? (existingReport as PricingVerticalReport) : null,
-    })
+    const provider = parseAnalyzeProvider(rawProvider)
+    const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
+    }
+
+    const analyzedReport = await runWithAgentLlmContext({ provider, modelId }, () =>
+      analyzePricingByVertical({
+        fileName,
+        base64,
+        mediaType,
+        revenueByVertical,
+        businessName: clientProfile.businessName,
+        websiteResearch,
+        documentEvidence,
+        existingReport: reanalyzeFromEdits ? (existingReport as PricingVerticalReport) : null,
+      }),
+    )
     const report = reanalyzeFromEdits
       ? analyzedReport
       : mergeStructuredDocumentPrices(

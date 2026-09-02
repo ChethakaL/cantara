@@ -2,9 +2,12 @@ import { useState, useCallback } from "react";
 import { AnalysisStatus, LeaseDocument, LeaseReport } from "@/lib/lease-analysis/types";
 import { convertPdfToBase64 } from "@/lib/lease-analysis/pdf-to-base64";
 import { parseReport } from "@/lib/lease-analysis/parse-report";
+import type { AgentAiProvider } from "@/lib/agent-model-provider";
+import { resolveAgentModelId } from "@/lib/agent-model-provider";
 
 const ANALYZE_MAX_ATTEMPTS = 3;
 const ANALYZE_RETRY_DELAYS_MS = [1000, 2500];
+const MAX_DOCUMENTS = 10;
 
 export function useLeaseAnalysis(clientId?: string) {
   const [documents, setDocuments] = useState<LeaseDocument[]>([]);
@@ -12,6 +15,8 @@ export function useLeaseAnalysis(clientId?: string) {
   const [rawMarkdown, setRawMarkdown] = useState("");
   const [report, setReport] = useState<LeaseReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [provider, setProvider] = useState<AgentAiProvider>("bedrock");
+  const [lastModelId, setLastModelId] = useState<string | null>(null);
 
   const addDocuments = async (files: File[]) => {
     // Basic validation
@@ -92,7 +97,7 @@ export function useLeaseAnalysis(clientId?: string) {
           const res = await fetch("/api/lease-analysis/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ documents, clientId }),
+            body: JSON.stringify({ documents, clientId, provider, modelId: resolveAgentModelId(provider) }),
           });
 
           if (!res.ok) {
@@ -150,6 +155,7 @@ export function useLeaseAnalysis(clientId?: string) {
       // Once streaming is complete, parse the full markdown
       const parsed = parseReport(accumulated);
       setReport(parsed);
+      setLastModelId(resolveAgentModelId(provider));
       setStatus("complete");
 
     } catch (err) {
@@ -157,7 +163,7 @@ export function useLeaseAnalysis(clientId?: string) {
       setError(formatLeaseAnalysisError(err));
       setStatus("error");
     }
-  }, [documents, clientId]);
+  }, [documents, clientId, provider]);
 
   return { 
     documents, 
@@ -169,7 +175,10 @@ export function useLeaseAnalysis(clientId?: string) {
     rawMarkdown, 
     report, 
     error,
-    clientId
+    clientId,
+    provider,
+    setProvider,
+    lastModelId,
   };
 }
 

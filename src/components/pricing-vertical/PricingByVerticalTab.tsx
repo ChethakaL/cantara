@@ -16,6 +16,7 @@ import {
   Clock,
   BarChart3,
   Globe,
+  Loader2,
 } from 'lucide-react'
 import { Badge, Button, Card, cn } from '@/components/ui'
 import type {
@@ -30,6 +31,13 @@ import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFram
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import { buildPricingVerticalReportHtml } from '@/lib/report-export/build-pricing-vertical-report'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
   'application/pdf': ['.pdf'],
@@ -97,6 +105,16 @@ export default function PricingByVerticalTab({
   const [savedBadge, setSavedBadge] = useState(false)
   const [reanalyzeNotice, setReanalyzeNotice] = useState<string | null>(null)
   const [websiteUrl, setWebsiteUrl] = useState('')
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.pricingVertical)
 
   useEffect(() => {
     if (!readOnly) return
@@ -113,6 +131,20 @@ export default function PricingByVerticalTab({
     : (enrichedResult?.verticalSummaries ?? result?.verticalSummaries ?? [])
 
   useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      const payload = activeRun.report as PricingVerticalReport
+      if (payload?.executiveSummary) {
+        setResult({
+          ...payload,
+          verticalSummaries: (payload.verticalSummaries ?? []).map((v: VerticalPricingSummary) => ({
+            ...v,
+            revenueShare: '',
+          })),
+        })
+      }
+      return
+    }
     const loadSaved = async () => {
       try {
         const res = await fetch(`/api/pricing-vertical?clientId=${encodeURIComponent(clientId)}`)
@@ -131,7 +163,34 @@ export default function PricingByVerticalTab({
       } catch { /* ignore */ }
     }
     loadSaved()
-  }, [clientId])
+  }, [clientId, activeRun, loadingRuns])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    const payload = (full?.report ?? null) as PricingVerticalReport | null
+    if (payload?.executiveSummary) {
+      setResult({
+        ...payload,
+        verticalSummaries: (payload.verticalSummaries ?? []).map((v) => ({
+          ...v,
+          revenueShare: '',
+        })),
+      })
+    }
+  }
+
+  const persistPricingVerticalRun = async (report: PricingVerticalReport) => {
+    await saveAgentAnalysisRunClient({
+      clientId,
+      agentKey: AGENT_RUN_KEYS.pricingVertical,
+      fileName: `${clientName} — Pricing by Vertical`,
+      report,
+      aiProvider: provider,
+      aiModel: resolveAgentModelId(provider),
+    })
+    await reloadRuns()
+  }
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) {
@@ -160,6 +219,8 @@ export default function PricingByVerticalTab({
           websiteUrl: websiteUrl.trim() || undefined,
           reanalyzeFromEdits: true,
           existingReport: result,
+          provider,
+          modelId: resolveAgentModelId(provider),
         }),
       })
       if (!res.ok) {
@@ -174,6 +235,7 @@ export default function PricingByVerticalTab({
       )
       window.setTimeout(() => setReanalyzeNotice(null), 9000)
       void persistPricingVerticalToServer(data, { silent: true })
+      await persistPricingVerticalRun(data)
     } catch (err: any) {
       setError(err.message || 'Re-run failed')
     } finally {
@@ -224,6 +286,8 @@ export default function PricingByVerticalTab({
           clientId,
           websiteUrl: websiteUrl.trim() || undefined,
           ...payloadFile,
+          provider,
+          modelId: resolveAgentModelId(provider),
         }),
       })
       if (!res.ok) {
@@ -232,6 +296,7 @@ export default function PricingByVerticalTab({
       }
       const data: PricingVerticalReport = await res.json()
       setResult(data)
+      await persistPricingVerticalRun(data)
     } catch (err: any) {
       setError(err.message || 'Analysis failed')
     } finally {
@@ -352,6 +417,19 @@ export default function PricingByVerticalTab({
   if (result) {
     return (
       <div className="space-y-6">
+        {!readOnly && (
+          <AgentRunToolbar
+            provider={provider}
+            onProviderChange={setProvider}
+            disabled={analyzing}
+            historyItems={historyItems}
+            activeId={activeId}
+            onSelectRun={selectRun}
+            activeProvider={activeRun?.aiProvider}
+            activeModel={activeRun?.aiModel}
+            activeVersion={activeRun?.version}
+          />
+        )}
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -858,9 +936,59 @@ export default function PricingByVerticalTab({
     )
   }
 
+  // ── Analyzing / Processing loading view ───────────────────────────────────
+  if (analyzing) {
+    return (
+      <div className="space-y-6">
+        {!readOnly && (
+          <AgentRunToolbar
+            provider={provider}
+            onProviderChange={setProvider}
+            disabled={true}
+            historyItems={historyItems}
+            activeId={activeId}
+            onSelectRun={selectRun}
+            activeProvider={activeRun?.aiProvider}
+            activeModel={activeRun?.aiModel}
+            activeVersion={activeRun?.version}
+          />
+        )}
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-xs">
+          <div className="flex flex-col items-center justify-center space-y-4">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-amber-200 border-t-amber-600" />
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-bold text-slate-800 tracking-tight">Finding Current Prices &amp; Building Grid...</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                Scraping current rate cards, analyzing historical price evidence, and constructing the 24-month pricing model for {clientName}.
+              </p>
+              <div className="pt-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 text-[11px] font-semibold border border-amber-200">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" /> Analysis in progress
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ── Upload view ─────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={analyzing}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
+      )}
       <div>
         <h2 className="text-lg font-semibold text-slate-800">Pricing by Vertical Analysis</h2>
         <p className="text-xs text-slate-400 mt-0.5">
@@ -933,7 +1061,7 @@ export default function PricingByVerticalTab({
       >
         {analyzing ? (
           <>
-            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
             Finding Current Prices...
           </>
         ) : (

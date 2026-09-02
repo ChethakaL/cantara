@@ -4,6 +4,8 @@ import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, X, Loader, Plus } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { LeaseDocument } from '../../lib/lease-analysis/types'
+import { AgentModelProviderSelect } from '@/components/admin/AgentModelProviderSelect'
+import type { AgentAiProvider } from '@/lib/agent-model-provider'
 
 interface Props {
   documents: LeaseDocument[]
@@ -11,9 +13,11 @@ interface Props {
   removeDocument: (index: number) => void
   status: string
   onAnalyze: () => void
+  provider: AgentAiProvider
+  onProviderChange: (provider: AgentAiProvider) => void
 }
 
-export function LeaseUploader({ documents, addDocuments, removeDocument, status, onAnalyze }: Props) {
+export function LeaseUploader({ documents, addDocuments, removeDocument, status, onAnalyze, provider, onProviderChange }: Props) {
   const onDrop = useCallback((files: File[]) => {
     addDocuments(files)
   }, [addDocuments])
@@ -36,6 +40,11 @@ export function LeaseUploader({ documents, addDocuments, removeDocument, status,
 
   return (
     <div className="space-y-6">
+      <AgentModelProviderSelect
+        value={provider}
+        onChange={onProviderChange}
+        disabled={status !== 'idle' && status !== 'error'}
+      />
       <div
         {...getRootProps()}
         className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all ${

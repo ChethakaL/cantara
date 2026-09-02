@@ -4,11 +4,19 @@ import { buildSingleCompetitorReport } from '@/lib/competitor-analysis/claude-an
 import { getPlaceDetails } from '@/lib/competitor-analysis/google-places';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
 import type { BusinessPlaceProfile, CompetitorAnalysisFormData, CompetitorReportItem, SubjectBusinessProfile } from '@/lib/competitor-analysis/types';
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider';
+import { hasOpenAiConfigured } from '@/lib/openai-client';
 
 type CompetitorResearchRequest = {
   formData: CompetitorAnalysisFormData;
   subject: SubjectBusinessProfile;
   competitor: BusinessPlaceProfile & { distanceMiles: number };
+  provider?: unknown;
+  modelId?: unknown;
 };
 
 export async function POST(req: NextRequest) {
@@ -18,10 +26,20 @@ export async function POST(req: NextRequest) {
       return new Response('Missing required fields', { status: 400 });
     }
 
+    const provider = parseAnalyzeProvider(body.provider);
+    const modelId = resolveAnalyzeModelId(provider, body.modelId);
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze();
+      if (gate) return gate;
+    }
+
     const googleApiKey = process.env.GOOGLE_SERVICES_API;
     const tavilyApiKey = process.env.TAVILY_API_KEY;
 
-    if (!googleApiKey || !(await hasAIConfigured())) {
+    const aiConfigured =
+      provider === 'openai' ? await hasOpenAiConfigured() : await hasAIConfigured();
+
+    if (!googleApiKey || !aiConfigured) {
       return new Response('Competitor analysis is not configured correctly.', { status: 500 });
     }
 
@@ -54,6 +72,8 @@ export async function POST(req: NextRequest) {
       subjectWebsiteResearch,
       competitor,
       competitorWebsiteResearch,
+      provider,
+      modelId,
     });
 
     return NextResponse.json({ competitor: researchedCompetitor });

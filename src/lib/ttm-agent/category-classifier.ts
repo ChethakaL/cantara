@@ -11,7 +11,10 @@
  * uses the classification to compute exact dollar amounts.
  */
 
-import { hasAIConfigured, requireAIClient, resolveModel } from "@/lib/ai-client"
+import { hasAIConfigured, resolveModel } from "@/lib/ai-client"
+import { createAgentMessage } from "@/lib/llm-completion";
+import { getActiveAgentProvider } from "@/lib/agent-llm-context";
+import { hasOpenAiConfigured } from "@/lib/openai-client";
 import type { PersonalExpenseCategory } from "@/lib/ttm-agent/parsers/personal-expenses"
 
 export type CategoryClass = "SOURCE_B" | "SOURCE_A" | "SKIP";
@@ -62,25 +65,28 @@ export async function classifyCategories(
     `- "${c.category}" (${c.transactionCount} transactions, ${c.subCategories.length > 0 ? 'sub-categories: ' + c.subCategories.join(', ') : 'no sub-categories'})`
   ).join("\n");
 
-  if (!(await hasAIConfigured())) {
+  if (!(await hasAIConfigured()) && !(await hasOpenAiConfigured())) {
     console.warn("[Classifier] No AI credentials — using fallback hardcoded classification");
     return fallbackClassification(categories);
   }
 
   try {
-    const client = await requireAIClient();
-    const response = await client.messages.create({
-      model: resolveModel("claude-sonnet-4-20250514"),
-      max_tokens: 2000,
-      temperature: 0,
-      system: SYSTEM_PROMPT,
-      messages: [{
-        role: "user",
-        content: `Classify these ${categories.length} expense categories:\n\n${categoryList}\n\nRespond with JSON array only, no other text.`,
-      }],
-    });
-
-    const text = response.content.find(b => b.type === "text")?.text ?? "[]";
+    const userPrompt = `Classify these ${categories.length} expense categories:\n\n${categoryList}\n\nRespond with JSON array only, no other text.`;
+    const text =
+      getActiveAgentProvider() === "openai"
+        ? await createAgentMessage({ system: SYSTEM_PROMPT, content: userPrompt, maxTokens: 2000, temperature: 0 })
+        : await (async () => {
+            const { requireAIClient } = await import("@/lib/ai-client");
+            const client = await requireAIClient();
+            const response = await client.messages.create({
+              model: resolveModel("claude-sonnet-4-20250514"),
+              max_tokens: 2000,
+              temperature: 0,
+              system: SYSTEM_PROMPT,
+              messages: [{ role: "user", content: userPrompt }],
+            });
+            return response.content.find(b => b.type === "text")?.text ?? "[]";
+          })();
     // Extract JSON from response (may have markdown code fences)
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {

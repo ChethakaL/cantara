@@ -1,4 +1,7 @@
-import { requireAIClient, resolveModel, type AIClient } from "@/lib/ai-client";
+import { requireAIClient, resolveModel } from "@/lib/ai-client";
+import type { AgentAiProvider } from "@/lib/agent-model-provider";
+import { createAgentMessage } from "@/lib/llm-completion";
+import { getActiveAgentProvider } from "@/lib/agent-llm-context";
 import {
   BusinessPlaceProfile,
   CompetitorAnalysisFormData,
@@ -200,12 +203,26 @@ function parseClaudeJson(rawText: string): ClaudeOverlayResponse {
 }
 
 async function requestOverlay(args: {
-  client: AIClient;
   prompt: string;
   maxTokens: number;
+  provider?: AgentAiProvider;
+  modelId?: string;
 }) {
-  const response = await args.client.messages.create({
-    model: COMPETITOR_ANALYSIS_MODEL,
+  const provider = args.provider ?? getActiveAgentProvider();
+  if (provider === 'openai') {
+    return createAgentMessage({
+      provider,
+      model: args.modelId,
+      system: '',
+      content: args.prompt,
+      maxTokens: args.maxTokens,
+      temperature: 0,
+    });
+  }
+
+  const client = await requireAIClient();
+  const response = await client.messages.create({
+    model: resolveModel(COMPETITOR_ANALYSIS_MODEL),
     max_tokens: args.maxTokens,
     temperature: 0,
     messages: [{ role: 'user', content: args.prompt }],
@@ -244,17 +261,20 @@ export async function buildCompetitorAnalysisReport(args: {
   competitors: Array<BusinessPlaceProfile & { distanceMiles: number }>;
   competitorWebsiteResearch: Record<string, WebsiteResearchData | null>;
   discoveredCompetitors: number;
+  provider?: AgentAiProvider;
+  modelId?: string;
 }): Promise<CompetitorAnalysisReport> {
-  const client = await requireAIClient();
+  const provider = args.provider ?? 'bedrock';
   const prompt = buildPrompt({ ...args, compact: false });
 
   let parsed: ClaudeOverlayResponse;
   let rawText = '';
   try {
     rawText = await requestOverlay({
-      client,
       prompt,
       maxTokens: PRIMARY_MAX_TOKENS,
+      provider,
+      modelId: args.modelId,
     });
     parsed = parseClaudeJson(rawText);
   } catch (error) {
@@ -273,9 +293,10 @@ export async function buildCompetitorAnalysisReport(args: {
 
     try {
       rawText = await requestOverlay({
-        client,
         prompt: retryPrompt,
         maxTokens: RETRY_MAX_TOKENS,
+        provider,
+        modelId: args.modelId,
       });
       parsed = parseClaudeJson(rawText);
     } catch (retryError) {
@@ -374,8 +395,11 @@ export async function buildSingleCompetitorReport(args: {
   subjectWebsiteResearch: WebsiteResearchData | null;
   competitor: BusinessPlaceProfile & { distanceMiles: number };
   competitorWebsiteResearch: WebsiteResearchData | null;
+  provider?: AgentAiProvider;
+  modelId?: string;
 }): Promise<CompetitorReportItem> {
-  const client = await requireAIClient();
+  const provider = args.provider ?? 'bedrock';
+  const modelId = args.modelId;
   const prompt = buildPrompt({
     formData: args.formData,
     subject: args.subject,
@@ -391,16 +415,18 @@ export async function buildSingleCompetitorReport(args: {
   let parsed: ClaudeOverlayResponse;
   try {
     rawText = await requestOverlay({
-      client,
       prompt,
       maxTokens: 1000,
+      provider,
+      modelId,
     });
     parsed = parseClaudeJson(rawText);
   } catch {
     rawText = await requestOverlay({
-      client,
       prompt: `${prompt}\n\nReturn only one competitor object in valid JSON and keep all strings short.`,
       maxTokens: 800,
+      provider,
+      modelId,
     });
     parsed = parseClaudeJson(rawText);
   }

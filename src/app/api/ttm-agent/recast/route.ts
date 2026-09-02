@@ -3,10 +3,12 @@ import {
   addManualWs2RecastAddback,
   actionWs2RecastFlag,
   approveWs2RecastAnalysis,
+  getTtmAnalysis,
   runWs2RecastAnalysis,
   TtmOrchestratorError,
 } from "@/lib/ttm-agent/orchestrator";
 import { FlagResolutionAction, Ws2RecastAssumptions } from "@/lib/ttm-agent/types";
+import { llmContextFromStoredAnalysis, runWithAgentLlmContext } from "@/lib/agent-llm-context";
 
 export const maxDuration = 300;
 
@@ -28,11 +30,18 @@ export async function POST(req: NextRequest) {
         return new Response("preparedDocuments must be an array", { status: 400 });
       }
 
-      const updated = await runWs2RecastAnalysis({
-        analysisId,
-        assumptions,
-        preparedDocuments: preparedDocuments as any,
-      });
+      const analysis = await getTtmAnalysis(analysisId);
+      if (!analysis) {
+        return new Response("WS2-1 analysis not found", { status: 404 });
+      }
+
+      const updated = await runWithAgentLlmContext(llmContextFromStoredAnalysis(analysis), () =>
+        runWs2RecastAnalysis({
+          analysisId,
+          assumptions,
+          preparedDocuments: preparedDocuments as any,
+        }),
+      );
       return NextResponse.json(updated);
     }
 

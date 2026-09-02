@@ -7,6 +7,8 @@ export type TaxLiabilityReportRecord = {
   markdown: string
   documentNames: string[]
   metadata?: unknown
+  aiProvider?: string
+  aiModel?: string | null
   createdAt: Date | string
   updatedAt?: Date | string
 }
@@ -17,6 +19,7 @@ function getDelegate() {
   return (prisma as any).taxLiabilityReport as
     | {
         findFirst: (args: unknown) => Promise<TaxLiabilityReportRecord | null>
+        findMany: (args: unknown) => Promise<TaxLiabilityReportRecord[]>
         create: (args: unknown) => Promise<TaxLiabilityReportRecord>
         update: (args: unknown) => Promise<TaxLiabilityReportRecord>
         deleteMany: (args: unknown) => Promise<unknown>
@@ -109,22 +112,28 @@ async function deleteSectionSubmission(clientId: string) {
   })
 }
 
-export async function getLatestTaxLiabilityReport(clientId: string): Promise<TaxLiabilityReportRecord | null> {
+export async function listTaxLiabilityReports(clientId: string): Promise<TaxLiabilityReportRecord[]> {
   const delegate = getDelegate()
   if (delegate) {
     try {
-      const report = await delegate.findFirst({
+      const reports = await delegate.findMany({
         where: { clientId },
         orderBy: { createdAt: 'desc' },
       })
-      if (report) return report
+      if (reports.length > 0) return reports
     } catch (error: unknown) {
       const code = (error as { code?: string })?.code
       if (code !== 'P2021') throw error
     }
   }
 
-  return readSectionSubmission(clientId)
+  const fallback = await readSectionSubmission(clientId)
+  return fallback ? [fallback] : []
+}
+
+export async function getLatestTaxLiabilityReport(clientId: string): Promise<TaxLiabilityReportRecord | null> {
+  const reports = await listTaxLiabilityReports(clientId)
+  return reports[0] ?? null
 }
 
 export async function saveTaxLiabilityReport(args: {
@@ -132,6 +141,8 @@ export async function saveTaxLiabilityReport(args: {
   markdown: string
   documentNames?: string[]
   metadata?: unknown
+  aiProvider?: string
+  aiModel?: string | null
 }): Promise<TaxLiabilityReportRecord> {
   const delegate = getDelegate()
   if (delegate) {
@@ -142,6 +153,8 @@ export async function saveTaxLiabilityReport(args: {
           markdown: args.markdown,
           documentNames: args.documentNames ?? [],
           metadata: args.metadata ?? undefined,
+          aiProvider: args.aiProvider || 'bedrock',
+          aiModel: args.aiModel || null,
           createdAt: new Date(),
         },
       })

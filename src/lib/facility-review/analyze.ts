@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { FacilityRating, FacilityReviewReport } from './types'
-import { requireAIClient, resolveModel } from "@/lib/ai-client"
+import type { AgentAiProvider } from '@/lib/agent-model-provider'
+import { requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
 
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
 const DEFAULT_MAX_TOKENS = Number(process.env.FACILITY_REVIEW_MAX_TOKENS) || 16000
@@ -170,17 +172,18 @@ async function runFacilityAnalysis(args: {
   location: string
   prompt: string
   images: Array<{ fileName: string; base64: string; mediaType: string }>
+  provider?: AgentAiProvider
+  modelId?: string
 }): Promise<FacilityReviewReport> {
+  const provider = args.provider ?? 'bedrock'
   const logicalModel = process.env.FACILITY_REVIEW_MODEL || DEFAULT_MODEL
   const model = resolveModel(logicalModel)
-  const client = await requireAIClient()
 
-  const content: Anthropic.Messages.ContentBlockParam[] = args.images.flatMap((image, index) => [
+  const content: AgentMessageBlock[] = args.images.flatMap((image, index) => [
     {
       type: 'image' as const,
       source: {
-        type: 'base64' as const,
-        media_type: image.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+        media_type: image.mediaType,
         data: image.base64,
       },
     },
@@ -199,25 +202,62 @@ ${SCORING_RULES}
 ${FACILITY_REPORT_JSON_SCHEMA}`,
   })
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: DEFAULT_MAX_TOKENS,
-    temperature: 0,
-    messages: [{ role: 'user', content }],
-  })
+  let rawText: string
+  if (provider === 'openai') {
+    rawText = await createAgentMessage({
+      provider,
+      model: args.modelId,
+      system: '',
+      content,
+      maxTokens: DEFAULT_MAX_TOKENS,
+      temperature: 0,
+    })
+  } else {
+    const client = await requireAIClient()
+    const anthropicContent: Anthropic.Messages.ContentBlockParam[] = args.images.flatMap((image, index) => [
+      {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: image.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+          data: image.base64,
+        },
+      },
+      {
+        type: 'text' as const,
+        text: `Image ${index + 1}: ${image.fileName}`,
+      },
+    ])
 
-  if (response.stop_reason === 'max_tokens') {
-    throw new Error(
-      `Facility report generation hit the ${DEFAULT_MAX_TOKENS} token output limit. Try fewer visit photos or shorter meeting notes.`,
-    )
+    anthropicContent.push({
+      type: 'text',
+      text: `${args.prompt}
+
+${SCORING_RULES}
+
+${FACILITY_REPORT_JSON_SCHEMA}`,
+    })
+
+    const response = await client.messages.create({
+      model,
+      max_tokens: DEFAULT_MAX_TOKENS,
+      temperature: 0,
+      messages: [{ role: 'user', content: anthropicContent }],
+    })
+
+    if (response.stop_reason === 'max_tokens') {
+      throw new Error(
+        `Facility report generation hit the ${DEFAULT_MAX_TOKENS} token output limit. Try fewer visit photos or shorter meeting notes.`,
+      )
+    }
+
+    rawText = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => ('text' in block ? block.text : ''))
+      .join('')
   }
 
-  const rawText = response.content
-    .filter(block => block.type === 'text')
-    .map(block => ('text' in block ? block.text : ''))
-    .join('')
-    .trim()
-
+  rawText = rawText.trim()
   return normalizeReport(parseClaudeJson(rawText), logicalModel)
 }
 
@@ -226,11 +266,15 @@ export async function analyzeFacilityImages(args: {
   location: string
   notes?: string
   images: Array<{ fileName: string; base64: string; mediaType: string }>
+  provider?: AgentAiProvider
+  modelId?: string
 }): Promise<FacilityReviewReport> {
   return runFacilityAnalysis({
     businessName: args.businessName,
     location: args.location,
     images: args.images,
+    provider: args.provider,
+    modelId: args.modelId,
     prompt: `Create Cantara Pet Business Advisors Facility Assessment Report from the seller intake responses and any uploaded facility images.
 
 Business name: ${args.businessName}

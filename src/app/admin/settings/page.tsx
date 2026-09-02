@@ -46,6 +46,11 @@ export default function AdminSettingsPage() {
   const { total: unreadCount } = useAdminInboxUnread()
   const [status, setStatus] = useState<KeyStatus | null>(null)
   const [apiKey, setApiKey] = useState('')
+  const [openAiStatus, setOpenAiStatus] = useState<KeyStatus | null>(null)
+  const [openAiApiKey, setOpenAiApiKey] = useState('')
+  const [openAiMessage, setOpenAiMessage] = useState<string | null>(null)
+  const [openAiError, setOpenAiError] = useState<string | null>(null)
+  const [openAiSaving, setOpenAiSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -80,6 +85,11 @@ export default function AdminSettingsPage() {
       const res = await fetch('/api/admin/settings/anthropic-key', { cache: 'no-store' })
       if (!res.ok) throw new Error(await res.text())
       setStatus(await res.json())
+
+      const openAiRes = await fetch('/api/admin/settings/openai-key', { cache: 'no-store' })
+      if (openAiRes.ok) {
+        setOpenAiStatus(await openAiRes.json())
+      }
 
       // Load Monday Settings
       const mRes = await fetch('/api/admin/settings/monday', { cache: 'no-store' })
@@ -257,6 +267,27 @@ export default function AdminSettingsPage() {
     }
   }
 
+  const saveOpenAiKey = async () => {
+    setOpenAiSaving(true)
+    setOpenAiError(null)
+    setOpenAiMessage(null)
+    try {
+      const res = await fetch('/api/admin/settings/openai-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: openAiApiKey }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setOpenAiStatus(await res.json())
+      setOpenAiApiKey('')
+      setOpenAiMessage('OpenAI API key saved.')
+    } catch (err) {
+      setOpenAiError(err instanceof Error ? err.message : 'Failed to save OpenAI API key')
+    } finally {
+      setOpenAiSaving(false)
+    }
+  }
+
   const saveMondaySettings = async () => {
     setSaving(true)
     setMondayStatusMessage(null)
@@ -322,7 +353,7 @@ export default function AdminSettingsPage() {
         <GoogleServicesCard />
 
         {/* Anthropic Section */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        {/* <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-6 flex items-start gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
               <KeyRound className="h-5 w-5" />
@@ -358,6 +389,50 @@ export default function AdminSettingsPage() {
             <Button onClick={() => void saveKey()} disabled={saving || !apiKey.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {saving ? 'Saving...' : 'Save API Key'}
+            </Button>
+          </div>
+        </section> */}
+
+        {/* OpenAI Section */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+              <KeyRound className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">OpenAI credential</h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Used when running agents with the OpenAI provider. Stored encrypted in the database.
+              </p>
+              {loading ? (
+                <div className="mt-2 flex items-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                </div>
+              ) : openAiStatus?.configured ? (
+                <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700">
+                  <ShieldCheck className="h-4 w-4" />
+                  {openAiStatus.maskedKey} <span className="text-emerald-500">({openAiStatus.source})</span>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-amber-700">No OpenAI API key configured.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <Input
+              label="New OpenAI API key"
+              type="password"
+              autoComplete="off"
+              placeholder="sk-..."
+              value={openAiApiKey}
+              onChange={e => setOpenAiApiKey(e.target.value)}
+            />
+            {openAiError && <p className="text-sm text-rose-600">{openAiError}</p>}
+            {openAiMessage && <p className="text-sm text-emerald-700">{openAiMessage}</p>}
+            <Button onClick={() => void saveOpenAiKey()} disabled={openAiSaving || !openAiApiKey.trim()}>
+              {openAiSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              {openAiSaving ? 'Saving...' : 'Save OpenAI Key'}
             </Button>
           </div>
         </section>

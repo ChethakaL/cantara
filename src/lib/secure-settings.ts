@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
 
 const ANTHROPIC_SECRET_KEY = "anthropic_api_key";
+const OPENAI_SECRET_KEY = "openai_api_key";
 const UNIPILE_MAIL_ACCOUNT_ID_KEY = "unipile_mail_account_id";
 const COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY = "composio_mail_connected_account_id";
 const COMPOSIO_MONDAY_CONNECTED_ACCOUNT_ID_KEY = "composio_monday_connected_account_id";
@@ -67,6 +68,35 @@ export async function saveStoredAnthropicApiKey(apiKey: string) {
     create: { key: ANTHROPIC_SECRET_KEY, value: encryptSecret(trimmed) },
   });
   return maskSecret(trimmed);
+}
+
+export async function getStoredOpenAiApiKey() {
+  const secret = await (prisma as any).appSecret.findUnique({
+    where: { key: OPENAI_SECRET_KEY },
+  });
+  if (!secret?.value) return null;
+  return decryptSecret(secret.value);
+}
+
+export async function saveStoredOpenAiApiKey(apiKey: string) {
+  const trimmed = apiKey.trim();
+  if (!trimmed) throw new Error("OpenAI API key is required");
+  await (prisma as any).appSecret.upsert({
+    where: { key: OPENAI_SECRET_KEY },
+    update: { value: encryptSecret(trimmed) },
+    create: { key: OPENAI_SECRET_KEY, value: encryptSecret(trimmed) },
+  });
+  return maskSecret(trimmed);
+}
+
+export async function getOpenAiApiKey() {
+  try {
+    const stored = await getStoredOpenAiApiKey();
+    if (stored) return stored;
+  } catch (error) {
+    console.error("[secure-settings] Failed to load stored OpenAI API key; falling back to env.", error);
+  }
+  return process.env.OPENAI_API_KEY || "";
 }
 
 export async function hasStoredUnipileMailAccountId() {

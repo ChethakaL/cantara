@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { analyzePricing } from '@/lib/pricing-analysis/analyze'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 import type { CompetitorPricingInput } from '@/lib/pricing-analysis/types'
 import { normalizePricingReport } from '@/lib/pricing-analysis/normalize-report'
 import { researchWebsite } from '@/lib/competitor-analysis/website-research'
@@ -70,10 +76,17 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, sellerWebsiteUrl, sellerManualPricingText, competitors } = await req.json()
+    const { clientId, sellerWebsiteUrl, sellerManualPricingText, competitors, provider: rawProvider, modelId: requestedModelId } = await req.json()
 
     if (!clientId) {
       return new Response('Missing required field: clientId', { status: 400 })
+    }
+
+    const provider = parseAnalyzeProvider(rawProvider)
+    const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
     }
 
     const clientProfile = await (prisma as any).clientProfile.findUnique({
@@ -170,16 +183,18 @@ export async function POST(req: NextRequest) {
     })))
 
     // Run analysis
-    const report = await analyzePricing({
-      businessName: clientProfile.businessName,
-      sellerWebsiteUrl: resolvedSellerWebsite,
-      sellerPricingResearch: sellerResearchWithManual,
-      competitors: competitorInputs,
-      competitorData: {
-        ...competitorData,
-        websitePricingResearch: researchedCompetitors,
-      },
-    })
+    const report = await runWithAgentLlmContext({ provider, modelId }, () =>
+      analyzePricing({
+        businessName: clientProfile.businessName,
+        sellerWebsiteUrl: resolvedSellerWebsite,
+        sellerPricingResearch: sellerResearchWithManual,
+        competitors: competitorInputs,
+        competitorData: {
+          ...competitorData,
+          websitePricingResearch: researchedCompetitors,
+        },
+      }),
+    )
 
     // Store result in sectionSubmissions.pricingAnalysis
     existing.pricingAnalysis = report

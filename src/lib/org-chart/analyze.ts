@@ -1,6 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
-import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import type { AgentAiProvider } from '@/lib/agent-model-provider'
+import { requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage } from '@/lib/llm-completion'
 
 export interface OrgChartAnalysis {
   summary: string
@@ -30,9 +30,10 @@ export async function analyzeOrgChart(args: {
   fileName: string
   base64: string
   mediaType: string
+  provider?: AgentAiProvider
+  modelId?: string
 }): Promise<OrgChartAnalysis> {
-    const client = await requireAIClient()
-
+  const provider = args.provider ?? 'bedrock'
   const content: any[] = []
 
   if (args.mediaType === 'application/pdf') {
@@ -93,17 +94,30 @@ Return ONLY valid JSON:
 }`,
   })
 
-  const response = await client.messages.create({
-    model: resolveModel('claude-opus-4-5'),
-    max_tokens: 4000,
-    temperature: 0,
-    messages: [{ role: 'user', content }],
-  })
-
-  const rawText = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => ('text' in b ? b.text : ''))
-    .join('').trim()
+  let rawText: string
+  if (provider === 'openai') {
+    rawText = await createAgentMessage({
+      provider,
+      model: args.modelId,
+      system: '',
+      content: content as Parameters<typeof createAgentMessage>[0]['content'],
+      maxTokens: 4000,
+      temperature: 0,
+    })
+  } else {
+    const client = await requireAIClient()
+    const response = await client.messages.create({
+      model: resolveModel('claude-opus-4-5'),
+      max_tokens: 4000,
+      temperature: 0,
+      messages: [{ role: 'user', content }],
+    })
+    rawText = response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => ('text' in b ? b.text : ''))
+      .join('')
+  }
+  rawText = rawText.trim()
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
   const parsed = JSON.parse(cleaned)
   return { ...parsed, generatedAt: new Date().toISOString() }

@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { hasAIConfigured, requireAIClient, resolveModel } from '@/lib/ai-client'
 import { readRoadmapSubmission } from '@/lib/sale-readiness-checklist'
+import {
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+  assertOpenAiConfiguredForAnalyze,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
+import { createAgentMessage } from '@/lib/llm-completion'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -29,8 +35,14 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const clientId = String(body.clientId || '')
   const workstream = String(body.workstream || '') as 'ws1' | 'ws2'
+  const provider = parseAnalyzeProvider(body.provider)
+  const modelId = resolveAnalyzeModelId(provider, body.modelId)
   if (!clientId || !['ws1', 'ws2'].includes(workstream)) {
     return new Response('clientId and workstream (ws1|ws2) required', { status: 400 })
+  }
+  if (provider === 'openai') {
+    const gate = await assertOpenAiConfiguredForAnalyze()
+    if (gate) return gate
   }
 
   const client = await prisma.clientProfile.findUnique({
@@ -49,15 +61,7 @@ export async function POST(req: NextRequest) {
   const wsLabel = workstream === 'ws1' ? 'Workstream 1 — Risk Mitigation' : 'Workstream 2 — Profitability & Growth'
   const clientName = client.businessName
 
-  if (!(await hasAIConfigured())) return new Response('AI not configured', { status: 500 })
-
-  const anthropic = await requireAIClient()
-
-  const result = await anthropic.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 16000,
-    temperature: 0.15,
-    system: `You are a senior M&A advisor at Cantara Pet Advisors creating a buyer-facing report designed to present a business acquisition opportunity in the most compelling yet transparent way.
+  const systemPrompt = `You are a senior M&A advisor at Cantara Pet Advisors creating a buyer-facing report designed to present a business acquisition opportunity in the most compelling yet transparent way.
 
 Your buyer reports are:
 - **Compelling**: Highlight the opportunity, growth potential, and strengths that make this an attractive acquisition
@@ -74,10 +78,9 @@ CRITICAL RULES:
 - Do NOT include seller contact info, internal pricing discussions, or negotiation strategy
 - This is a MARKETING document that must also be TRUTHFUL
 
-Return markdown only. Do not include any preamble.`,
-    messages: [{
-      role: 'user',
-      content: `Generate a comprehensive ${wsLabel} Buyer Report for **${clientName}**.
+Return markdown only. Do not include any preamble.`
+
+  const userPrompt = `Generate a comprehensive ${wsLabel} Buyer Report for **${clientName}**.
 
 This is a BUYER-FACING document. It presents the business to potential acquirers, highlighting strengths, quantifying the opportunity, and transparently addressing areas that need attention. The goal is to encourage serious buyer interest while maintaining credibility.
 
@@ -159,11 +162,16 @@ Numbered list of 5-7 recommended next steps for an interested buyer. Be specific
 ### Sales Readiness Roadmap
 ${truncate(roadmapReport.markdown, 10000)}
 
-${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`).join('\n\n')}`,
-    }],
-  })
+${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`).join('\n\n')}`
 
-  const markdown = result.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim()
+  const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
+    createAgentMessage({
+      system: systemPrompt,
+      content: userPrompt,
+      maxTokens: 16000,
+      temperature: 0.15,
+    }),
+  )
 
   const report = {
     workstream,

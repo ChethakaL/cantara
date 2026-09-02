@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   deleteTaxLiabilityReports,
-  getLatestTaxLiabilityReport,
+  listTaxLiabilityReports,
   saveTaxLiabilityReport,
   updateLatestTaxLiabilityReport,
 } from '@/lib/tax-liability-review/storage'
@@ -14,8 +14,8 @@ export async function GET(req: NextRequest) {
     const clientId = req.nextUrl.searchParams.get('clientId')
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
-    const report = await getLatestTaxLiabilityReport(clientId)
-    return NextResponse.json({ report })
+    const reports = await listTaxLiabilityReports(clientId)
+    return NextResponse.json({ report: reports[0] ?? null, reports })
   } catch (error) {
     console.error('[WS1-11] Report fetch error:', error)
     return new Response('Internal Server Error', { status: 500 })
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, markdown, documentNames, metadata } = await req.json()
+    const { clientId, markdown, documentNames, metadata, aiProvider, aiModel } = await req.json()
     if (!clientId || !markdown) {
       return new Response('Missing clientId or markdown', { status: 400 })
     }
@@ -34,6 +34,8 @@ export async function POST(req: NextRequest) {
       markdown,
       documentNames,
       metadata,
+      aiProvider,
+      aiModel,
     })
 
     return NextResponse.json({ report })

@@ -10,12 +10,12 @@ export async function GET(req: NextRequest) {
     const clientId = req.nextUrl.searchParams.get('clientId')
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
-    const report = await (prisma as any).permitsZoningReport.findFirst({
+    const reports = await (prisma as any).permitsZoningReport.findMany({
       where: { clientId },
       orderBy: { createdAt: 'desc' },
     })
 
-    return NextResponse.json({ report: report ?? null })
+    return NextResponse.json({ report: reports[0] ?? null, reports })
   } catch (error: any) {
     // Gracefully handle missing table (model exists in schema but migration not run)
     if (error?.code === 'P2021') {
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 // POST — save a completed WS1-9 report
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, markdown, documentNames, metadata } = await req.json()
+    const { clientId, markdown, documentNames, metadata, aiProvider, aiModel } = await req.json()
     if (!clientId || !markdown) {
       return new Response('Missing clientId or markdown', { status: 400 })
     }
@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
         markdown,
         documentNames: documentNames ?? [],
         metadata: metadata ?? undefined,
+        aiProvider: aiProvider || 'bedrock',
+        aiModel: aiModel || null,
         createdAt: new Date(),
       },
     })
@@ -55,19 +57,22 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const clientId = req.nextUrl.searchParams.get('clientId')
+    const reportId = req.nextUrl.searchParams.get('id')
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
     const { metadata, markdown } = await req.json()
 
-    const latest = await (prisma as any).permitsZoningReport.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    })
+    const target = reportId
+      ? await (prisma as any).permitsZoningReport.findFirst({ where: { id: reportId, clientId } })
+      : await (prisma as any).permitsZoningReport.findFirst({
+          where: { clientId },
+          orderBy: { createdAt: 'desc' },
+        })
 
-    if (!latest) return new Response('Report not found', { status: 404 })
+    if (!target) return new Response('Report not found', { status: 404 })
 
     const report = await (prisma as any).permitsZoningReport.update({
-      where: { id: latest.id },
+      where: { id: target.id },
       data: {
         ...(metadata !== undefined ? { metadata } : {}),
         ...(typeof markdown === 'string' ? { markdown } : {}),

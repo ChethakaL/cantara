@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { clientId, fileName, report, parsed } = body;
+    const { clientId, fileName, report, parsed, aiProvider, aiModel } = body;
 
     if (!clientId || !fileName || !report) {
       return new Response("Missing required fields", { status: 400 });
@@ -38,6 +38,8 @@ export async function POST(req: NextRequest) {
         fileName,
         report,
         parsed,
+        aiProvider: aiProvider || "bedrock",
+        aiModel: aiModel || null,
       },
     });
 

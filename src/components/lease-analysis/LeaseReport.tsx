@@ -20,6 +20,7 @@ interface Props {
   onDelete?: () => void
   onReportUpdated?: (report: ILeaseReport) => Promise<void>
   adminMode?: boolean
+  hideNewAnalysis?: boolean
 }
 
 const REPORT_TABS = [
@@ -37,6 +38,7 @@ export function LeaseReport({
   onDelete,
   onReportUpdated,
   adminMode = false,
+  hideNewAnalysis = false,
 }: Props) {
   const [activeTab, setActiveTab] = useState('summary')
   const [editMode, setEditMode] = useState(false)
@@ -147,6 +149,7 @@ export function LeaseReport({
             onNewAnalysis={onNewAnalysis}
             onDelete={onDelete}
             report={visibleReport}
+            hideNewAnalysis={hideNewAnalysis}
           />
         </div>
       </div>

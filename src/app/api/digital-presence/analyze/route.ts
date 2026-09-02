@@ -4,6 +4,12 @@ import { researchAllChannels } from '@/lib/digital-presence/claude-research';
 import { analyzeWithClaude } from '@/lib/digital-presence/claude-analyzer';
 import { AnalyzeRequestBody, ChannelType } from '@/lib/digital-presence/types';
 import { findPlaceByText, getPlaceDetails } from '@/lib/competitor-analysis/google-places';
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider';
+import { hasOpenAiConfigured } from '@/lib/openai-client';
 
 export const maxDuration = 180;
 
@@ -26,14 +32,27 @@ export async function POST(req: NextRequest) {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
-  const { formData } = body;
+  const { formData, provider: rawProvider, modelId: requestedModelId } = body as AnalyzeRequestBody & {
+    provider?: unknown;
+    modelId?: unknown;
+  };
+  const provider = parseAnalyzeProvider(rawProvider);
+  const modelId = resolveAnalyzeModelId(provider, requestedModelId);
 
   if (!formData?.businessName?.trim()) {
     return new Response(JSON.stringify({ error: 'Business name is required.' }), { status: 400 });
   }
 
-  if (!(await hasAIConfigured())) {
-    return new Response(JSON.stringify({ error: "AI not configured. Set AWS_BEARER_TOKEN_BEDROCK or ANTHROPIC_API_KEY." }), { status: 500 });
+  const aiConfigured =
+    provider === 'openai' ? await hasOpenAiConfigured() : await hasAIConfigured();
+
+  if (!aiConfigured) {
+    return new Response(JSON.stringify({ error: "AI not configured. Set AWS_BEARER_TOKEN_BEDROCK or ANTHROPIC_API_KEY, or add OpenAI key in Admin Settings." }), { status: 500 });
+  }
+
+  if (provider === 'openai') {
+    const gate = await assertOpenAiConfiguredForAnalyze();
+    if (gate) return gate;
   }
 
   // Kept for interface compatibility with researchAllChannels signature
@@ -108,7 +127,8 @@ export async function POST(req: NextRequest) {
               completed,
               total,
             });
-          }
+          },
+          { provider, modelId },
         );
 
         // Google Places API verification: inject verified rating/review data
@@ -164,7 +184,7 @@ export async function POST(req: NextRequest) {
           total: researchData.length,
         });
 
-        const report = await analyzeWithClaude(formData, researchData);
+        const report = await analyzeWithClaude(formData, researchData, { provider, modelId });
         console.log(`[Digital Presence] Analysis done. Overall: ${report.overallScore}`);
 
         send({ type: 'complete', report });

@@ -17,6 +17,8 @@ export default function ContractAnalysisPage() {
     report,
     error,
     clearAll,
+    provider,
+    setProvider,
   } = useContractAnalysis()
 
   return (
@@ -52,6 +54,8 @@ export default function ContractAnalysisPage() {
                 removeDocument={removeDocument}
                 status={status}
                 onAnalyze={analyze}
+                provider={provider}
+                onProviderChange={setProvider}
               />
             </div>
           ) : (

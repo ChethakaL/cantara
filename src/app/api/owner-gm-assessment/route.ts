@@ -5,6 +5,12 @@ import {
   serializeOwnerGmAssessment,
   parseStoredOwnerGmAssessment,
 } from "@/lib/owner-gm-assessment/analyze";
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from "@/lib/agent-analyze-provider";
+import { runWithAgentLlmContext } from "@/lib/agent-llm-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,17 +52,26 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, fileName, base64, mediaType } = await req.json();
+    const { clientId, fileName, base64, mediaType, provider: rawProvider, modelId: requestedModelId } = await req.json();
 
     if (!clientId || !base64) {
       return new Response("Missing clientId or file data", { status: 400 });
     }
 
-    const assessment = await analyzeOwnerGmTranscript({
-      fileName: fileName || "transcript",
-      base64,
-      mediaType: mediaType || "text/plain",
-    });
+    const provider = parseAnalyzeProvider(rawProvider);
+    const modelId = resolveAnalyzeModelId(provider, requestedModelId);
+    if (provider === "openai") {
+      const gate = await assertOpenAiConfiguredForAnalyze();
+      if (gate) return gate;
+    }
+
+    const assessment = await runWithAgentLlmContext({ provider, modelId }, () =>
+      analyzeOwnerGmTranscript({
+        fileName: fileName || "transcript",
+        base64,
+        mediaType: mediaType || "text/plain",
+      }),
+    );
 
     // Store in client sectionSubmissions
     const client = await (prisma as any).clientProfile.findUnique({

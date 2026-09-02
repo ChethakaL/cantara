@@ -9,6 +9,13 @@ import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildOccupancyReviewReportHtml } from '@/lib/report-export/build-occupancy-review-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 type MonthlyEntry = {
   month: string // 'YYYY-MM'
@@ -155,6 +162,16 @@ export default function OccupancyReviewTab({
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.occupancyReview)
 
   // Capacity fields
   const [totalDailyCapacity, setTotalDailyCapacity] = useState('')
@@ -215,7 +232,34 @@ export default function OccupancyReviewTab({
     }
   }
 
-  useEffect(() => { void load() }, [clientId])
+  useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      const payload = activeRun.report as OccupancyReport
+      setReport(payload)
+      const cm = payload?.capacityModel
+      const inputs = payload?.inputs
+      if (cm?.totalDailyCapacity != null) setTotalDailyCapacity(String(cm.totalDailyCapacity))
+      if (cm?.boardingRuns != null) setBoardingRuns(String(cm.boardingRuns))
+      if (cm?.daycareSpots != null) setDaycareSpotsInput(String(cm.daycareSpots))
+      if (cm?.groomingStations != null) setGroomingStations(String(cm.groomingStations))
+      if (cm?.bathingStations != null) setBathingStations(String(cm.bathingStations))
+      if (inputs?.totalBoardingRuns != null) setBoardingRuns(String(inputs.totalBoardingRuns))
+      if (inputs?.totalDaycareSpots != null) setDaycareSpotsInput(String(inputs.totalDaycareSpots))
+      if (inputs?.totalGroomingStations != null) setGroomingStations(String(inputs.totalGroomingStations))
+      if (payload?.monthlyData?.length) setMonthlyData(payload.monthlyData)
+      setLoading(false)
+      return
+    }
+    void load()
+  }, [activeRun, loadingRuns, clientId])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    const payload = (full?.report ?? null) as OccupancyReport | null
+    if (payload) setReport(payload)
+  }
 
   const handleFiles = useCallback((fileList: FileList) => {
     const newFiles: UploadedFile[] = Array.from(fileList).map(file => ({
@@ -392,6 +436,8 @@ export default function OccupancyReviewTab({
       if (groomingStations) formData.append('groomingStations', groomingStations)
       if (bathingStations) formData.append('bathingStations', bathingStations)
       formData.append('monthlyData', JSON.stringify(monthlyData.filter(m => m.boardingDogs > 0 || m.daycareDogs > 0)))
+      formData.append('provider', provider)
+      formData.append('modelId', resolveAgentModelId(provider))
       for (const uploaded of uploadedFiles) {
         formData.append('files', uploaded.file)
       }
@@ -400,6 +446,17 @@ export default function OccupancyReviewTab({
       const data = await res.json()
       setReport(data.report)
       setUploadedFiles([])
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.occupancyReview,
+        fileName: `${clientName} — Occupancy Review`,
+        report: data.report,
+        markdown: data.report?.markdown,
+        documentNames: uploadedFiles.map(f => f.name),
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate occupancy review.')
     } finally {
@@ -408,6 +465,20 @@ export default function OccupancyReviewTab({
   }
 
   const html = useMemo(() => report ? buildOccupancyReviewReportHtml(report) : '', [report])
+
+  const toolbar = !readOnly ? (
+    <AgentRunToolbar
+      provider={provider}
+      onProviderChange={setProvider}
+      disabled={generating}
+      historyItems={historyItems}
+      activeId={activeId}
+      onSelectRun={selectRun}
+      activeProvider={activeRun?.aiProvider}
+      activeModel={activeRun?.aiModel}
+      activeVersion={activeRun?.version}
+    />
+  ) : null
 
   if (loading) {
     return (
@@ -420,6 +491,7 @@ export default function OccupancyReviewTab({
   if (report) {
     return (
       <div className="space-y-5">
+        {toolbar}
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-slate-800">Occupancy Review</h2>
@@ -516,6 +588,7 @@ export default function OccupancyReviewTab({
   // Input form
   return (
     <div className="space-y-6">
+      {toolbar}
       <div>
         <h2 className="text-base font-bold text-slate-800">Occupancy Review</h2>
         <p className="text-xs text-slate-500 mt-1">WS2 — Enter 24-month capacity data for buyer-facing analysis.</p>

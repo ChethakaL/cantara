@@ -1,14 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { requireAIClient, resolveModel } from "@/lib/ai-client"
 import type { OwnerGmAssessment } from "./types";
-
-function extractText(result: Anthropic.Messages.Message) {
-  return result.content
-    .filter((block) => block.type === "text")
-    .map((block) => ("text" in block ? block.text : ""))
-    .join("")
-    .trim();
-}
+import { createAgentMessage, type AgentMessageBlock } from "@/lib/llm-completion";
 
 const SYSTEM_PROMPT = `You are the Owner & GM Involvement Assessment Agent for Cantara, a business sale-readiness and M&A diligence platform.
 
@@ -194,14 +185,12 @@ export async function analyzeOwnerGmTranscript(args: {
   base64: string;
   mediaType: string;
 }): Promise<OwnerGmAssessment> {
-  const client = await requireAIClient();
-
-  // Build the content block based on media type
-  const contentBlocks: Anthropic.Messages.ContentBlockParam[] = [];
+  const contentBlocks: AgentMessageBlock[] = [];
 
   if (args.mediaType === "application/pdf") {
     contentBlocks.push({
       type: "document",
+      title: args.fileName,
       source: {
         type: "base64",
         media_type: "application/pdf",
@@ -212,13 +201,11 @@ export async function analyzeOwnerGmTranscript(args: {
     contentBlocks.push({
       type: "image",
       source: {
-        type: "base64",
-        media_type: args.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+        media_type: args.mediaType,
         data: args.base64,
       },
     });
   } else {
-    // Text-based formats (TXT, DOCX treated as text, etc.)
     const text = Buffer.from(args.base64, "base64").toString("utf-8");
     contentBlocks.push({
       type: "text",
@@ -231,20 +218,13 @@ export async function analyzeOwnerGmTranscript(args: {
     text: `Analyze this call transcript against the 40-question Owner & GM Involvement framework. Extract every data point available and produce the full assessment JSON.\n\nFile name: ${args.fileName}`,
   });
 
-  const response = await client.messages.create({
-    model: resolveModel("claude-sonnet-4-20250514"),
-    max_tokens: 6000,
-    temperature: 0,
+  const rawText = await createAgentMessage({
     system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: contentBlocks,
-      },
-    ],
+    content: contentBlocks,
+    maxTokens: 6000,
+    temperature: 0,
   });
 
-  const rawText = extractText(response);
   const cleaned = rawText.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
   return JSON.parse(cleaned) as OwnerGmAssessment;
 }

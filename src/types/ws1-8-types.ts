@@ -10,6 +10,8 @@ export type EncumbranceStatus = 'active' | 'released' | 'expired' | 'unknown'
 export interface WS18Persistence {
   markdown: string
   createdAt: string
+  aiProvider?: string | null
+  aiModel?: string | null
   metadata?: {
     flags?: Array<{ id: string; status: FlagStatus }>
     releasedAt?: string | null

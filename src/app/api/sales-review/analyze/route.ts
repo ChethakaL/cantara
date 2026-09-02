@@ -4,6 +4,11 @@ import { prisma } from '@/lib/prisma'
 import { assertS3Configured, s3BucketName, s3Client } from '@/lib/s3'
 import { analyzeSalesProcessTranscript, extractTranscriptText } from '@/lib/sales-review/analyze'
 import { normalizeSalesProcessResult } from '@/lib/sales-review/prompt'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
 
 export const maxDuration = 180
 
@@ -24,11 +29,22 @@ export async function POST(req: NextRequest) {
     assertS3Configured()
 
     let clientId: string
+    let rawProvider: unknown
+    let requestedModelId: unknown
     try {
       const body = await req.json()
       clientId = String(body?.clientId || '').trim()
+      rawProvider = body?.provider
+      requestedModelId = body?.modelId
     } catch {
       return new Response('Invalid JSON body', { status: 400 })
+    }
+
+    const provider = parseAnalyzeProvider(rawProvider)
+    const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
     }
 
     if (!clientId) {
@@ -75,6 +91,8 @@ export async function POST(req: NextRequest) {
     const result = await analyzeSalesProcessTranscript({
       transcriptText,
       businessName: profile.businessName || 'Client',
+      provider,
+      modelId,
     })
 
     await (prisma as any).clientDocument.update({

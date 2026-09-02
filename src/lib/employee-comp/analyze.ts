@@ -1,6 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
-import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import type { AgentAiProvider } from '@/lib/agent-model-provider'
+import { requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage } from '@/lib/llm-completion'
 
 export interface EmployeeCompRow {
   id: string
@@ -122,8 +122,10 @@ export async function analyzePayrollDocument(args: {
   base64?: string
   mediaType?: string
   freeText?: string
+  provider?: AgentAiProvider
+  modelId?: string
 }): Promise<EmployeeCompReport> {
-    const client = await requireAIClient()
+  const provider = args.provider ?? 'bedrock'
   const content: any[] = []
 
   if (args.base64 && args.mediaType) {
@@ -177,19 +179,31 @@ export async function analyzePayrollDocument(args: {
 
   content.push({ type: 'text', text: textInstruction })
 
-  const response = await client.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 8000,
-    temperature: 0,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
-  })
-
-  const rawText = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => ('text' in b ? b.text : ''))
-    .join('')
-    .trim()
+  let rawText: string
+  if (provider === 'openai') {
+    rawText = await createAgentMessage({
+      provider,
+      model: args.modelId,
+      system: SYSTEM_PROMPT,
+      content: content as Parameters<typeof createAgentMessage>[0]['content'],
+      maxTokens: 8000,
+      temperature: 0,
+    })
+  } else {
+    const client = await requireAIClient()
+    const response = await client.messages.create({
+      model: resolveModel('claude-sonnet-4-20250514'),
+      max_tokens: 8000,
+      temperature: 0,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    })
+    rawText = response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => ('text' in b ? b.text : ''))
+      .join('')
+  }
+  rawText = rawText.trim()
 
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
   const parsed = JSON.parse(cleaned)

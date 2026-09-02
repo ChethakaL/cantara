@@ -8,6 +8,13 @@ import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { TeaserInputData, DEFAULT_TEASER_INPUT } from '@/lib/teaser/types'
 import { generateTeaserHtml } from '@/lib/teaser/generate-html'
 import MondayLinker from '@/components/monday/MondayLinker'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
@@ -24,6 +31,16 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [prereqs, setPrereqs] = useState<Record<string, boolean> | null>(null)
   const [draftLoaded, setDraftLoaded] = useState(false)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.teaser)
 
   // ── Load prerequisite agent status ──────────────────────────────────────────
   useEffect(() => {
@@ -57,6 +74,36 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
     }
     void loadDraft()
   }, [clientId])
+
+  useEffect(() => {
+    if (loadingRuns) return
+    if (!activeRun?.report) return
+    const payload = activeRun.report as { data?: TeaserInputData; generatedHtml?: string }
+    if (payload.data) {
+      const merged = { ...DEFAULT_TEASER_INPUT, ...payload.data } as TeaserInputData
+      if (!Array.isArray(merged.investmentHighlights) || merged.investmentHighlights.length !== 5) {
+        merged.investmentHighlights = DEFAULT_TEASER_INPUT.investmentHighlights
+      }
+      setData(merged)
+      setStatus(payload.generatedHtml ? 'preview' : 'editing')
+    }
+    if (payload.generatedHtml) setGeneratedHtml(payload.generatedHtml)
+  }, [activeRun, loadingRuns])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    const payload = (full?.report ?? null) as { data?: TeaserInputData; generatedHtml?: string } | null
+    if (payload?.data) {
+      const merged = { ...DEFAULT_TEASER_INPUT, ...payload.data } as TeaserInputData
+      if (!Array.isArray(merged.investmentHighlights) || merged.investmentHighlights.length !== 5) {
+        merged.investmentHighlights = DEFAULT_TEASER_INPUT.investmentHighlights
+      }
+      setData(merged)
+      setStatus(payload.generatedHtml ? 'preview' : 'editing')
+    }
+    if (payload?.generatedHtml) setGeneratedHtml(payload.generatedHtml)
+  }
 
   const hasOutput = status === 'editing' || status === 'preview' || Boolean(data.businessOverview?.trim() || data.annualRevenue?.trim())
   const readOnlyGate = agentTabReadOnlyGate(readOnly, !draftLoaded, hasOutput, 'Deal Teaser Generator')
@@ -128,7 +175,7 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
       const res = await fetch('/api/teaser/auto-fill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId }),
+        body: JSON.stringify({ clientId, provider, modelId: resolveAgentModelId(provider) }),
       })
       if (!res.ok) throw new Error(await res.text() || 'Failed to auto-fill')
       const filled = await res.json()
@@ -147,7 +194,7 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
     }
   }
 
-  const generate = () => {
+  const generate = async () => {
     console.log('[Teaser] Generating with data:', data)
     try {
       setError(null)
@@ -155,6 +202,15 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
       console.log('[Teaser] HTML generated successfully, length:', html.length)
       setGeneratedHtml(html)
       setStatus('preview')
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.teaser,
+        fileName: `${clientName} — Teaser`,
+        report: { data, generatedHtml: html },
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns()
     } catch (err: any) {
       console.error('[Teaser] Generation error:', err)
       setError(err.message || 'Failed to generate teaser')
@@ -182,6 +238,20 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
     setTimeout(() => win.print(), 500)
   }
 
+  const runToolbar = (
+    <AgentRunToolbar
+      provider={provider}
+      onProviderChange={setProvider}
+      disabled={status === 'auto-filling'}
+      historyItems={historyItems}
+      activeId={activeId}
+      onSelectRun={selectRun}
+      activeProvider={activeRun?.aiProvider}
+      activeModel={activeRun?.aiModel}
+      activeVersion={activeRun?.version}
+    />
+  )
+
   // ---------- IDLE STATE ----------
   const TEASER_PREREQS = [
     { key: 'ttmAnalysis', label: 'Financial Analysis & Valuation (WS2-1)' },
@@ -197,6 +267,7 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
 
     return (
       <div className="space-y-6">
+        {runToolbar}
         <Card className="p-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -287,6 +358,7 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
   if (status === 'preview' && generatedHtml) {
     return (
       <div className="space-y-4">
+        {runToolbar}
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -342,6 +414,7 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
 
   return (
     <div className="space-y-6">
+      {runToolbar}
       <Card className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -384,7 +457,7 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
               <Sparkles className="w-3.5 h-3.5" />
               Re-fill
             </Button>
-            <Button size="sm" onClick={generate} className="text-[10px] h-8">
+            <Button size="sm" onClick={() => void generate()} className="text-[10px] h-8">
               <Bot className="w-3.5 h-3.5" />
               Generate Teaser
             </Button>
@@ -520,7 +593,7 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
 
       {/* Generate Button */}
       <div className="flex justify-end">
-        <Button size="lg" onClick={generate}>
+        <Button size="lg" onClick={() => void generate()}>
           <Bot className="w-4 h-4" />
           Generate Teaser
         </Button>

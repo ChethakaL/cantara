@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": document.mimeType || "application/octet-stream",
-        "Content-Disposition": `inline; filename="${document.fileName ?? documentId}"`,
+        "Content-Disposition": buildInlineContentDisposition(document.fileName ?? "", documentId),
       },
     });
   } catch (error) {
@@ -122,4 +122,14 @@ function mimeTypeFromFileName(fileName: string) {
   if (lower.endsWith(".csv")) return "text/csv";
   if (lower.endsWith(".txt")) return "text/plain";
   return "application/octet-stream";
+}
+
+/** HTTP headers must be ASCII; use RFC 5987 for Unicode filenames (e.g. en-dash). */
+function buildInlineContentDisposition(fileName: string, fallback: string): string {
+  const name = fileName || fallback;
+  const asciiName = name
+    .replace(/[^\x20-\x7E]/g, "-")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
+  return `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }

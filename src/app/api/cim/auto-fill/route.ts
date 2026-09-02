@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CimInputData } from '@/lib/cim/types'
-import Anthropic from '@anthropic-ai/sdk'
-import { hasAIConfigured, requireAIClient, resolveModel } from "@/lib/ai-client"
+import { createAgentMessage } from '@/lib/llm-completion'
+import {
+  assertOpenAiConfiguredForAnalyze,
+  parseAnalyzeProvider,
+  resolveAnalyzeModelId,
+} from '@/lib/agent-analyze-provider'
+import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 
 export const maxDuration = 120
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId } = await req.json()
+    const { clientId, provider: rawProvider, modelId: requestedModelId } = await req.json()
     if (!clientId) return new Response('clientId required', { status: 400 })
+
+    const provider = parseAnalyzeProvider(rawProvider)
+    const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze()
+      if (gate) return gate
+    }
 
     // ── 1. Load client profile ──────────────────────────────────────────
     let client: any = null
@@ -196,9 +208,8 @@ export async function POST(req: NextRequest) {
 
     // ── Use AI for the narrative text sections ──────────────────────────
     let aiSections: any = {}
-    if (await hasAIConfigured()) {
-      try {
-        const anthropic = await requireAIClient()
+    try {
+      await runWithAgentLlmContext({ provider, modelId }, async () => {
         const context = [
           `Business: ${client.businessName}`,
           `Address: ${client.businessAddress || ''}`,
@@ -211,20 +222,16 @@ export async function POST(req: NextRequest) {
           employeeReport ? `Employee Count: ${employeeReport.headcount ?? 'N/A'}` : '',
         ].filter(Boolean).join('\n')
 
-        const response = await anthropic.messages.create({
-          model: resolveModel('claude-sonnet-4-20250514'),
-          max_tokens: 4000,
+        const text = await createAgentMessage({
+          system: 'You are writing a Confidential Information Memorandum for a pet care business acquisition. Return ONLY valid JSON.',
+          content: `Generate CIM narrative sections based on this data:\n\n${context}\n\nReturn JSON with these fields:\n- investmentOverview: 2-3 sentence overview for PE buyers\n- investmentThesis: array of 5-6 bullet points (key selling points)\n- sellerOverview: 2-3 sentences about the seller and reason for sale\n- businessDescription: 2-3 sentences about the business\n- facilityProfile: bullet points about the facility\n- staffOperations: bullet points about staff\n- clientProfile: bullet points about clients\n- marketingOverview: array of 3-4 bullet points about current marketing\n- marketingOpportunities: array of 3-4 bullet points about marketing improvement opportunities\n- valueCreationIntro: intro sentence\n- financialHighlights: array of 4 one-line financial highlights\n\nReturn ONLY valid JSON.`,
+          maxTokens: 4000,
           temperature: 0.3,
-          messages: [{
-            role: 'user',
-            content: `You are writing a Confidential Information Memorandum for a pet care business acquisition. Generate CIM narrative sections based on this data:\n\n${context}\n\nReturn JSON with these fields:\n- investmentOverview: 2-3 sentence overview for PE buyers\n- investmentThesis: array of 5-6 bullet points (key selling points)\n- sellerOverview: 2-3 sentences about the seller and reason for sale\n- businessDescription: 2-3 sentences about the business\n- facilityProfile: bullet points about the facility\n- staffOperations: bullet points about staff\n- clientProfile: bullet points about clients\n- marketingOverview: array of 3-4 bullet points about current marketing\n- marketingOpportunities: array of 3-4 bullet points about marketing improvement opportunities\n- valueCreationIntro: intro sentence\n- financialHighlights: array of 4 one-line financial highlights\n\nReturn ONLY valid JSON.`
-          }],
         })
-        const text = response.content.filter((b) => b.type === 'text').map((b) => ('text' in b ? b.text : '')).join('').trim()
         aiSections = JSON.parse(text.replace(/^```json\s*/i, '').replace(/\s*```$/i, ''))
-      } catch (e: any) {
-        console.warn('CIM AI generation failed:', e?.message)
-      }
+      })
+    } catch (e: any) {
+      console.warn('CIM AI generation failed:', e?.message)
     }
 
     // ── Build the auto-filled CimInputData ──────────────────────────────

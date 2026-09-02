@@ -6,6 +6,13 @@ import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { buildLoiReviewReportHtml } from '@/lib/report-export/build-loi-review-report'
+import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
+import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
+import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 
 type LoiReport = {
   clientName: string
@@ -76,26 +83,37 @@ export default function LoiReviewTab({
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { provider, setProvider } = useAgentAiProvider()
+  const {
+    runs,
+    historyItems,
+    activeRun,
+    activeId,
+    setActiveId,
+    reload: reloadRuns,
+    loading: loadingRuns,
+  } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.loiReview)
 
   // File uploads
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/loi-review?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
-      setReport(data.report)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load LOI review.')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    if (loadingRuns) return
+    if (activeRun?.report) {
+      setReport(activeRun.report as LoiReport)
     }
+    setLoading(false)
+  }, [activeRun, loadingRuns])
+
+  function selectRun(run: AgentRunHistoryItem) {
+    setActiveId(run.id)
+    const full = runs.find((item) => item.id === run.id)
+    if (full?.report) setReport(full.report as LoiReport)
   }
 
-  useEffect(() => { void load() }, [clientId])
+  const load = async () => {
+    await reloadRuns()
+  }
 
   const handleFiles = useCallback((fileList: FileList) => {
     const newFiles: UploadedFile[] = Array.from(fileList).map(file => ({
@@ -126,6 +144,8 @@ export default function LoiReviewTab({
       for (const uploaded of uploadedFiles) {
         formData.append('files', uploaded.file)
       }
+      formData.append('provider', provider)
+      formData.append('modelId', resolveAgentModelId(provider))
 
       const res = await fetch('/api/loi-review', {
         method: 'POST',
@@ -135,6 +155,17 @@ export default function LoiReviewTab({
       const data = await res.json()
       setReport(data.report)
       setUploadedFiles([])
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.loiReview,
+        fileName: `${clientName} — LOI Review`,
+        report: data.report,
+        markdown: data.report?.markdown,
+        documentNames: data.report?.inputs?.documentNames,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate LOI review.')
     } finally {
@@ -146,7 +177,7 @@ export default function LoiReviewTab({
     report ? buildLoiReviewReportHtml(report) : '',
   [report])
 
-  if (loading) {
+  if (loading || loadingRuns) {
     return (
       <div className="h-48 flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-slate-200 border-t-rose-500 rounded-full animate-spin" />
@@ -158,6 +189,17 @@ export default function LoiReviewTab({
   if (report) {
     return (
       <div className="space-y-5">
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={generating}
+          historyItems={historyItems}
+          activeId={activeId}
+          onSelectRun={selectRun}
+          activeProvider={activeRun?.aiProvider}
+          activeModel={activeRun?.aiModel}
+          activeVersion={activeRun?.version}
+        />
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-slate-800">LOI Review & Comparison</h2>
@@ -224,6 +266,17 @@ export default function LoiReviewTab({
   // Input / upload view
   return (
     <div className="space-y-6">
+      <AgentRunToolbar
+        provider={provider}
+        onProviderChange={setProvider}
+        disabled={generating}
+        historyItems={historyItems}
+        activeId={activeId}
+        onSelectRun={selectRun}
+        activeProvider={activeRun?.aiProvider}
+        activeModel={activeRun?.aiModel}
+        activeVersion={activeRun?.version}
+      />
       <div>
         <h2 className="text-base font-bold text-slate-800">LOI Review & Comparison</h2>
         <p className="text-xs text-slate-500 mt-1">M&A Sale Process — Upload Letters of Intent for AI-powered comparative analysis across 10 evaluation dimensions.</p>

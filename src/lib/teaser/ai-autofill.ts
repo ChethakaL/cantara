@@ -1,7 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicApiKey } from "@/lib/secure-settings"
 import { TeaserInputData } from './types'
-import { getAIClient, requireAIClient, resolveModel, usesBedrock } from "@/lib/ai-client"
+import { createAgentMessage } from '@/lib/llm-completion'
 
 export interface ClientContext {
   clientProfile: any
@@ -15,9 +13,6 @@ export interface ClientContext {
 }
 
 export async function generateTeaserWithAI(context: ClientContext): Promise<TeaserInputData> {
-    const client = await requireAIClient()
-
-  // Build comprehensive context string from all available data
   const dataContext = buildDataContext(context)
 
   const prompt = `You are a senior M&A advisor at Cantara Pet Advisors preparing a confidential investment teaser (blind teaser) for a pet care business acquisition opportunity.
@@ -77,23 +72,16 @@ Generate a JSON object with these fields. Each field should be thoughtfully writ
 
 Return ONLY valid JSON. No markdown, no explanation.`
 
-  const response = await client.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 3000,
+  const rawText = await createAgentMessage({
+    system: 'You are a senior M&A advisor at Cantara Pet Advisors. Return only valid JSON for teaser content.',
+    content: prompt,
+    maxTokens: 3000,
     temperature: 0.3,
-    messages: [{ role: 'user', content: prompt }],
   })
-
-  const rawText = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => ('text' in b ? b.text : ''))
-    .join('')
-    .trim()
 
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
   const generated = JSON.parse(cleaned)
 
-  // Merge with defaults for any missing fields
   return {
     dealType: generated.dealType || 'Asset or Equity Sale',
     location: generated.location || '',
@@ -142,7 +130,6 @@ Return ONLY valid JSON. No markdown, no explanation.`
 function buildDataContext(ctx: ClientContext): string {
   const sections: string[] = []
 
-  // Client profile
   if (ctx.clientProfile) {
     sections.push(`=== CLIENT PROFILE ===
 Business Name: ${ctx.clientProfile.businessName || 'Unknown'}
@@ -153,7 +140,6 @@ Description: ${ctx.clientProfile.businessDescription || 'None provided'}
 Website: ${ctx.clientProfile.websiteUrl || 'Unknown'}`)
   }
 
-  // Financial data from TTM analysis (WS2-1)
   if (ctx.ttmAnalysis) {
     const ttm = ctx.ttmAnalysis.ttmSummary
     const years: any[] = ctx.ttmAnalysis.annualModel?.years ?? []
@@ -164,7 +150,6 @@ TTM Period: ${ttm?.startMonth ?? '?'} to ${ttm?.endMonth ?? '?'}
 Annual Years: ${years.map((y: any) => `FY${y.fiscalYear}: Rev $${y.totalRevenue?.toLocaleString() ?? 'N/A'}, EBITDA $${y.ebitdaPreRecast?.toLocaleString() ?? 'N/A'}`).join(' | ')}`)
   }
 
-  // Recast / Valuation (WS2-2)
   if (ctx.recast) {
     sections.push(`=== VALUATION (WS2-2 Recast) ===
 Normalized EBITDA: $${ctx.recast.normalizedEbitda?.toLocaleString() ?? 'N/A'}
@@ -174,7 +159,6 @@ Valuation High: $${ctx.recast.valuationHigh?.toLocaleString() ?? 'N/A'}
 Multiple Range: ${ctx.recast.assumptions?.multipleLow ?? '?'}x - ${ctx.recast.assumptions?.multipleHigh ?? '?'}x`)
   }
 
-  // Lease data
   if (ctx.leaseReport) {
     try {
       const parsed = typeof ctx.leaseReport.parsed === 'string'
@@ -192,7 +176,6 @@ Multiple Range: ${ctx.recast.assumptions?.multipleLow ?? '?'}x - ${ctx.recast.as
     } catch { /* parsed field may not be in expected shape */ }
   }
 
-  // Competitor analysis
   if (ctx.competitorReport) {
     try {
       const data = typeof ctx.competitorReport.reportData === 'string'
@@ -211,7 +194,6 @@ ${marketSummary ? `Market Summary: ${marketSummary}` : ''}`)
     } catch { /* gracefully ignore */ }
   }
 
-  // Digital presence
   if (ctx.digitalPresence) {
     try {
       const data = typeof ctx.digitalPresence.reportData === 'string'
@@ -228,7 +210,6 @@ ${marketSummary ? `Market Summary: ${marketSummary}` : ''}`)
     } catch { /* gracefully ignore */ }
   }
 
-  // Insurance review
   if (ctx.insuranceDoc) {
     try {
       if (ctx.insuranceDoc.aiReviewSummary) {
@@ -239,7 +220,6 @@ Summary: ${ctx.insuranceDoc.aiReviewSummary}`)
     } catch { /* gracefully ignore */ }
   }
 
-  // Employee obligations
   if (ctx.employeeReport) {
     try {
       const data = typeof ctx.employeeReport.reportData === 'string'
