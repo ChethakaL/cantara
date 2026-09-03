@@ -73,6 +73,7 @@ export async function GET(req: NextRequest) {
       (client.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'owns'
         ? ((client.sectionSubmissions as Record<string, unknown>).propertyOwnership as 'lease' | 'owns')
         : '',
+    sectionSubmissions: client.sectionSubmissions as any,
   })
 
   const outputs: OutputItem[] = []

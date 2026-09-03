@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       (fullClient.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'owns'
         ? ((fullClient.sectionSubmissions as Record<string, unknown>).propertyOwnership as 'lease' | 'owns')
         : '',
+    sectionSubmissions: fullClient.sectionSubmissions as any,
   })
 
   const submissions = (fullClient.sectionSubmissions as Record<string, unknown>) ?? {}

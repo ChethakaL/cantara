@@ -94,7 +94,7 @@ function getAgentIcon(agentId: string) {
 const AGENT_CATALOG = [
   { id: 'ttm', name: 'Valuation Agent', defaultDocumentIds: [] },
   { id: 'cim', name: 'CIM Generator Agent', defaultDocumentIds: [] },
-  { id: 'client_location_map', name: 'Client Location Map Agent', defaultDocumentIds: [] },
+  { id: 'client_location_map', name: 'Client Location Map Agent', defaultDocumentIds: ['client_addresses'] },
   { id: 'pricing_analysis', name: 'Competitive Pricing Analysis Agent', defaultDocumentIds: ['pricing_schedule', 'revenue_breakdown'] },
   { id: 'competitor_analysis', name: 'Competitor Analysis Agent', defaultDocumentIds: [] },
   { id: 'teaser', name: 'Deal Teaser Generator Agent', defaultDocumentIds: [] },
@@ -123,7 +123,7 @@ const AGENT_CATALOG = [
 const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentSelection[]> = {
   ws1: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
-    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
     { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts'] },
     { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: ['employee_list'] },
     { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
@@ -139,7 +139,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentS
   ],
   ws2: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
-    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
     { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent', documentIds: [] },
     { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
@@ -180,11 +180,15 @@ function agentsEqual(left: AgentDocumentSelection[], right: AgentDocumentSelecti
 
 function getBaseAgentsForClient(client: Client, customDraftMode: boolean): AgentDocumentSelection[] {
   if (customDraftMode) return []
-  const excludeLeaseAgent = client.propertyOwnership === 'owns'
-  const excludeAppraisalAgent = client.propertyOwnership !== 'owns'
-  const keepPropertyAgent = (agent: { agentId: string }) =>
-    (!excludeLeaseAgent || agent.agentId !== 'lease_analysis') &&
-    (!excludeAppraisalAgent || agent.agentId !== 'real_estate_appraisal')
+  const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
+  const isOwns = client.propertyOwnership === 'owns'
+  const runLease = isOwns ? submissions.realEstateRunLease === true : true
+  const runAppraisal = isOwns ? submissions.realEstateRunAppraisal !== false : false
+  const keepPropertyAgent = (agent: { agentId: string }) => {
+    if (agent.agentId === 'lease_analysis') return runLease
+    if (agent.agentId === 'real_estate_appraisal') return runAppraisal
+    return true
+  }
   if (client.workstreamAgents?.length) {
     return client.workstreamAgents.map(agent => ({
       agentId: agent.agentId,
@@ -263,6 +267,10 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
       ? initial.propertyOwnership
       : '',
   )
+  const initialRunLease = (initial.sectionSubmissions as any)?.realEstateRunLease === true
+  const initialRunAppraisal = (initial.sectionSubmissions as any)?.realEstateRunAppraisal !== false
+  const [realEstateRunLease, setRealEstateRunLease] = useState<boolean>(initialRunLease)
+  const [realEstateRunAppraisal, setRealEstateRunAppraisal] = useState<boolean>(initialRunAppraisal)
 
   // Facility review mode — stored in sectionSubmissions.facilityReviewMode ('360' | 'advisor')
   const initialFacilityReviewMode = ((initial.sectionSubmissions as any)?.facilityReviewMode === 'advisor' ? 'advisor' : '360') as '360' | 'advisor'
@@ -303,43 +311,55 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
   useEffect(() => {
     if (customDraftMode) return
+    const isOwns = propertyOwnership === 'owns'
+    const keepAgent = (agentId: string) => {
+      if (agentId === 'lease_analysis') return isOwns ? realEstateRunLease : true
+      if (agentId === 'real_estate_appraisal') return isOwns ? realEstateRunAppraisal : false
+      return true
+    }
+
     if (client.workstreamAgents?.length) {
       setDraftWorkstreamName(client.customWorkstream?.name ?? '')
-      const selected = getClientWorkstreamAgents(client).map(agent => ({
+      const selected = getClientWorkstreamAgents({
+        ...client,
+        propertyOwnership,
+        realEstateRunLease,
+        realEstateRunAppraisal,
+      }).map(agent => ({
         agentId: agent.agentId,
         agentName: agent.agentName,
         documentIds: agent.documentIds ?? [],
       }))
-      if (propertyOwnership === 'owns' && !selected.some(agent => agent.agentId === 'real_estate_appraisal')) {
-        selected.push({ agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] })
-      }
       setDraftAgents(selected)
       return
     }
-    const clientSpecificAgents = client.workstreamAgents?.map(agent => ({
+    const clientSpecificAgents = (client.workstreamAgents?.map(agent => ({
       agentId: agent.agentId,
       agentName: agent.agentName,
       documentIds: agent.documentIds,
-    })) ?? []
+    })) ?? []).filter(agent => keepAgent(agent.agentId))
     if (client.customWorkstreamId && client.customWorkstream) {
       setDraftWorkstreamName(client.customWorkstream.name)
       const templateAgents = client.customWorkstream.agents.map(agent => ({
         agentId: agent.agentId,
         agentName: agent.agentName,
         documentIds: agent.documentIds,
-      }))
+      })).filter(agent => keepAgent(agent.agentId))
       setDraftAgents(mergeAgents(templateAgents, clientSpecificAgents))
       return
     }
     setDraftWorkstreamName('')
     const systemAgents = client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
-    const filteredSystemAgents = systemAgents.filter(agent =>
-      propertyOwnership === 'owns'
-        ? agent.agentId !== 'lease_analysis'
-        : agent.agentId !== 'real_estate_appraisal'
-    )
-    setDraftAgents(mergeAgents(filteredSystemAgents, clientSpecificAgents))
-  }, [client.customWorkstreamId, client.customWorkstream, client.workstream, client.workstreamAgents, customDraftMode, propertyOwnership])
+    const filteredSystemAgents = systemAgents.filter(agent => keepAgent(agent.agentId))
+    let finalAgents = mergeAgents(filteredSystemAgents, clientSpecificAgents)
+    if (isOwns && realEstateRunAppraisal && !finalAgents.some(a => a.agentId === 'real_estate_appraisal')) {
+      finalAgents = [...finalAgents, { agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] }]
+    }
+    if (isOwns && realEstateRunLease && !finalAgents.some(a => a.agentId === 'lease_analysis')) {
+      finalAgents = [...finalAgents, { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] }]
+    }
+    setDraftAgents(finalAgents)
+  }, [client.customWorkstreamId, client.customWorkstream, client.workstream, client.workstreamAgents, customDraftMode, propertyOwnership, realEstateRunLease, realEstateRunAppraisal])
 
   const workstreamOptions = useMemo(() => [
     ...WS_OPTIONS,
@@ -446,10 +466,18 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     } else {
       delete mergedSectionSubmissions.owner2
     }
-    if (propertyOwnership) {
+    if (propertyOwnership === 'owns') {
       mergedSectionSubmissions.propertyOwnership = propertyOwnership
+      mergedSectionSubmissions.realEstateRunLease = realEstateRunLease
+      mergedSectionSubmissions.realEstateRunAppraisal = realEstateRunAppraisal
+    } else if (propertyOwnership) {
+      mergedSectionSubmissions.propertyOwnership = propertyOwnership
+      delete mergedSectionSubmissions.realEstateRunLease
+      delete mergedSectionSubmissions.realEstateRunAppraisal
     } else {
       delete mergedSectionSubmissions.propertyOwnership
+      delete mergedSectionSubmissions.realEstateRunLease
+      delete mergedSectionSubmissions.realEstateRunAppraisal
     }
     mergedSectionSubmissions.facilityReviewMode = facilityReviewMode
 
@@ -462,10 +490,17 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     const baseAgents = getBaseAgentsForClient(nextClient, customDraftMode)
     const normalizedDraftAgents = nextPropertyOwnership === 'owns'
       ? [
-          ...draftAgents.filter(agent => agent.agentId !== 'lease_analysis'),
-          ...(draftAgents.some(agent => agent.agentId === 'real_estate_appraisal')
-            ? []
-            : [{ agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] }]),
+          ...draftAgents.filter(agent => {
+            if (agent.agentId === 'lease_analysis') return realEstateRunLease
+            if (agent.agentId === 'real_estate_appraisal') return realEstateRunAppraisal
+            return true
+          }),
+          ...(realEstateRunLease && !draftAgents.some(agent => agent.agentId === 'lease_analysis')
+            ? [{ agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] }]
+            : []),
+          ...(realEstateRunAppraisal && !draftAgents.some(agent => agent.agentId === 'real_estate_appraisal')
+            ? [{ agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] }]
+            : []),
         ]
       : draftAgents.filter(agent => agent.agentId !== 'real_estate_appraisal')
     const updated = {
@@ -752,7 +787,13 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
           <Select
             label="Real estate"
             value={propertyOwnership}
-            onChange={e => setPropertyOwnership(e.target.value as 'lease' | 'owns' | '')}
+            onChange={e => {
+              const nextVal = e.target.value as 'lease' | 'owns' | ''
+              setPropertyOwnership(nextVal)
+              if (nextVal === 'owns') {
+                setRealEstateRunAppraisal(true)
+              }
+            }}
             options={PROPERTY_OWNERSHIP_OPTIONS}
           />
           <Input
@@ -761,6 +802,41 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
             value={client.websiteUrl}
             onChange={e => update('websiteUrl', e.target.value)}
           />
+          {propertyOwnership === 'owns' && (
+            <div className="md:col-span-2 rounded-xl border border-amber-200/80 bg-amber-50/50 p-4 space-y-2.5 transition-all shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Active Real Estate Agents
+                </span>
+                <span className="text-[11px] text-amber-800 font-medium bg-amber-100/80 px-2 py-0.5 rounded-full">
+                  Owns Real Estate
+                </span>
+              </div>
+              <p className="text-xs text-slate-600">
+                Choose which agents to include in the Agents dropdown for this client:
+              </p>
+              <div className="flex flex-wrap items-center gap-6 pt-1">
+                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={realEstateRunLease}
+                    onChange={e => setRealEstateRunLease(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                  />
+                  <span>Run Lease Analysis Agent</span>
+                </label>
+                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={realEstateRunAppraisal}
+                    onChange={e => setRealEstateRunAppraisal(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                  />
+                  <span>Run Real Estate Appraisal Agent</span>
+                </label>
+              </div>
+            </div>
+          )}
         </div>
         <div className="mt-4">
           <Textarea

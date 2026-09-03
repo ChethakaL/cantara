@@ -115,6 +115,7 @@ export async function POST(req: NextRequest) {
     customWorkstream: client.customWorkstream as any,
     workstreamAgents: client.ClientWorkstreamAgents as any,
     propertyOwnership: propertyOwnership(submissions),
+    sectionSubmissions: submissions,
   })
   const agentData = await gatherCompletedAgentOutputs(clientId, assignedAgents)
   if (!agentData.length) {

@@ -37,6 +37,7 @@ export const DOCUMENT_ASSIGN_HELP: Partial<Record<string, string>> = {
   leases: 'Include the base lease and every amendment, addendum, or rider.',
   real_estate_appraisal: 'Upload one current appraisal document for the real estate owned by the business.',
   material_contracts: 'Vendor, supplier, software, and service agreements exceeding $5,000/year or longer than 12 months. If there is no formal agreement, upload a spreadsheet with the agreement details.',
+  client_addresses: 'A spreadsheet or CSV with client names, street addresses, and service types (boarding, daycare, grooming, etc.) to map customer geographic reach.',
 }
 
 export function isClientPortalDocument(doc: { id: string }): boolean {
