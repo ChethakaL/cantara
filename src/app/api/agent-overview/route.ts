@@ -97,6 +97,7 @@ async function buildOverviewState(clientId: string) {
       (client.sectionSubmissions as Record<string, unknown> | null)?.propertyOwnership === 'owns'
         ? ((client.sectionSubmissions as Record<string, unknown>).propertyOwnership as 'lease' | 'owns')
         : '',
+    sectionSubmissions: client.sectionSubmissions as any,
   })
   const agents = await Promise.all(selectedAgents.map(agent => buildAgentStatus(clientId, agent.agentId, agent.agentName)))
   const incompleteAgents = agents.filter(agent => !agent.completed).map(agent => agent.agentName)

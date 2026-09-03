@@ -2,8 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { ExternalLink, FileText, Loader2, Plus, Trash2 } from 'lucide-react'
-import { buildDocumentUploadStatusSummary, documentUploadFormatHint, getDocumentUploadAccept, validateDocumentUpload, type ClientUploadedFile } from '@/lib/client-document-upload'
+import { CheckCircle2, ExternalLink, FileText, Loader2, Plus, Trash2 } from 'lucide-react'
+import {
+  buildDocumentUploadStatusSummary,
+  documentUploadFormatHint,
+  getDocumentUploadAccept,
+  isSingleFileDocument,
+  validateDocumentUpload,
+  type ClientUploadedFile,
+} from '@/lib/client-document-upload'
 
 export type DocumentUploadStatusSummary = ReturnType<typeof buildDocumentUploadStatusSummary>
 
@@ -35,15 +42,28 @@ export function DocumentUploadPanel({
     onStatusChange?.(buildDocumentUploadStatusSummary(files))
   }, [files, onStatusChange])
 
+  const isSingle = isSingleFileDocument(uploadDocumentId)
   const formatHint = documentUploadFormatHint(uploadDocumentId)
   const accept = getDocumentUploadAccept(uploadDocumentId)
+  const isSingleSlotFilled = isSingle && files.length >= 1
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    disabled: uploading || !uploaderEmail,
-    multiple: true,
+    disabled: uploading || !uploaderEmail || isSingleSlotFilled,
+    multiple: !isSingle,
     accept,
     onDrop: async accepted => {
       if (!accepted.length || !uploaderEmail) return
+
+      if (isSingle && accepted.length > 1) {
+        setError('Only 1 file is accepted for this document. Please select a single file.')
+        return
+      }
+
+      if (isSingle && files.length >= 1) {
+        setError('A file has already been uploaded. Please remove the existing file before uploading a new one.')
+        return
+      }
+
       setUploading(true)
       setError('')
       setUploadProgress(`Uploading 0 of ${accepted.length}…`)
@@ -141,39 +161,51 @@ export function DocumentUploadPanel({
         </ul>
       )}
 
-      <div
-        {...getRootProps()}
-        className={`flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-xs transition-colors ${
-          uploading
-            ? 'cursor-wait border-amber-300 bg-amber-50 text-amber-800'
-            : isDragActive
-              ? 'cursor-pointer border-amber-400 bg-amber-50 text-amber-800'
-              : 'cursor-pointer border-slate-300 bg-white text-slate-600 hover:border-amber-400 hover:bg-amber-50/40'
-        }`}
-      >
-        <input {...getInputProps()} />
-        {uploading ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Plus className="h-3.5 w-3.5" />
-        )}
-        <span className="font-medium">
-          {uploading
-            ? uploadProgress ?? 'Uploading…'
-            : isDragActive
-              ? 'Drop files here'
-              : files.length
-                ? 'Add another file or files'
-                : 'Upload a file or files'}
-        </span>
-      </div>
+      {isSingleSlotFilled ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/75 px-3.5 py-2.5 text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span className="font-medium text-slate-700">Document uploaded</span>
+          </div>
+          <span className="text-[11px] text-slate-400">To replace, remove the file above</span>
+        </div>
+      ) : (
+        <div
+          {...getRootProps()}
+          className={`flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-xs transition-colors ${
+            uploading
+              ? 'cursor-wait border-amber-300 bg-amber-50 text-amber-800'
+              : isDragActive
+                ? 'cursor-pointer border-amber-400 bg-amber-50 text-amber-800'
+                : 'cursor-pointer border-slate-300 bg-white text-slate-600 hover:border-amber-400 hover:bg-amber-50/40'
+          }`}
+        >
+          <input {...getInputProps()} />
+          {uploading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Plus className="h-3.5 w-3.5" />
+          )}
+          <span className="font-medium">
+            {uploading
+              ? uploadProgress ?? 'Uploading…'
+              : isDragActive
+                ? isSingle ? 'Drop file here' : 'Drop files here'
+                : files.length
+                  ? isSingle ? 'Replace file' : 'Add another file or files'
+                  : isSingle ? 'Upload file' : 'Upload a file or files'}
+          </span>
+        </div>
+      )}
 
       <p className="text-[10px] text-slate-400 leading-relaxed">
-        You can upload one or more files. New uploads are added — they never replace existing files.
-        {formatHint ? ` ${formatHint}` : ''}
+        {isSingle
+          ? 'Single file required (e.g. 1 consolidated spreadsheet).'
+          : 'You can upload one or more files. New uploads are added — they never replace existing files.'}
+        {formatHint ? ` Accepted formats: ${formatHint}` : ''}
       </p>
 
-      {error && <p className="text-xs text-rose-600">{error}</p>}
+      {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
     </div>
   )
 }

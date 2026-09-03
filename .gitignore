@@ -8,6 +8,7 @@ dist
 .env
 .env.local
 .env.*.local
+.local-work
 
 # Sensitive files
 /src/generated/prisma

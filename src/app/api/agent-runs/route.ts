@@ -210,6 +210,7 @@ export async function GET(req: NextRequest) {
       (submissions.propertyOwnership === 'lease' || submissions.propertyOwnership === 'owns')
         ? (submissions.propertyOwnership as 'lease' | 'owns')
         : '',
+    sectionSubmissions: submissions,
   })
 
   const [

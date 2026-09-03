@@ -135,6 +135,7 @@ export const DOCUMENT_CATEGORIES: CategoryDef[] = [
     title: 'Customer & Revenue',
     icon: 'Users',
     documents: [
+      { id: 'client_addresses', name: 'Client Address List (CSV or Excel)', description: 'Spreadsheet or CSV containing client/customer names, street addresses, and service types (boarding, daycare, grooming, etc.) to map customer geographic reach.', type: 'required', workstreams: ['ws1', 'ws2', 'both', 'ma'] },
       { id: 'revenue_breakdown', name: 'Revenue Breakdown by Service Line (36 months)', description: 'Revenue split between boarding, daycare, grooming, training, etc. for the last 36 months — 3 fiscal years and trailing twelve months (TTM).', type: 'required', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'customer_count', name: 'Active Customer Count (last 12 months)', description: 'Legacy checklist item — not used by any agent (revenue agents use Revenue Breakdown and Pricing Schedule). Hidden from client portal.', type: 'required', workstreams: ['ws2', 'both', 'ma'] },
       { id: 'pricing_schedule', name: 'Current Pricing Schedule', description: 'Current rates for all services.', type: 'required', workstreams: ['ws2', 'both', 'ma'] },

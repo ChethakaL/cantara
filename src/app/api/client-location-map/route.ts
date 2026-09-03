@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
+import { GetObjectCommand } from '@aws-sdk/client-s3'
+import { assertS3Configured, s3BucketName, s3Client } from '@/lib/s3'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
-// ── GET: Fetch existing map data ─────────────────────────────────────────────
+async function bodyToBuffer(body: any): Promise<Buffer> {
+  if (!body) return Buffer.alloc(0)
+  if (typeof body.transformToByteArray === 'function') {
+    const bytes = await body.transformToByteArray()
+    return Buffer.from(bytes)
+  }
+  const response = new Response(body)
+  return Buffer.from(await response.arrayBuffer())
+}
+
+// ── GET: Fetch existing map data & uploaded document info ────────────────────
 
 export async function GET(req: NextRequest) {
   const clientId = req.nextUrl.searchParams.get('clientId')
@@ -22,7 +34,23 @@ export async function GET(req: NextRequest) {
     : {}) as Record<string, any>
   const mapData = submissions.clientLocationMap ?? null
 
-  return NextResponse.json({ mapData })
+  const uploadedDoc = await (prisma as any).clientDocument.findFirst({
+    where: { clientId, documentId: 'client_addresses' },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, fileName: true, createdAt: true },
+  })
+  const docStatus = await (prisma as any).clientDocumentStatus.findUnique({
+    where: { clientId_documentId: { clientId, documentId: 'client_addresses' } },
+    select: { fileName: true, uploadedAt: true },
+  })
+
+  const uploaded = uploadedDoc
+    ? { recordId: uploadedDoc.id, fileName: uploadedDoc.fileName, uploadedAt: uploadedDoc.createdAt }
+    : docStatus?.fileName
+      ? { recordId: null, fileName: docStatus.fileName, uploadedAt: docStatus.uploadedAt }
+      : null
+
+  return NextResponse.json({ mapData, uploadedDoc: uploaded })
 }
 
 // ── POST: Parse uploaded CSV/XLSX and return structured data ─────────────────
@@ -33,9 +61,9 @@ export async function POST(req: NextRequest) {
     const clientId = formData.get('clientId') as string
     const facilityAddress = formData.get('facilityAddress') as string
     const file = formData.get('file') as File | null
+    const useUploadedDoc = formData.get('useUploadedDoc') === 'true'
 
     if (!clientId) return new Response('Missing clientId', { status: 400 })
-    if (!file) return new Response('Missing file', { status: 400 })
 
     const client = await prisma.clientProfile.findUnique({
       where: { id: clientId },
@@ -43,8 +71,35 @@ export async function POST(req: NextRequest) {
     })
     if (!client) return new Response('Client not found', { status: 404 })
 
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const ext = (file.name.split('.').pop() || '').toLowerCase()
+    let buffer: Buffer
+    let fileName = ''
+
+    if (file) {
+      buffer = Buffer.from(await file.arrayBuffer())
+      fileName = file.name
+    } else if (useUploadedDoc || !file) {
+      const doc = await (prisma as any).clientDocument.findFirst({
+        where: { clientId, documentId: 'client_addresses' },
+        orderBy: { createdAt: 'desc' },
+        select: { fileName: true, localPath: true, storageBucket: true },
+      })
+      if (!doc?.localPath) {
+        return new Response('No uploaded client address document found.', { status: 404 })
+      }
+      assertS3Configured()
+      const s3Res = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: doc.storageBucket || s3BucketName,
+          Key: doc.localPath,
+        })
+      )
+      buffer = await bodyToBuffer(s3Res.Body)
+      fileName = doc.fileName || 'client_addresses.csv'
+    } else {
+      return new Response('Missing file or uploaded document', { status: 400 })
+    }
+
+    const ext = (fileName.split('.').pop() || '').toLowerCase()
 
     let clients: Array<{ name: string; address: string; serviceType: string }>
     if (ext === 'xlsx' || ext === 'xls') {
@@ -57,6 +112,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       clients,
+      fileName,
       facilityAddress: facilityAddress || '',
       rowCount: clients.length,
     })

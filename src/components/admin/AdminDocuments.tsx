@@ -1,6 +1,17 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { AlertTriangle, Loader2, MessageSquareMore, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle,
+  CheckSquare,
+  FileText,
+  HelpCircle,
+  Loader2,
+  MessageSquareMore,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { DocumentUploadAccordion } from '@/components/documents/DocumentUploadAccordion'
 import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
 import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
@@ -97,6 +108,9 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
   const [actingUnavailableDocId, setActingUnavailableDocId] = useState<string | null>(null)
   const [reopenedUnavailableDocs, setReopenedUnavailableDocs] = useState<Record<string, boolean>>({})
+  const [activeSubTab, setActiveSubTab] = useState<'checklist' | 'availability'>('checklist')
+  const [showExcludedDocs, setShowExcludedDocs] = useState(false)
+  const [savingStatusDocId, setSavingStatusDocId] = useState<string | null>(null)
 
   const loadFileCatalog = useCallback(async () => {
     try {
@@ -237,6 +251,55 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     onClientUpdated?.(refreshed)
     setRefreshKey(prev => prev + 1)
     await loadFileCatalog()
+  }
+
+  const saveDocAvailability = async (docId: string, patch: { hasDoc?: boolean | null; notApplicable?: boolean }) => {
+    setSavingStatusDocId(docId)
+    const current = getResolvedStatus(docId)
+    const nextStatus = {
+      ...current,
+      id: docId,
+      hasDoc: patch.hasDoc !== undefined ? patch.hasDoc : current.hasDoc,
+      notApplicable: patch.notApplicable !== undefined ? patch.notApplicable : false,
+      unavailableDecision: patch.hasDoc === false ? current.unavailableDecision : null,
+      assignedTo: patch.hasDoc === false || patch.notApplicable ? null : current.assignedTo,
+    }
+
+    const nextDocStatuses = {
+      ...client.documentStatuses,
+      [docId]: nextStatus,
+    }
+    const updatedClient = {
+      ...client,
+      documentStatuses: nextDocStatuses,
+    }
+    onClientUpdated?.(updatedClient)
+
+    try {
+      const res = await fetch('/api/client-portal/statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: client.id,
+          statuses: {
+            [docId]: {
+              hasDoc: nextStatus.hasDoc,
+              notApplicable: nextStatus.notApplicable,
+              unavailableDecision: nextStatus.unavailableDecision,
+              assignedTo: nextStatus.assignedTo,
+            },
+          },
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      await refreshClientView()
+    } catch (err) {
+      console.error('Failed to update document availability:', err)
+      window.alert('Failed to update document status. Please try again.')
+      await refreshClientView()
+    } finally {
+      setSavingStatusDocId(null)
+    }
   }
 
   const saveUnavailableDecision = async (
@@ -682,67 +745,269 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     if (uploaded?.fileName && String(uploaded.fileName).trim()) submittedIds.add(id)
   }
   const submitted = submittedIds.size
-  const clearedWithoutFile = Object.values(documentStatuses).filter(status => {
-    if (status.fileName && String(status.fileName).trim()) return false
-    return status.notApplicable === true || status.hasDoc === false
+
+  // Active checklist documents (filters out excluded/No/NA optional documents unless showExcludedDocs is true)
+  const activeValuationDocs = VALUATION_DOCS.filter(doc => {
+    if (doc.type === 'required') return true
+    const s = getResolvedStatus(doc.id)
+    if (s.fileName) return true
+    if (showExcludedDocs) return true
+    return s.hasDoc !== false && !s.notApplicable
+  })
+
+  const activeCategories = categories.map(cat => ({
+    ...cat,
+    documents: cat.documents.filter(doc => {
+      if (doc.type === 'required') return true
+      const s = getResolvedStatus(doc.id)
+      if (s.fileName) return true
+      if (showExcludedDocs) return true
+      return s.hasDoc === true
+    }),
+  })).filter(cat => cat.documents.length > 0)
+
+  const allApplicableDocs = [...VALUATION_DOCS, ...categories.flatMap(c => c.documents)]
+  const totalRequired = activeValuationDocs.length + activeCategories.flatMap(c => c.documents).length
+  const pending = Math.max(0, totalRequired - submitted)
+  const unansweredCount = allApplicableDocs.filter(doc => {
+    if (doc.type === 'required') return false
+    const s = getResolvedStatus(doc.id)
+    return s.hasDoc === null && !s.notApplicable
   }).length
-  const total = VALUATION_DOCS.length + categories.flatMap(c => c.documents).length
-  const pending = Math.max(0, total - submitted - clearedWithoutFile)
+  const excludedCount = allApplicableDocs.filter(doc => {
+    if (doc.type === 'required') return false
+    const s = getResolvedStatus(doc.id)
+    return s.hasDoc === false || s.notApplicable === true
+  }).length
+
+  const renderAvailabilityRow = (doc: { id: string; name: string; description?: string; type?: string }) => {
+    const s = getResolvedStatus(doc.id)
+    const isSaving = savingStatusDocId === doc.id
+    const files = getFilesForSlot(doc.id)
+    const fileCount = files.length || (s.fileName ? 1 : 0)
+
+    return (
+      <div key={doc.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors">
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-slate-800">{doc.name}</p>
+            {doc.type === 'required' && (
+              <Badge color="gold">Required</Badge>
+            )}
+            {doc.type === 'conditional' && (
+              <Badge color="slate">Conditional</Badge>
+            )}
+            {doc.type === 'yes_no' && (
+              <Badge color="slate">Optional</Badge>
+            )}
+            {fileCount > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                {s.fileName ?? `${fileCount} file(s) uploaded`}
+              </span>
+            )}
+          </div>
+          {doc.description && (
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          {isSaving ? (
+            <div className="flex items-center gap-1.5 px-4 py-1.5 text-xs text-slate-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" /> Saving...
+            </div>
+          ) : (
+            <>
+              {/* Toggle: Yes */}
+              <button
+                type="button"
+                onClick={() => void saveDocAvailability(doc.id, { hasDoc: s.hasDoc === true ? null : true, notApplicable: false })}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  s.hasDoc === true && !s.notApplicable
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-2xs ring-1 ring-emerald-500/20'
+                    : 'border-slate-200 text-slate-400 hover:border-emerald-300 hover:text-emerald-700'
+                }`}
+              >
+                ✓ Yes
+              </button>
+              {/* Toggle: No */}
+              <button
+                type="button"
+                onClick={() => void saveDocAvailability(doc.id, { hasDoc: s.hasDoc === false ? null : false, notApplicable: false })}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  s.hasDoc === false && !s.notApplicable
+                    ? 'border-rose-500 bg-rose-50 text-rose-700 shadow-2xs ring-1 ring-rose-500/20'
+                    : 'border-slate-200 text-slate-400 hover:border-rose-300 hover:text-rose-700'
+                }`}
+              >
+                ✕ No
+              </button>
+              {/* Toggle: N/A */}
+              <button
+                type="button"
+                onClick={() => void saveDocAvailability(doc.id, { notApplicable: !s.notApplicable, hasDoc: null })}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  s.notApplicable
+                    ? 'border-slate-400 bg-slate-100 text-slate-700 shadow-2xs ring-1 ring-slate-400/20'
+                    : 'border-slate-200 text-slate-300 hover:border-slate-300 hover:text-slate-600'
+                }`}
+              >
+                N/A
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: 'Submitted', value: submitted, color: 'text-emerald-600' },
-          { label: 'Pending', value: pending, color: 'text-amber-600' },
-          { label: 'Total Required', value: total, color: 'text-slate-700' },
-        ].map(s => (
-          <div key={s.label} className="text-center p-3 rounded-xl bg-slate-50 border border-slate-100">
-            <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
-            <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
-          </div>
-        ))}
+      {/* Sub-tabs header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-3">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl border border-slate-200/60 w-fit">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('checklist')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeSubTab === 'checklist'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5 text-slate-500" />
+            Document Checklist
+            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-600 font-medium">
+              {submitted}/{totalRequired}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('availability')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeSubTab === 'availability'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <CheckSquare className="w-3.5 h-3.5 text-amber-600" />
+            Client Document Availability (Yes / No / N/A)
+            {unansweredCount > 0 ? (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 font-medium">
+                {unansweredCount} unconfirmed
+              </span>
+            ) : (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-100 text-emerald-800 font-medium">
+                All confirmed
+              </span>
+            )}
+          </button>
+        </div>
+
+        {activeSubTab === 'checklist' && excludedCount > 0 && (
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showExcludedDocs}
+              onChange={e => setShowExcludedDocs(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+            />
+            <span>Show {excludedCount} excluded / N/A items</span>
+          </label>
+        )}
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
-        Each row has <span className="font-medium text-slate-700">Admin upload</span> and{' '}
-        <span className="font-medium text-slate-700">Follow-up Question</span> on the right without expanding.
-        Expand for full description, file list, per-document deadline, and delete.
-        Section deadlines apply to the whole group unless overridden on a document.
-      </div>
-
-      <section>
-        <div className="flex items-center gap-2 mb-3">
-          <h4 className="text-sm font-semibold text-slate-700">Business Valuation Documents</h4>
-          <Badge color="gold">First Priority</Badge>
-        </div>
-        <SectionDeadlineField
-          client={client}
-          sectionId={VALUATION_SECTION_ID}
-          sectionLabel="Valuation documents"
-          documentIds={VALUATION_DOCS.map(doc => doc.id)}
-          onSaved={refreshFromSave}
-        />
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          {VALUATION_DOCS.map(doc => renderRow(doc, VALUATION_SECTION_ID))}
-        </div>
-      </section>
-
-      {categories.map(cat => (
-        <section key={cat.id}>
-          <h4 className="text-sm font-semibold text-slate-700 mb-3">{cat.title}</h4>
-          <SectionDeadlineField
-            client={client}
-            sectionId={cat.id}
-            sectionLabel={cat.title}
-            documentIds={cat.documents.map(doc => doc.id)}
-            onSaved={refreshFromSave}
-          />
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            {cat.documents.map(doc => renderRow(doc, cat.id))}
+      {activeSubTab === 'checklist' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Submitted', value: submitted, color: 'text-emerald-600' },
+              { label: 'Pending', value: pending, color: 'text-amber-600' },
+              { label: 'Total Required', value: totalRequired, color: 'text-slate-700' },
+            ].map(s => (
+              <div key={s.label} className="text-center p-3 rounded-xl bg-slate-50 border border-slate-100">
+                <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
+              </div>
+            ))}
           </div>
-        </section>
-      ))}
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
+            Each row has <span className="font-medium text-slate-700">Admin upload</span> and{' '}
+            <span className="font-medium text-slate-700">Follow-up Question</span> on the right without expanding.
+            Expand for full description, file list, per-document deadline, and delete.
+            Section deadlines apply to the whole group unless overridden on a document.
+          </div>
+
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <h4 className="text-sm font-semibold text-slate-700">Business Valuation Documents</h4>
+              <Badge color="gold">First Priority</Badge>
+            </div>
+            <SectionDeadlineField
+              client={client}
+              sectionId={VALUATION_SECTION_ID}
+              sectionLabel="Valuation documents"
+              documentIds={VALUATION_DOCS.map(doc => doc.id)}
+              onSaved={refreshFromSave}
+            />
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              {activeValuationDocs.map(doc => renderRow(doc, VALUATION_SECTION_ID))}
+            </div>
+          </section>
+
+          {activeCategories.map(cat => (
+            <section key={cat.id}>
+              <h4 className="text-sm font-semibold text-slate-700 mb-3">{cat.title}</h4>
+              <SectionDeadlineField
+                client={client}
+                sectionId={cat.id}
+                sectionLabel={cat.title}
+                documentIds={cat.documents.map(doc => doc.id)}
+                onSaved={refreshFromSave}
+              />
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                {cat.documents.map(doc => renderRow(doc, cat.id))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {activeSubTab === 'availability' && (
+        <div className="space-y-6">
+          <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-4 text-xs text-amber-800 leading-relaxed flex items-start gap-3">
+            <HelpCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-900 mb-0.5">
+                What the client reported they have (Yes / No / N/A)
+              </p>
+              <p className="text-amber-800/90 text-[11px]">
+                This view mirrors Step 1 of the Client Portal's Assign Documents section. If the client calls and informs you they don't have a document or that it does not apply to their business, you can update their status below. Marking an optional document <span className="font-semibold text-rose-700">No</span> or <span className="font-semibold text-slate-700">N/A</span> will automatically remove it from the active Document Checklist.
+              </p>
+            </div>
+          </div>
+
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <h4 className="text-sm font-semibold text-slate-700">Business Valuation Documents</h4>
+              <Badge color="gold">First Priority</Badge>
+            </div>
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+              {VALUATION_DOCS.map(doc => renderAvailabilityRow(doc))}
+            </div>
+          </section>
+
+          {categories.map(cat => (
+            <section key={cat.id}>
+              <h4 className="text-sm font-semibold text-slate-700 mb-3">{cat.title}</h4>
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+                {cat.documents.map(doc => renderAvailabilityRow(doc))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
 
       <Modal open={followUpOpen} onClose={() => setFollowUpOpen(false)} title="Create Follow-up Requirement">
         <div className="space-y-4">

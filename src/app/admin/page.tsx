@@ -129,6 +129,8 @@ export default function AdminDashboard() {
     phone: '',
     businessCategory: '',
     propertyOwnership: '' as '' | 'lease' | 'owns',
+    realEstateRunLease: false,
+    realEstateRunAppraisal: true,
   })
   const [adminName, setAdminName] = useState('Admin Pollack')
   const [driveStatus, setDriveStatus] = useState<{ connected: boolean; connection: { status: string; updatedAt: string | null } | null } | null>(null)
@@ -291,7 +293,16 @@ export default function AdminDashboard() {
       }
       await refresh()
       setAdding(false)
-      setNewClient({ name: '', email: '', company: '', phone: '', businessCategory: '', propertyOwnership: '' })
+      setNewClient({
+        name: '',
+        email: '',
+        company: '',
+        phone: '',
+        businessCategory: '',
+        propertyOwnership: '',
+        realEstateRunLease: false,
+        realEstateRunAppraisal: true,
+      })
       setNewClientDriveExistingFolder('')
       setNewClientDriveParentFolder('')
       setNewClientDriveFolderName('')
@@ -997,9 +1008,51 @@ export default function AdminDashboard() {
           <Select
             label="Real estate"
             value={newClient.propertyOwnership}
-            onChange={e => setNewClient(p => ({ ...p, propertyOwnership: e.target.value as '' | 'lease' | 'owns' }))}
+            onChange={e => {
+              const nextVal = e.target.value as '' | 'lease' | 'owns'
+              setNewClient(p => ({
+                ...p,
+                propertyOwnership: nextVal,
+                realEstateRunAppraisal: nextVal === 'owns' ? true : p.realEstateRunAppraisal,
+              }))
+            }}
             options={PROPERTY_OWNERSHIP_OPTIONS}
           />
+          {newClient.propertyOwnership === 'owns' && (
+            <div className="rounded-xl border border-amber-200/80 bg-amber-50/50 p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Active Real Estate Agents
+                </span>
+                <span className="text-[11px] text-amber-800 font-medium bg-amber-100/80 px-2 py-0.5 rounded-full">
+                  Owns Real Estate
+                </span>
+              </div>
+              <p className="text-xs text-slate-600">
+                Choose which agents to include in the Agents dropdown for this client:
+              </p>
+              <div className="flex flex-wrap items-center gap-6 pt-1">
+                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={newClient.realEstateRunLease}
+                    onChange={e => setNewClient(p => ({ ...p, realEstateRunLease: e.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                  />
+                  <span>Run Lease Analysis Agent</span>
+                </label>
+                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={newClient.realEstateRunAppraisal}
+                    onChange={e => setNewClient(p => ({ ...p, realEstateRunAppraisal: e.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                  />
+                  <span>Run Real Estate Appraisal Agent</span>
+                </label>
+              </div>
+            </div>
+          )}
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
             <div>
               <h4 className="text-sm font-semibold text-slate-800">Google Drive location</h4>

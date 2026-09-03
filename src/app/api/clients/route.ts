@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
     const propertyOwnership = body.propertyOwnership === 'lease' || body.propertyOwnership === 'owns'
       ? body.propertyOwnership
       : null;
+    const realEstateRunLease = body.realEstateRunLease === true;
+    const realEstateRunAppraisal = body.realEstateRunAppraisal !== false;
 
     if (!name || !email) {
       return new Response("Missing required fields", { status: 400 });
@@ -137,7 +139,10 @@ export async function POST(req: NextRequest) {
         businessCategory: businessCategory || null,
         stage: "ONBOARDING",
         businessType: "SINGLE",
-        sectionSubmissions: propertyOwnership ? { propertyOwnership } : undefined,
+        sectionSubmissions: propertyOwnership ? {
+          propertyOwnership,
+          ...(propertyOwnership === 'owns' ? { realEstateRunLease, realEstateRunAppraisal } : {}),
+        } : undefined,
       },
       include: { User: true },
     });

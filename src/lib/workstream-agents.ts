@@ -11,7 +11,7 @@ type PropertyOwnership = 'lease' | 'owns' | '' | null | undefined
 export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, WorkstreamAgentSelection[]> = {
   ws1: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
-    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
     { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts'] },
     { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: ['employee_list'] },
     { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
@@ -31,7 +31,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
   ],
   ws2: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
-    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: [] },
+    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
     { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent', documentIds: [] },
     { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
@@ -58,20 +58,29 @@ SYSTEM_WORKSTREAM_AGENTS.both = [...SYSTEM_WORKSTREAM_AGENTS.ws1, ...SYSTEM_WORK
   (agent, index, agents) => agents.findIndex(item => item.agentId === agent.agentId) === index,
 )
 
-function shouldIncludeLeaseAgent(propertyOwnership: PropertyOwnership) {
-  return propertyOwnership !== 'owns'
-}
-
 function filterLeaseAgentSelection(
   agents: WorkstreamAgentSelection[],
   propertyOwnership: PropertyOwnership,
+  realEstateRunLease?: boolean,
+  realEstateRunAppraisal?: boolean,
 ) {
-  if (shouldIncludeLeaseAgent(propertyOwnership)) {
-    return agents.filter(agent => agent.agentId !== 'real_estate_appraisal')
+  if (propertyOwnership === 'owns') {
+    const runLease = realEstateRunLease === true
+    const runAppraisal = realEstateRunAppraisal !== false
+    let result = agents.filter(agent => {
+      if (agent.agentId === 'lease_analysis') return runLease
+      if (agent.agentId === 'real_estate_appraisal') return runAppraisal
+      return true
+    })
+    if (runAppraisal && !result.some(a => a.agentId === 'real_estate_appraisal')) {
+      result = [...result, { agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] }]
+    }
+    if (runLease && !result.some(a => a.agentId === 'lease_analysis')) {
+      result = [...result, { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] }]
+    }
+    return result
   }
-  const filtered = agents.filter(agent => agent.agentId !== 'lease_analysis')
-  if (filtered.some(agent => agent.agentId === 'real_estate_appraisal')) return filtered
-  return [...filtered, { agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] }]
+  return agents.filter(agent => agent.agentId !== 'real_estate_appraisal')
 }
 
 export function getClientWorkstreamAgents(client: {
@@ -79,14 +88,23 @@ export function getClientWorkstreamAgents(client: {
   customWorkstream?: { agents?: WorkstreamAgentSelection[] } | null
   workstreamAgents?: WorkstreamAgentSelection[] | null
   propertyOwnership?: PropertyOwnership
+  sectionSubmissions?: Record<string, unknown> | null
+  realEstateRunLease?: boolean
+  realEstateRunAppraisal?: boolean
 }) {
+  const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object')
+    ? (client.sectionSubmissions as Record<string, any>)
+    : {}
+  const realEstateRunLease = client.realEstateRunLease ?? (submissions.realEstateRunLease === true)
+  const realEstateRunAppraisal = client.realEstateRunAppraisal ?? (submissions.realEstateRunAppraisal !== false)
+
   let agents: WorkstreamAgentSelection[] = []
   if (client.workstreamAgents?.length) {
-    agents = filterLeaseAgentSelection(client.workstreamAgents, client.propertyOwnership)
+    agents = filterLeaseAgentSelection(client.workstreamAgents, client.propertyOwnership, realEstateRunLease, realEstateRunAppraisal)
   } else if (client.customWorkstream?.agents?.length) {
-    agents = filterLeaseAgentSelection(client.customWorkstream.agents, client.propertyOwnership)
+    agents = filterLeaseAgentSelection(client.customWorkstream.agents, client.propertyOwnership, realEstateRunLease, realEstateRunAppraisal)
   } else if (client.workstream) {
-    agents = filterLeaseAgentSelection(SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? [], client.propertyOwnership)
+    agents = filterLeaseAgentSelection(SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? [], client.propertyOwnership, realEstateRunLease, realEstateRunAppraisal)
   }
 
   // Professional Advisors: always included for M&A and BOTH (even when the

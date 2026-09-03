@@ -357,8 +357,16 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     : false
   const availableAgentTabs = client
     ? AGENT_TABS.filter(tab => {
-        if (tab.key === 'lease') return client.propertyOwnership !== 'owns'
-        if (tab.key === 'real-estate-appraisal') return client.propertyOwnership === 'owns'
+        const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
+        if (client.propertyOwnership === 'owns') {
+          const runLease = submissions.realEstateRunLease === true
+          const runAppraisal = submissions.realEstateRunAppraisal !== false
+          if (tab.key === 'lease') return runLease
+          if (tab.key === 'real-estate-appraisal') return runAppraisal
+          return true
+        }
+        if (tab.key === 'lease') return true
+        if (tab.key === 'real-estate-appraisal') return false
         return true
       })
     : []

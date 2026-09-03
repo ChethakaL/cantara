@@ -24,6 +24,11 @@ const DOCUMENT_UPLOAD_RULES: Record<string, UploadRuleKind> = {
   monthly_pl_excel: 'excel',
   monthly_bs_excel: 'excel',
   accountant_statements: 'pdf_or_excel',
+  shareholder_remuneration_36m: 'spreadsheet',
+  personal_expenses_36m: 'spreadsheet',
+  non_recurring_expenses_36m: 'spreadsheet',
+  tenant_improvements_36m: 'spreadsheet_or_pdf',
+  client_addresses: 'spreadsheet',
   insurance_claims_12m: 'pdf',
   insurance_policies: 'pdf',
   leases: 'pdf',
@@ -62,6 +67,28 @@ const DOCUMENT_UPLOAD_RULES: Record<string, UploadRuleKind> = {
   sop_manual: 'pdf_or_docx',
   intellectual_property: 'pdf_or_image',
   environmental_reports: 'pdf',
+}
+
+export const SINGLE_FILE_DOCUMENT_IDS = new Set([
+  'monthly_pl_excel',
+  'monthly_bs_excel',
+  'employee_list',
+  'occupancy_review',
+  'client_addresses',
+  'shareholder_remuneration_36m',
+  'personal_expenses_36m',
+  'non_recurring_expenses_36m',
+  'tenant_improvements_36m',
+  'revenue_breakdown',
+  'pricing_schedule',
+  'real_estate_appraisal',
+  'org_chart',
+])
+
+export function isSingleFileDocument(documentId: string): boolean {
+  if (documentId.includes('__year_') || documentId.includes('__combined')) return true
+  const normalized = normalizeDocumentSlotId(documentId)
+  return SINGLE_FILE_DOCUMENT_IDS.has(normalized) || SINGLE_FILE_DOCUMENT_IDS.has(documentId)
 }
 
 /** @deprecated Use validateDocumentUpload — kept for callers that only check PDF slots. */

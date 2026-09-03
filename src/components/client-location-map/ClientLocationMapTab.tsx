@@ -1,7 +1,23 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MapPin, Upload, X, Loader2, Eye, EyeOff, AlertCircle, CheckCircle2, RotateCcw, Pencil, Save, Trash2, Plus } from 'lucide-react'
+import {
+  MapPin,
+  Upload,
+  X,
+  Loader2,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  CheckCircle2,
+  RotateCcw,
+  Pencil,
+  Save,
+  Trash2,
+  Plus,
+  FileSpreadsheet,
+  Play,
+} from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { generateReportHtml, buildHtmlTable } from '@/lib/report-export/generate-report-html'
@@ -128,6 +144,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   // State
   const [phase, setPhase] = useState<'loading' | 'upload' | 'map'>('loading')
   const [mapData, setMapData] = useState<MapData | null>(null)
+  const [uploadedDoc, setUploadedDoc] = useState<{ recordId: string | null; fileName: string; uploadedAt: string | null } | null>(null)
   const [facilityAddress, setFacilityAddress] = useState(businessAddress || '')
   const [dragActive, setDragActive] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -160,6 +177,9 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         const res = await fetch(`/api/client-location-map?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
         if (!res.ok) { setPhase('upload'); return }
         const data = await res.json()
+        if (data.uploadedDoc) {
+          setUploadedDoc(data.uploadedDoc)
+        }
         if (data.mapData && data.mapData.clients?.length > 0) {
           setMapData(data.mapData)
           setFacilityAddress(data.mapData.facilityAddress || businessAddress || '')
@@ -346,6 +366,36 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     if (file) handleFileSelect(file)
   }
 
+  const handleRunFromUploadedDoc = async () => {
+    setUploading(true)
+    setError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('clientId', clientId)
+      formData.append('facilityAddress', facilityAddress)
+      formData.append('useUploadedDoc', 'true')
+
+      const res = await fetch('/api/client-location-map', { method: 'POST', body: formData })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || 'Failed to process uploaded document')
+      }
+      const data = await res.json()
+      const rows: ClientPin[] = data.clients.map((c: any) => ({
+        name: c.name,
+        address: c.address,
+        serviceType: c.serviceType as ServiceType,
+        geocodeStatus: 'pending' as const,
+      }))
+      setParsedRows(rows)
+    } catch (err: any) {
+      setError(err.message || 'Failed to parse uploaded document')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const handleUploadAndParse = async () => {
     if (!selectedFile) return
     setUploading(true)
@@ -370,6 +420,18 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         geocodeStatus: 'pending' as const,
       }))
       setParsedRows(rows)
+
+      // Sync upload with ClientDocument store for client_addresses
+      try {
+        const syncData = new FormData()
+        syncData.append('clientId', clientId)
+        syncData.append('documentId', 'client_addresses')
+        syncData.append('uploaderEmail', 'advisor')
+        syncData.append('file', selectedFile)
+        await fetch('/api/client-documents/upload', { method: 'POST', body: syncData })
+      } catch (syncErr) {
+        console.warn('Failed to sync to client documents store:', syncErr)
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to parse file')
     } finally {
@@ -473,7 +535,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
 
   // ── Reset / Re-upload ──────────────────────────────────────────────────
 
-  const handleReset = () => {
+  const handleReset = async () => {
     setPhase('upload')
     setMapData(null)
     setSelectedFile(null)
@@ -487,6 +549,16 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     circlesRef.current.forEach(c => c.setMap(null))
     circlesRef.current = []
     googleMapRef.current = null
+
+    try {
+      const res = await fetch(`/api/client-location-map?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.uploadedDoc) setUploadedDoc(data.uploadedDoc)
+      }
+    } catch {
+      // ignore
+    }
   }
 
   const persistMapData = async (nextMapData: MapData) => {
@@ -648,10 +720,43 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
           <p className="text-[11px] text-slate-400 mt-1.5">This will be the center of the map with radius rings drawn around it.</p>
         </Card>
 
+        {/* Uploaded Document from Client / Advisor Portal */}
+        {uploadedDoc && !parsedRows && (
+          <Card className="p-5 border-indigo-200 bg-indigo-50/40 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white border border-indigo-200 flex items-center justify-center shrink-0 shadow-2xs">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-800">Uploaded Address List Found</h3>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      Uploaded via Portal
+                    </span>
+                  </div>
+                  <p className="text-xs font-semibold text-indigo-950 mt-0.5">{uploadedDoc.fileName}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {uploadedDoc.uploadedAt ? `Uploaded on ${new Date(uploadedDoc.uploadedAt).toLocaleDateString()}` : 'Ready for analysis'}
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={handleRunFromUploadedDoc}
+                disabled={uploading || !facilityAddress}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-5 py-2.5 rounded-lg flex items-center gap-2 shrink-0 shadow-sm"
+              >
+                {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                {uploading ? 'Processing Document...' : 'Run Map Analysis from Uploaded File'}
+              </Button>
+            </div>
+          </Card>
+        )}
+
         {/* File Upload */}
         <Card className="p-5">
           <label className="block text-xs font-semibold text-slate-700 mb-3 uppercase tracking-wide">
-            Upload Client Addresses
+            {uploadedDoc ? 'Or Upload a Different Address List' : 'Upload Client Addresses'}
           </label>
           <div
             onDragOver={e => { e.preventDefault(); setDragActive(true) }}
