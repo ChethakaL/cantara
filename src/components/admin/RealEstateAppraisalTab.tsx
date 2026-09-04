@@ -93,8 +93,8 @@ export default function RealEstateAppraisalTab({ clientId, clientName, readOnly 
   )
   const report = activeRun
 
-  const load = () => Promise.all([
-    reload(),
+  const load = (options?: { selectNewest?: boolean }) => Promise.all([
+    reload(options?.selectNewest ? { selectNewest: true } : undefined),
     fetch('/api/client-documents?clientId=' + encodeURIComponent(clientId) + '&documentId=real_estate_appraisal', { cache: 'no-store' }).then(res => res.ok ? res.json() : null),
   ]).then(([, nextDocument]) => {
     setDocument(nextDocument?.document ?? null)
@@ -136,8 +136,18 @@ export default function RealEstateAppraisalTab({ clientId, clientName, readOnly 
           modelId: resolveAgentModelId(provider),
         }),
       })
-      if (!response.ok) throw new Error(await response.text())
-      await load()
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(
+          (payload && typeof payload.error === 'string' && payload.error) ||
+            (typeof payload === 'string' ? payload : null) ||
+            `Appraisal analysis failed (${response.status})`,
+        )
+      }
+      if (!payload?.id || !payload?.markdown) {
+        throw new Error('Appraisal analysis returned no saved report. Try again.')
+      }
+      await load({ selectNewest: true })
       setNewAnalysis(false)
     } catch (error) {
       setRunError(error instanceof Error ? error.message : 'Appraisal analysis failed.')
