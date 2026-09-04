@@ -5,8 +5,9 @@ import { buildRealEstateAppraisalPrompt } from '@/lib/real-estate-appraisal/prom
 import {
   parseAnalyzeProvider,
   resolveAnalyzeModelId,
-  maybeOpenAiStreamFromBlocks,
 } from '@/lib/agent-analyze-provider'
+import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
+import { hasOpenAiConfigured } from '@/lib/openai-client'
 
 export const maxDuration = 300
 
@@ -30,11 +31,16 @@ export async function POST(req: NextRequest) {
     if (!client) return new Response('Client not found', { status: 404 })
 
     const mediaType = String(rawMediaType || 'application/pdf')
-    const userContent: any[] = [{ type: 'text', text: `Business details: Registered business name: ${client.businessName}\nUploaded document: ${name}` }]
+    const userContent: AgentMessageBlock[] = [
+      {
+        type: 'text',
+        text: `Business details: Registered business name: ${client.businessName}\nUploaded document: ${name}`,
+      },
+    ]
     if (mediaType === 'application/pdf') {
       userContent.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } })
     } else if (mediaType.startsWith('image/')) {
-      userContent.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } })
+      userContent.push({ type: 'image', source: { media_type: mediaType, data: base64 } })
     } else {
       return new Response('Appraisal must be a PDF or image', { status: 400 })
     }
@@ -43,25 +49,38 @@ export async function POST(req: NextRequest) {
     const provider = parseAnalyzeProvider(rawProvider)
     const modelId = resolveAnalyzeModelId(provider, requestedModelId)
     const systemPrompt = buildRealEstateAppraisalPrompt(client.businessName)
-    const openAiResponse = await maybeOpenAiStreamFromBlocks({
-      provider,
-      modelId,
-      system: systemPrompt,
-      userContent,
-      maxTokens: 12000,
-    })
-    if (openAiResponse) return openAiResponse
 
-    const anthropic = await requireAIClient()
+    let markdown: string
+    if (provider === 'openai') {
+      if (!(await hasOpenAiConfigured())) {
+        return new Response('OpenAI API key is not configured. Add it in Admin Settings.', { status: 400 })
+      }
+      // Complete + persist (same contract as Bedrock). Do not stream — the UI reloads
+      // saved reports and previously discarded OpenAI streams without saving.
+      markdown = await createAgentMessage({
+        provider,
+        model: modelId,
+        system: systemPrompt,
+        content: userContent,
+        maxTokens: 12000,
+        temperature: 0,
+      })
+    } else {
+      const anthropic = await requireAIClient()
+      const result = await anthropic.messages.create({
+        model: resolveModel('claude-sonnet-4-20250514'),
+        max_tokens: 12000,
+        temperature: 0,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userContent as any }],
+      })
+      markdown = result.content.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n')
+    }
 
-    const result = await anthropic.messages.create({
-      model: resolveModel('claude-sonnet-4-20250514'),
-      max_tokens: 12000,
-      temperature: 0,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
-    })
-    const markdown = result.content.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n')
+    if (!markdown.trim()) {
+      return NextResponse.json({ error: 'Model returned an empty appraisal report.' }, { status: 502 })
+    }
+
     const report = await (prisma as any).realEstateAppraisalReport.create({
       data: {
         clientId,
@@ -72,9 +91,10 @@ export async function POST(req: NextRequest) {
         aiModel: modelId,
       },
     })
-    return NextResponse.json({ id: report.id, markdown })
+    return NextResponse.json({ id: report.id, markdown, aiProvider: provider, aiModel: modelId })
   } catch (error) {
     console.error('[real-estate-appraisal/analyze]', error)
-    return NextResponse.json({ error: 'Real estate appraisal analysis failed.' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Real estate appraisal analysis failed.'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
