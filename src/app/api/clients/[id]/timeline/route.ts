@@ -14,6 +14,7 @@ const STAGES = [
   { key: 'client-documents', label: 'Client Uploads Documents', description: 'All required client documents are uploaded or marked unavailable.', notes: false },
   { key: 'facility-review-call', label: 'Facility Review Call', description: 'Complete the facility review call and capture notes.', notes: true },
   { key: 'owner-involvement-call', label: 'Owner Involvement Call', description: 'Complete the owner involvement call and capture notes.', notes: true },
+  { key: 'sales-process-call', label: 'Sales Process Call', description: 'Complete the sales process call and capture notes or upload the transcript.', notes: true },
   { key: 'run-agents', label: 'Run Agents', description: 'Run the assigned agents after the preparation steps are complete.', notes: false },
 ] as const
 
