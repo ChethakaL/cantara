@@ -9,7 +9,6 @@ type TopCompetitorsFormProps = {
   competitors: ManualCompetitorEntry[]
   onChange: (competitors: ManualCompetitorEntry[]) => void
   showAddress?: boolean
-  addressRequired?: boolean
   maxCompetitors?: number
   /** When false, always show maxCompetitors slots and hide add/remove controls. */
   allowAddRemove?: boolean
@@ -21,7 +20,6 @@ export default function TopCompetitorsForm({
   competitors,
   onChange,
   showAddress = true,
-  addressRequired = false,
   maxCompetitors = COMPETITOR_SLOT_COUNT,
   allowAddRemove = true,
 }: TopCompetitorsFormProps) {
@@ -101,8 +99,8 @@ export default function TopCompetitorsForm({
               />
               {showAddress && (
                 <Input
-                  label={addressRequired ? 'Address *' : 'Address (optional)'}
-                  placeholder="123 Main St, Vancouver, BC"
+                  label="Address (optional)"
+                  placeholder="123 Main St, Vancouver, BC — helps Google find the right location"
                   value={competitor.address ?? ''}
                   onChange={event => updateCompetitor(index, 'address', event.target.value)}
                 />
