@@ -1811,7 +1811,7 @@ export default function CompetitorAnalysisTab({
             <TopCompetitorsForm
               competitors={form.manualCompetitors ?? [emptyCompetitor()]}
               onChange={(manualCompetitors) => setForm(current => ({ ...current, manualCompetitors }))}
-              addressRequired={false}
+              addressRequired
             />
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -1819,6 +1819,7 @@ export default function CompetitorAnalysisTab({
                 <TrendingUp className="w-5 h-5 text-amber-500 mt-0.5" />
                 <div className="text-sm text-slate-600 leading-relaxed">
                   Save the same address and website in <span className="font-semibold text-slate-700">Client Management</span> so this agent opens prefilled for the client every time.
+                  {' '}If you name a competitor, its address is required so Google Places can resolve the right location.
                   {' '}If no competitors are entered, the agent will auto-discover nearby competitors within the search radius.
                 </div>
               </div>
