@@ -8,6 +8,7 @@ import { getAnthropicApiKey } from '@/lib/secure-settings'
 import { NextRequest, NextResponse } from 'next/server'
 import { WS111_SYSTEM_PROMPT, buildWS111ContextBlock } from '@/lib/ws1-11/prompt'
 import { TAX_READINESS_REFERENCE_CONTEXT } from '@/lib/tax-readiness'
+import { loadTaxClientDocumentsWithContent } from '@/lib/tax-liability-review/client-documents'
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const mammoth: { extractRawText: (args: { buffer: Buffer }) => Promise<{ value: string }> } = require('mammoth')
@@ -29,7 +30,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const {
-      documents,
+      clientId,
+      documents: rawDocuments,
       clientName,
       state,
       entityType,
@@ -38,6 +40,24 @@ export async function POST(req: NextRequest) {
       provider: rawProvider,
       modelId: requestedModelId,
     } = body
+
+    let documents = Array.isArray(rawDocuments) ? rawDocuments : []
+
+    // Prefer advisor-attached extras, then fill from Document Upload tax slots when needed.
+    if (clientId) {
+      const clientDocs = await loadTaxClientDocumentsWithContent(String(clientId))
+      if (clientDocs.length > 0) {
+        const seen = new Set<string>()
+        const merged: typeof documents = []
+        for (const doc of [...documents, ...clientDocs]) {
+          const key = `${doc.slotKey || 'advisor'}:${doc.name}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          merged.push(doc)
+        }
+        documents = merged
+      }
+    }
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
       return new Response('No documents provided', { status: 400 })
