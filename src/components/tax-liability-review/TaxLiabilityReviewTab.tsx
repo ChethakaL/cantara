@@ -155,17 +155,21 @@ type TaxDocumentGroupStatus = {
 
 function DocumentUploader({
   documents,
+  clientUploadedFiles,
   onDocumentsReady,
   onAnalyze,
   isLoading,
   missingRequiredCount = 0,
+  loadingClientDocs = false,
   providerBar,
 }: {
   documents: UploadedDoc[]
+  clientUploadedFiles: Array<{ id: string; fileName: string; sizeBytes: number | null; groupTitle: string }>
   onDocumentsReady: (docs: UploadedDoc[]) => void
   onAnalyze: () => void
   isLoading: boolean
   missingRequiredCount?: number
+  loadingClientDocs?: boolean
   providerBar?: React.ReactNode
 }) {
   const handleFiles = useCallback(async (fileList: FileList) => {
@@ -188,6 +192,10 @@ function DocumentUploader({
     onDocumentsReady(documents.filter(f => f.name !== name))
   }
 
+  const advisorDocs = documents.filter((doc) => doc.slotKey === 'advisor_tax_upload')
+  const attachedCount = clientUploadedFiles.length + advisorDocs.length
+  const canRun = !loadingClientDocs && missingRequiredCount === 0 && (clientUploadedFiles.length > 0 || documents.length > 0)
+
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
@@ -196,14 +204,40 @@ function DocumentUploader({
         </div>
         <h3 className="text-xl font-semibold text-stone-900 tracking-tight">Tax Liability Review</h3>
         <p className="text-stone-500 text-sm max-w-lg mx-auto">
-          Review the client-uploaded tax files below. Add advisor-only files here if needed before running analysis.
+          Client Document Upload files are used automatically. Add advisor-only files here if needed, choose a model, then run analysis.
         </p>
       </div>
 
+      {loadingClientDocs ? (
+        <div className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-500">
+          Loading tax documents from Document Upload...
+        </div>
+      ) : clientUploadedFiles.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">From Document Upload</p>
+          {clientUploadedFiles.map((file) => (
+            <div key={file.id} className="flex items-center gap-3 px-4 py-2.5 bg-emerald-50/60 rounded-lg border border-emerald-100">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-stone-700 truncate">{file.fileName}</p>
+                <p className="text-[10px] text-stone-400">{file.groupTitle}</p>
+              </div>
+              {file.sizeBytes != null && (
+                <span className="text-xs text-stone-400">{(file.sizeBytes / 1024).toFixed(0)} KB</span>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          No tax files are attached yet. Ask the client to upload the required tax documents in Document Upload, or add files here.
+        </div>
+      )}
+
       <label className="block border-2 border-dashed border-stone-300 rounded-xl p-8 text-center cursor-pointer hover:border-amber-400 hover:bg-amber-50/30 transition-all">
         <Upload className="w-6 h-6 text-stone-400 mx-auto mb-2" />
-        <span className="text-sm text-stone-600 font-medium">Drop files or click to upload</span>
-        <span className="block text-xs text-stone-400 mt-1">PDF, DOCX, XLSX, PNG, JPG</span>
+        <span className="text-sm text-stone-600 font-medium">Drop advisor-only files or click to upload</span>
+        <span className="block text-xs text-stone-400 mt-1">PDF, DOCX, XLSX, PNG, JPG — optional extras</span>
         <input
           type="file"
           multiple
@@ -213,9 +247,10 @@ function DocumentUploader({
         />
       </label>
 
-      {documents.length > 0 && (
+      {advisorDocs.length > 0 && (
         <div className="space-y-2">
-          {documents.map(f => (
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Advisor uploads</p>
+          {advisorDocs.map(f => (
             <div key={f.name} className="flex items-center gap-3 px-4 py-2.5 bg-stone-50 rounded-lg border border-stone-200">
               <FileText className="w-4 h-4 text-stone-400 flex-shrink-0" />
               <span className="text-sm text-stone-700 flex-1 truncate">{f.name}</span>
@@ -225,24 +260,26 @@ function DocumentUploader({
               </button>
             </div>
           ))}
-          {missingRequiredCount > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-              {missingRequiredCount} required tax document group{missingRequiredCount === 1 ? '' : 's'} still missing. Upload the missing files in Document Upload before running this agent.
-            </div>
-          )}
-          {providerBar}
-          <Button onClick={onAnalyze} disabled={isLoading || missingRequiredCount > 0} className="w-full mt-4">
-            {isLoading ? 'Analyzing...' : `Analyze ${documents.length} Document${documents.length !== 1 ? 's' : ''}`}
-          </Button>
         </div>
       )}
-      {documents.length === 0 && (
+
+      {missingRequiredCount > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-          No tax files are attached yet. Ask the client to upload the required tax documents in Document Upload, or add files here.
+          {missingRequiredCount} required tax document group{missingRequiredCount === 1 ? '' : 's'} still missing. Upload the missing files in Document Upload before running this agent.
         </div>
       )}
-      {documents.length > 0 && (
-        <p className="text-xs text-center text-stone-400">Draft uploads auto-save while you work.</p>
+
+      {providerBar}
+
+      <Button onClick={onAnalyze} disabled={isLoading || !canRun} className="w-full mt-2">
+        {isLoading
+          ? 'Analyzing...'
+          : canRun
+            ? `Run Analysis${attachedCount > 0 ? ` (${attachedCount} file${attachedCount !== 1 ? 's' : ''})` : ''}`
+            : 'Upload required tax documents to run'}
+      </Button>
+      {canRun && (
+        <p className="text-xs text-center text-stone-400">Select Claude or OpenAI above, then run. Document Upload files are included automatically.</p>
       )}
     </div>
   )
@@ -438,12 +475,20 @@ export default function TaxLiabilityReviewTab({
   const isRunning = status === 'uploading' || status === 'streaming'
   const [draftLoaded, setDraftLoaded] = useState(false)
   const missingRequiredCount = taxDocGroups.filter(group => group.required && !group.uploaded).length
+  const clientUploadedFiles = taxDocGroups.flatMap((group) =>
+    group.documents.map((doc) => ({
+      id: doc.id,
+      fileName: doc.fileName,
+      sizeBytes: doc.sizeBytes,
+      groupTitle: group.title,
+    })),
+  )
 
-  useEffect(() => {
+  const loadTaxDocs = useCallback(() => {
     let active = true
     setLoadingTaxDocs(true)
     setTaxDocsError(null)
-    fetch(`/api/tax-liability-review/client-documents?clientId=${encodeURIComponent(clientId)}&includeContent=true`, { cache: 'no-store' })
+    fetch(`/api/tax-liability-review/client-documents?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
       .then(async res => {
         if (!res.ok) throw new Error(await res.text())
         return res.json()
@@ -451,20 +496,6 @@ export default function TaxLiabilityReviewTab({
       .then(data => {
         if (!active) return
         setTaxDocGroups((data.groups ?? []) as TaxDocumentGroupStatus[])
-        const clientDocs = (data.documents ?? []) as UploadedDoc[]
-        if (clientDocs.length > 0) {
-          setDocuments(current => {
-            const seen = new Set<string>()
-            const next: UploadedDoc[] = []
-            for (const doc of [...clientDocs, ...current]) {
-              const key = `${doc.slotKey}:${doc.name}`
-              if (seen.has(key)) continue
-              seen.add(key)
-              next.push(doc)
-            }
-            return next
-          })
-        }
       })
       .catch(err => {
         if (active) setTaxDocsError(err instanceof Error ? err.message : 'Failed to load tax documents.')
@@ -473,7 +504,11 @@ export default function TaxLiabilityReviewTab({
         if (active) setLoadingTaxDocs(false)
       })
     return () => { active = false }
-  }, [clientId, setDocuments])
+  }, [clientId])
+
+  useEffect(() => {
+    return loadTaxDocs()
+  }, [loadTaxDocs])
 
   useEffect(() => {
     let active = true
@@ -481,7 +516,22 @@ export default function TaxLiabilityReviewTab({
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (!active || !data?.draft?.documents?.length) return
-        setDocuments(data.draft.documents)
+        // Draft only stores advisor extras — never wipe Document Upload context.
+        const draftDocs = (data.draft.documents as UploadedDoc[]).filter(
+          (doc) => doc.slotKey === 'advisor_tax_upload' && doc.base64,
+        )
+        if (!draftDocs.length) return
+        setDocuments((current) => {
+          const seen = new Set(current.map((doc) => `${doc.slotKey}:${doc.name}`))
+          const next = [...current]
+          for (const doc of draftDocs) {
+            const key = `${doc.slotKey}:${doc.name}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            next.push(doc)
+          }
+          return next
+        })
       })
       .catch(console.error)
       .finally(() => {
@@ -492,7 +542,8 @@ export default function TaxLiabilityReviewTab({
 
   useEffect(() => {
     if (!draftLoaded || savedReport || isRunning) return
-    if (!documents.length) {
+    const advisorDocs = documents.filter((doc) => doc.slotKey === 'advisor_tax_upload')
+    if (!advisorDocs.length) {
       void fetch(`/api/tax-liability-review/draft?clientId=${encodeURIComponent(clientId)}`, { method: 'DELETE' })
       return
     }
@@ -501,7 +552,7 @@ export default function TaxLiabilityReviewTab({
       void fetch('/api/tax-liability-review/draft', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, documents }),
+        body: JSON.stringify({ clientId, documents: advisorDocs }),
       }).catch(console.error)
     }, 700)
 
@@ -564,6 +615,7 @@ export default function TaxLiabilityReviewTab({
     setSavedReport(null)
     setFlags([])
     clearAll()
+    loadTaxDocs()
   }
 
   const handleDelete = async () => {
@@ -603,10 +655,12 @@ export default function TaxLiabilityReviewTab({
             />
             <DocumentUploader
               documents={documents}
+              clientUploadedFiles={clientUploadedFiles}
               onDocumentsReady={setDocuments}
               onAnalyze={() => analyze(provider)}
               isLoading={isRunning}
               missingRequiredCount={missingRequiredCount}
+              loadingClientDocs={loadingTaxDocs}
               providerBar={!readOnly ? (
                 <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isRunning} />
               ) : undefined}

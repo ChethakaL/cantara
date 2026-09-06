@@ -41,7 +41,6 @@ export function useWS111Analysis({ clientId, clientName, state, entityType, fisc
   }, [])
 
   const analyze = useCallback(async (provider: AgentAiProvider = 'bedrock') => {
-    if (documents.length === 0) return
     setStatus('uploading')
     setRawMarkdown('')
     setError(null)
@@ -57,10 +56,12 @@ export function useWS111Analysis({ clientId, clientName, state, entityType, fisc
           entityType,
           fiscalYearEnd,
           numberOfEmployees,
+          // Advisor extras / already-hydrated client docs. Server also loads Document Upload tax files by clientId.
           documents: documents.map(d => ({
             name: d.name,
             base64: d.base64,
             mediaType: d.mediaType,
+            slotKey: d.slotKey,
           })),
           provider,
           modelId: resolveAgentModelId(provider),
@@ -97,8 +98,12 @@ export function useWS111Analysis({ clientId, clientName, state, entityType, fisc
         body: JSON.stringify({
           clientId,
           markdown: accumulated,
-          documentNames: documents.map(d => d.name),
-          documentSlots: documents.map(d => d.slotKey),
+          documentNames: documents.length
+            ? documents.map(d => d.name)
+            : ['Document Upload tax files'],
+          documentSlots: documents.length
+            ? documents.map(d => d.slotKey)
+            : ['tax_readiness'],
           aiProvider: provider,
           aiModel: resolveAgentModelId(provider),
         }),
