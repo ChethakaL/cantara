@@ -1540,14 +1540,6 @@ export default function CompetitorAnalysisTab({
       return;
     }
 
-    const enteredCompetitors = (form.manualCompetitors ?? []).filter((c) => c.name.trim());
-    const missingAddress = enteredCompetitors.find((c) => !c.address?.trim());
-    if (missingAddress) {
-      setError(`Please provide an address for competitor "${missingAddress.name}".`);
-      setStatus('error');
-      return;
-    }
-
     setStatus('researching');
     setReport(null);
     setError(null);
@@ -1811,7 +1803,6 @@ export default function CompetitorAnalysisTab({
             <TopCompetitorsForm
               competitors={form.manualCompetitors ?? [emptyCompetitor()]}
               onChange={(manualCompetitors) => setForm(current => ({ ...current, manualCompetitors }))}
-              addressRequired
             />
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -1819,7 +1810,7 @@ export default function CompetitorAnalysisTab({
                 <TrendingUp className="w-5 h-5 text-amber-500 mt-0.5" />
                 <div className="text-sm text-slate-600 leading-relaxed">
                   Save the same address and website in <span className="font-semibold text-slate-700">Client Management</span> so this agent opens prefilled for the client every time.
-                  {' '}If you name a competitor, its address is required so Google Places can resolve the right location.
+                  {' '}Competitor addresses are optional — name + website is enough; address just helps Google Places pick the right location.
                   {' '}If no competitors are entered, the agent will auto-discover nearby competitors within the search radius.
                 </div>
               </div>
