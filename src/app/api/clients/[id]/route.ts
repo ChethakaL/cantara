@@ -54,6 +54,30 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const documentStatuses =
       body.documentStatuses && typeof body.documentStatuses === "object" ? body.documentStatuses : undefined;
 
+    let nextSectionSubmissions =
+      body.sectionSubmissions && typeof body.sectionSubmissions === "object"
+        ? body.sectionSubmissions
+        : undefined;
+
+    if (typeof body.assignedAdvisor !== "undefined") {
+      const currentClient = nextSectionSubmissions ? null : await (prisma as any).clientProfile.findUnique({
+        where: { id },
+        select: { sectionSubmissions: true },
+      });
+      const existingSubmissions = { ...((nextSectionSubmissions || currentClient?.sectionSubmissions || {}) as Record<string, any>) };
+      const nextAssigned = typeof body.assignedAdvisor === 'string' ? body.assignedAdvisor.trim() || null : null;
+      existingSubmissions.assignedAdvisor = nextAssigned;
+
+      if (body.applyAdvisorToAllAgents) {
+        const approvals = { ...((existingSubmissions.agentApprovals as Record<string, any>) ?? {}) };
+        for (const key of Object.keys(approvals)) {
+          approvals[key] = { ...(approvals[key] as object), assignedTo: nextAssigned };
+        }
+        existingSubmissions.agentApprovals = approvals;
+      }
+      nextSectionSubmissions = existingSubmissions;
+    }
+
     const updated = await (prisma as any).clientProfile.update({
       where: { id },
       data: {
@@ -74,10 +98,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         stage: body.stage ? body.stage.toUpperCase() : undefined,
         businessType: body.businessType ? body.businessType.toUpperCase() : undefined,
         notes: body.notes,
-        sectionSubmissions:
-          body.sectionSubmissions && typeof body.sectionSubmissions === "object"
-            ? body.sectionSubmissions
-            : undefined,
+        sectionSubmissions: nextSectionSubmissions,
         sectionDeadlines:
           body.sectionDeadlines && typeof body.sectionDeadlines === "object"
             ? body.sectionDeadlines
