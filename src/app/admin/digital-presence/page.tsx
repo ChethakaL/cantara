@@ -59,7 +59,7 @@ export default function DigitalPresencePage() {
       const res = await fetch('/api/digital-presence/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ formData }),
+        body: JSON.stringify({ formData, provider: 'openai' }),
       });
 
       if (!res.ok || !res.body) {

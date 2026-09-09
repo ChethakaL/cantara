@@ -175,7 +175,7 @@ export async function analyzeWithClaude(
   researchData: ChannelResearchData[],
   options?: { provider?: AgentAiProvider; modelId?: string },
 ): Promise<DigitalPresenceReport> {
-  const provider = options?.provider ?? 'bedrock';
+  const provider = options?.provider ?? 'openai';
   const prompt = buildPrompt(formData, researchData);
 
   let rawText: string;

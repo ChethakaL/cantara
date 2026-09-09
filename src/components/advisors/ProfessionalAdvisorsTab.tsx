@@ -2,14 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Pencil, Trash2, Users2 } from 'lucide-react'
-import { Card, Button, Input, Select, Badge, cn } from '@/components/ui'
+import { Card, Button, Input, Select, Badge } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildAdvisorsReportHtml } from '@/lib/report-export/build-advisors-report'
 
 const SECTION_KEY = 'professionalAdvisors'
-
-type WillingStatus = 'yes' | 'no' | 'unknown'
 
 interface Advisor {
   id: string
@@ -18,7 +16,6 @@ interface Advisor {
   company: string
   email: string
   phone: string
-  willingToParticipate: WillingStatus
   notes: string
 }
 
@@ -31,12 +28,6 @@ const ROLE_OPTIONS = [
   { value: 'Other', label: 'Other' },
 ]
 
-const WILLING_OPTIONS = [
-  { value: 'unknown', label: 'Unknown' },
-  { value: 'yes', label: 'Yes' },
-  { value: 'no', label: 'No' },
-]
-
 const emptyAdvisor = (): Advisor => ({
   id: crypto.randomUUID(),
   role: '',
@@ -44,7 +35,6 @@ const emptyAdvisor = (): Advisor => ({
   company: '',
   email: '',
   phone: '',
-  willingToParticipate: 'unknown',
   notes: '',
 })
 
@@ -60,16 +50,6 @@ async function saveAdvisors(clientId: string, advisors: Advisor[]) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ section: SECTION_KEY, data: advisors }),
   })
-}
-
-function WillingBadge({ status }: { status?: string | null }) {
-  const map: Record<string, { color: 'green' | 'red' | 'slate'; label: string }> = {
-    yes: { color: 'green', label: 'Yes' },
-    no: { color: 'red', label: 'No' },
-    unknown: { color: 'slate', label: 'Unknown' },
-  }
-  const cfg = map[status ?? ''] ?? map.unknown
-  return <Badge color={cfg.color}>{cfg.label}</Badge>
 }
 
 export default function ProfessionalAdvisorsTab({ clientId, clientName, readOnly = false }: { clientId: string; clientName: string; readOnly?: boolean }) {
@@ -171,12 +151,6 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName, readOnly
             <Input label="Company" placeholder="Firm / company" value={newAdvisor.company} onChange={e => setNewAdvisor({ ...newAdvisor, company: e.target.value })} />
             <Input label="Email" type="email" placeholder="email@example.com" value={newAdvisor.email} onChange={e => setNewAdvisor({ ...newAdvisor, email: e.target.value })} />
             <Input label="Phone" placeholder="(555) 123-4567" value={newAdvisor.phone} onChange={e => setNewAdvisor({ ...newAdvisor, phone: e.target.value })} />
-            <Select
-              label="Willing to Participate"
-              options={WILLING_OPTIONS}
-              value={newAdvisor.willingToParticipate}
-              onChange={e => setNewAdvisor({ ...newAdvisor, willingToParticipate: e.target.value as WillingStatus })}
-            />
           </div>
           <div className="mt-4">
             <Input label="Notes" placeholder="Any relevant notes..." value={newAdvisor.notes} onChange={e => setNewAdvisor({ ...newAdvisor, notes: e.target.value })} />
@@ -207,8 +181,9 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName, readOnly
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Willing</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Email</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Phone</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Notes</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -233,17 +208,13 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName, readOnly
                           <Input value={editDraft.company} onChange={e => setEditDraft({ ...editDraft, company: e.target.value })} />
                         </td>
                         <td className="px-4 py-2">
-                          <div className="space-y-1">
-                            <Input placeholder="Email" value={editDraft.email} onChange={e => setEditDraft({ ...editDraft, email: e.target.value })} />
-                            <Input placeholder="Phone" value={editDraft.phone} onChange={e => setEditDraft({ ...editDraft, phone: e.target.value })} />
-                          </div>
+                          <Input placeholder="Email" value={editDraft.email} onChange={e => setEditDraft({ ...editDraft, email: e.target.value })} />
                         </td>
                         <td className="px-4 py-2">
-                          <Select
-                            options={WILLING_OPTIONS}
-                            value={editDraft.willingToParticipate}
-                            onChange={e => setEditDraft({ ...editDraft, willingToParticipate: e.target.value as WillingStatus })}
-                          />
+                          <Input placeholder="Phone" value={editDraft.phone} onChange={e => setEditDraft({ ...editDraft, phone: e.target.value })} />
+                        </td>
+                        <td className="px-4 py-2">
+                          <Input placeholder="Notes" value={editDraft.notes} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} />
                         </td>
                         <td className="px-4 py-2 text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -262,13 +233,10 @@ export default function ProfessionalAdvisorsTab({ clientId, clientName, readOnly
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-800">{advisor.name}</td>
                       <td className="px-4 py-3 text-slate-600">{advisor.company || '—'}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs">
-                        {advisor.email && <div>{advisor.email}</div>}
-                        {advisor.phone && <div>{advisor.phone}</div>}
-                        {!advisor.email && !advisor.phone && '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <WillingBadge status={advisor.willingToParticipate} />
+                      <td className="px-4 py-3 text-slate-500 text-xs">{advisor.email || '—'}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs">{advisor.phone || '—'}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[220px] truncate" title={advisor.notes || undefined}>
+                        {advisor.notes || '—'}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {!readOnly && (

@@ -10,21 +10,23 @@ type TextLine =
   | { kind: 'number'; text: string; number: string }
   | { kind: 'hr' }
   | { kind: 'paragraph'; text: string }
-  | { kind: 'blank' }
 
 function parseTextLines(content: string): TextLine[] {
-  return content.split('\n').map(line => {
-    if (!line.trim()) return { kind: 'blank' as const }
+  // Preserve trailing empty paragraph slots created by "Add paragraph"
+  // so they round-trip instead of becoming undeletable spacers.
+  const rawLines = content.split('\n')
+  return rawLines.map(line => {
+    if (!line.trim()) return { kind: 'paragraph' as const, text: '' }
     if (/^---+$/.test(line.trim())) return { kind: 'hr' as const }
-    const h1 = line.match(/^#\s+(.+)$/)
+    const h1 = line.match(/^#\s+(.*)$/)
     if (h1) return { kind: 'h1' as const, text: h1[1] }
-    const h2 = line.match(/^##\s+(.+)$/)
+    const h2 = line.match(/^##\s+(.*)$/)
     if (h2) return { kind: 'h2' as const, text: h2[1] }
-    const h3 = line.match(/^###\s+(.+)$/)
+    const h3 = line.match(/^###\s+(.*)$/)
     if (h3) return { kind: 'h3' as const, text: h3[1] }
-    const bullet = line.match(/^[-*]\s+(.+)$/)
+    const bullet = line.match(/^[-*]\s+(.*)$/)
     if (bullet) return { kind: 'bullet' as const, text: bullet[1] }
-    const numbered = line.match(/^(\d+)\.\s+(.+)$/)
+    const numbered = line.match(/^(\d+)\.\s+(.*)$/)
     if (numbered) return { kind: 'number' as const, number: numbered[1], text: numbered[2] }
     return { kind: 'paragraph' as const, text: line }
   })
@@ -40,8 +42,7 @@ function serializeTextLines(lines: TextLine[]): string {
         case 'bullet': return `- ${line.text}`
         case 'number': return `${line.number}. ${line.text}`
         case 'hr': return '---'
-        case 'blank': return ''
-        default: return line.text
+        case 'paragraph': return line.text
       }
     })
     .join('\n')
@@ -82,7 +83,6 @@ export function EditableTextBlock({
   return (
     <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/40 p-4">
       {lines.map((line, index) => {
-        if (line.kind === 'blank') return <div key={index} className="h-2" />
         if (line.kind === 'hr') return <hr key={index} className="border-slate-200" />
 
         if (line.kind === 'h1') {
@@ -194,7 +194,8 @@ export function EditableTextBlock({
             <textarea
               value={line.text}
               onChange={event => commit(updateLine(lines, index, { kind: 'paragraph', text: event.target.value }))}
-              rows={Math.max(2, line.text.split('\n').length)}
+              placeholder="New paragraph…"
+              rows={Math.max(2, line.text.split('\n').length || 2)}
               className={`${fieldClass} min-h-[56px] resize-y leading-7`}
             />
             <button

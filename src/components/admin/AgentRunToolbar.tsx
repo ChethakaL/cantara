@@ -18,9 +18,10 @@ export function AgentRunToolbar({
   activeVersion,
   className,
   providerClassName,
+  showProvider = true,
 }: {
-  provider: AgentAiProvider
-  onProviderChange: (provider: AgentAiProvider) => void
+  provider?: AgentAiProvider
+  onProviderChange?: (provider: AgentAiProvider) => void
   disabled?: boolean
   historyItems: AgentRunHistoryItem[]
   activeId?: string | null
@@ -30,15 +31,21 @@ export function AgentRunToolbar({
   activeVersion?: number | null
   className?: string
   providerClassName?: string
+  /** When false, hide Claude/OpenAI selector (agent is locked to one provider). */
+  showProvider?: boolean
 }) {
   return (
     <div className={cn('flex flex-wrap items-center justify-between gap-3', className)}>
-      <AgentProviderBar
-        provider={provider}
-        onProviderChange={onProviderChange}
-        disabled={disabled}
-        className={providerClassName}
-      />
+      {showProvider && provider && onProviderChange ? (
+        <AgentProviderBar
+          provider={provider}
+          onProviderChange={onProviderChange}
+          disabled={disabled}
+          className={providerClassName}
+        />
+      ) : (
+        <div className="text-xs font-medium text-slate-500">Active: OpenAI</div>
+      )}
       {historyItems.length > 0 ? (
         <AgentReportHistoryBar
           runs={historyItems}

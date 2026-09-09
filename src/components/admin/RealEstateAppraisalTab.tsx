@@ -1,19 +1,63 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
 import { getAdminEmail } from '@/lib/store'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Button, Card } from '@/components/ui'
 import { Loader2, Play } from 'lucide-react'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
+import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
 import { generateReportHtml } from '@/lib/report-export/generate-report-html'
 import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
 import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
 import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
 import { useAgentReportRuns } from '@/hooks/useAgentReportRuns'
 import { resolveAgentModelId } from '@/lib/agent-model-provider'
+
+const markdownComponents = {
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="mb-5 border-b-2 border-stone-200 pb-3 text-2xl font-bold tracking-tight text-stone-900">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="mb-3 mt-10 border-b border-stone-200 pb-2 text-lg font-bold tracking-tight text-stone-900">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="mb-2 mt-6 text-sm font-bold text-stone-800">{children}</h3>
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="mb-4 text-sm leading-7 text-stone-700">{children}</p>
+  ),
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="font-bold text-stone-900">{children}</strong>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="mb-5 list-disc space-y-2 pl-5 text-sm text-stone-700 marker:text-amber-500">{children}</ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="mb-5 list-decimal space-y-2 pl-5 text-sm text-stone-700 marker:text-amber-500">{children}</ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="leading-7">{children}</li>
+  ),
+  hr: () => <hr className="my-8 border-stone-200" />,
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="my-4 border-l-4 border-amber-300 bg-amber-50/50 px-4 py-2 text-sm text-stone-700">{children}</blockquote>
+  ),
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="my-6 overflow-x-auto rounded-xl border border-stone-200">
+      <table className="min-w-full divide-y divide-stone-200 text-sm">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => (
+    <thead className="bg-stone-50">{children}</thead>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-stone-500">{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border-t border-stone-100 px-4 py-3 align-top text-sm leading-6 text-stone-700">{children}</td>
+  ),
+}
 
 function escapeExportHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -87,7 +131,7 @@ export default function RealEstateAppraisalTab({ clientId, clientName, readOnly 
   const [runError, setRunError] = useState('')
   const [newAnalysis, setNewAnalysis] = useState(false)
   const { provider, setProvider } = useAgentAiProvider()
-  const { runs, historyItems, activeRun, activeId, setActiveId, reload } = useAgentReportRuns(
+  const { historyItems, activeRun, activeId, setActiveId, reload } = useAgentReportRuns(
     '/api/real-estate-appraisal/reports',
     clientId,
   )
@@ -109,6 +153,24 @@ export default function RealEstateAppraisalTab({ clientId, clientName, readOnly 
     void load()
       .finally(() => setLoading(false))
   }, [clientId])
+
+  const handleSaveMarkdown = useCallback(async (markdown: string) => {
+    if (!report?.id) throw new Error('No report selected to save.')
+    const params = new URLSearchParams({ clientId, id: report.id })
+    const res = await fetch(`/api/real-estate-appraisal/reports?${params.toString()}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null)
+      throw new Error(
+        (payload && typeof payload.error === 'string' && payload.error) ||
+          'Failed to save real estate appraisal report.',
+      )
+    }
+    await reload()
+  }, [clientId, report?.id, reload])
 
   const runAnalysis = async () => {
     if (!document?.id || running) return
@@ -157,87 +219,108 @@ export default function RealEstateAppraisalTab({ clientId, clientName, readOnly 
   }
 
   if (!loading && report?.markdown && !newAnalysis) {
-    return <div className="-m-6 min-h-[500px] bg-stone-50 p-6 lg:p-8">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-bold tracking-tight text-stone-900">Real Estate Appraisal Review</h2>
-            <p className="mt-1 text-xs text-stone-500">Generated {report.createdAt ? new Date(report.createdAt).toLocaleString() : '—'}</p>
+    const editableReport = {
+      markdown: report.markdown,
+      generatedAt: typeof report.createdAt === 'string'
+        ? report.createdAt
+        : report.createdAt
+          ? new Date(report.createdAt as string | Date).toISOString()
+          : undefined,
+      updatedAt: typeof (report as { updatedAt?: string | Date }).updatedAt === 'string'
+        ? (report as { updatedAt: string }).updatedAt
+        : (report as { updatedAt?: Date }).updatedAt
+          ? new Date((report as { updatedAt: Date }).updatedAt).toISOString()
+          : undefined,
+    }
+
+    return (
+      <div className="-m-6 min-h-[500px] bg-stone-50 p-6 lg:p-8">
+        <div className="mx-auto max-w-4xl space-y-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold tracking-tight text-stone-900">Real Estate Appraisal Review</h2>
+              <p className="mt-1 text-xs text-stone-500">Generated {report.createdAt ? new Date(report.createdAt).toLocaleString() : '—'}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <AgentReportHistoryBar
+                runs={historyItems}
+                activeId={activeId}
+                onSelect={(run) => setActiveId(run.id)}
+                activeProvider={report?.aiProvider}
+                activeModel={report?.aiModel}
+              />
+              {!readOnly && (
+                <Button variant="outline" size="sm" onClick={() => setNewAnalysis(true)}>+ New Analysis</Button>
+              )}
+              <ExportReportButton html={reportHtml(report.markdown, clientName)} fileName={'real-estate-appraisal-' + clientName.replace(/\s+/g, '-').toLowerCase()} />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <AgentReportHistoryBar
-              runs={historyItems}
-              activeId={activeId}
-              onSelect={(run) => setActiveId(run.id)}
-              activeProvider={report?.aiProvider}
-              activeModel={report?.aiModel}
-            />
-            <Button variant="outline" size="sm" onClick={() => setNewAnalysis(true)}>+ New Analysis</Button>
-            <ExportReportButton html={reportHtml(report.markdown, clientName)} fileName={'real-estate-appraisal-' + clientName.replace(/\s+/g, '-').toLowerCase()} />
-          </div>
+          <InlineEditableMarkdownReport
+            report={editableReport}
+            markdownComponents={markdownComponents}
+            onSave={handleSaveMarkdown}
+            readOnly={readOnly}
+          />
         </div>
-        <Card className="border-stone-200 bg-white p-8 shadow-sm">
-          <div className="prose prose-stone max-w-none prose-headings:font-semibold prose-headings:tracking-tight prose-table:text-sm prose-th:bg-stone-50 prose-th:px-3 prose-th:py-2 prose-td:border prose-td:border-stone-200 prose-td:px-3 prose-td:py-2">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.markdown}</ReactMarkdown>
-          </div>
-        </Card>
       </div>
-    </div>
+    )
   }
 
-  return <div className="-m-6 min-h-[500px] bg-stone-50 p-6 lg:p-8">
-    <div className="mx-auto max-w-4xl">
-      <Card className="overflow-hidden border-stone-200 bg-white p-8 shadow-sm">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-stone-100">
-            <span className="text-3xl">⌂</span>
-          </div>
-          <h3 className="text-xl font-semibold tracking-tight text-stone-900">Real Estate Appraisal</h3>
-          <p className="mx-auto mt-2 max-w-lg text-sm text-stone-500">
-            Review the appraisal uploaded by {clientName}. Add supporting files if needed before running the analysis.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          {document ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              Client uploaded: <span className="font-medium">{document.fileName}</span>
+  return (
+    <div className="-m-6 min-h-[500px] bg-stone-50 p-6 lg:p-8">
+      <div className="mx-auto max-w-4xl">
+        <Card className="overflow-hidden border-stone-200 bg-white p-8 shadow-sm">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-stone-100">
+              <span className="text-3xl">⌂</span>
             </div>
-          ) : (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-              No appraisal file is attached yet. Upload one here or ask the client to upload it in Document Upload.
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-3">
-            {!readOnly && (
-              <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={running} />
-            )}
-            <ClientDocumentUpload
-              clientId={clientId}
-              documentId="real_estate_appraisal"
-              uploaderEmail={getAdminEmail()}
-              currentFileName={document?.fileName ?? null}
-              label={document ? 'Add another appraisal file' : 'Upload appraisal file'}
-              variant="button"
-              onUploaded={async () => { await load() }}
-            />
-            {document && (
-              <Button size="sm" onClick={() => void runAnalysis()} disabled={running}>
-                {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                {running ? 'Analyzing…' : report ? 'Run again' : 'Run analysis'}
-              </Button>
-            )}
+            <h3 className="text-xl font-semibold tracking-tight text-stone-900">Real Estate Appraisal</h3>
+            <p className="mx-auto mt-2 max-w-lg text-sm text-stone-500">
+              Review the appraisal uploaded by {clientName}. Add supporting files if needed before running the analysis.
+            </p>
           </div>
-          {runError && <p className="text-xs text-rose-600">{runError}</p>}
-        </div>
-      </Card>
 
-      {loading ? <div className="mt-6 flex justify-center text-sm text-stone-400">Loading report…</div> : document ? (
-        <div className="mt-6 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-5 text-center text-sm text-amber-800">
-          Appraisal uploaded and ready. Click “Run analysis” to generate the report.
-        </div>
-      ) : null}
+          <div className="space-y-4">
+            {document ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                Client uploaded: <span className="font-medium">{document.fileName}</span>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                No appraisal file is attached yet. Upload one here or ask the client to upload it in Document Upload.
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              {!readOnly && (
+                <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={running} />
+              )}
+              <ClientDocumentUpload
+                clientId={clientId}
+                documentId="real_estate_appraisal"
+                uploaderEmail={getAdminEmail()}
+                currentFileName={document?.fileName ?? null}
+                label={document ? 'Add another appraisal file' : 'Upload appraisal file'}
+                variant="button"
+                onUploaded={async () => { await load() }}
+              />
+              {document && !readOnly && (
+                <Button size="sm" onClick={() => void runAnalysis()} disabled={running}>
+                  {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                  {running ? 'Analyzing…' : report ? 'Run again' : 'Run analysis'}
+                </Button>
+              )}
+            </div>
+            {runError && <p className="text-xs text-rose-600">{runError}</p>}
+          </div>
+        </Card>
+
+        {loading ? <div className="mt-6 flex justify-center text-sm text-stone-400">Loading report…</div> : document ? (
+          <div className="mt-6 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-5 text-center text-sm text-amber-800">
+            Appraisal uploaded and ready. Click “Run analysis” to generate the report.
+          </div>
+        ) : null}
+      </div>
     </div>
-  </div>
+  )
 }
