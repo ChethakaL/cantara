@@ -4,6 +4,20 @@ import { getLatestTaxLiabilityReport } from '@/lib/tax-liability-review/storage'
 import { agentLookupKeys, getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 import { readChecklistSubmission, readRoadmapSubmission } from '@/lib/sale-readiness-checklist'
 import { VALUATION_DOCS, DOCUMENT_CATEGORIES } from '@/lib/documentData'
+import {
+  applyAssigneeApprove,
+  applyCraigApprove,
+  applyCraigRequestChanges,
+  applyRevertToReview,
+  deriveApprovalWorkflow,
+  normalizeFeedbackDocUrl,
+  isCraigReviewer,
+  isAssignedReviewer,
+  CRAIG_ONLY_ACTIONS,
+  type AgentApprovalWorkflow,
+  type AssigneeApprovalStatus,
+  type CraigApprovalStatus,
+} from '@/lib/agent-approval-workflow'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +29,7 @@ export type AgentRunRecord = {
   label: string
   category: string
   status: AgentRunStatus
+  hasRun: boolean
   clientReleased: boolean
   clientReleasedAt: string | null
   assignedTo: string | null
@@ -23,6 +38,9 @@ export type AgentRunRecord = {
   missingDocs?: { id: string; name: string }[]
   facilityReviewMode?: '360' | 'advisor'
   advisorToRun?: boolean
+  assigneeStatus: AssigneeApprovalStatus
+  craigStatus: CraigApprovalStatus
+  feedbackDocUrl: string | null
 }
 
 export type AgentReviewer = {
@@ -182,20 +200,12 @@ export async function GET(req: NextRequest) {
   })
   if (!client) return new Response('Not Found', { status: 404 })
 
-  const reviewerRows = await prisma.user.findMany({
-    where: {
-      role: 'ADMIN',
-      NOT: [
-        { email: 'chethaka.sl@gmail.com' },
-        { email: 'admin@cantara.demo' },
-      ],
-    },
+  // All advisor/admin users (same source as Sales Leads callers) — no hard-coded exclusions
+  const reviewers = await prisma.user.findMany({
+    where: { role: 'ADMIN' },
     select: { id: true, name: true, email: true },
     orderBy: { name: 'asc' },
   })
-  const reviewers = reviewerRows
-    .filter(user => !/chethaka/i.test(`${user.name} ${user.email}`))
-    .map(user => ({ id: user.id, name: user.name, email: user.email }))
 
   const submissions = (client.sectionSubmissions as Record<string, unknown>) ?? {}
   const approvals = (submissions.agentApprovals as Record<string, unknown>) ?? {}
@@ -449,7 +459,8 @@ export async function GET(req: NextRequest) {
     }
     const check = runChecks[statusKey] ?? { hasRun: false, approved: false, runAt: null }
     const release = manualRelease(releases, agent.agentId, statusKey)
-    const assignmentEntry = (approvals[agent.agentId] ?? approvals[statusKey]) as { assignedTo?: string | null } | undefined
+    const assignmentEntry = (approvals[agent.agentId] ?? approvals[statusKey]) as AgentApprovalWorkflow | undefined
+    const workflow = deriveApprovalWorkflow(assignmentEntry, check.hasRun)
 
     const requiredDocIds = agent.documentIds ?? []
     const hasDocRequirements = requiredDocIds.length > 0
@@ -461,13 +472,21 @@ export async function GET(req: NextRequest) {
     const hasRequiredDocs = hasDocRequirements && missingDocs.length === 0
     const isPartialDocs = hasDocRequirements && uploadedCount > 0 && missingDocs.length > 0
 
-    const baseStatus = toStatus(check.hasRun, check.approved, hasRequiredDocs, isPartialDocs, hasDocRequirements, hasAnyUploadedDocs)
+    const baseStatus = toStatus(
+      check.hasRun,
+      workflow.finalApproved || check.approved,
+      hasRequiredDocs,
+      isPartialDocs,
+      hasDocRequirements,
+      hasAnyUploadedDocs,
+    )
     runs.push({
       agentId: agent.agentId,
       agentKey: statusKey,
       label: meta.label,
       category: meta.category,
       status: statusKey === 'legalEntitySearch' && legalEntityAdvisorToRun && !check.hasRun ? 'advisor_to_run' : baseStatus,
+      hasRun: check.hasRun,
       clientReleased: release.released,
       clientReleasedAt: release.releasedAt,
       assignedTo: assignmentEntry?.assignedTo ?? null,
@@ -476,6 +495,9 @@ export async function GET(req: NextRequest) {
       missingDocs,
       facilityReviewMode: statusKey === 'facilityReview' ? facilityReviewMode : undefined,
       advisorToRun: statusKey === 'legalEntitySearch' ? legalEntityAdvisorToRun : undefined,
+      assigneeStatus: workflow.assigneeStatus,
+      craigStatus: workflow.craigStatus,
+      feedbackDocUrl: workflow.feedbackDocUrl,
     })
   }
 
@@ -490,16 +512,18 @@ export async function GET(req: NextRequest) {
       tabKey: key.replace(/_/g, '-'),
       category: 'Other',
     }
-    const assignmentEntry = approvals[key] as { assignedTo?: string | null } | undefined
+    const assignmentEntry = approvals[key] as AgentApprovalWorkflow | undefined
     const release = manualRelease(releases, key, key)
+    const workflow = deriveApprovalWorkflow(assignmentEntry, check.hasRun)
 
-    const baseStatus = toStatus(check.hasRun, check.approved, false, false, false, hasAnyUploadedDocs)
+    const baseStatus = toStatus(check.hasRun, workflow.finalApproved || check.approved, false, false, false, hasAnyUploadedDocs)
     runs.push({
       agentId: key,
       agentKey: key,
       label: meta.label,
       category: meta.category,
       status: key === 'legalEntitySearch' && legalEntityAdvisorToRun && !check.hasRun ? 'advisor_to_run' : baseStatus,
+      hasRun: check.hasRun,
       clientReleased: release.released,
       clientReleasedAt: release.releasedAt,
       assignedTo: assignmentEntry?.assignedTo ?? null,
@@ -507,6 +531,9 @@ export async function GET(req: NextRequest) {
       tabKey: meta.tabKey,
       facilityReviewMode: key === 'facilityReview' ? facilityReviewMode : undefined,
       advisorToRun: key === 'legalEntitySearch' ? legalEntityAdvisorToRun : undefined,
+      assigneeStatus: workflow.assigneeStatus,
+      craigStatus: workflow.craigStatus,
+      feedbackDocUrl: workflow.feedbackDocUrl,
     })
   }
 
@@ -531,9 +558,37 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const { clientId, agentId, status, assignedTo, clientReleased, facilityReviewMode, advisorToRun } = await req.json()
+  const {
+    clientId,
+    agentId,
+    status,
+    assignedTo,
+    clientReleased,
+    facilityReviewMode,
+    advisorToRun,
+    action,
+    feedbackDocUrl,
+  } = await req.json()
   if (!clientId || !agentId) return new Response('clientId and agentId required', { status: 400 })
   if (status && status !== 'approved' && status !== 'in_review') return new Response('status must be approved or in_review', { status: 400 })
+  const allowedActions = new Set([
+    'assignee_approve',
+    'craig_approve',
+    'craig_request_changes',
+    'save_feedback_doc',
+    'revert_review',
+  ])
+  if (typeof action !== 'undefined' && !allowedActions.has(String(action))) {
+    return new Response('Invalid approval action', { status: 400 })
+  }
+  const actorEmail = req.cookies.get('cantara_admin_email')?.value ?? ''
+  const isCraigAction =
+    (typeof action === 'string' && CRAIG_ONLY_ACTIONS.has(action)) ||
+    status === 'approved' ||
+    status === 'in_review'
+  if (isCraigAction && !isCraigReviewer(actorEmail)) {
+    return new Response('Only Craig can perform Craig review actions', { status: 403 })
+  }
   if (typeof clientReleased !== 'undefined' && typeof clientReleased !== 'boolean') {
     return new Response('clientReleased must be a boolean', { status: 400 })
   }
@@ -568,31 +623,46 @@ export async function PATCH(req: NextRequest) {
     existing.legalEntityAdvisorToRun = advisorToRun
   }
 
-  const existingEntry = (approvals[agentId] ?? approvals[statusKey] ?? {}) as Record<string, unknown>
+  const existingEntry = (approvals[agentId] ?? approvals[statusKey] ?? {}) as AgentApprovalWorkflow
   const nextAssignedTo = typeof assignedTo === 'string' ? assignedTo.trim() || null : existingEntry.assignedTo ?? null
+  let nextEntry: AgentApprovalWorkflow = { ...existingEntry, assignedTo: nextAssignedTo }
 
-  if (status === 'approved') {
-    const approvedEntry = { ...existingEntry, status: 'approved', approvedAt: new Date().toISOString(), assignedTo: nextAssignedTo }
-    approvals[agentId] = approvedEntry
-    approvals[statusKey] = approvedEntry
-  } else if (status === 'in_review') {
-    const reviewEntry: Record<string, unknown> = { ...existingEntry, assignedTo: nextAssignedTo }
-    delete reviewEntry.status
-    delete reviewEntry.approvedAt
-    approvals[agentId] = reviewEntry
-    approvals[statusKey] = reviewEntry
+  if (action === 'assignee_approve') {
+    const reviewers = await prisma.user.findMany({
+      where: { role: 'ADMIN' },
+      select: { name: true, email: true },
+    })
+    if (!isAssignedReviewer(actorEmail, nextAssignedTo, reviewers)) {
+      return new Response(
+        nextAssignedTo
+          ? 'Only the assigned advisor can approve this agent'
+          : 'Assign an advisor before approving',
+        { status: 403 },
+      )
+    }
+    nextEntry = applyAssigneeApprove(nextEntry)
+  } else if (action === 'craig_approve' || status === 'approved') {
+    nextEntry = applyCraigApprove(nextEntry, feedbackDocUrl)
+  } else if (action === 'craig_request_changes') {
+    nextEntry = applyCraigRequestChanges(nextEntry, feedbackDocUrl)
+  } else if (action === 'save_feedback_doc') {
+    nextEntry = {
+      ...nextEntry,
+      feedbackDocUrl: normalizeFeedbackDocUrl(feedbackDocUrl),
+    }
+  } else if (action === 'revert_review' || status === 'in_review') {
+    nextEntry = applyRevertToReview(nextEntry)
     delete releases[agentId]
     delete releases[statusKey]
-  } else {
-    const assignmentEntry = { ...existingEntry, assignedTo: nextAssignedTo }
-    approvals[agentId] = assignmentEntry
-    approvals[statusKey] = assignmentEntry
   }
 
+  approvals[agentId] = nextEntry
+  approvals[statusKey] = nextEntry
+
   if (typeof clientReleased === 'boolean') {
-    const currentStatus = status ?? existingEntry.status
-    if (clientReleased && currentStatus !== 'approved') {
-      return new Response('Agent output must be approved before client release', { status: 409 })
+    const workflow = deriveApprovalWorkflow(nextEntry, true)
+    if (clientReleased && !workflow.finalApproved) {
+      return new Response('Agent output must be approved by Craig before client release', { status: 409 })
     }
     if (clientReleased) {
       const releaseEntry = { released: true, releasedAt: new Date().toISOString() }
@@ -604,9 +674,9 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  if (status === 'in_review' && !nextAssignedTo) {
-    delete approvals[agentId]
-    delete approvals[statusKey]
+  // Assignment-only clear when reverting with no assignee (legacy behavior)
+  if ((action === 'revert_review' || status === 'in_review') && !nextAssignedTo && !nextEntry.feedbackDocUrl) {
+    // keep entry for workflow fields if any remain meaningful
   }
 
   existing.agentApprovals = approvals
