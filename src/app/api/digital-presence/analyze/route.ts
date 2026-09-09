@@ -1,17 +1,17 @@
 import { NextRequest } from 'next/server';
-import { hasAIConfigured } from "@/lib/ai-client"
 import { researchAllChannels } from '@/lib/digital-presence/claude-research';
 import { analyzeWithClaude } from '@/lib/digital-presence/claude-analyzer';
 import { AnalyzeRequestBody, ChannelType } from '@/lib/digital-presence/types';
 import { findPlaceByText, getPlaceDetails } from '@/lib/competitor-analysis/google-places';
 import {
   assertOpenAiConfiguredForAnalyze,
-  parseAnalyzeProvider,
   resolveAnalyzeModelId,
 } from '@/lib/agent-analyze-provider';
-import { hasOpenAiConfigured } from '@/lib/openai-client';
 
 export const maxDuration = 180;
+
+/** Digital Presence is OpenAI-only so web search always runs. */
+const DIGITAL_PRESENCE_PROVIDER = 'openai' as const;
 
 const CHANNEL_LABELS: Record<ChannelType, string> = {
   website: 'Website',
@@ -32,28 +32,18 @@ export async function POST(req: NextRequest) {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
-  const { formData, provider: rawProvider, modelId: requestedModelId } = body as AnalyzeRequestBody & {
-    provider?: unknown;
+  const { formData, modelId: requestedModelId } = body as AnalyzeRequestBody & {
     modelId?: unknown;
   };
-  const provider = parseAnalyzeProvider(rawProvider);
+  const provider = DIGITAL_PRESENCE_PROVIDER;
   const modelId = resolveAnalyzeModelId(provider, requestedModelId);
 
   if (!formData?.businessName?.trim()) {
     return new Response(JSON.stringify({ error: 'Business name is required.' }), { status: 400 });
   }
 
-  const aiConfigured =
-    provider === 'openai' ? await hasOpenAiConfigured() : await hasAIConfigured();
-
-  if (!aiConfigured) {
-    return new Response(JSON.stringify({ error: "AI not configured. Set AWS_BEARER_TOKEN_BEDROCK or ANTHROPIC_API_KEY, or add OpenAI key in Admin Settings." }), { status: 500 });
-  }
-
-  if (provider === 'openai') {
-    const gate = await assertOpenAiConfiguredForAnalyze();
-    if (gate) return gate;
-  }
+  const gate = await assertOpenAiConfiguredForAnalyze();
+  if (gate) return gate;
 
   // Kept for interface compatibility with researchAllChannels signature
   const tavilyKey = process.env.TAVILY_API_KEY || "";
