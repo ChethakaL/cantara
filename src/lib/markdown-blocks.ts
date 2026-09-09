@@ -33,6 +33,8 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
     textBuffer = []
   }
 
+  const isHeadingLine = (line: string) => /^#{1,3}\s+/.test(line.trim())
+
   let index = 0
   while (index < lines.length) {
     const line = lines[index]
@@ -52,6 +54,12 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
       }
       blocks.push({ type: 'table', headers, rows })
       continue
+    }
+
+    // Start a new text block on each heading so Add bullet/paragraph
+    // controls appear at the end of that section, not only before the next table.
+    if (isHeadingLine(line) && textBuffer.some(entry => entry.trim())) {
+      flushText()
     }
 
     textBuffer.push(line)
