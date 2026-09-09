@@ -276,6 +276,43 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
   const initialFacilityReviewMode = ((initial.sectionSubmissions as any)?.facilityReviewMode === 'advisor' ? 'advisor' : '360') as '360' | 'advisor'
   const [facilityReviewMode, setFacilityReviewMode] = useState<'360' | 'advisor'>(initialFacilityReviewMode)
 
+  // Assigned Lead Advisor support — stored in sectionSubmissions.assignedAdvisor
+  const initialAssignedAdvisor =
+    initial.assignedAdvisor ||
+    (initial.sectionSubmissions as any)?.assignedAdvisor ||
+    initial.advisors?.[0]?.name ||
+    ''
+  const [assignedAdvisor, setAssignedAdvisor] = useState<string>(initialAssignedAdvisor)
+  const [availableReviewers, setAvailableReviewers] = useState<Array<{ id: string; name: string; email: string }>>([])
+
+  useEffect(() => {
+    fetch(`/api/agent-runs?clientId=${encodeURIComponent(initial.id)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.reviewers && Array.isArray(data.reviewers)) {
+          setAvailableReviewers(data.reviewers)
+        }
+        if (data?.assignedAdvisor && !assignedAdvisor) {
+          setAssignedAdvisor(data.assignedAdvisor)
+        }
+      })
+      .catch(() => {})
+  }, [initial.id])
+
+  const advisorDropdownOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const opt of ADVISOR_OPTIONS) {
+      map.set(opt.value, opt.label)
+    }
+    for (const adv of client.advisors) {
+      if (adv.name?.trim()) map.set(adv.name.trim(), adv.name.trim())
+    }
+    for (const rev of availableReviewers) {
+      if (rev.name?.trim()) map.set(rev.name.trim(), rev.name.trim())
+    }
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }))
+  }, [client.advisors, availableReviewers])
+
   const handleUpdateFacilityReviewMode = async (nextMode: '360' | 'advisor') => {
     setFacilityReviewMode(nextMode)
     const existingSections = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object')
@@ -481,9 +518,32 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     }
     mergedSectionSubmissions.facilityReviewMode = facilityReviewMode
 
+    if (assignedAdvisor) {
+      mergedSectionSubmissions.assignedAdvisor = assignedAdvisor
+      const approvals = { ...((mergedSectionSubmissions.agentApprovals as Record<string, unknown>) ?? {}) }
+      for (const key of Object.keys(approvals)) {
+        approvals[key] = { ...(approvals[key] as object), assignedTo: assignedAdvisor }
+      }
+      mergedSectionSubmissions.agentApprovals = approvals
+    } else {
+      delete mergedSectionSubmissions.assignedAdvisor
+    }
+
+    let nextAdvisors = [...client.advisors]
+    if (assignedAdvisor && !nextAdvisors.some(a => a.name.toLowerCase() === assignedAdvisor.toLowerCase())) {
+      const known = ADVISOR_OPTIONS.find(a => a.value.toLowerCase() === assignedAdvisor.toLowerCase())
+      nextAdvisors.push({
+        id: 'adv' + Date.now(),
+        name: assignedAdvisor,
+        imageUrl: known?.imageUrl || 'https://i.pravatar.cc/160?img=12',
+      })
+    }
+
     const nextPropertyOwnership: Client['propertyOwnership'] = propertyOwnership || ''
     const nextClient = {
       ...client,
+      assignedAdvisor: assignedAdvisor || null,
+      advisors: nextAdvisors,
       propertyOwnership: nextPropertyOwnership,
       sectionSubmissions: mergedSectionSubmissions as Client['sectionSubmissions'],
     }
@@ -505,6 +565,8 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
       : draftAgents.filter(agent => agent.agentId !== 'real_estate_appraisal')
     const updated = {
       ...nextClient,
+      assignedAdvisor: assignedAdvisor || null,
+      applyAdvisorToAllAgents: true,
       provisionedAt: isFirstProvision ? now : client.provisionedAt,
       workstreamAgents: (agentsEqual(baseAgents, normalizedDraftAgents) ? [] : normalizedDraftAgents).map(agent => ({ id: agent.agentId, ...agent })),
     }
@@ -736,12 +798,28 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
       {/* Identity */}
       <section>
-        <h4 className="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Client Information</h4>
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+          <h4 className="text-sm font-semibold text-slate-700">Client Information</h4>
+          {assignedAdvisor && (
+            <span className="text-xs font-normal text-slate-500">
+              Assigned Advisor: <strong className="text-[#21263C]">{assignedAdvisor}</strong>
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input label="Primary contact name" value={client.name} onChange={e => update('name', e.target.value)} />
           <Input label="Email address" type="email" value={client.email} onChange={e => update('email', e.target.value)} />
           <Input label="Business name" value={client.company} onChange={e => update('company', e.target.value)} />
           <Input label="Phone" value={client.phone} onChange={e => update('phone', e.target.value)} />
+          <Select
+            label="Assigned advisor"
+            value={assignedAdvisor}
+            onChange={e => setAssignedAdvisor(e.target.value)}
+            options={[
+              { value: '', label: '— Unassigned —' },
+              ...advisorDropdownOptions.map(opt => ({ value: opt.value, label: opt.label })),
+            ]}
+          />
         </div>
 
         {/* Second Owner */}

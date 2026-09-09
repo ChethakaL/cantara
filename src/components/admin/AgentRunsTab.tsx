@@ -592,7 +592,7 @@ export default function AgentRunsTab({
               <option value="all">All Assignees</option>
               {assigneeOptions.map((rev) => (
                 <option key={rev.id} value={rev.name}>
-                  Assigned: {rev.name}
+                  Filter: {rev.name}
                 </option>
               ))}
               <option value="unassigned">Unassigned</option>

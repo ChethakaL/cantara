@@ -143,6 +143,10 @@ export function mapClientForFrontend(client: any, unreadCount = 0) {
     notes: client.notes || "",
     valuationDocUploaded: client.valuationDocUploaded,
     unreadCount,
+    assignedAdvisor:
+      typeof (client.sectionSubmissions as any)?.assignedAdvisor === 'string'
+        ? (client.sectionSubmissions as any).assignedAdvisor
+        : ((client.AdvisorProfiles ?? [])[0]?.name ?? null),
   };
 }
 
@@ -209,6 +213,10 @@ export function mapClientListItemForFrontend(client: any, unreadCount = 0) {
     notes: "",
     valuationDocUploaded: Boolean(client.valuationDocUploaded),
     unreadCount,
+    assignedAdvisor:
+      typeof (client.sectionSubmissions as any)?.assignedAdvisor === 'string'
+        ? (client.sectionSubmissions as any).assignedAdvisor
+        : null,
   };
 }
 

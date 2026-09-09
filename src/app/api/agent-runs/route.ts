@@ -196,7 +196,11 @@ export async function GET(req: NextRequest) {
 
   const client = await prisma.clientProfile.findUnique({
     where: { id: clientId },
-    include: { customWorkstream: { include: { agents: true } }, ClientWorkstreamAgents: true },
+    include: {
+      customWorkstream: { include: { agents: true } },
+      ClientWorkstreamAgents: true,
+      AdvisorProfiles: true,
+    },
   })
   if (!client) return new Response('Not Found', { status: 404 })
 
@@ -208,6 +212,9 @@ export async function GET(req: NextRequest) {
   })
 
   const submissions = (client.sectionSubmissions as Record<string, unknown>) ?? {}
+  const clientAssignedAdvisor = typeof submissions.assignedAdvisor === 'string'
+    ? submissions.assignedAdvisor.trim() || null
+    : ((client.AdvisorProfiles ?? [])[0]?.name ?? null)
   const approvals = (submissions.agentApprovals as Record<string, unknown>) ?? {}
   const releases = (client.clientRelease as Record<string, unknown>) ?? {}
   const facilityReviewMode = normalizeFacilityReviewMode(submissions.facilityReviewMode)
@@ -489,7 +496,7 @@ export async function GET(req: NextRequest) {
       hasRun: check.hasRun,
       clientReleased: release.released,
       clientReleasedAt: release.releasedAt,
-      assignedTo: assignmentEntry?.assignedTo ?? null,
+      assignedTo: assignmentEntry?.assignedTo !== undefined ? (assignmentEntry.assignedTo ?? null) : clientAssignedAdvisor,
       runAt: check.runAt,
       tabKey: meta.tabKey,
       missingDocs,
@@ -526,7 +533,7 @@ export async function GET(req: NextRequest) {
       hasRun: check.hasRun,
       clientReleased: release.released,
       clientReleasedAt: release.releasedAt,
-      assignedTo: assignmentEntry?.assignedTo ?? null,
+      assignedTo: assignmentEntry?.assignedTo !== undefined ? (assignmentEntry.assignedTo ?? null) : clientAssignedAdvisor,
       runAt: check.runAt,
       tabKey: meta.tabKey,
       facilityReviewMode: key === 'facilityReview' ? facilityReviewMode : undefined,
@@ -554,7 +561,7 @@ export async function GET(req: NextRequest) {
     return a.label.localeCompare(b.label)
   })
 
-  return NextResponse.json({ runs, reviewers })
+  return NextResponse.json({ runs, reviewers, assignedAdvisor: clientAssignedAdvisor })
 }
 
 export async function PATCH(req: NextRequest) {
@@ -570,6 +577,7 @@ export async function PATCH(req: NextRequest) {
     feedbackDocUrl,
   } = await req.json()
   if (!clientId || !agentId) return new Response('clientId and agentId required', { status: 400 })
+
   if (status && status !== 'approved' && status !== 'in_review') return new Response('status must be approved or in_review', { status: 400 })
   const allowedActions = new Set([
     'assignee_approve',

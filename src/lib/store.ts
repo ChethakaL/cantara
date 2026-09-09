@@ -177,6 +177,7 @@ export interface Client {
   notes: string
   valuationDocUploaded: boolean
   unreadCount?: number
+  assignedAdvisor?: string | null
 }
 
 const isBrowser = typeof window !== 'undefined'
