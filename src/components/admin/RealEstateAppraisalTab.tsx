@@ -219,6 +219,8 @@ export default function RealEstateAppraisalTab({ clientId, clientName, readOnly 
   }
 
   if (!loading && report?.markdown && !newAnalysis) {
+    const reportTimestamps = report as { updatedAt?: string | Date }
+    const updatedAtRaw = reportTimestamps.updatedAt
     const editableReport = {
       markdown: report.markdown,
       generatedAt: typeof report.createdAt === 'string'
@@ -226,10 +228,10 @@ export default function RealEstateAppraisalTab({ clientId, clientName, readOnly 
         : report.createdAt
           ? new Date(report.createdAt as string | Date).toISOString()
           : undefined,
-      updatedAt: typeof (report as { updatedAt?: string | Date }).updatedAt === 'string'
-        ? (report as { updatedAt: string }).updatedAt
-        : (report as { updatedAt?: Date }).updatedAt
-          ? new Date((report as { updatedAt: Date }).updatedAt).toISOString()
+      updatedAt: typeof updatedAtRaw === 'string'
+        ? updatedAtRaw
+        : updatedAtRaw
+          ? new Date(updatedAtRaw).toISOString()
           : undefined,
     }
 
