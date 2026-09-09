@@ -39,6 +39,15 @@ const READINESS_CONFIG: Record<string, { color: string; label: string }> = {
 
 const TRANSITION_RISK_OPTIONS = ['high', 'medium', 'low']
 
+const ORG_CHART_DOCUMENT_ID = 'org_chart'
+
+type UploadedOrgChartDoc = {
+  id: string
+  fileName: string
+  mimeType?: string | null
+  uploadedAt?: string
+}
+
 // ── Editable Cell helper ────────────────────────────────────────────────────
 function EditableCell({
   value,
@@ -77,6 +86,8 @@ export default function OrgChartReviewTab({
   readOnly?: boolean
 }) {
   const [file, setFile] = useState<File | null>(null)
+  const [uploadedDocs, setUploadedDocs] = useState<UploadedOrgChartDoc[]>([])
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<OrgChartAnalysis | null>(null)
@@ -94,6 +105,32 @@ export default function OrgChartReviewTab({
     reload: reloadRuns,
     loading: loadingRuns,
   } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.orgChartReview)
+
+  const selectedUploadedDoc = uploadedDocs.find(doc => doc.id === selectedDocId) ?? uploadedDocs[0] ?? null
+  const canAnalyze = Boolean(file || selectedUploadedDoc)
+
+  const loadUploadedOrgCharts = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/client-documents?clientId=${encodeURIComponent(clientId)}&documentId=${ORG_CHART_DOCUMENT_ID}&all=true`,
+        { cache: 'no-store' },
+      )
+      if (!res.ok) return
+      const data = await res.json()
+      const docs = Array.isArray(data?.documents) ? (data.documents as UploadedOrgChartDoc[]) : []
+      setUploadedDocs(docs)
+      setSelectedDocId(current => {
+        if (current && docs.some(doc => doc.id === current)) return current
+        return docs[0]?.id ?? null
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    void loadUploadedOrgCharts()
+  }, [loadUploadedOrgCharts])
 
   // Load saved data on mount
   useEffect(() => {
@@ -127,6 +164,7 @@ export default function OrgChartReviewTab({
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) {
       setFile(accepted[0])
+      setSelectedDocId(null)
       setError(null)
     }
   }, [])
@@ -138,13 +176,33 @@ export default function OrgChartReviewTab({
     multiple: false,
   })
 
+  const resolveAnalysisFile = async (): Promise<File> => {
+    if (file) return file
+    if (!selectedUploadedDoc) throw new Error('Upload or select an org chart first.')
+
+    const params = new URLSearchParams({
+      clientId,
+      documentId: ORG_CHART_DOCUMENT_ID,
+      recordId: selectedUploadedDoc.id,
+    })
+    const raw = await fetch(`/api/client-documents/raw?${params.toString()}`)
+    if (!raw.ok) throw new Error(await raw.text() || 'Failed to load uploaded org chart.')
+    const blob = await raw.blob()
+    return new File(
+      [blob],
+      selectedUploadedDoc.fileName || 'org-chart',
+      { type: selectedUploadedDoc.mimeType || blob.type || 'application/octet-stream' },
+    )
+  }
+
   const handleAnalyze = async () => {
-    if (!file) return
+    if (!canAnalyze) return
     setAnalyzing(true)
     setError(null)
     try {
+      const analysisFile = await resolveAnalysisFile()
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', analysisFile)
       formData.append('provider', provider)
       formData.append('modelId', resolveAgentModelId(provider))
       const res = await fetch('/api/org-chart/analyze', {
@@ -167,9 +225,9 @@ export default function OrgChartReviewTab({
         await saveAgentAnalysisRunClient({
           clientId,
           agentKey: AGENT_RUN_KEYS.orgChartReview,
-          fileName: file.name,
+          fileName: analysisFile.name,
           report: data,
-          documentNames: [file.name],
+          documentNames: [analysisFile.name],
           aiProvider: provider,
           aiModel: resolveAgentModelId(provider),
         })
@@ -646,6 +704,60 @@ export default function OrgChartReviewTab({
         <p className="text-xs text-slate-400 mt-1">Org charts can also be uploaded in the Documents tab.</p>
       </div>
 
+      {uploadedDocs.length > 0 && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Uploaded from Documents ({uploadedDocs.length})
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadUploadedOrgCharts()}
+              className="text-xs font-medium text-amber-700 hover:text-amber-800"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="space-y-2">
+            {uploadedDocs.map(doc => {
+              const selected = !file && (selectedDocId ?? uploadedDocs[0]?.id) === doc.id
+              return (
+                <button
+                  key={doc.id}
+                  type="button"
+                  onClick={() => {
+                    setFile(null)
+                    setSelectedDocId(doc.id)
+                    setError(null)
+                  }}
+                  className={cn(
+                    'w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors',
+                    selected
+                      ? 'border-emerald-300 bg-emerald-50/60'
+                      : 'border-slate-200 bg-white hover:border-slate-300',
+                  )}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className={cn('w-4 h-4 flex-shrink-0', selected ? 'text-emerald-600' : 'text-slate-400')} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700 truncate">{doc.fileName}</p>
+                      {doc.uploadedAt && (
+                        <p className="text-[11px] text-slate-400">
+                          Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {selected && (
+                    <Badge color="green">Selected</Badge>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
       {/* Dropzone */}
       <div
         {...getRootProps()}
@@ -669,7 +781,11 @@ export default function OrgChartReviewTab({
           <div className="flex flex-col items-center gap-2">
             <Upload className="w-8 h-8 text-slate-300" />
             <p className="text-sm text-slate-500">
-              {isDragActive ? 'Drop file here...' : 'Drag & drop an org chart, or click to browse'}
+              {isDragActive
+                ? 'Drop file here...'
+                : uploadedDocs.length > 0
+                  ? 'Or drag & drop another org chart to analyze instead'
+                  : 'Drag & drop an org chart, or click to browse'}
             </p>
             <p className="text-xs text-slate-400">PDF, PNG, JPG, XLSX, XLS, or CSV</p>
           </div>
@@ -687,10 +803,10 @@ export default function OrgChartReviewTab({
       {/* Analyze Button */}
       <button
         onClick={handleAnalyze}
-        disabled={!file || analyzing}
+        disabled={!canAnalyze || analyzing}
         className={cn(
           'flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold transition-all w-full md:w-auto',
-          file && !analyzing
+          canAnalyze && !analyzing
             ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-sm'
             : 'bg-slate-100 text-slate-400 cursor-not-allowed'
         )}

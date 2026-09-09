@@ -22,23 +22,34 @@ export async function GET(req: NextRequest) {
 
     const clientId = req.nextUrl.searchParams.get("clientId");
     const documentId = req.nextUrl.searchParams.get("documentId");
+    const recordId = req.nextUrl.searchParams.get("recordId");
 
-    if (!clientId || !documentId) {
-      return new Response("Missing clientId or documentId", { status: 400 });
+    if (!clientId || (!documentId && !recordId)) {
+      return new Response("Missing clientId and documentId or recordId", { status: 400 });
     }
 
-    let document = await (prisma as any).clientDocument.findFirst({
-      where: { clientId, documentId },
-      orderBy: { createdAt: "desc" },
-      select: {
-        fileName: true,
-        mimeType: true,
-        localPath: true,
-        storageBucket: true,
-      },
-    });
+    let document = recordId
+      ? await (prisma as any).clientDocument.findFirst({
+          where: { id: recordId, clientId },
+          select: {
+            fileName: true,
+            mimeType: true,
+            localPath: true,
+            storageBucket: true,
+          },
+        })
+      : await (prisma as any).clientDocument.findFirst({
+          where: { clientId, documentId },
+          orderBy: { createdAt: "desc" },
+          select: {
+            fileName: true,
+            mimeType: true,
+            localPath: true,
+            storageBucket: true,
+          },
+        });
 
-    if (!document?.localPath) {
+    if (!document?.localPath && documentId) {
       const status = await (prisma as any).clientDocumentStatus.findUnique({
         where: { clientId_documentId: { clientId, documentId } },
         select: { fileName: true, fileUrl: true },
@@ -71,7 +82,10 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": document.mimeType || "application/octet-stream",
-        "Content-Disposition": buildInlineContentDisposition(document.fileName ?? "", documentId),
+        "Content-Disposition": buildInlineContentDisposition(
+          document.fileName ?? "",
+          documentId || recordId || "document",
+        ),
       },
     });
   } catch (error) {
