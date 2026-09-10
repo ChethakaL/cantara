@@ -192,14 +192,189 @@ Rules:
   `.trim();
 }
 
+function tryParseJson(input: string): unknown | null {
+  try {
+    return JSON.parse(input);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Best-effort parse of Claude JSON. Handles markdown fences, leading/trailing junk,
+ * and mild truncation by extracting the outermost `{ ... }` object.
+ */
 function parseClaudeJson(rawText: string): ClaudeOverlayResponse {
-  const cleaned = rawText
+  let cleaned = rawText
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim();
 
-  return JSON.parse(cleaned) as ClaudeOverlayResponse;
+  const direct = tryParseJson(cleaned);
+  if (direct && typeof direct === 'object') return direct as ClaudeOverlayResponse;
+
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    const sliced = tryParseJson(cleaned.slice(start, end + 1));
+    if (sliced && typeof sliced === 'object') return sliced as ClaudeOverlayResponse;
+  }
+
+    // Mild truncation repair: close an open string + braces if the model cut off mid-output.
+  if (start >= 0) {
+    let fragment = cleaned.slice(start);
+    let inString = false;
+    let escaped = false;
+    for (const ch of fragment) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\' && inString) {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inString = !inString;
+    }
+    if (inString) fragment += '"';
+    const opens = (fragment.match(/\{/g) || []).length;
+    const closes = (fragment.match(/\}/g) || []).length;
+    if (opens > closes) fragment += '}'.repeat(opens - closes);
+    const repaired = tryParseJson(fragment);
+    if (repaired && typeof repaired === 'object') return repaired as ClaudeOverlayResponse;
+  }
+
+  throw new Error(`Competitor overlay JSON could not be parsed. First 300 chars: ${cleaned.slice(0, 300)}`);
+}
+
+function extractCompetitorOverlay(parsed: ClaudeOverlayResponse | Record<string, unknown> | null | undefined) {
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const asOverlay = parsed as ClaudeOverlayResponse;
+  if (Array.isArray(asOverlay.competitors) && asOverlay.competitors[0]) {
+    return asOverlay.competitors[0];
+  }
+  // Single-competitor retry sometimes returns the competitor object directly.
+  const maybe = parsed as Record<string, unknown>;
+  if (
+    typeof maybe.similaritySummary === 'string'
+    || typeof maybe.similarityLevel === 'string'
+    || typeof maybe.similarityScore === 'number'
+    || Array.isArray(maybe.services)
+  ) {
+    return maybe as NonNullable<ClaudeOverlayResponse['competitors']>[number];
+  }
+  return undefined;
+}
+
+function buildWebsiteSectionThorough(label: string, research: WebsiteResearchData | null): string {
+  if (!research) {
+    return `${label}: No website or website research was available. Treat service claims as unverified unless map/listing evidence supports them.`;
+  }
+
+  const snippets = research.snippets
+    .slice(0, 4)
+    .map((snippet, index) => [
+      `Snippet ${index + 1}`,
+      `Title: ${clip(snippet.title, 120)}`,
+      `URL: ${snippet.url || 'Not found'}`,
+      `Content: ${clip(snippet.snippet, 320)}`,
+    ].join('\n'))
+    .join('\n\n');
+
+  return [
+    `${label}:`,
+    `Confidence: ${research.confidence}`,
+    research.error ? `Research note: ${research.error}` : null,
+    snippets || 'No usable snippets found.',
+  ].filter(Boolean).join('\n');
+}
+
+function buildSingleCompetitorPrompt(args: {
+  formData: CompetitorAnalysisFormData;
+  subject: BusinessPlaceProfile;
+  subjectWebsiteResearch: WebsiteResearchData | null;
+  competitor: BusinessPlaceProfile & { distanceMiles: number };
+  competitorWebsiteResearch: WebsiteResearchData | null;
+}): string {
+  const competitor = args.competitor;
+  return `
+You are a business-sale readiness analyst preparing a thorough competitor profile for an advisor dashboard.
+Compare ONE nearby competitor to the subject business using public evidence only. Be detailed and precise — this card is used in buyer-facing diligence, so shallow one-liners are not acceptable.
+
+Subject business under review:
+- Name: ${args.formData.businessName}
+- Address: ${args.formData.businessAddress}
+- Category: ${args.formData.businessCategory}
+- Search radius context: ${args.formData.radiusMiles ?? 5} miles
+- placeId: ${args.subject.placeId ?? 'unknown'}
+- Rating: ${args.subject.rating ?? 'Not found'}
+- Review count: ${args.subject.reviewCount ?? 'Not found'}
+- Open now: ${args.subject.openNow === null ? 'Not found' : args.subject.openNow ? 'Yes' : 'No'}
+- Business status: ${args.subject.businessStatus ?? 'Not found'}
+- Website: ${args.subject.websiteUrl ?? 'Not found'}
+- Primary types: ${args.subject.primaryTypes.join(', ') || 'Not found'}
+- Weekday hours: ${args.subject.weekdayText.join(' | ') || 'Not found'}
+
+${buildWebsiteSectionThorough('Subject business website research', args.subjectWebsiteResearch)}
+
+Competitor to analyze in depth:
+- Name: ${competitor.name}
+- placeId: ${competitor.placeId ?? 'unknown'}
+- Address: ${competitor.address || 'Not found'}
+- Distance: ${competitor.distanceMiles.toFixed(2)} miles
+- Rating: ${competitor.rating ?? 'Not found'}
+- Review count: ${competitor.reviewCount ?? 'Not found'}
+- Open now: ${competitor.openNow === null ? 'Not found' : competitor.openNow ? 'Yes' : 'No'}
+- Business status: ${competitor.businessStatus ?? 'Not found'}
+- Website: ${competitor.websiteUrl ?? 'Not found'}
+- Primary type: ${competitor.primaryTypes[0] ?? 'Not found'}
+- Hours summary: ${competitor.weekdayText.join(' | ') || 'Not found'}
+
+${buildWebsiteSectionThorough('Competitor website research', args.competitorWebsiteResearch)}
+
+Service categories to evaluate (use ONLY these exact strings in the services array):
+Dog boarding, Dog daycare, Dog grooming, Dog training, Cat boarding.
+
+Do NOT analyze or invent pricing. Pricing is handled by a separate agent.
+
+Write a thorough comparison covering:
+1. How directly substitutable this competitor is for the subject (similarityLevel + similarityScore 1-5).
+2. A clear competitive read (similaritySummary) that explains positioning, footprint, and buyer relevance in 2-4 sentences.
+3. Service overlap and gaps versus the subject (serviceComparison), citing public evidence or explicitly stating when evidence is missing.
+4. Reputation comparison using rating/review signals and any public reputation cues (reputationComparison).
+5. Concrete observed strengths (what this competitor has that matters commercially).
+6. Concrete observed gaps / weaknesses (missing services, weak web presence, hours, rating issues, etc.).
+7. websiteConfidence based on how usable the public website evidence was (high|medium|low).
+
+If website evidence is missing or weak, say so clearly and still produce a complete profile from map/listing signals — do not leave fields empty or vague.
+
+Return ONLY valid JSON with this exact structure (no markdown, no commentary outside JSON):
+{
+  "competitors": [
+    {
+      "placeId": "${competitor.placeId ?? 'unknown'}",
+      "similarityLevel": "high|medium|low",
+      "similarityScore": 1,
+      "similaritySummary": "string",
+      "serviceComparison": "string",
+      "reputationComparison": "string",
+      "services": ["string"],
+      "strengths": ["string"],
+      "gaps": ["string"],
+      "websiteConfidence": "high|medium|low"
+    }
+  ]
+}
+
+Rules:
+- One competitor object only.
+- Be thorough: similaritySummary, serviceComparison, and reputationComparison should each be 2-4 full sentences when evidence allows.
+- Include as many evidence-backed strengths and gaps as are justified (typically 3-8 each). Do not pad with speculation.
+- Services array: only the five allowed labels above, and only when public evidence supports them.
+- Keep statements tied to supplied public evidence. Do not mention APIs, models, or data providers.
+- Complete the full JSON object. Do not truncate mid-string.
+`.trim();
 }
 
 async function requestOverlay(args: {
@@ -400,38 +575,35 @@ export async function buildSingleCompetitorReport(args: {
 }): Promise<CompetitorReportItem> {
   const provider = args.provider ?? 'bedrock';
   const modelId = args.modelId;
-  const prompt = buildPrompt({
-    formData: args.formData,
-    subject: args.subject,
-    subjectWebsiteResearch: args.subjectWebsiteResearch,
-    competitors: [args.competitor],
-    competitorWebsiteResearch: {
-      [args.competitor.placeId ?? '']: args.competitorWebsiteResearch,
-    },
-    compact: true,
-  });
+  const prompt = buildSingleCompetitorPrompt(args);
 
   let rawText = '';
-  let parsed: ClaudeOverlayResponse;
+  let overlay: ReturnType<typeof extractCompetitorOverlay>;
   try {
     rawText = await requestOverlay({
       prompt,
-      maxTokens: 1000,
+      maxTokens: 4000,
       provider,
       modelId,
     });
-    parsed = parseClaudeJson(rawText);
-  } catch {
-    rawText = await requestOverlay({
-      prompt: `${prompt}\n\nReturn only one competitor object in valid JSON and keep all strings short.`,
-      maxTokens: 800,
-      provider,
-      modelId,
-    });
-    parsed = parseClaudeJson(rawText);
+    overlay = extractCompetitorOverlay(parseClaudeJson(rawText));
+  } catch (error) {
+    console.error('[Competitor Research] parse failure:', rawText.slice(0, 1200), error);
+    try {
+      rawText = await requestOverlay({
+        prompt: `${prompt}\n\nYour previous answer was invalid or truncated. Return the SAME thorough JSON structure again, fully complete, with valid JSON only. Do not cut off mid-string.`,
+        maxTokens: 4000,
+        provider,
+        modelId,
+      });
+      overlay = extractCompetitorOverlay(parseClaudeJson(rawText));
+    } catch (retryError) {
+      console.error('[Competitor Research] retry parse failure:', rawText.slice(0, 1200), retryError);
+      // Never 500 the Research button on model JSON issues — return a usable low-confidence card.
+      overlay = undefined;
+    }
   }
 
-  const overlay = parsed.competitors?.[0];
   return {
     ...args.competitor,
     similarityLevel: overlay?.similarityLevel ?? 'medium',
@@ -445,7 +617,9 @@ export async function buildSingleCompetitorReport(args: {
     pricePoints: [],
     priceEvidence: [],
     strengths: overlay?.strengths ?? [],
-    gaps: overlay?.gaps ?? [],
+    gaps: overlay?.gaps?.length
+      ? overlay.gaps
+      : (args.competitor.websiteUrl ? [] : ['No public website listed']),
     websiteConfidence: overlay?.websiteConfidence ?? args.competitorWebsiteResearch?.confidence ?? 'low',
   };
 }
