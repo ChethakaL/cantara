@@ -1500,7 +1500,7 @@ export default function CompetitorAnalysisTab({
                 .slice(0, 5)
               if (!fromClientPortal.length) return current
               const existing = current.manualCompetitors ?? []
-              const merged = fromClientPortal.map((entry) => {
+              const merged: ManualCompetitorEntry[] = fromClientPortal.map((entry) => {
                 const match = existing.find(item =>
                   item.name.trim().toLowerCase() === entry.name.trim().toLowerCase()
                   || (item.websiteUrl && entry.websiteUrl && item.websiteUrl === entry.websiteUrl),

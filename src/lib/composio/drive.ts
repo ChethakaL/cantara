@@ -338,7 +338,7 @@ export async function organizePreCallBriefsInParentFolder(args: {
         list.push(file);
         byName.set(file.name, list);
       }
-      for (const group of byName.values()) {
+      for (const group of Array.from(byName.values())) {
         if (group.length <= 1) continue;
         // Keep the first, trash the rest
         for (const dup of group.slice(1)) {
@@ -516,14 +516,14 @@ export async function syncClientUploadsDriveStructure(args: {
     // Only ensure top-level category folders (cheap). Checklist leaves are created
     // when a file for that slot exists or is uploaded.
     const categories = new Set(listDataRoomFolderPairs().map((p) => p.category));
-    for (const category of categories) {
+    for (const category of Array.from(categories)) {
       await ensureFolderPath(uploads.id, [category], folderCache);
       result.foldersEnsured += 1;
     }
   }
 
   // Ensure expected folder tree (FIND is cheap when folders already exist).
-  for (const pair of pairsNeeded.values()) {
+  for (const pair of Array.from(pairsNeeded.values())) {
     await ensureFolderPath(uploads.id, [pair.category, pair.checklistItem], folderCache);
     result.foldersEnsured += 1;
   }
@@ -536,7 +536,7 @@ export async function syncClientUploadsDriveStructure(args: {
   );
 
   // Cache checklist folders under each category we care about.
-  for (const pair of pairsNeeded.values()) {
+  for (const pair of Array.from(pairsNeeded.values())) {
     let categoryId = categoryFolders.get(pair.category);
     if (!categoryId) {
       categoryId = await ensureFolderPath(uploads.id, [pair.category], folderCache);

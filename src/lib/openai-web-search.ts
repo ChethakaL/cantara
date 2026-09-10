@@ -50,7 +50,7 @@ export async function runOpenAiWebSearch(args: {
     try {
       const response = await client.responses.create({
         model,
-        tools: [{ type: tool as "web_search" }],
+        tools: [{ type: tool as "web_search_preview_2025_03_11" }],
         input: args.prompt,
         max_output_tokens: 1600,
       });
