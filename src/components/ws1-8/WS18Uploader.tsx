@@ -1,9 +1,16 @@
 'use client'
 // WS1-8 Corporate Ownership Verification — Upload Screen
+// Portal Documents availability + uploads are mirrored here (same pattern as EO).
 
-import { useEffect, useRef, useState } from 'react'
-import { Save } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { FileText, RefreshCw, Save } from 'lucide-react'
 import type { UploadedDoc } from '@/hooks/useWS18Analysis'
+import type { DocumentStatus } from '@/lib/store'
+import {
+  fetchClientDocumentAsBase64,
+  listClientDocuments,
+  type ClientUploadedDoc,
+} from '@/lib/client-documents-client'
 
 const ALL_DOCUMENT_SLOTS = [
   {
@@ -11,6 +18,12 @@ const ALL_DOCUMENT_SLOTS = [
     label: 'Articles of Organization / Incorporation',
     note: 'Formation documents filed with the state. Include any certificates of formation or incorporation.',
     multi: true,
+  },
+  {
+    key: 'shareholder_agreement',
+    label: "Shareholder's Agreement",
+    note: 'Shareholders agreement if the business has one. Sole proprietors and single-member LLCs typically select No.',
+    multi: false,
   },
   {
     key: 'operating_agreement',
@@ -38,53 +51,285 @@ const ALL_DOCUMENT_SLOTS = [
   },
 ] as const
 
+/** Maps Documents-tab / portal checklist IDs → OV uploader slot keys */
+const DOCUMENTS_TAB_TO_SLOT: Record<string, string> = {
+  articles_org: 'articles_of_org',
+  shareholder_agreement: 'shareholder_agreement',
+  operating_agreement_bylaws: 'operating_agreement',
+  org_document_amendments: 'amendments',
+  good_standing_certificate: 'good_standing',
+  annual_reports: 'annual_reports',
+}
+
+const SLOT_TO_DOCUMENT_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(DOCUMENTS_TAB_TO_SLOT).map(([docId, slot]) => [slot, docId]),
+)
+
+const OV_DOCUMENT_IDS = Object.keys(DOCUMENTS_TAB_TO_SLOT)
+
 interface Props {
   clientId: string
+  documentStatuses?: Record<string, DocumentStatus>
   onDocumentsReady: (docs: UploadedDoc[]) => void
+  onAvailabilityReady?: (hasDocument: Record<string, boolean>) => void
   onAnalyze: () => void
   isLoading: boolean
 }
 
-export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, isLoading }: Props) {
+function availabilityFromPortalStatus(status: DocumentStatus | undefined): boolean | undefined {
+  if (!status) return undefined
+  if (status.notApplicable) return false
+  if (status.hasDoc === false) return false
+  if (status.hasDoc === true || (status.fileName && String(status.fileName).trim())) return true
+  return undefined
+}
+
+export default function WS18Uploader({
+  clientId,
+  documentStatuses,
+  onDocumentsReady,
+  onAvailabilityReady,
+  onAnalyze,
+  isLoading,
+}: Props) {
   const [uploadedBySlot, setUploadedBySlot] = useState<Record<string, UploadedDoc[]>>({})
   const [hasDocument, setHasDocument] = useState<Record<string, boolean>>({})
+  const [portalSourceBySlot, setPortalSourceBySlot] = useState<Record<string, boolean>>({})
   const [savingDraft, setSavingDraft] = useState(false)
   const [draftSaved, setDraftSaved] = useState(false)
   const [draftLoaded, setDraftLoaded] = useState(false)
+  const [documentsTabUploads, setDocumentsTabUploads] = useState<ClientUploadedDoc[]>([])
+  const [importingDocId, setImportingDocId] = useState<string | null>(null)
+
+  const documentStatusesRef = useRef(documentStatuses)
+  documentStatusesRef.current = documentStatuses
+  const uploadedBySlotRef = useRef(uploadedBySlot)
+  uploadedBySlotRef.current = uploadedBySlot
+  const hasDocumentRef = useRef(hasDocument)
+  hasDocumentRef.current = hasDocument
+  const onDocumentsReadyRef = useRef(onDocumentsReady)
+  onDocumentsReadyRef.current = onDocumentsReady
+  const onAvailabilityReadyRef = useRef(onAvailabilityReady)
+  onAvailabilityReadyRef.current = onAvailabilityReady
 
   const allUploadedDocs = Object.values(uploadedBySlot).flat()
   const totalFileCount = allUploadedDocs.length
   const totalSizeBytes = allUploadedDocs.reduce((acc, doc) => acc + (doc.base64.length * 3) / 4, 0)
   const isOverLimits = totalFileCount > 15 || totalSizeBytes > 25 * 1024 * 1024
 
-  const hasAnyDocs = totalFileCount > 0
+  const allSlotsAnswered = ALL_DOCUMENT_SLOTS.every(slot => hasDocument[slot.key] !== undefined)
+  const allSlotsUnavailable = ALL_DOCUMENT_SLOTS.every(slot => hasDocument[slot.key] === false)
+  const canRun = (totalFileCount > 0 || (allSlotsAnswered && allSlotsUnavailable)) && !isOverLimits
   const hasDraftInput = totalFileCount > 0 || Object.keys(hasDocument).length > 0
 
-  const unavailableSlots = ALL_DOCUMENT_SLOTS.filter(
-    slot => hasDocument[slot.key] === false
-  )
+  const unavailableSlots = ALL_DOCUMENT_SLOTS.filter(slot => hasDocument[slot.key] === false)
+
+  const syncReady = useCallback((nextUploaded: Record<string, UploadedDoc[]>, nextHas?: Record<string, boolean>) => {
+    onDocumentsReadyRef.current(Object.values(nextUploaded).flat())
+    if (nextHas) onAvailabilityReadyRef.current?.(nextHas)
+  }, [])
+
+  const persistDraft = useCallback(async (
+    nextHasDocument: Record<string, boolean>,
+    nextUploaded: Record<string, UploadedDoc[]>,
+  ) => {
+    try {
+      await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'ownershipVerificationDraft',
+          data: {
+            hasDocument: nextHasDocument,
+            uploadedBySlot: nextUploaded,
+            savedAt: new Date().toISOString(),
+          },
+        }),
+      })
+    } catch {
+      // best-effort
+    }
+  }, [clientId])
+
+  const syncPortalAvailability = useCallback(async (slotKey: string, available: boolean) => {
+    const documentId = SLOT_TO_DOCUMENT_ID[slotKey]
+    if (!documentId) return
+    try {
+      await fetch('/api/client-portal/statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          statuses: {
+            [documentId]: {
+              hasDoc: available,
+              notApplicable: false,
+              unavailableDecision: null,
+              assignedTo: null,
+            },
+          },
+        }),
+      })
+    } catch (err) {
+      console.warn('[WS18] Failed to sync portal availability', documentId, err)
+    }
+  }, [clientId])
+
+  const loadDocumentsTabUploads = useCallback(async () => {
+    try {
+      const docs = await listClientDocuments(clientId, OV_DOCUMENT_IDS)
+      setDocumentsTabUploads(docs)
+      return docs
+    } catch {
+      return [] as ClientUploadedDoc[]
+    }
+  }, [clientId])
+
+  const importDocIntoSlot = useCallback(async (
+    doc: ClientUploadedDoc,
+    current: Record<string, UploadedDoc[]>,
+  ): Promise<{ uploaded: Record<string, UploadedDoc[]>; hasDocument: Record<string, boolean> } | null> => {
+    const slotKey = DOCUMENTS_TAB_TO_SLOT[doc.documentId]
+    if (!slotKey) return null
+    const already = (current[slotKey] ?? []).some(item => item.name === doc.fileName)
+    if (already) return null
+
+    const payload = await fetchClientDocumentAsBase64({
+      clientId,
+      documentId: doc.documentId,
+      recordId: doc.id,
+      fileName: doc.fileName,
+      mimeType: doc.mimeType,
+    })
+    const nextDoc: UploadedDoc = {
+      name: payload.name,
+      base64: payload.base64,
+      mediaType: payload.mediaType,
+      slotKey,
+      sizeBytes: payload.sizeBytes,
+    }
+    const slot = ALL_DOCUMENT_SLOTS.find(item => item.key === slotKey)
+    const existing = current[slotKey] ?? []
+    const nextSlotDocs = slot?.multi ? [...existing, nextDoc] : [nextDoc]
+    return {
+      uploaded: { ...current, [slotKey]: nextSlotDocs },
+      hasDocument: { [slotKey]: true },
+    }
+  }, [clientId])
 
   useEffect(() => {
     let cancelled = false
-    async function loadDraft() {
+    async function loadDraftAndDocuments() {
       try {
-        const res = await fetch(`/api/client-data/${clientId}?section=ownershipVerificationDraft`)
-        if (!res.ok) return
-        const draft = await res.json()
-        if (cancelled || !draft) return
-        const nextUploaded = draft.uploadedBySlot ?? {}
-        const nextHasDocument = draft.hasDocument ?? {}
+        const [draftRes, docs] = await Promise.all([
+          fetch(`/api/client-data/${clientId}?section=ownershipVerificationDraft`),
+          loadDocumentsTabUploads(),
+        ])
+        if (cancelled) return
+
+        let nextUploaded: Record<string, UploadedDoc[]> = {}
+        let nextHasDocument: Record<string, boolean> = {}
+        const nextPortalSource: Record<string, boolean> = {}
+        const statuses = documentStatusesRef.current
+
+        for (const [documentId, slotKey] of Object.entries(DOCUMENTS_TAB_TO_SLOT)) {
+          const fromPortal = availabilityFromPortalStatus(statuses?.[documentId])
+          if (fromPortal === undefined) continue
+          nextHasDocument[slotKey] = fromPortal
+          nextPortalSource[slotKey] = true
+        }
+
+        if (draftRes.ok) {
+          const draft = await draftRes.json()
+          if (draft) {
+            nextUploaded = draft.uploadedBySlot ?? {}
+            const draftHas = (draft.hasDocument ?? {}) as Record<string, boolean>
+            for (const [slotKey, value] of Object.entries(draftHas)) {
+              if (nextHasDocument[slotKey] === undefined) nextHasDocument[slotKey] = value
+            }
+            setDraftLoaded(true)
+          }
+        }
+
+        let importedAny = false
+        for (const doc of docs) {
+          if (cancelled) return
+          try {
+            const imported = await importDocIntoSlot(doc, nextUploaded)
+            if (!imported) continue
+            nextUploaded = imported.uploaded
+            nextHasDocument = { ...nextHasDocument, ...imported.hasDocument }
+            const slotKey = DOCUMENTS_TAB_TO_SLOT[doc.documentId]
+            if (slotKey) nextPortalSource[slotKey] = true
+            importedAny = true
+          } catch (err) {
+            console.warn('Failed to import OV document:', doc.fileName, err)
+          }
+        }
+
+        if (cancelled) return
         setUploadedBySlot(nextUploaded)
         setHasDocument(nextHasDocument)
-        onDocumentsReady(Object.values(nextUploaded).flat() as UploadedDoc[])
-        setDraftLoaded(true)
+        setPortalSourceBySlot(nextPortalSource)
+        syncReady(nextUploaded, nextHasDocument)
+        if (importedAny) void persistDraft(nextHasDocument, nextUploaded)
       } catch {
-        // Draft restore should never block the uploader.
+        // never block uploader
       }
     }
-    void loadDraft()
+    void loadDraftAndDocuments()
     return () => { cancelled = true }
-  }, [clientId, onDocumentsReady])
+  }, [clientId, importDocIntoSlot, loadDocumentsTabUploads, persistDraft, syncReady])
+
+  useEffect(() => {
+    if (!documentStatuses) return
+    setHasDocument(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const [documentId, slotKey] of Object.entries(DOCUMENTS_TAB_TO_SLOT)) {
+        const fromPortal = availabilityFromPortalStatus(documentStatuses[documentId])
+        if (fromPortal === undefined) continue
+        if (next[slotKey] !== fromPortal) {
+          next[slotKey] = fromPortal
+          changed = true
+        }
+      }
+      if (changed) onAvailabilityReadyRef.current?.(next)
+      return changed ? next : prev
+    })
+    setPortalSourceBySlot(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const [documentId, slotKey] of Object.entries(DOCUMENTS_TAB_TO_SLOT)) {
+        if (availabilityFromPortalStatus(documentStatuses[documentId]) === undefined) continue
+        if (!next[slotKey]) {
+          next[slotKey] = true
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [documentStatuses])
+
+  async function handleUseDocumentsTabUpload(doc: ClientUploadedDoc) {
+    setImportingDocId(doc.id)
+    try {
+      const imported = await importDocIntoSlot(doc, uploadedBySlotRef.current)
+      if (!imported) return
+      const nextHas = { ...hasDocumentRef.current, ...imported.hasDocument }
+      setUploadedBySlot(imported.uploaded)
+      setHasDocument(nextHas)
+      const slotKey = DOCUMENTS_TAB_TO_SLOT[doc.documentId]
+      if (slotKey) setPortalSourceBySlot(prev => ({ ...prev, [slotKey]: true }))
+      syncReady(imported.uploaded, nextHas)
+      void persistDraft(nextHas, imported.uploaded)
+      void syncPortalAvailability(slotKey, true)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to import document')
+    } finally {
+      setImportingDocId(null)
+    }
+  }
 
   async function saveDraft() {
     setSavingDraft(true)
@@ -130,17 +375,20 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
             })
           }
           reader.readAsDataURL(file)
-        })
+        }),
     )
 
     Promise.all(readers).then(docs => {
       setUploadedBySlot(prev => {
         const slot = prev[slotKey] ?? []
         const updated = { ...prev, [slotKey]: [...slot, ...docs] }
-        onDocumentsReady(Object.values(updated).flat())
+        const nextHas = { ...hasDocumentRef.current, [slotKey]: true }
+        setHasDocument(nextHas)
+        syncReady(updated, nextHas)
+        void persistDraft(nextHas, updated)
         return updated
       })
-      setHasDocument(prev => ({ ...prev, [slotKey]: true }))
+      void syncPortalAvailability(slotKey, true)
     })
   }
 
@@ -150,19 +398,28 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
         ...prev,
         [slotKey]: (prev[slotKey] ?? []).filter(d => d.name !== name),
       }
-      onDocumentsReady(Object.values(updated).flat())
+      syncReady(updated, hasDocumentRef.current)
+      void persistDraft(hasDocumentRef.current, updated)
       return updated
     })
   }
 
   function toggleHasDocument(slotKey: string, value: boolean) {
-    setHasDocument(prev => ({ ...prev, [slotKey]: value }))
+    const nextHas = { ...hasDocumentRef.current, [slotKey]: value }
+    setHasDocument(nextHas)
+    setPortalSourceBySlot(prev => ({ ...prev, [slotKey]: false }))
+    onAvailabilityReadyRef.current?.(nextHas)
+    void syncPortalAvailability(slotKey, value)
+
     if (!value) {
       setUploadedBySlot(prev => {
         const updated = { ...prev, [slotKey]: [] }
-        onDocumentsReady(Object.values(updated).flat())
+        syncReady(updated, nextHas)
+        void persistDraft(nextHas, updated)
         return updated
       })
+    } else {
+      void persistDraft(nextHas, uploadedBySlotRef.current)
     }
   }
 
@@ -175,8 +432,8 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
           The analysis will run with whatever documents are provided. Missing documents will be noted in the report.
         </p>
         <p className="text-[11px] text-stone-500 leading-relaxed">
-          UCC search results and title/lien searches are handled in the{' '}
-          <span className="font-medium text-stone-700">Litigation &amp; Liens</span> workstream — not here.
+          Yes/No answers and files from the client portal Documents checklist are reflected here automatically.
+          UCC / title searches stay in the <span className="font-medium text-stone-700">Litigation &amp; Liens</span> workstream.
         </p>
         {draftLoaded && (
           <p className="text-[11px] font-medium text-emerald-700">
@@ -184,6 +441,59 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
           </p>
         )}
       </div>
+
+      {documentsTabUploads.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Uploaded from Documents ({documentsTabUploads.length})
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadDocumentsTabUploads()}
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-800"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Refresh
+            </button>
+          </div>
+          <div className="space-y-2">
+            {documentsTabUploads.map(doc => {
+              const inQueue = allUploadedDocs.some(item => item.name === doc.fileName)
+              const slotKey = DOCUMENTS_TAB_TO_SLOT[doc.documentId]
+              const slotLabel = ALL_DOCUMENT_SLOTS.find(slot => slot.key === slotKey)?.label ?? doc.documentId
+              return (
+                <div
+                  key={doc.id}
+                  className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 ${
+                    inQueue ? 'border-emerald-300 bg-emerald-50/60' : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className={`w-4 h-4 flex-shrink-0 ${inQueue ? 'text-emerald-600' : 'text-slate-400'}`} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700 truncate">{doc.fileName}</p>
+                      <p className="text-[11px] text-slate-400">{slotLabel}</p>
+                    </div>
+                  </div>
+                  {inQueue ? (
+                    <span className="text-[11px] font-medium text-emerald-700">In queue</span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={isLoading || importingDocId === doc.id}
+                      onClick={() => void handleUseDocumentsTabUpload(doc)}
+                      className="text-xs font-medium text-amber-700 hover:text-amber-800 disabled:opacity-50"
+                    >
+                      {importingDocId === doc.id ? 'Adding…' : 'Add'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {isOverLimits && (
         <div className="flex gap-2 text-[12px] text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -193,22 +503,18 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
       )}
 
       <div className="space-y-2">
-        {ALL_DOCUMENT_SLOTS.map(slot => {
-          const hasIt = hasDocument[slot.key]
-          const files = uploadedBySlot[slot.key] ?? []
-
-          return (
-            <ToggleUploadSlot
-              key={slot.key}
-              slot={slot}
-              hasDocument={hasIt}
-              files={files}
-              onToggle={(value) => toggleHasDocument(slot.key, value)}
-              onFiles={handleFiles}
-              onRemove={removeFile}
-            />
-          )
-        })}
+        {ALL_DOCUMENT_SLOTS.map(slot => (
+          <ToggleUploadSlot
+            key={slot.key}
+            slot={slot}
+            hasDocument={hasDocument[slot.key]}
+            files={uploadedBySlot[slot.key] ?? []}
+            fromPortal={Boolean(portalSourceBySlot[slot.key])}
+            onToggle={(value) => toggleHasDocument(slot.key, value)}
+            onFiles={handleFiles}
+            onRemove={removeFile}
+          />
+        ))}
       </div>
 
       {unavailableSlots.length > 0 && (
@@ -245,9 +551,9 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
           </button>
           <button
             onClick={onAnalyze}
-            disabled={!hasAnyDocs || isLoading || isOverLimits}
+            disabled={!canRun || isLoading}
             className={`text-[12px] px-4 py-2 rounded-lg font-medium transition-all ${
-              hasAnyDocs && !isLoading && !isOverLimits
+              canRun && !isLoading
                 ? 'bg-stone-900 text-white hover:bg-stone-800'
                 : 'bg-stone-100 text-stone-400 cursor-not-allowed'
             }`}
@@ -257,11 +563,15 @@ export default function WS18Uploader({ clientId, onDocumentsReady, onAnalyze, is
         </div>
       </div>
 
-      {!hasAnyDocs && (
+      {allSlotsAnswered && allSlotsUnavailable && canRun ? (
         <p className="text-[11px] text-stone-400 text-right -mt-3">
-          Upload at least one document to run the analysis
+          All documents marked No — run analysis to record that nothing was provided.
         </p>
-      )}
+      ) : !canRun ? (
+        <p className="text-[11px] text-stone-400 text-right -mt-3">
+          Upload at least one document, or mark every item Yes/No, to run the analysis
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -270,13 +580,15 @@ function ToggleUploadSlot({
   slot,
   hasDocument,
   files,
+  fromPortal,
   onToggle,
   onFiles,
   onRemove,
 }: {
-  slot: { key: string; label: string; note: string; multi: boolean }
+  slot: (typeof ALL_DOCUMENT_SLOTS)[number]
   hasDocument: boolean | undefined
   files: UploadedDoc[]
+  fromPortal?: boolean
   onToggle: (value: boolean) => void
   onFiles: (key: string, files: FileList | null) => void
   onRemove: (key: string, name: string) => void
@@ -286,14 +598,21 @@ function ToggleUploadSlot({
   const borderColor = hasDocument === false
     ? 'border-stone-100 bg-stone-50/50'
     : files.length > 0
-    ? 'border-green-200 bg-green-50'
-    : 'border-stone-200 bg-white'
+      ? 'border-green-200 bg-green-50'
+      : 'border-stone-200 bg-white'
 
   return (
     <div className={`border rounded-lg px-3 py-2.5 transition-colors ${borderColor}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className={`text-[12px] font-medium ${hasDocument === false ? 'text-stone-400' : 'text-stone-800'}`}>{slot.label}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className={`text-[12px] font-medium ${hasDocument === false ? 'text-stone-400' : 'text-stone-800'}`}>{slot.label}</p>
+            {fromPortal && hasDocument !== undefined && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                Portal: {hasDocument ? 'Yes' : 'No'}
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-stone-400 leading-snug mt-0.5">{slot.note}</p>
           {files.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-1.5">

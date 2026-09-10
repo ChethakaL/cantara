@@ -1,31 +1,12 @@
 import { ConfidenceLevel, PriceEvidenceItem, WebsiteResearchData, WebsiteSnippet } from './types';
+import { canRunOpenAiWebSearch, resolveOpenAiWebSearchModel, runOpenAiWebSearch } from '@/lib/openai-web-search';
 
-const TAVILY_API_URL = 'https://api.tavily.com/search';
 const FETCH_TIMEOUT_MS = 20000;
 const MAX_FETCHED_PAGES = 3;
-const MAX_TAVILY_RESULTS_PER_QUERY = 6;
 const MAX_SEARCH_RESULTS = 3;
 const MAX_SEARCH_RESULTS_FOR_EXTRACTION = 12;
 const MAX_PRICE_POINTS = 8;
 const MAX_EXTRACT_FALLBACK_URLS = 5;
-
-interface TavilyResponse {
-  results?: Array<{
-    title?: string;
-    url?: string;
-    content?: string;
-    raw_content?: string;
-  }>;
-}
-
-interface TavilyExtractResponse {
-  results?: Array<{
-    url?: string;
-    title?: string;
-    raw_content?: string;
-    content?: string;
-  }>;
-}
 
 function normalizeWebsiteUrl(url: string): string {
   const trimmed = url.trim();
@@ -111,70 +92,96 @@ async function fetchText(url: string): Promise<{ url: string; title: string; tex
   }
 }
 
-async function tavilySearch(query: string, apiKey: string): Promise<WebsiteSnippet[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+async function openAiSiteSearch(args: {
+  businessName: string;
+  businessCategory: string;
+  domain: string;
+  websiteUrl: string;
+}): Promise<WebsiteSnippet[]> {
+  const prompt = `You are collecting public website evidence for competitor pricing analysis.
+
+Business: "${args.businessName}"
+Category: ${args.businessCategory}
+Official website: ${args.websiteUrl}
+Domain to prefer: ${args.domain}
+
+Search the public web (prefer pages on ${args.domain}) for:
+1) service/pricing/rates pages (daycare, boarding, grooming, packages, memberships)
+2) product catalog / shop pages that show dollar prices
+3) hours or services overview pages useful for positioning
+
+Return ONLY a JSON array (max 8 items):
+[
+  {
+    "title": "Page title",
+    "url": "https://full-url",
+    "content": "Key pricing/service facts with exact dollar amounts when present"
+  }
+]
+
+Rules:
+- Prefer same-domain URLs on ${args.domain}
+- Include exact prices when found (e.g. "$45 half day")
+- Skip store-locator / privacy / login pages
+- If little is found, still return whatever relevant same-domain pages you can
+- Return ONLY the JSON array`;
+
+  const rawText = await runOpenAiWebSearch({
+    prompt,
+    model: resolveOpenAiWebSearchModel(),
+    preferLowCostTool: true,
+  });
+
+  const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  const snippets: WebsiteSnippet[] = [];
 
   try {
-    const res = await fetch(TAVILY_API_URL, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        search_depth: 'basic',
-        max_results: MAX_TAVILY_RESULTS_PER_QUERY,
-        include_answer: false,
-        include_raw_content: true,
-      }),
-    });
-
-    if (!res.ok) return [];
-    const data = await res.json() as TavilyResponse;
-    return (data.results ?? []).map((result) => ({
-      url: result.url ?? '',
-      title: result.title ?? 'Search result',
-      snippet: collapseWhitespace((result.raw_content || result.content || '').slice(0, 4000)),
-      source: 'search' as const,
-    })).filter((item) => item.url && item.snippet);
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (!item || typeof item !== 'object') continue;
+        const record = item as Record<string, unknown>;
+        const url = String(record.url ?? '').trim();
+        const content = collapseWhitespace(String(record.content ?? record.snippet ?? '')).slice(0, 4000);
+        if (!url || !content) continue;
+        snippets.push({
+          url,
+          title: String(record.title ?? 'Search result'),
+          snippet: content,
+          source: 'search',
+        });
+      }
+    }
   } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
+    // Fall through to URL scraping from prose.
   }
+
+  if (!snippets.length && rawText.trim()) {
+    const urls = Array.from(rawText.matchAll(/https?:\/\/[^\s)"'\]]+/gi)).map((m) => m[0].replace(/[.,;]+$/, ''));
+    for (const url of dedupeStrings(urls).slice(0, 6)) {
+      snippets.push({
+        url,
+        title: 'OpenAI web search result',
+        snippet: collapseWhitespace(rawText).slice(0, 2000),
+        source: 'search',
+      });
+    }
+  }
+
+  return snippets.filter((item) => item.url && item.snippet);
 }
 
-async function tavilyExtract(urls: string[], apiKey: string): Promise<WebsiteSnippet[]> {
+async function fetchExtractFallback(urls: string[]): Promise<WebsiteSnippet[]> {
   if (!urls.length) return [];
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  try {
-    const res = await fetch('https://api.tavily.com/extract', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        urls,
-        extract_depth: 'basic',
-      }),
-    });
-
-    if (!res.ok) return [];
-    const data = await res.json() as TavilyExtractResponse;
-    return (data.results ?? []).map((result) => ({
-      url: result.url ?? '',
-      title: result.title ?? 'Extracted page',
-      snippet: collapseWhitespace((result.raw_content || result.content || '').slice(0, 2200)),
+  const pages = await Promise.all(urls.map((url) => fetchText(url)));
+  return pages
+    .filter((page): page is NonNullable<typeof page> => Boolean(page))
+    .map((page) => ({
+      url: page.url,
+      title: page.title,
+      snippet: page.text.slice(0, 2200),
       source: 'search' as const,
-    })).filter((item) => item.url && item.snippet);
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
+    }));
 }
 
 function dedupeSnippets(snippets: WebsiteSnippet[]): WebsiteSnippet[] {
@@ -444,6 +451,7 @@ export async function researchWebsite(args: {
   websiteUrl?: string | null;
   businessName: string;
   businessCategory: string;
+  /** @deprecated Ignored — research uses the saved OpenAI API key when available. */
   tavilyApiKey?: string | null;
 }): Promise<WebsiteResearchData | null> {
   const normalizedUrl = normalizeWebsiteUrl(args.websiteUrl ?? '');
@@ -456,39 +464,28 @@ export async function researchWebsite(args: {
   let lastError: string | undefined;
 
   let searchSnippets: WebsiteSnippet[] = [];
-  if (args.tavilyApiKey) {
-    const queries = [
-      `site:${domain} "${args.businessName}" (daycare OR boarding OR grooming OR services) (pricing OR prices OR rates OR "$")`,
-      `site:${domain} (daycare OR "half day" OR "full day" OR boarding OR grooming) (pricing OR prices OR rates OR "$") -Stores-StoreDetails -storeID -storefinder -locations -contact -about`,
-      `site:${domain} "${args.businessName}" ${args.businessCategory} services hours pricing`,
-      `site:${domain} (${args.businessCategory} OR daycare OR boarding OR grooming) (prices OR pricing OR rates OR "$") -Stores-StoreDetails -storeID -storefinder -locations -contact -about`,
-      `site:${domain} ("shop-by-brand" OR products OR "all products" OR cgid) (dog OR cat) (price OR "$") -Stores-StoreDetails -storeID`,
-      `site:${domain} "shop-by-brand" (dog OR cat OR food OR treats)`,
-      `site:${domain} ("search?cgid=root" OR "feed-like-a-muddy" OR "all products")`,
-      `site:${domain} inurl:shop-by-brand (dog OR cat) prices`,
-      `site:${domain} "${args.businessName}" inurl:shop-by-brand "$"`,
-    ];
-    const results = await Promise.all(queries.map((query) => tavilySearch(query, args.tavilyApiKey!)));
-    results.forEach((items, index) => {
-      console.log(
-        `${logPrefix} Tavily query ${index + 1}/${queries.length} -> ${items.length} result(s):`,
-        queries[index]
-      );
-      items.forEach((item, itemIndex) => {
-        console.log(`${logPrefix}   [q${index + 1} r${itemIndex + 1}] ${item.url}`);
+  const openAiReady = await canRunOpenAiWebSearch();
+  if (openAiReady) {
+    try {
+      console.log(`${logPrefix} OpenAI web search (1 call) for domain=${domain}`);
+      const results = await openAiSiteSearch({
+        businessName: args.businessName,
+        businessCategory: args.businessCategory,
+        domain,
+        websiteUrl: normalizedUrl,
       });
-    });
-    searchSnippets = results
-      .flat()
-      .filter((item) => isSameDomainOrSubdomain(item.url, domain))
-      .filter((item, index, arr) => arr.findIndex((candidate) => candidate.url === item.url) === index)
-      .sort((a, b) => scoreSearchSnippet(b) - scoreSearchSnippet(a))
-      .slice(0, MAX_SEARCH_RESULTS_FOR_EXTRACTION);
-    console.log(
-      `${logPrefix} Domain-filtered Tavily snippets: ${searchSnippets.length} (domain=${domain})`
-    );
+      searchSnippets = results
+        .filter((item) => isSameDomainOrSubdomain(item.url, domain))
+        .filter((item, index, arr) => arr.findIndex((candidate) => candidate.url === item.url) === index)
+        .sort((a, b) => scoreSearchSnippet(b) - scoreSearchSnippet(a))
+        .slice(0, MAX_SEARCH_RESULTS_FOR_EXTRACTION);
+      console.log(`${logPrefix} Domain-filtered OpenAI snippets: ${searchSnippets.length} (domain=${domain})`);
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : 'OpenAI web search failed.';
+      console.warn(`${logPrefix} OpenAI web search error: ${lastError}`);
+    }
   } else {
-    console.warn(`${logPrefix} Tavily API key missing. Skipping Tavily search.`);
+    console.warn(`${logPrefix} OpenAI API key missing. Skipping web search; using direct page fetches only.`);
   }
 
   const searchSnippetsForDisplay = searchSnippets.slice(0, MAX_SEARCH_RESULTS);
@@ -548,29 +545,29 @@ export async function researchWebsite(args: {
   ]).slice(0, MAX_PRICE_POINTS);
   let finalPriceEvidence = priceEvidence;
 
-  if (!finalPriceEvidence.length && args.tavilyApiKey) {
+  if (!finalPriceEvidence.length) {
     const extractCandidates = dedupeStrings([
       ...buildFallbackExtractUrls(normalizedUrl),
-        ...pickFetchUrls(normalizedUrl, searchSnippets).filter((url) => looksLikePriceEvidenceUrl(url)),
-        ...searchSnippets.map((item) => item.url).filter((url) => looksLikePriceEvidenceUrl(url)),
-      ])
-        .sort((a, b) => rankExtractCandidateUrl(b) - rankExtractCandidateUrl(a))
-        .slice(0, MAX_EXTRACT_FALLBACK_URLS);
+      ...pickFetchUrls(normalizedUrl, searchSnippets).filter((url) => looksLikePriceEvidenceUrl(url)),
+      ...searchSnippets.map((item) => item.url).filter((url) => looksLikePriceEvidenceUrl(url)),
+    ])
+      .sort((a, b) => rankExtractCandidateUrl(b) - rankExtractCandidateUrl(a))
+      .slice(0, MAX_EXTRACT_FALLBACK_URLS);
     if (extractCandidates.length) {
-      console.log(`${logPrefix} Tavily extract fallback candidates (${extractCandidates.length}):`, extractCandidates);
-      const extractedSnippets = await tavilyExtract(extractCandidates, args.tavilyApiKey);
+      console.log(`${logPrefix} Direct-fetch extract fallback candidates (${extractCandidates.length}):`, extractCandidates);
+      const extractedSnippets = await fetchExtractFallback(extractCandidates);
       const extractedEvidence = dedupePriceEvidence(
         extractedSnippets.flatMap((snippet) =>
-            [
-              ...extractLinkedProductPriceEvidence(`${snippet.title} ${snippet.snippet}`, snippet.url, snippet.title),
-              ...extractRegexPriceEvidence(`${snippet.title} ${snippet.snippet}`, snippet.url, snippet.title),
-            ]
+          [
+            ...extractLinkedProductPriceEvidence(`${snippet.title} ${snippet.snippet}`, snippet.url, snippet.title),
+            ...extractRegexPriceEvidence(`${snippet.title} ${snippet.snippet}`, snippet.url, snippet.title),
+          ]
         )
       ).slice(0, MAX_PRICE_POINTS);
       if (extractedEvidence.length) {
-        console.log(`${logPrefix} Tavily extract recovered ${extractedEvidence.length} price evidence item(s).`);
+        console.log(`${logPrefix} Direct extract recovered ${extractedEvidence.length} price evidence item(s).`);
       } else {
-        console.warn(`${logPrefix} Tavily extract fallback did not recover pricing evidence.`);
+        console.warn(`${logPrefix} Direct extract fallback did not recover pricing evidence.`);
       }
       finalPriceEvidence = extractedEvidence;
     }

@@ -28,6 +28,19 @@ import {
 import { generateWs22Report, generateWs23Report, generateWs24Report, generateWs25Report, summarizeTtmAnalysis } from "@/lib/ttm-agent/claude";
 import { buildWorkingCapitalSummary } from "@/lib/ttm-agent/wc-calculator";
 import { buildDeterministicSchedule } from "@/lib/ttm-agent/ws2-extraction";
+
+function formatMonthCoverageForFlags(monthKeys: string[]): string {
+  if (!monthKeys.length) return "";
+  const names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const label = (key: string) => {
+    const [year, month] = key.split("-");
+    const idx = Number(month) - 1;
+    if (!year || idx < 0 || idx > 11) return key;
+    return `${names[idx]} ${year}`;
+  };
+  if (monthKeys.length === 1) return label(monthKeys[0]);
+  return `${label(monthKeys[0])} – ${label(monthKeys[monthKeys.length - 1])} (${monthKeys.length} months)`;
+}
 import { TTM_AGENT_MAX_TOKENS, TTM_AGENT_MODEL, TTM_AGENT_TEMPERATURE, WS2_RECAST_MAX_TOKENS } from "@/lib/ttm-agent/prompt";
 import {
   applyWs22SpecCorrections,
@@ -583,6 +596,16 @@ export async function runTtmAgent(args: {
       mappedPlRows,
       mappedBsRows,
       accountantStatements: accountantStatements ?? { years: [], sourceType: "xlsx" as const, confidence: "LOW" as const, notes: ["Accountant statements not provided"] },
+      sourceDocuments: {
+        monthlyPl: {
+          fileName: preparedMonthlyPl.fileName || monthlyPlDocument.fileName,
+          recordId: monthlyPlDocument.id,
+        },
+        monthlyBs: {
+          fileName: preparedMonthlyBs.fileName || monthlyBsDocument.fileName,
+          recordId: monthlyBsDocument.id,
+        },
+      },
     });
 
     const wcResult = buildWorkingCapitalSummary({
@@ -649,6 +672,10 @@ export async function runTtmAgent(args: {
 
         // Generate HITL flags from LLM extraction
         // Section A flags: GL mappings where Claude's confidence < 0.8
+        const plMonthCoverage = formatMonthCoverageForFlags(
+          (monthlyPl.monthKeys ?? []).filter((key: string) => /^\d{4}-\d{2}$/.test(key)).sort(),
+        );
+        const plFileName = preparedMonthlyPl.fileName || monthlyPlDocument.fileName || "Monthly P&L Excel";
         for (const mapping of llmExtraction.glMapping) {
           if (mapping.confidence < 0.8) {
             llmFlags.push({
@@ -661,21 +688,30 @@ export async function runTtmAgent(args: {
                 accountName: mapping.accountName,
                 suggestedCode: mapping.cantaraCode,
                 confidence: mapping.confidence,
+                sourceDocumentId: "monthly_pl_excel",
+                sourceDocument: plMonthCoverage ? `${plFileName} · ${plMonthCoverage}` : plFileName,
+                sourceDocumentLabel: "Monthly P&L Excel",
+                sourceFileName: plFileName,
+                sourceDocumentRecordId: monthlyPlDocument.id,
+                sourceMonthCoverage: plMonthCoverage,
               },
             });
           }
         }
 
         // Section E flags: Data quality warnings from Claude
-        for (const note of llmExtraction.notes) {
+        for (let noteIndex = 0; noteIndex < llmExtraction.notes.length; noteIndex++) {
+          const note = llmExtraction.notes[noteIndex]
+          const snippet = note.trim().slice(0, 60)
           llmFlags.push({
             section: "E",
             severity: /critical|error|missing/i.test(note) ? "HIGH" : "LOW",
-            title: `LLM data quality note`,
+            title: `LLM data quality note ${noteIndex + 1}${snippet ? `: ${snippet}` : ""}`,
             description: note,
             payload: {
               source: "LLM_EXTRACTION",
               noteText: note,
+              noteIndex,
             },
           });
         }

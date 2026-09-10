@@ -102,6 +102,55 @@ function getStatementTypesForGlPrefix(prefix: number | null) {
   return null;
 }
 
+/**
+ * When the GL account code has no usable numeric prefix, infer P&L type from the
+ * account name so expense lines never get revenue candidates (and vice versa).
+ */
+function inferStatementTypesFromLabel(accountLabel: string): Set<TaxonomyEntry["type"]> | null {
+  const text = normalizeText(accountLabel);
+  if (!text) return null;
+
+  const revenueHints =
+    /\b(revenue|revenues|sales|income(?!\s+tax)|boarding|daycare|grooming|training|retail sales|membership|tips?\b|fee income|service income)\b/;
+  const cogsHints =
+    /\b(cogs|cost of (goods|sales|services)|direct cost|product cost|retail cost)\b/;
+  const opexHints =
+    /\b(expense|expenses|expenditure|expenditures|opex|overhead|payroll|wages|salary|salaries|rent|utilities|insurance|marketing|advertising|repair|repairs|maintenance|supplies|software|professional fees|legal|accounting|bank fees|office|depreciation|amortization|interest expense|taxes? (and|&) licenses|owner draw|draws?)\b/;
+
+  const types = new Set<TaxonomyEntry["type"]>();
+  if (revenueHints.test(text)) types.add("revenue");
+  if (cogsHints.test(text)) types.add("cogs");
+  if (opexHints.test(text)) types.add("opex");
+
+  // Strong expense words without revenue/cogs → opex only
+  if (/\b(expenditure|expenditures|expense|expenses)\b/.test(text) && !revenueHints.test(text)) {
+    return new Set<TaxonomyEntry["type"]>(["opex", "cogs"]);
+  }
+
+  if (types.size > 0) return types;
+  return null;
+}
+
+function getCandidateEntries(row: NormalizedLedgerRow, statementKind: "pl" | "bs") {
+  const allowedEntries = getAllowedEntries(statementKind);
+  if (statementKind !== "pl") return allowedEntries;
+
+  const prefixTypes = getStatementTypesForGlPrefix(parseGlPrefix(row.accountCode));
+  const inferredTypes = inferStatementTypesFromLabel(`${row.accountCode ?? ""} ${row.accountName}`);
+  const typeFilter = prefixTypes ?? inferredTypes;
+
+  // Never fall back to the full P&L taxonomy — that surfaces REV-* as the first
+  // zero-score candidates for unlabeled expense accounts.
+  if (!typeFilter) {
+    return allowedEntries.filter((entry) => entry.type === "opex" || entry.type === "cogs");
+  }
+  return allowedEntries.filter((entry) => typeFilter.has(entry.type));
+}
+
+function isCodeAllowedForRow(code: string, row: NormalizedLedgerRow, statementKind: "pl" | "bs") {
+  return getCandidateEntries(row, statementKind).some((entry) => entry.code === code);
+}
+
 function scoreAlias(accountLabel: string, entry: TaxonomyEntry) {
   const normalizedAccount = normalizeText(accountLabel);
   const accountTokens = tokenize(accountLabel);
@@ -128,13 +177,6 @@ function getAllowedEntries(statementKind: "pl" | "bs") {
   return statementKind === "pl"
     ? CANTARA_TAXONOMY.filter((entry) => entry.type !== "working_capital")
     : CANTARA_TAXONOMY.filter((entry) => WORKING_CAPITAL_CODES.includes(entry.code));
-}
-
-function getCandidateEntries(row: NormalizedLedgerRow, statementKind: "pl" | "bs") {
-  const allowedEntries = getAllowedEntries(statementKind);
-  const prefixTypes = getStatementTypesForGlPrefix(parseGlPrefix(row.accountCode));
-  if (!prefixTypes) return allowedEntries;
-  return allowedEntries.filter((entry) => prefixTypes.has(entry.type));
 }
 
 function getExplicitMappingOverride(row: NormalizedLedgerRow, statementKind: "pl" | "bs"): MappingProjection | null {
@@ -201,6 +243,14 @@ function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs
   const second = ranked[1];
   const maxAbsMonthlyValue = Math.max(...Object.values(row.valuesByMonth).map((value) => Math.abs(value)), 0);
   const isMajor = maxAbsMonthlyValue >= 1000 || Math.abs(row.total) >= 12000;
+  // Prefer scored matches; if everything is zero, still only expose type-filtered codes.
+  const topCandidates = (
+    ranked.some((item) => item.score > 0)
+      ? ranked.filter((item) => item.score > 0)
+      : ranked
+  )
+    .slice(0, 3)
+    .map((candidate) => candidate.entry.code);
 
   console.log(`[MAPPING]   Best: ${best?.entry.code} score=${best?.score.toFixed(3)} | Second: ${second?.entry.code} score=${second?.score.toFixed(3)} | isMajor=${isMajor}`);
   if (best && best.score >= 0.75 && (!second || best.score - second.score >= 0.06)) {
@@ -211,7 +261,7 @@ function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs
       categoryType: best.entry.type,
       mappingMethod: best.score >= 0.98 ? ("exact" as const) : ("alias" as const),
       mappingConfidence: best.score,
-      candidateCodes: ranked.slice(0, 3).map((candidate) => candidate.entry.code),
+      candidateCodes: topCandidates,
       isMajor,
     };
   }
@@ -223,7 +273,7 @@ function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs
       categoryType: best.entry.type,
       mappingMethod: "fuzzy" as const,
       mappingConfidence: best.score,
-      candidateCodes: ranked.slice(0, 3).map((candidate) => candidate.entry.code),
+      candidateCodes: topCandidates,
       isMajor,
     };
   }
@@ -234,7 +284,7 @@ function buildInitialMapping(row: NormalizedLedgerRow, statementKind: "pl" | "bs
     categoryType: statementKind === "pl" ? ("other" as const) : ("working_capital" as const),
     mappingMethod: "unmapped" as const,
     mappingConfidence: best?.score ?? 0,
-    candidateCodes: ranked.slice(0, 3).map((candidate) => candidate.entry.code),
+    candidateCodes: topCandidates,
     isMajor,
   };
 }
@@ -274,7 +324,7 @@ export async function mapLedgerRows(rows: NormalizedLedgerRow[], statementKind: 
     }
 
     const matchedEntry = CANTARA_TAXONOMY.find((entry) => entry.code === suggestion.cantaraCode);
-    if (!matchedEntry) {
+    if (!matchedEntry || !isCodeAllowedForRow(matchedEntry.code, row, statementKind)) {
       return row;
     }
 
@@ -285,7 +335,7 @@ export async function mapLedgerRows(rows: NormalizedLedgerRow[], statementKind: 
       categoryType: matchedEntry.type,
       mappingMethod: "claude",
       mappingConfidence: suggestion.confidence,
-      candidateCodes: [matchedEntry.code, ...row.candidateCodes].slice(0, 3),
+      candidateCodes: [matchedEntry.code, ...row.candidateCodes.filter((code) => code !== matchedEntry.code)].slice(0, 3),
     };
   });
 }

@@ -785,6 +785,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 dba={client.dba || undefined}
                 totalEmployeesSelfReported={client.totalEmployeesSelfReported ?? undefined}
                 employmentTypeBreakdown={client.employmentTypeBreakdown ?? undefined}
+                documentStatuses={client.documentStatuses}
                 readOnly={activeAgentReadOnly}
               />
             )}
@@ -831,10 +832,25 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <EmployeeCompTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
             )}
             {activeTab === 'ownership-verification' && (
-              <OwnershipVerificationTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
+              <OwnershipVerificationTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                state={client.state}
+                dba={client.dba || undefined}
+                documentStatuses={client.documentStatuses}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'permits-zoning' && (
-              <PermitsZoningTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
+              <PermitsZoningTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                state={client.state}
+                dba={client.dba || undefined}
+                propertyAddress={client.businessAddress || undefined}
+                documentStatuses={client.documentStatuses}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'owner-gm-assessment' && (
               <OwnerGmAssessmentTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />

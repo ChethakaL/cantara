@@ -11,6 +11,8 @@ import {
   MessageSquareMore,
   Trash2,
   X,
+  Download,
+  CloudUpload,
 } from 'lucide-react'
 import { DocumentUploadAccordion } from '@/components/documents/DocumentUploadAccordion'
 import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
@@ -111,6 +113,8 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
   const [activeSubTab, setActiveSubTab] = useState<'checklist' | 'availability'>('checklist')
   const [showExcludedDocs, setShowExcludedDocs] = useState(false)
   const [savingStatusDocId, setSavingStatusDocId] = useState<string | null>(null)
+  const [downloadingAll, setDownloadingAll] = useState(false)
+  const [syncingDrive, setSyncingDrive] = useState(false)
 
   const loadFileCatalog = useCallback(async () => {
     try {
@@ -745,6 +749,75 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
     if (uploaded?.fileName && String(uploaded.fileName).trim()) submittedIds.add(id)
   }
   const submitted = submittedIds.size
+  const totalUploadedFiles = Object.values(filesByDocId).reduce((sum, files) => sum + files.length, 0)
+
+  const handleDownloadAll = async () => {
+    if (downloadingAll || totalUploadedFiles === 0) return
+    setDownloadingAll(true)
+    try {
+      const res = await fetch(
+        `/api/client-documents/download-all?clientId=${encodeURIComponent(client.id)}`,
+        { cache: 'no-store' },
+      )
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        const cleaned = text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')
+          ? `Download failed (${res.status}). Check the server console for details.`
+          : (text || `Download failed (${res.status})`)
+        throw new Error(cleaned)
+      }
+      const blob = await res.blob()
+      const cd = res.headers.get('Content-Disposition') || ''
+      const match = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(cd)
+      const rawName = match?.[1] || match?.[2] || `${client.name || 'client'}-documents.zip`
+      const fileName = decodeURIComponent(rawName.replace(/\+/g, ' '))
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = fileName
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to download documents')
+    } finally {
+      setDownloadingAll(false)
+    }
+  }
+
+  const handleSyncDrive = async () => {
+    if (syncingDrive) return
+    if (!client.driveFolder) {
+      window.alert('This client has no Google Drive folder assigned. Create or link a folder in Client Management first.')
+      return
+    }
+    setSyncingDrive(true)
+    try {
+      const res = await fetch('/api/drive/sync-client-documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : `Drive sync failed (${res.status})`)
+      }
+      window.alert(
+        data.alreadyStructured
+          ? `Google Drive is already organized.\n\n${data.message}`
+          : `Google Drive sync complete.\n\n${data.message}${
+              Array.isArray(data.errors) && data.errors.length
+                ? `\n\nErrors:\n- ${data.errors.slice(0, 8).join('\n- ')}`
+                : ''
+            }`,
+      )
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to sync documents to Google Drive')
+    } finally {
+      setSyncingDrive(false)
+    }
+  }
 
   // Active checklist documents (filters out excluded/No/NA optional documents unless showExcludedDocs is true)
   const activeValuationDocs = VALUATION_DOCS.filter(doc => {
@@ -904,17 +977,47 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
           </button>
         </div>
 
-        {activeSubTab === 'checklist' && excludedCount > 0 && (
-          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showExcludedDocs}
-              onChange={e => setShowExcludedDocs(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
-            />
-            <span>Show {excludedCount} excluded / N/A items</span>
-          </label>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleDownloadAll}
+            disabled={downloadingAll || syncingDrive || totalUploadedFiles === 0}
+            className="gap-1.5"
+            title={totalUploadedFiles === 0 ? 'No uploaded files to download' : `Download all ${totalUploadedFiles} uploaded files as a ZIP`}
+          >
+            {downloadingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            {downloadingAll ? 'Preparing ZIP…' : `Download all (${totalUploadedFiles})`}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleSyncDrive}
+            disabled={syncingDrive || downloadingAll || !client.driveFolder}
+            className="gap-1.5"
+            title={
+              !client.driveFolder
+                ? 'Assign a Google Drive folder in Client Management first'
+                : 'Organize Client Uploads into Category / Checklist Item folders (same layout as the ZIP)'
+            }
+          >
+            {syncingDrive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
+            {syncingDrive ? 'Syncing Drive…' : 'Sync now to Google Drive'}
+          </Button>
+          {activeSubTab === 'checklist' && excludedCount > 0 && (
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showExcludedDocs}
+                onChange={e => setShowExcludedDocs(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+              />
+              <span>Show {excludedCount} excluded / N/A items</span>
+            </label>
+          )}
+        </div>
       </div>
 
       {activeSubTab === 'checklist' && (

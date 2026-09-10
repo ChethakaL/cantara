@@ -14,6 +14,13 @@ import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 import { AgentRunHistoryPanel } from '@/components/admin/AgentRunHistoryPanel'
 import { formatAgentProviderLabel } from '@/lib/agent-model-provider'
+import {
+  fetchClientDocumentFile,
+  listClientDocuments,
+  type ClientUploadedDoc,
+} from '@/lib/client-documents-client'
+
+const MATERIAL_CONTRACTS_DOCUMENT_ID = 'material_contracts'
 
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
@@ -27,6 +34,8 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
   const [deleting, setDeleting] = useState(false)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
+  const [uploadedFromDocuments, setUploadedFromDocuments] = useState<ClientUploadedDoc[]>([])
+  const [loadingUploadedId, setLoadingUploadedId] = useState<string | null>(null)
 
   const {
     documents: uploads,
@@ -42,6 +51,38 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
     setProvider,
     lastModelId,
   } = useContractAnalysis(clientId)
+
+  const loadUploadedContracts = useCallback(async () => {
+    try {
+      const docs = await listClientDocuments(clientId, [MATERIAL_CONTRACTS_DOCUMENT_ID])
+      setUploadedFromDocuments(docs)
+    } catch {
+      /* ignore */
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    void loadUploadedContracts()
+  }, [loadUploadedContracts])
+
+  const handleUseUploadedDocument = useCallback(async (doc: ClientUploadedDoc) => {
+    setLoadingUploadedId(doc.id)
+    try {
+      const file = await fetchClientDocumentFile({
+        clientId,
+        documentId: doc.documentId,
+        recordId: doc.id,
+        fileName: doc.fileName,
+        mimeType: doc.mimeType,
+      })
+      await addDocuments([file])
+      setComposingNew(true)
+    } catch (err) {
+      console.error('Failed to load material contract from Documents:', err)
+    } finally {
+      setLoadingUploadedId(null)
+    }
+  }, [addDocuments, clientId])
 
   const loadAnalyses = useCallback(async () => {
     const data = await getContractAnalyses(clientId)
@@ -119,7 +160,12 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
     ? uploads.map((doc) => doc.name).join(', ')
     : activeAnalysis?.fileName || ''
 
-  const showUploader = !readOnly && status === 'idle' && (composingNew || analyses.length === 0 || uploads.length > 0)
+  const showUploader = !readOnly && status === 'idle' && (
+    composingNew
+    || analyses.length === 0
+    || uploads.length > 0
+    || uploadedFromDocuments.length > 0
+  )
   const showReport = Boolean(displayReport) && !composingNew
 
   const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, showReport, 'Material Contracts')
@@ -181,6 +227,10 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
             onAnalyze={analyze}
             provider={provider}
             onProviderChange={setProvider}
+            uploadedFromDocuments={uploadedFromDocuments}
+            onRefreshDocuments={() => void loadUploadedContracts()}
+            onUseUploadedDocument={handleUseUploadedDocument}
+            loadingUploadedId={loadingUploadedId}
           />
           </div>
         ) : null}

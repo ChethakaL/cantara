@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { CheckCircle2, ChevronDown, ChevronRight, Clock3, Send, Search } from 'lucide-react'
 import { Badge, Button, Card, Textarea, cn } from '@/components/ui'
 import { logWs2ClientEvent, logWs2Error, logWs2Response } from '@/lib/ttm-agent/browser-debug'
@@ -31,33 +31,113 @@ function cantaraLabel(code: string | null | undefined) {
 
 function cleanTitle(t: string) { return t.replace(/^Section [A-E] - /, '') }
 
+function payloadAccountName(payload: Record<string, unknown> | null | undefined): string {
+  if (!payload) return ''
+  const raw = payload.accountName ?? payload.sourceAccount
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+}
+
+function payloadNoteText(payload: Record<string, unknown> | null | undefined): string {
+  if (!payload) return ''
+  const raw = payload.noteText
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+}
+
+/** Stable 1:1 match between report items and DB flags — never reuse a flag across cards. */
+function matchFlagToItem(
+  flags: TtmFlagView[],
+  item: { title: string; description?: string; severity?: string; payload?: Record<string, unknown> },
+  usedFlagIds: Set<string>,
+): TtmFlagView | null {
+  const available = flags.filter(f => !usedFlagIds.has(f.id))
+  if (!available.length) return null
+
+  const itemAccount = payloadAccountName(item.payload)
+  if (itemAccount) {
+    const byAccount = available.find(f => payloadAccountName(f.payload) === itemAccount)
+    if (byAccount) return byAccount
+  }
+
+  const itemNote = payloadNoteText(item.payload)
+  if (itemNote) {
+    const byNote = available.find(f => payloadNoteText(f.payload) === itemNote)
+    if (byNote) return byNote
+  }
+
+  const exact = available.find(
+    f => f.title === item.title
+      && (f.description ?? '') === (item.description ?? '')
+      && (!item.severity || f.severity === item.severity),
+  )
+  if (exact) return exact
+
+  // Title matches: prefer description, otherwise consume next unused flag in order
+  // so duplicate titles (common on LLM notes) never share one flag ID.
+  const titleMatches = available.filter(f => f.title === item.title)
+  if (titleMatches.length === 1) return titleMatches[0]
+  if (titleMatches.length > 1) {
+    const byDescription = titleMatches.find(f => (f.description ?? '') === (item.description ?? ''))
+    if (byDescription) return byDescription
+    return titleMatches[0]
+  }
+
+  return null
+}
+
 // ── Payload Summary (compact) ──────────────────────────────────────────────────
-function PayloadGrid({ items }: { items: Array<{ label: string; value: string }> }) {
+function PayloadGrid({ items }: { items: Array<{ label: string; value: ReactNode }> }) {
   return (
     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      {items.filter(i => i.value && i.value !== '--' && i.value !== 'n/a').map(i => (
+      {items.filter(i => {
+        if (i.value === null || i.value === undefined || i.value === '--' || i.value === 'n/a' || i.value === '') return false
+        return true
+      }).map(i => (
         <div key={i.label} className="rounded-lg bg-slate-50 px-3 py-2">
           <p className="text-[10px] uppercase tracking-wide text-slate-400">{i.label}</p>
-          <p className="mt-0.5 text-xs font-medium text-slate-700 break-words">{i.value}</p>
+          <div className="mt-0.5 text-xs font-medium text-slate-700 break-words">{i.value}</div>
         </div>
       ))}
     </div>
   )
 }
 
-function renderPayload(section: string, payload: Record<string, unknown>) {
+function sourceDocumentHref(payload: Record<string, unknown>, clientId?: string): string | null {
+  if (!clientId) return null
+  const recordId = typeof payload.sourceDocumentRecordId === 'string' ? payload.sourceDocumentRecordId : ''
+  const documentId = typeof payload.sourceDocumentId === 'string' ? payload.sourceDocumentId : ''
+  if (recordId) {
+    return `/api/client-documents/view?clientId=${encodeURIComponent(clientId)}&recordId=${encodeURIComponent(recordId)}`
+  }
+  if (documentId) {
+    return `/api/client-documents/view?clientId=${encodeURIComponent(clientId)}&documentId=${encodeURIComponent(documentId)}`
+  }
+  return null
+}
+
+function renderPayload(section: string, payload: Record<string, unknown>, clientId?: string) {
   if (section === 'A') {
     const candidates = Array.isArray(payload.candidateCodes) ? payload.candidateCodes.filter((v): v is string => typeof v === 'string') : []
     const conf = typeof payload.mappingConfidencePct === 'number' ? payload.mappingConfidencePct : typeof payload.mappingConfidence === 'number' ? Math.round(payload.mappingConfidence * 1000) / 10 : null
     const range = payload.monthlyRange as Record<string, unknown> | null
+    const documentLabel = String(payload.sourceDocument ?? payload.sourceFileName ?? payload.sourceDocumentLabel ?? 'Unknown')
+    const monthCoverage = typeof payload.sourceMonthCoverage === 'string' ? payload.sourceMonthCoverage : ''
+    const href = sourceDocumentHref(payload, clientId)
     return <PayloadGrid items={[
       { label: 'Source Account', value: String(payload.accountName ?? '') },
       { label: 'Account Code', value: String(payload.accountCode ?? '') },
       { label: 'Confidence', value: conf !== null ? `${conf}%` : '--' },
       { label: 'Candidates', value: candidates.map(c => cantaraLabel(c)).join(' | ') || 'None' },
       ...(range ? [{ label: 'Monthly Range', value: `${fmt$(range.min)} – ${fmt$(range.max)}` }] : []),
-      { label: 'Document', value: String(payload.sourceDocument ?? 'Unknown') },
-      { label: 'Source', value: `${payload.sourceSheet ?? ''} row ${payload.sourceRow ?? ''}` },
+      {
+        label: 'Document',
+        value: href ? (
+          <a href={href} target="_blank" rel="noreferrer" className="text-amber-700 hover:text-amber-800 underline underline-offset-2">
+            {documentLabel}
+          </a>
+        ) : documentLabel,
+      },
+      ...(monthCoverage ? [{ label: 'Period', value: monthCoverage }] : []),
+      { label: 'Source', value: `${payload.sourceSheet ?? ''} row ${payload.sourceRow ?? ''}${payload.sourceCell ? ` (${payload.sourceCell})` : ''}`.trim() },
       ...(payload.assignedCantaraCode ? [{ label: 'Admin Assignment', value: cantaraLabel(String(payload.assignedCantaraCode)) }] : []),
       { label: 'Guidance', value: String(payload.reviewerGuidance ?? '') },
     ]} />
@@ -83,12 +163,14 @@ export function AdminReviewDashboard({
   analysis,
   actorName,
   onUpdated,
+  clientId,
   collapsed = false,
   onToggleCollapse,
 }: {
   analysis: TtmAnalysisView
   actorName: string
   onUpdated: (analysis: TtmAnalysisView) => void
+  clientId?: string
   collapsed?: boolean
   onToggleCollapse?: () => void
 }) {
@@ -145,18 +227,26 @@ export function AdminReviewDashboard({
       const items = report.sections[section]?.items ?? []
       const flags = [...analysis.flags.filter(f => f.section === section)]
       const usedFlagIds = new Set<string>()
-      const entries = items.map(item => {
-        // Lenient matching: match on title only if exact match fails
-        let idx = flags.findIndex(f => !usedFlagIds.has(f.id) && f.title === item.title && (f.description ?? '') === item.description && f.severity === item.severity)
-        if (idx < 0) idx = flags.findIndex(f => !usedFlagIds.has(f.id) && f.title === item.title)
-        if (idx < 0) idx = flags.findIndex(f => !usedFlagIds.has(f.id) && item.title.includes(f.title.split(' ').slice(-1)[0]))
-        const flag = idx >= 0 ? flags[idx] : null
-        if (flag) usedFlagIds.add(flag.id)
-        return { item, flag }
-      })
-      // Add any remaining unmatched flags as entries WITH their flag reference
+      const entries: Array<{ item: any; flag: TtmFlagView | null }> = []
+
+      for (const item of items) {
+        const flag = matchFlagToItem(flags, item, usedFlagIds)
+        if (flag) {
+          usedFlagIds.add(flag.id)
+          entries.push({ item, flag })
+        } else if (section === 'A') {
+          // Section A may need create-and-resolve for unmatched report rows.
+          entries.push({ item, flag: null })
+        }
+        // Non-A unmatched report rows are dropped — their flags appear via `remaining`
+        // so we never show a note card that can't be acknowledged, or share a flag ID.
+      }
+
       const remaining = flags.filter(f => !usedFlagIds.has(f.id))
-      remaining.forEach(f => entries.push({ item: { title: f.title, description: f.description ?? '', severity: f.severity, payload: f.payload }, flag: f }))
+      remaining.forEach(f => entries.push({
+        item: { title: f.title, description: f.description ?? '', severity: f.severity, payload: f.payload },
+        flag: f,
+      }))
 
       // SAFETY: if items exist but none matched a flag, map them directly from section flags
       if (entries.length > 0 && entries.every(e => e.flag === null) && flags.length > 0) {
@@ -191,11 +281,26 @@ export function AdminReviewDashboard({
       // For synthetic flags (no DB record), create the flag first
       let resolvedFlagId = flagId
       if (flagId.startsWith('synthetic-')) {
-        // Find the item to get its details for flag creation
-        const sectionKey = flagId.split('-')[1]
-        const itemIndex = parseInt(flagId.split('-')[2], 10)
+        // Format: synthetic-{section}-{entryIndex}-{stableKey}
+        const withoutPrefix = flagId.slice('synthetic-'.length)
+        const sectionKey = withoutPrefix.split('-')[0]
+        const afterSection = withoutPrefix.slice(sectionKey.length + 1)
+        const entryIndexStr = afterSection.split('-')[0]
+        const entryIndex = Number(entryIndexStr)
+        const stablePart = afterSection.slice(entryIndexStr.length + 1)
         const sectionData = sectionEntries[sectionKey]
-        const entry = sectionData?.[itemIndex]
+        const entry = (
+          Number.isFinite(entryIndex) ? sectionData?.[entryIndex] : undefined
+        ) ?? sectionData?.find((e, i) => {
+          if (e.flag) return false
+          const sk = (
+            payloadAccountName(e.item.payload)
+            || payloadNoteText(e.item.payload)
+            || e.item.title
+            || String(i)
+          ).replace(/\s+/g, '_').slice(0, 80)
+          return sk === stablePart || sk === afterSection
+        })
         if (entry) {
           const createRes = await fetch('/api/ttm-agent/hitl', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -331,18 +436,19 @@ export function AdminReviewDashboard({
               </div>
             )}
 
-            {/* Items — use full section index for synthetic IDs (not filtered index) */}
-            {current.entries.map(({ item, flag: rawFlag }, entryIndex) => {
-              const resolved = rawFlag?.resolutionStatus === 'ACTIONED'
+            {/* Items — each card is bound to at most one flag ID */}
+            {current.entries.map(({ item, flag }, entryIndex) => {
+              const resolved = flag?.resolutionStatus === 'ACTIONED'
               if (resolved) return null
 
-              // If flag is null, try to find a matching one by title (check unresolved first, then resolved)
-              const flag = rawFlag
-                ?? analysis.flags.find(f => f.section === current.section && f.title === item.title && f.resolutionStatus !== 'ACTIONED')
-                ?? analysis.flags.find(f => f.section === current.section && f.title === item.title)
-                ?? null
-              const flagId = flag?.id ?? `synthetic-${current.section}-${entryIndex}`
-              const key = flagId
+              // Never rematch in render — that reused flag IDs across cards and made
+              // Acknowledge appear to "light up" a different note / do nothing.
+              const stableKey = payloadAccountName(item.payload)
+                || payloadNoteText(item.payload)
+                || item.title
+                || String(entryIndex)
+              const flagId = flag?.id ?? `synthetic-${current.section}-${entryIndex}-${stableKey.replace(/\s+/g, '_').slice(0, 80)}`
+              const key = `${current.section}-${entryIndex}-${flagId}`
               const isOpen = openDetails[key] ?? false
               const code = codesByFlag[flagId] ?? String(flag?.payload?.assignedCantaraCode ?? item.payload?.suggestedCode ?? '')
               const isCodeValid = code ? validCodes.has(code) : false
@@ -381,7 +487,7 @@ export function AdminReviewDashboard({
                         {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                         {isOpen ? 'Hide detail' : 'Show detail'}
                       </button>
-                      {isOpen && <div className="mt-2">{renderPayload(current.section, item.payload)}</div>}
+                      {isOpen && <div className="mt-2">{renderPayload(current.section, item.payload, clientId)}</div>}
                     </div>
                   )}
 
@@ -392,7 +498,7 @@ export function AdminReviewDashboard({
                     </div>
                   )}
 
-                  {/* Action area — show for all unresolved items (with or without a DB flag) */}
+                  {/* Action area — notes always have a flag; Section A may be synthetic */}
                   {!isResolved && (flag || current.section === 'A') && (
                     <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
                       {/* Cantara code selector for Section A */}
@@ -438,24 +544,34 @@ export function AdminReviewDashboard({
                       <div className="flex gap-2 flex-wrap">
                         {current.section === 'A' ? (
                           <>
-                            {/* Accept Suggestion — one-click approve for LLM-suggested mappings */}
+                            {/* Accept suggestion = AI pick only. Confirm = whatever is in the Cantara category dropdown. */}
                             {(() => {
                               const payload = flag?.payload ?? item.payload ?? {}
-                              const conf = typeof payload?.mappingConfidence === 'number' ? payload.mappingConfidence : typeof payload?.confidence === 'number' ? payload.confidence : typeof payload?.mappingConfidencePct === 'number' ? payload.mappingConfidencePct / 100 : null
-                              const suggested = typeof payload?.suggestedCode === 'string' ? payload.suggestedCode : typeof payload?.candidateCodes?.[0] === 'string' ? payload.candidateCodes[0] : null
-                              if (conf !== null && conf >= 0.5 && suggested) {
-                                const suggestedEntry = CANTARA_TAXONOMY.find(e => e.code === suggested)
-                                const suggestedLabel = suggestedEntry ? suggestedEntry.code.split('-').pop() ?? suggestedEntry.code : suggested
+                              const conf = typeof payload?.mappingConfidence === 'number'
+                                ? payload.mappingConfidence
+                                : typeof payload?.confidence === 'number'
+                                  ? payload.confidence
+                                  : typeof payload?.mappingConfidencePct === 'number'
+                                    ? payload.mappingConfidencePct / 100
+                                    : null
+                              const suggested = typeof payload?.suggestedCode === 'string'
+                                ? payload.suggestedCode
+                                : typeof payload?.candidateCodes?.[0] === 'string'
+                                  ? payload.candidateCodes[0]
+                                  : null
+                              const userPickedDifferent = Boolean(code && suggested && code !== suggested)
+                              // Only offer Accept when the dropdown still matches the AI suggestion.
+                              if (conf !== null && conf >= 0.5 && suggested && !userPickedDifferent) {
                                 const confPct = Math.round(conf * 100)
                                 return (
                                   <Button size="sm"
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                    className="bg-slate-800 hover:bg-slate-900 text-white"
                                     disabled={savingFlag === flagId}
                                     onClick={() => {
                                       setCodesByFlag(p => ({ ...p, [flagId]: suggested }))
                                       void submitAction(flagId, 'RESOLVE', { assignedCantaraCode: suggested })
                                     }}>
-                                    Accept: {suggestedLabel} ({confPct}%)
+                                    Accept suggestion: {cantaraLabel(suggested)} ({confPct}%)
                                   </Button>
                                 )
                               }
@@ -464,7 +580,8 @@ export function AdminReviewDashboard({
                             <Button size="sm" variant="outline" disabled={savingFlag === flagId || !isCodeValid}
                               className="h-8 font-medium gap-1.5"
                               onClick={() => void submitAction(flagId, 'RESOLVE', { assignedCantaraCode: code })}>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Confirm
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              {isCodeValid ? `Confirm: ${cantaraLabel(code)}` : 'Confirm'}
                             </Button>
                             <Button size="sm" variant="outline" disabled={savingFlag === flagId}
                               className="h-8 font-medium text-slate-600 hover:text-rose-700 hover:border-rose-200 hover:bg-rose-50/60 transition-colors"
@@ -483,7 +600,8 @@ export function AdminReviewDashboard({
                             <Button size="sm" variant="outline" disabled={savingFlag === flagId}
                               className="h-8 font-medium gap-1.5"
                               onClick={() => void submitAction(flagId, 'RESOLVE')}>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Acknowledge
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              {savingFlag === flagId ? 'Acknowledging…' : 'Acknowledge'}
                             </Button>
                             <Button size="sm" variant="outline" disabled={savingFlag === flagId}
                               className="h-8 font-medium border-amber-200 bg-amber-50/70 text-amber-800 hover:bg-amber-100 hover:border-amber-300 transition-colors gap-1.5"

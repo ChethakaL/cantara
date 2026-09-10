@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
+import { hasOpenAiConfigured } from '@/lib/openai-client';
 
 type WebsiteResearchRequest = {
   websiteUrl?: string | null;
@@ -17,15 +18,14 @@ export async function POST(req: NextRequest) {
     if (!businessName || !websiteUrl) {
       return NextResponse.json(
         { error: 'businessName and websiteUrl are required.' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const tavilyApiKey = process.env.TAVILY_API_KEY;
-    if (!tavilyApiKey) {
+    if (!(await hasOpenAiConfigured())) {
       return NextResponse.json(
-        { error: 'TAVILY_API_KEY is not configured.' },
-        { status: 500 }
+        { error: 'OpenAI API key is not configured in Settings.' },
+        { status: 500 },
       );
     }
 
@@ -33,7 +33,6 @@ export async function POST(req: NextRequest) {
       websiteUrl,
       businessName,
       businessCategory,
-      tavilyApiKey,
     });
 
     return NextResponse.json({
@@ -50,7 +49,7 @@ export async function POST(req: NextRequest) {
     console.error('[WebsiteResearch API] request failed:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal Server Error' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

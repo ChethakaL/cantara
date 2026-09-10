@@ -156,12 +156,10 @@ export async function POST(req: NextRequest) {
     if (!resolvedSellerWebsite) return new Response('Seller website URL is required', { status: 400 })
     if (competitorInputs.length !== 5) return new Response('Exactly 5 competitor names and websites are required', { status: 400 })
 
-    const tavilyApiKey = process.env.TAVILY_API_KEY
     const sellerPricingResearch = await researchWebsite({
       websiteUrl: resolvedSellerWebsite,
       businessName: clientProfile.businessName,
       businessCategory: clientProfile.businessCategory || 'pet resort',
-      tavilyApiKey,
     })
     const manualSellerEvidence = String(sellerManualPricingText || existing.competitorPricingInputs?.sellerManualPricingText || '').trim()
     const sellerResearchWithManual = manualSellerEvidence
@@ -178,7 +176,6 @@ export async function POST(req: NextRequest) {
         websiteUrl: competitor.websiteUrl,
         businessName: competitor.name,
         businessCategory: clientProfile.businessCategory || 'pet resort',
-        tavilyApiKey,
       }),
     })))
 

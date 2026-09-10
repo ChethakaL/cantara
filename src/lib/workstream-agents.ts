@@ -12,17 +12,17 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
   ws1: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: ['monthly_pl_excel', 'monthly_bs_excel', 'accountant_statements'] },
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
-    { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts'] },
+    { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['key_employee_contracts', 'employee_handbook', 'non_compete_agreements', 'employee_benefits_summary', 'offer_letters', 'severance_agreements', 'retirement_plan_docs', 'pto_accrual_ledger', 'workers_comp_claims_24m'] },
     { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: ['employee_list'] },
     { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
     { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] },
     { agentId: 'legal_entity_search', agentName: 'Legal Reports & Entity Search Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure', 'business_licenses'] },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
-    { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: [] },
-    { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: [] },
+    { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: ['material_contracts'] },
+    { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: ['org_chart'] },
     { agentId: 'owner_gm_assessment', agentName: 'Owner & GM Assessment Agent', documentIds: ['employee_list', 'org_chart', 'sop_manual'] },
-    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
-    { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
+    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
+    { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'kennel_license', 'health_permit', 'fire_permit', 'zoning_approval', 'certificate_occupancy', 'conditional_use_permit', 'signage_permit', 'building_permits', 'environmental_permits', 'variance_approvals'] },
     { agentId: 'real_estate_appraisal', agentName: 'Real Estate Appraisal Agent', documentIds: ['real_estate_appraisal'] },
     { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: [] },
     { agentId: 'tax_liability_review', agentName: 'Tax Liability Review Agent', documentIds: ['tax_returns_3yr', 'irs_941_940_3yr', 'contractor_1099_agreements', 'sales_use_tax_3yr', 'irs_tax_notices_3yr'] },
@@ -48,7 +48,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'teaser', agentName: 'Deal Teaser Generator Agent', documentIds: [] },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
     { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent', documentIds: [] },
-    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
+    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
     { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
   ],
   both: [],
@@ -182,4 +182,43 @@ export function agentLookupKeys(agentId: string): string[] {
     return ['sales_readiness_roadmap', 'salesReadinessRoadmap', 'ws1_roadmap', 'ws1Roadmap', 'ws2_roadmap', 'ws2Roadmap']
   }
   return Array.from(new Set([agentId, key]))
+}
+
+/** Canonical OV checklist — keeps Agent Status aligned with portal even when ClientWorkstreamAgents is stale. */
+export const OWNERSHIP_VERIFICATION_DOCUMENT_IDS = [
+  'articles_org',
+  'shareholder_agreement',
+  'operating_agreement_bylaws',
+  'org_document_amendments',
+  'good_standing_certificate',
+  'annual_reports',
+] as const
+
+/** Canonical Permits & Zoning checklist — aligned with portal optional docs + agent UI slots. */
+export const PERMITS_ZONING_DOCUMENT_IDS = [
+  'business_licenses',
+  'kennel_license',
+  'health_permit',
+  'fire_permit',
+  'zoning_approval',
+  'certificate_occupancy',
+  'conditional_use_permit',
+  'signage_permit',
+  'building_permits',
+  'environmental_permits',
+  'variance_approvals',
+] as const
+
+/**
+ * Resolve document IDs used for Agent Status / readiness.
+ * Ownership Verification / Permits & Zoning always use the portal-aligned checklists.
+ */
+export function resolveAgentDocumentIds(agentId: string, stored?: string[] | null): string[] {
+  if (agentId === 'ownership_verification') {
+    return [...OWNERSHIP_VERIFICATION_DOCUMENT_IDS]
+  }
+  if (agentId === 'permits_zoning') {
+    return [...PERMITS_ZONING_DOCUMENT_IDS]
+  }
+  return Array.isArray(stored) ? stored : []
 }

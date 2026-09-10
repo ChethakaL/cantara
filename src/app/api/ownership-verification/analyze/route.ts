@@ -43,9 +43,11 @@ export async function POST(req: NextRequest) {
       modelId: requestedModelId,
     } = body
 
-    if (!documents || !Array.isArray(documents) || documents.length === 0) {
+    if ((!documents || !Array.isArray(documents) || documents.length === 0) && !body.allDocumentsUnavailable) {
       return new Response('No documents provided', { status: 400 })
     }
+
+    const docs = Array.isArray(documents) ? documents : []
 
     if (!clientName) {
       return new Response('Missing clientName', { status: 400 })
@@ -152,7 +154,7 @@ export async function POST(req: NextRequest) {
     // - XLSX -> pre-processed into a structured Markdown table
     // - PNG -> passed as image block for visual analysis
     const contentBlocks = await Promise.all(
-      documents.map(async (doc: any) => {
+      docs.map(async (doc: any) => {
         const name: string = doc.name ?? ''
         const ext = name.toLowerCase()
 
@@ -252,10 +254,17 @@ export async function POST(req: NextRequest) {
 
     const userContent: any[] = [
       { type: 'text', text: contextBlock },
-      ...contentBlocks,
+      ...(docs.length === 0
+        ? [{
+            type: 'text' as const,
+            text: `NO corporate/ownership documents were provided for ${clientName}. The seller/admin marked every Ownership Verification checklist item as unavailable (No). Produce the full Corporate Ownership Verification Report noting that each expected document type was not provided, flag coverage gaps, and do not invent ownership details.`,
+          }]
+        : contentBlocks),
       {
         type: 'text',
-        text: `Please analyze the ${documents.length} corporate/ownership document(s) above for ${clientName}. Produce the full Corporate Ownership Verification Report as specified in your instructions. Document names: ${documents.map((d: any) => d.name).join(', ')}`,
+        text: docs.length === 0
+          ? `Please produce the Corporate Ownership Verification Report for ${clientName} based on the absence of documents noted above.`
+          : `Please analyze the ${docs.length} corporate/ownership document(s) above for ${clientName}. Produce the full Corporate Ownership Verification Report as specified in your instructions. Document names: ${docs.map((d: any) => d.name).join(', ')}`,
       },
     ]
 

@@ -11,6 +11,7 @@ interface DrivePickerFolder {
   id: string
   name: string
   url: string
+  source?: 'myDrive' | 'shared' | 'sharedDrive'
 }
 
 interface Props {
@@ -750,7 +751,7 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
                   onClick={() => void loadDriveFolders(null, [])}
                   className={cn('font-medium hover:text-amber-700', drivePickerPath.length === 0 ? 'text-slate-800' : 'text-slate-500')}
                 >
-                  My Drive
+                  Google Drive
                 </button>
                 {drivePickerPath.map((folder, index) => (
                   <span key={folder.id} className="inline-flex items-center gap-2">
@@ -786,6 +787,12 @@ export default function MondayLinker({ clientId, clientName, reportType, fileUrl
                       >
                         <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
                         <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                        {folder.source === 'shared' && (
+                          <span className="rounded border border-sky-100 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700">Shared</span>
+                        )}
+                        {folder.source === 'sharedDrive' && (
+                          <span className="rounded border border-violet-100 bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">Shared drive</span>
+                        )}
                         <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
                       </button>
                     ))}

@@ -546,6 +546,7 @@ export default function ClientApprovedAgentOutput({
           dba={client.dba || undefined}
           totalEmployeesSelfReported={client.totalEmployeesSelfReported ?? undefined}
           employmentTypeBreakdown={client.employmentTypeBreakdown ?? undefined}
+          documentStatuses={client.documentStatuses}
           readOnly
         />,
       )
@@ -573,10 +574,29 @@ export default function ClientApprovedAgentOutput({
       return frame(<OwnerGmAssessmentTab clientId={clientId} clientName={clientName} readOnly />)
 
     case 'ownershipVerification':
-      return frame(<OwnershipVerificationTab clientId={clientId} clientName={clientName} readOnly />)
+      return frame(
+        <OwnershipVerificationTab
+          clientId={clientId}
+          clientName={clientName}
+          state={client.state || undefined}
+          dba={client.dba || undefined}
+          documentStatuses={client.documentStatuses}
+          readOnly
+        />,
+      )
 
     case 'permitsZoning':
-      return frame(<PermitsZoningTab clientId={clientId} clientName={clientName} readOnly />)
+      return frame(
+        <PermitsZoningTab
+          clientId={clientId}
+          clientName={clientName}
+          state={client.state || undefined}
+          dba={client.dba || undefined}
+          propertyAddress={client.businessAddress || undefined}
+          documentStatuses={client.documentStatuses}
+          readOnly
+        />,
+      )
 
     case 'professionalAdvisors':
       return frame(<ProfessionalAdvisorsTab clientId={clientId} clientName={clientName} readOnly />)

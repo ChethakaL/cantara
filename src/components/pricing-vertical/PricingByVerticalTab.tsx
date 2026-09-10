@@ -97,6 +97,12 @@ export default function PricingByVerticalTab({
   readOnly?: boolean
 }) {
   const [file, setFile] = useState<File | null>(null)
+  const [uploadedDocs, setUploadedDocs] = useState<Array<{
+    id: string
+    fileName: string
+    documentId: string
+    uploadedAt?: string
+  }>>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<PricingVerticalReport | null>(null)
@@ -115,6 +121,36 @@ export default function PricingByVerticalTab({
     reload: reloadRuns,
     loading: loadingRuns,
   } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.pricingVertical)
+
+  const loadUploadedPricingDocs = useCallback(async () => {
+    try {
+      const docIds = ['pricing_schedule', 'revenue_breakdown']
+      const results = await Promise.all(
+        docIds.map(async documentId => {
+          const res = await fetch(
+            `/api/client-documents?clientId=${encodeURIComponent(clientId)}&documentId=${encodeURIComponent(documentId)}&all=true`,
+            { cache: 'no-store' },
+          )
+          if (!res.ok) return [] as Array<{ id: string; fileName: string; uploadedAt?: string }>
+          const data = await res.json()
+          const docs = Array.isArray(data?.documents) ? data.documents : []
+          return docs.map((doc: { id: string; fileName: string; uploadedAt?: string }) => ({
+            id: doc.id,
+            fileName: doc.fileName,
+            documentId,
+            uploadedAt: doc.uploadedAt,
+          }))
+        }),
+      )
+      setUploadedDocs(results.flat())
+    } catch {
+      /* ignore */
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    void loadUploadedPricingDocs()
+  }, [loadUploadedPricingDocs])
 
   useEffect(() => {
     if (!readOnly) return
@@ -995,9 +1031,46 @@ export default function PricingByVerticalTab({
           Scrape current website prices, then build an editable 24-month price grid for {clientName}
         </p>
         <p className="text-xs text-slate-400 mt-1">
-          Optional upload can add historical rate-card evidence. Internal WS2-3 data may inform the model but is not shown as revenue mix in this report.
+          Files uploaded under Current Pricing Schedule / revenue docs in the Documents tab are used automatically. You can optionally add another rate-card file below.
         </p>
       </div>
+
+      {uploadedDocs.length > 0 && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Uploaded from Documents ({uploadedDocs.length})
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadUploadedPricingDocs()}
+              className="text-xs font-medium text-amber-700 hover:text-amber-800"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="space-y-2">
+            {uploadedDocs.map(doc => (
+              <div
+                key={doc.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2.5"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="w-4 h-4 flex-shrink-0 text-emerald-600" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-700 truncate">{doc.fileName}</p>
+                    <p className="text-[11px] text-slate-400">
+                      {doc.documentId === 'pricing_schedule' ? 'Current Pricing Schedule' : 'Revenue breakdown'}
+                      {doc.uploadedAt ? ` · ${new Date(doc.uploadedAt).toLocaleDateString()}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <Badge color="green">Will be used</Badge>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Business Website</label>
@@ -1035,7 +1108,11 @@ export default function PricingByVerticalTab({
           <div className="flex flex-col items-center gap-2">
             <Upload className="w-8 h-8 text-slate-300" />
             <p className="text-sm text-slate-500">
-              {isDragActive ? 'Drop file here...' : 'Drag & drop pricing history, or click to browse'}
+              {isDragActive
+                ? 'Drop file here...'
+                : uploadedDocs.length > 0
+                  ? 'Optional: drag & drop another pricing file'
+                  : 'Drag & drop pricing history, or click to browse'}
             </p>
             <p className="text-xs text-slate-400">Optional PDF, PNG, or JPG</p>
           </div>

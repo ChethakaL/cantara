@@ -1,11 +1,13 @@
 'use client'
 import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, X, Loader, Plus } from 'lucide-react'
-import { Button } from '@/components/ui'
+import { Upload, FileText, X, RefreshCw } from 'lucide-react'
+import { Button, Card, Badge, cn } from '@/components/ui'
 import { LeaseDocument } from '../../lib/lease-analysis/types'
 import { AgentModelProviderSelect } from '@/components/admin/AgentModelProviderSelect'
 import type { AgentAiProvider } from '@/lib/agent-model-provider'
+import type { ClientUploadedDoc } from '@/lib/client-documents-client'
+import { isPdfFileName } from '@/lib/client-documents-client'
 
 interface Props {
   documents: LeaseDocument[]
@@ -15,9 +17,25 @@ interface Props {
   onAnalyze: () => void
   provider: AgentAiProvider
   onProviderChange: (provider: AgentAiProvider) => void
+  uploadedFromDocuments?: ClientUploadedDoc[]
+  onRefreshDocuments?: () => void
+  onUseUploadedDocument?: (doc: ClientUploadedDoc) => void
+  loadingUploadedId?: string | null
 }
 
-export function LeaseUploader({ documents, addDocuments, removeDocument, status, onAnalyze, provider, onProviderChange }: Props) {
+export function LeaseUploader({
+  documents,
+  addDocuments,
+  removeDocument,
+  status,
+  onAnalyze,
+  provider,
+  onProviderChange,
+  uploadedFromDocuments = [],
+  onRefreshDocuments,
+  onUseUploadedDocument,
+  loadingUploadedId = null,
+}: Props) {
   const onDrop = useCallback((files: File[]) => {
     addDocuments(files)
   }, [addDocuments])
@@ -45,6 +63,69 @@ export function LeaseUploader({ documents, addDocuments, removeDocument, status,
         onChange={onProviderChange}
         disabled={status !== 'idle' && status !== 'error'}
       />
+      {uploadedFromDocuments.length > 0 && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Uploaded from Documents ({uploadedFromDocuments.length})
+            </p>
+            {onRefreshDocuments && (
+              <button
+                type="button"
+                onClick={onRefreshDocuments}
+                className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-800"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Refresh
+              </button>
+            )}
+          </div>
+          <div className="space-y-2">
+            {uploadedFromDocuments.map(doc => {
+              const isPdf = isPdfFileName(doc.fileName)
+              const alreadyQueued = documents.some(item => item.name === doc.fileName)
+              const loading = loadingUploadedId === doc.id
+              return (
+                <div
+                  key={doc.id}
+                  className={cn(
+                    'w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5',
+                    alreadyQueued ? 'border-emerald-300 bg-emerald-50/60' : 'border-slate-200 bg-white',
+                  )}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className={cn('w-4 h-4 flex-shrink-0', alreadyQueued ? 'text-emerald-600' : 'text-slate-400')} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700 truncate">{doc.fileName}</p>
+                      {doc.uploadedAt && (
+                        <p className="text-[11px] text-slate-400">
+                          Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {alreadyQueued ? (
+                    <Badge color="green">In queue</Badge>
+                  ) : isPdf ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={(status !== 'idle' && status !== 'error') || loading || !onUseUploadedDocument}
+                      onClick={() => onUseUploadedDocument?.(doc)}
+                    >
+                      {loading ? 'Adding…' : 'Add'}
+                    </Button>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">PDF only</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
       <div
         {...getRootProps()}
         className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all ${

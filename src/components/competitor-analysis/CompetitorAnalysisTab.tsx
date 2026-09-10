@@ -1179,7 +1179,23 @@ function ReportView({
       {/* Google Review Comparison Chart */}
       {report.competitors.length > 0 && (
         <Card className="p-5 space-y-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Google Review Comparison</p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Google Review Comparison</p>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: 'linear-gradient(90deg, #b8922a, #d4a843)' }} />
+                Gold = your business
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+                Red = rating ≥ yours
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                Green = rating below yours
+              </span>
+            </div>
+          </div>
           <div className="space-y-3">
             {/* Subject business */}
             <div className="flex items-center gap-3">
@@ -1326,6 +1342,9 @@ function ReportView({
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Competitor Profiles</p>
             <p className="text-sm text-slate-500 mt-1">Detailed readout for each nearby competitor that was analyzed.</p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Similarity badges: red = high (direct substitute), gold = medium, blue = low.
+            </p>
           </div>
           {report.competitors.map((competitor, index) => (
             <CompetitorCard key={competitor.placeId ?? `${competitor.name}-${index}`} competitor={competitor} index={index} />
@@ -1467,26 +1486,45 @@ export default function CompetitorAnalysisTab({
           const pricingInputs = await pricingInputsRes.json();
           if (!cancelled && pricingInputs?.competitors?.length) {
             setForm((current) => {
-              const fromClientPortal = (pricingInputs.competitors as Array<{ name?: string; websiteUrl?: string }>)
+              const fromClientPortal = (pricingInputs.competitors as Array<{
+                name?: string
+                websiteUrl?: string
+                address?: string
+              }>)
                 .map((competitor): ManualCompetitorEntry => ({
                   name: competitor.name?.trim() || '',
-                  address: '',
+                  address: competitor.address?.trim() || '',
                   websiteUrl: competitor.websiteUrl?.trim() || '',
                 }))
-                .filter(item => item.name || item.websiteUrl)
+                .filter(item => item.name || item.websiteUrl || item.address)
                 .slice(0, 5)
               if (!fromClientPortal.length) return current
               const existing = current.manualCompetitors ?? []
-              const merged = [...fromClientPortal]
+              const merged = fromClientPortal.map((entry) => {
+                const match = existing.find(item =>
+                  item.name.trim().toLowerCase() === entry.name.trim().toLowerCase()
+                  || (item.websiteUrl && entry.websiteUrl && item.websiteUrl === entry.websiteUrl),
+                )
+                return {
+                  name: entry.name || match?.name || '',
+                  websiteUrl: entry.websiteUrl || match?.websiteUrl || '',
+                  // Prefer Required Info / pricing-input address; keep any richer address already on the form.
+                  address: entry.address || match?.address || '',
+                }
+              })
               for (const entry of existing) {
                 if (merged.length >= 5) break
-                if (!merged.some(item => item.name.toLowerCase() === entry.name.toLowerCase() && item.websiteUrl === entry.websiteUrl)) {
+                if (!merged.some(item =>
+                  item.name.toLowerCase() === entry.name.toLowerCase()
+                  && item.websiteUrl === entry.websiteUrl
+                )) {
                   merged.push(entry)
                 }
               }
               return {
                 ...current,
                 websiteUrl: current.websiteUrl || pricingInputs.sellerWebsiteUrl || '',
+                businessAddress: current.businessAddress || pricingInputs.businessAddress || '',
                 manualCompetitors: merged.slice(0, 5),
               }
             })
@@ -1666,8 +1704,9 @@ export default function CompetitorAnalysisTab({
             businessName: report.businessName,
             businessAddress: report.businessAddress,
             businessCategory: report.businessCategory,
-            websiteUrl: report.clientProfile.websiteUrl ?? undefined,
+            websiteUrl: report.clientProfile.websiteUrl ?? form.websiteUrl ?? undefined,
             radiusMiles: report.radiusMiles,
+            manualCompetitors: form.manualCompetitors ?? [],
           },
           subject: report.clientProfile,
           competitor,

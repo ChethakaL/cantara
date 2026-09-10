@@ -53,7 +53,6 @@ export async function POST(req: NextRequest) {
   };
 
   const googleApiKey = process.env.GOOGLE_SERVICES_API;
-  const tavilyApiKey = process.env.TAVILY_API_KEY;
   const aiConfigured =
     provider === 'openai' ? await hasOpenAiConfigured() : await hasAIConfigured();
 
@@ -170,7 +169,6 @@ export async function POST(req: NextRequest) {
           websiteUrl: subjectLookup.subject.websiteUrl ?? formData.websiteUrl ?? null,
           businessName: formData.businessName,
           businessCategory: resolvedCategory,
-          tavilyApiKey,
         });
 
         const competitorWebsiteEntries = await Promise.all(
@@ -180,7 +178,6 @@ export async function POST(req: NextRequest) {
               websiteUrl: competitor.websiteUrl,
               businessName: competitor.name,
               businessCategory: resolvedCategory,
-              tavilyApiKey,
             }),
           ] as const)
         );
