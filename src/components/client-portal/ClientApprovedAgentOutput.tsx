@@ -38,6 +38,7 @@ import { exportSaleReadinessChecklistExcel, type SaleReadinessChecklistItem } fr
 import { buildClientReleasedRoadmapMarkdown } from '@/lib/roadmap-flag-items'
 import { Ws2WorkbookView } from '@/components/ttm-agent/Ws2WorkbookView'
 import DigitalPresenceScorecard from '@/components/digital-presence/DigitalPresenceScorecard'
+import type { DocumentStatus } from '@/lib/store'
 
 export type ClientApprovedClient = {
   id: string
@@ -51,6 +52,7 @@ export type ClientApprovedClient = {
   totalEmployeesSelfReported?: number | string | null
   employmentTypeBreakdown?: string | null
   propertyOwnership?: 'lease' | 'owns' | '' | null
+  documentStatuses?: Record<string, DocumentStatus>
 }
 
 type ClientApprovedAgentOutputProps = {
