@@ -27,6 +27,7 @@ import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
 import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
 import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
 import { useAgentReportRuns } from '@/hooks/useAgentReportRuns'
+import type { DocumentStatus } from '@/lib/store'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PREMIUM UI COMPONENTS: Modal & Toast
@@ -421,6 +422,7 @@ interface OwnershipVerificationTabProps extends AgentTabReadOnlyProps {
   state?: string
   dba?: string
   entityType?: string
+  documentStatuses?: Record<string, DocumentStatus>
 }
 
 type ReviewMetadata = {
@@ -435,6 +437,7 @@ export default function OwnershipVerificationTab({
   state,
   dba,
   entityType,
+  documentStatuses,
   readOnly = false,
 }: OwnershipVerificationTabProps) {
   const [savedReport, setSavedReport] = useState<WS18Persistence | null>(null)
@@ -447,6 +450,7 @@ export default function OwnershipVerificationTab({
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<WS18Report | null>(null)
   const [savingMarkdown, setSavingMarkdown] = useState(false)
+  const [slotAvailability, setSlotAvailability] = useState<Record<string, boolean>>({})
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
   const { historyItems, activeRun, activeId, setActiveId, reload, loading: loadingReport } = useAgentReportRuns(
@@ -686,7 +690,21 @@ export default function OwnershipVerificationTab({
             {!readOnly && (
               <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isRunning} className="mb-6" />
             )}
-            <WS18Uploader clientId={clientId} onDocumentsReady={setDocuments} onAnalyze={() => analyze(provider)} isLoading={isRunning} />
+            <WS18Uploader
+              clientId={clientId}
+              documentStatuses={documentStatuses}
+              onDocumentsReady={setDocuments}
+              onAvailabilityReady={setSlotAvailability}
+              onAnalyze={() =>
+                analyze(provider, {
+                  allDocumentsUnavailable:
+                    documents.length === 0 &&
+                    Object.keys(slotAvailability).length > 0 &&
+                    Object.values(slotAvailability).every(v => v === false),
+                })
+              }
+              isLoading={isRunning}
+            />
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
           </Card>
         </div>

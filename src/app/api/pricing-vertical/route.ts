@@ -128,21 +128,13 @@ export async function POST(req: NextRequest) {
     }
 
     const websiteUrl = (websiteUrlOverride || clientProfile.websiteUrl || '').trim()
-    const websiteResearch = websiteUrl && process.env.TAVILY_API_KEY
+    const websiteResearch = websiteUrl
       ? await researchWebsite({
           websiteUrl,
           businessName: clientProfile.businessName,
           businessCategory: clientProfile.businessCategory || 'pet resort',
-          tavilyApiKey: process.env.TAVILY_API_KEY,
         })
-      : websiteUrl
-        ? await researchWebsite({
-            websiteUrl,
-            businessName: clientProfile.businessName,
-            businessCategory: clientProfile.businessCategory || 'pet resort',
-            tavilyApiKey: null,
-          })
-        : null
+      : null
     const documentEvidence = await collectPricingDocumentEvidence(clientId)
 
     const provider = parseAnalyzeProvider(rawProvider)

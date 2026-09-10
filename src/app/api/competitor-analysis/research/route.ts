@@ -34,7 +34,6 @@ export async function POST(req: NextRequest) {
     }
 
     const googleApiKey = process.env.GOOGLE_SERVICES_API;
-    const tavilyApiKey = process.env.TAVILY_API_KEY;
 
     const aiConfigured =
       provider === 'openai' ? await hasOpenAiConfigured() : await hasAIConfigured();
@@ -52,18 +51,39 @@ export async function POST(req: NextRequest) {
       distanceMiles: body.competitor.distanceMiles,
     };
 
+    // Prefer Google Places / subject profile URL; fall back to Required Info / form website.
+    const subjectWebsiteUrl =
+      body.subject.websiteUrl
+      ?? body.formData.websiteUrl
+      ?? null;
+
+    // Prefer Places website; fall back to a Required Info / top-competitors match by name.
+    const manualMatch = (body.formData.manualCompetitors ?? []).find((entry) => {
+      const entryName = entry.name?.trim().toLowerCase();
+      const competitorName = competitor.name.trim().toLowerCase();
+      return Boolean(entryName) && entryName === competitorName;
+    });
+    const competitorWebsiteUrl =
+      competitor.websiteUrl
+      || manualMatch?.websiteUrl
+      || null;
+    if (!competitor.websiteUrl && competitorWebsiteUrl) {
+      competitor.websiteUrl = competitorWebsiteUrl;
+    }
+    if ((!competitor.address || !competitor.address.trim()) && manualMatch?.address?.trim()) {
+      competitor.address = manualMatch.address.trim();
+    }
+
     const subjectWebsiteResearch = await researchWebsite({
-      websiteUrl: body.subject.websiteUrl ?? body.formData.websiteUrl ?? null,
+      websiteUrl: subjectWebsiteUrl,
       businessName: body.formData.businessName,
       businessCategory: body.formData.businessCategory,
-      tavilyApiKey,
     });
 
     const competitorWebsiteResearch = await researchWebsite({
-      websiteUrl: competitor.websiteUrl,
+      websiteUrl: competitorWebsiteUrl,
       businessName: competitor.name,
       businessCategory: body.formData.businessCategory,
-      tavilyApiKey,
     });
 
     const researchedCompetitor: CompetitorReportItem = await buildSingleCompetitorReport({

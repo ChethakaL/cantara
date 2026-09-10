@@ -7,7 +7,7 @@ import {
   DollarSign, Clock, Building2, AlertTriangle, CheckCircle,
   FileSpreadsheet, Type, PenLine,
 } from 'lucide-react'
-import { Card, cn } from '@/components/ui'
+import { Card, Badge, cn } from '@/components/ui'
 import type { EmployeeCompRow, EmployeeCompReport } from '@/lib/employee-comp/analyze'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { buildEmployeeCompReportHtml } from '@/lib/report-export/build-employee-comp-report'
@@ -20,6 +20,14 @@ import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
 import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
 import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
+import {
+  fetchClientDocumentFile,
+  isSupportedEmployeeCompFile,
+  listClientDocuments,
+  type ClientUploadedDoc,
+} from '@/lib/client-documents-client'
+
+const EMPLOYEE_LIST_DOCUMENT_ID = 'employee_list'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -206,6 +214,8 @@ export default function EmployeeCompTab({
   const [employees, setEmployees] = useState<EmployeeCompRow[]>([])
   const [hasData, setHasData] = useState(false)
   const [hydrated, setHydrated] = useState(false)
+  const [uploadedDocs, setUploadedDocs] = useState<ClientUploadedDoc[]>([])
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const { provider, setProvider } = useAgentAiProvider()
   const {
     runs,
@@ -216,6 +226,27 @@ export default function EmployeeCompTab({
     reload: reloadRuns,
     loading: loadingRuns,
   } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.employeeComp)
+
+  const selectedUploadedDoc = uploadedDocs.find(doc => doc.id === selectedDocId) ?? uploadedDocs[0] ?? null
+  const canAnalyzeUpload = Boolean(file || (selectedUploadedDoc && isSupportedEmployeeCompFile(selectedUploadedDoc.fileName)))
+
+  const loadUploadedEmployeeDocs = useCallback(async () => {
+    try {
+      const docs = await listClientDocuments(clientId, [EMPLOYEE_LIST_DOCUMENT_ID])
+      setUploadedDocs(docs)
+      setSelectedDocId(current => {
+        if (current && docs.some(doc => doc.id === current)) return current
+        const preferred = docs.find(doc => isSupportedEmployeeCompFile(doc.fileName)) ?? docs[0]
+        return preferred?.id ?? null
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    void loadUploadedEmployeeDocs()
+  }, [loadUploadedEmployeeDocs])
 
   // Load saved data on mount
   useEffect(() => {
@@ -262,6 +293,7 @@ export default function EmployeeCompTab({
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) {
       setFile(accepted[0])
+      setSelectedDocId(null)
       setError(null)
     }
   }, [])
@@ -273,16 +305,33 @@ export default function EmployeeCompTab({
     multiple: false,
   })
 
+  const resolveAnalysisFile = async (): Promise<File> => {
+    if (file) return file
+    if (!selectedUploadedDoc) throw new Error('Please upload or select an employee list first')
+    if (!isSupportedEmployeeCompFile(selectedUploadedDoc.fileName)) {
+      throw new Error('This file type is not supported for analysis. Use PDF, Excel, CSV, or an image — .numbers files are not supported.')
+    }
+    return fetchClientDocumentFile({
+      clientId,
+      documentId: selectedUploadedDoc.documentId,
+      recordId: selectedUploadedDoc.id,
+      fileName: selectedUploadedDoc.fileName,
+      mimeType: selectedUploadedDoc.mimeType,
+    })
+  }
+
   // ── Analyze ─────────────────────────────────────────────────────────────
   const handleAnalyze = async () => {
     setAnalyzing(true)
     setError(null)
     try {
       let res: Response
+      let analysisFileName = 'Employee Compensation'
       if (mode === 'upload') {
-        if (!file) throw new Error('Please upload a file first')
+        const analysisFile = await resolveAnalysisFile()
+        analysisFileName = analysisFile.name
         const formData = new FormData()
-        formData.append('file', file)
+        formData.append('file', analysisFile)
         formData.append('provider', provider)
         formData.append('modelId', resolveAgentModelId(provider))
         res = await fetch('/api/employee-comp/analyze', { method: 'POST', body: formData })
@@ -316,8 +365,9 @@ export default function EmployeeCompTab({
         await saveAgentAnalysisRunClient({
           clientId,
           agentKey: AGENT_RUN_KEYS.employeeComp,
-          fileName: `${clientName} — Employee Compensation`,
+          fileName: `${clientName} — ${analysisFileName}`,
           report: data,
+          documentNames: [analysisFileName],
           aiProvider: provider,
           aiModel: resolveAgentModelId(provider),
         })
@@ -496,6 +546,68 @@ export default function EmployeeCompTab({
           {/* Upload mode */}
           {mode === 'upload' && (
             <div className="space-y-4">
+              {uploadedDocs.length > 0 && (
+                <Card className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Uploaded from Documents ({uploadedDocs.length})
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void loadUploadedEmployeeDocs()}
+                      className="text-xs font-medium text-amber-700 hover:text-amber-800"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {uploadedDocs.map(doc => {
+                      const supported = isSupportedEmployeeCompFile(doc.fileName)
+                      const selected = !file && (selectedDocId ?? uploadedDocs[0]?.id) === doc.id
+                      return (
+                        <button
+                          key={doc.id}
+                          type="button"
+                          disabled={!supported}
+                          onClick={() => {
+                            if (!supported) return
+                            setFile(null)
+                            setSelectedDocId(doc.id)
+                            setError(null)
+                          }}
+                          className={cn(
+                            'w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors',
+                            selected
+                              ? 'border-emerald-300 bg-emerald-50/60'
+                              : supported
+                                ? 'border-slate-200 bg-white hover:border-slate-300'
+                                : 'border-slate-100 bg-slate-50 opacity-70 cursor-not-allowed',
+                          )}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className={cn('w-4 h-4 flex-shrink-0', selected ? 'text-emerald-600' : 'text-slate-400')} />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-slate-700 truncate">{doc.fileName}</p>
+                              {doc.uploadedAt && (
+                                <p className="text-[11px] text-slate-400">
+                                  Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
+                                </p>
+                              )}
+                              {!supported && (
+                                <p className="text-[11px] text-amber-700 mt-0.5">
+                                  .numbers and unsupported types cannot be analyzed — use the Excel version.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          {selected && supported && <Badge color="green">Selected</Badge>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </Card>
+              )}
+
               <div
                 {...getRootProps()}
                 className={cn(
@@ -569,12 +681,14 @@ export default function EmployeeCompTab({
             <div className="space-y-3">
               <button
               onClick={handleAnalyze}
-              disabled={(mode === 'upload' && !file) || (mode === 'paste' && !freeText.trim()) || analyzing}
+              disabled={(mode === 'upload' && !canAnalyzeUpload) || (mode === 'paste' && !freeText.trim()) || analyzing}
               className={cn(
                 'flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold transition-all w-full md:w-auto',
-                ((mode === 'upload' && file) || (mode === 'paste' && freeText.trim())) && !analyzing
-                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-sm'
-                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                analyzing
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-sm cursor-wait'
+                  : ((mode === 'upload' && canAnalyzeUpload) || (mode === 'paste' && freeText.trim()))
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-sm'
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'
               )}
             >
               {analyzing ? (

@@ -28,6 +28,7 @@ import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
 import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
 import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
 import { useAgentReportRuns } from '@/hooks/useAgentReportRuns'
+import type { DocumentStatus } from '@/lib/store'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PREMIUM UI COMPONENTS: Modal & Toast
@@ -459,6 +460,7 @@ interface EmployeeObligationsTabProps extends AgentTabReadOnlyProps {
   dba?: string
   totalEmployeesSelfReported?: number | string | null
   employmentTypeBreakdown?: string | null
+  documentStatuses?: Record<string, DocumentStatus>
 }
 
 type ReviewMetadata = {
@@ -474,6 +476,7 @@ export default function EmployeeObligationsTab({
   dba,
   totalEmployeesSelfReported,
   employmentTypeBreakdown,
+  documentStatuses,
   readOnly = false,
 }: EmployeeObligationsTabProps) {
   const [savedReport, setSavedReport] = useState<WS16Persistence | null>(null)
@@ -738,7 +741,13 @@ export default function EmployeeObligationsTab({
             {!readOnly && (
               <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isRunning} className="mb-6" />
             )}
-            <WS16Uploader clientId={clientId} onDocumentsReady={setDocuments} onAnalyze={() => analyze(provider)} isLoading={isRunning} />
+            <WS16Uploader
+              clientId={clientId}
+              documentStatuses={documentStatuses}
+              onDocumentsReady={setDocuments}
+              onAnalyze={() => analyze(provider)}
+              isLoading={isRunning}
+            />
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
           </Card>
         </div>

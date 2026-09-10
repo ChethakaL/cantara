@@ -926,6 +926,7 @@ export function TtmAnalysisTab({
                   analysis={activeAnalysis}
                   actorName={adminName}
                   onUpdated={handleUpdatedAnalysis}
+                  clientId={clientId}
                 />
               )}
               {!readOnly && canApproveWs21 && (

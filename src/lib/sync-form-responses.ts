@@ -121,6 +121,8 @@ export function syncStructuredToFormResponses(existing: Record<string, any>, cli
       cp.competitors.forEach((c: any, i: number) => {
         explicit[`competitor${i + 1}Name`] = c.name ?? ''
         explicit[`competitor${i + 1}Website`] = c.websiteUrl ?? ''
+        explicit[`competitor${i + 1}Address`] = c.address ?? ''
+        if (c.category) explicit[`competitor${i + 1}Category`] = c.category
       })
     }
   }

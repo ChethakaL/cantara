@@ -508,6 +508,8 @@ function buildMappingSection(
     documentId: "monthly_pl_excel" | "monthly_bs_excel";
     documentLabel: string;
     accountColumnIndex: number;
+    fileName?: string | null;
+    recordId?: string | null;
   },
 ) {
   return rows
@@ -526,6 +528,14 @@ function buildMappingSection(
       const confidencePct = Math.round(row.mappingConfidence * 1000) / 10;
       const sourceRow = row.rowIndex + 1;
       const sourceCol = toExcelColumnName(source.accountColumnIndex + 1);
+      const monthKeys = Object.keys(row.valuesByMonth)
+        .filter((key) => /^\d{4}-\d{2}$/.test(key))
+        .sort();
+      const monthCoverage = formatMonthCoverage(monthKeys);
+      const fileLabel = source.fileName?.trim() || source.documentLabel;
+      const documentDisplay = monthCoverage
+        ? `${fileLabel} · ${monthCoverage}`
+        : fileLabel;
       return {
         title: `Mapping request for ${row.accountName}`,
         // V3 Section 10: GL mapping confidence < 60% for a major account → HIGH SEVERITY
@@ -543,7 +553,12 @@ function buildMappingSection(
           mappingConfidence: row.mappingConfidence,
           mappingConfidencePct: confidencePct,
           sourceDocumentId: source.documentId,
-          sourceDocument: source.documentLabel,
+          sourceDocument: documentDisplay,
+          sourceDocumentLabel: source.documentLabel,
+          sourceFileName: source.fileName ?? null,
+          sourceDocumentRecordId: source.recordId ?? null,
+          sourceMonthKeys: monthKeys,
+          sourceMonthCoverage: monthCoverage,
           sourceSheet: row.sourceSheet,
           sourceRow,
           sourceCell: `${sourceCol}${sourceRow}`,
@@ -552,6 +567,20 @@ function buildMappingSection(
         },
       };
     });
+}
+
+function formatMonthKey(key: string): string {
+  const [year, month] = key.split("-");
+  const names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthIndex = Number(month) - 1;
+  if (!year || monthIndex < 0 || monthIndex > 11) return key;
+  return `${names[monthIndex]} ${year}`;
+}
+
+function formatMonthCoverage(monthKeys: string[]): string {
+  if (!monthKeys.length) return "";
+  if (monthKeys.length === 1) return formatMonthKey(monthKeys[0]);
+  return `${formatMonthKey(monthKeys[0])} – ${formatMonthKey(monthKeys[monthKeys.length - 1])} (${monthKeys.length} months)`;
 }
 
 function buildAccountantVarianceSection(args: {
@@ -710,6 +739,10 @@ export function reconcileFinancials(args: {
   mappedPlRows: MappedLedgerRow[];
   mappedBsRows: MappedLedgerRow[];
   accountantStatements: ParsedAccountantStatements;
+  sourceDocuments?: {
+    monthlyPl?: { fileName?: string | null; recordId?: string | null };
+    monthlyBs?: { fileName?: string | null; recordId?: string | null };
+  };
 }) {
   // Filter to only valid YYYY-MM month keys — exclude any non-date columns
   // that may have leaked from rollup/subtotal/year-total columns in F1/F2.
@@ -740,11 +773,15 @@ export function reconcileFinancials(args: {
         documentId: "monthly_pl_excel",
         documentLabel: "Monthly P&L Excel",
         accountColumnIndex: args.monthlyPl.accountColumnIndex,
+        fileName: args.sourceDocuments?.monthlyPl?.fileName,
+        recordId: args.sourceDocuments?.monthlyPl?.recordId,
       }),
       ...buildMappingSection(args.mappedBsRows, {
         documentId: "monthly_bs_excel",
         documentLabel: "Monthly Balance Sheet Excel",
         accountColumnIndex: args.monthlyBs.accountColumnIndex,
+        fileName: args.sourceDocuments?.monthlyBs?.fileName,
+        recordId: args.sourceDocuments?.monthlyBs?.recordId,
       }),
     ],
     B: [],

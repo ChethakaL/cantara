@@ -39,8 +39,11 @@ export function useWS18Analysis({ clientId, clientName, state, dba, entityType }
     setError(null)
   }, [])
 
-  const analyze = useCallback(async (provider: AgentAiProvider = 'bedrock') => {
-    if (documents.length === 0) return
+  const analyze = useCallback(async (
+    provider: AgentAiProvider = 'bedrock',
+    options?: { allDocumentsUnavailable?: boolean },
+  ) => {
+    if (documents.length === 0 && !options?.allDocumentsUnavailable) return
     setStatus('uploading')
     setRawMarkdown('')
     setError(null)
@@ -60,6 +63,7 @@ export function useWS18Analysis({ clientId, clientName, state, dba, entityType }
             base64: d.base64,
             mediaType: d.mediaType,
           })),
+          allDocumentsUnavailable: Boolean(options?.allDocumentsUnavailable && documents.length === 0),
           provider,
           modelId: resolveAgentModelId(provider),
         }),

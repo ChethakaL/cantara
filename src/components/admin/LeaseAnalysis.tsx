@@ -15,6 +15,13 @@ import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 import { AgentRunHistoryPanel } from '@/components/admin/AgentRunHistoryPanel'
 import { formatAgentProviderLabel } from '@/lib/agent-model-provider'
+import {
+  fetchClientDocumentFile,
+  listClientDocuments,
+  type ClientUploadedDoc,
+} from '@/lib/client-documents-client'
+
+const LEASES_DOCUMENT_ID = 'leases'
 
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
@@ -28,6 +35,8 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
   const [deleting, setDeleting] = useState(false)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
+  const [uploadedFromDocuments, setUploadedFromDocuments] = useState<ClientUploadedDoc[]>([])
+  const [loadingUploadedId, setLoadingUploadedId] = useState<string | null>(null)
   const { 
     documents: uploads, 
     addDocuments, 
@@ -42,6 +51,37 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
     setProvider,
     lastModelId,
   } = useLeaseAnalysis(clientId)
+
+  const loadUploadedLeases = useCallback(async () => {
+    try {
+      setUploadedFromDocuments(await listClientDocuments(clientId, [LEASES_DOCUMENT_ID]))
+    } catch {
+      /* ignore */
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    void loadUploadedLeases()
+  }, [loadUploadedLeases])
+
+  const handleUseUploadedDocument = useCallback(async (doc: ClientUploadedDoc) => {
+    setLoadingUploadedId(doc.id)
+    try {
+      const file = await fetchClientDocumentFile({
+        clientId,
+        documentId: doc.documentId,
+        recordId: doc.id,
+        fileName: doc.fileName,
+        mimeType: doc.mimeType,
+      })
+      await addDocuments([file])
+      setComposingNew(true)
+    } catch (err) {
+      console.error('Failed to load lease from Documents:', err)
+    } finally {
+      setLoadingUploadedId(null)
+    }
+  }, [addDocuments, clientId])
 
   const loadAnalyses = useCallback(async () => {
     const data = await getLeaseAnalyses(clientId)
@@ -120,7 +160,12 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
     ? uploads.map(d => d.name).join(', ')
     : activeAnalysis?.fileName || ''
 
-  const showUploader = !readOnly && status === 'idle' && (composingNew || analyses.length === 0 || uploads.length > 0)
+  const showUploader = !readOnly && status === 'idle' && (
+    composingNew
+    || analyses.length === 0
+    || uploads.length > 0
+    || uploadedFromDocuments.length > 0
+  )
   const showReport = Boolean(displayReport) && !composingNew
 
   const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, showReport, 'Lease Analysis')
@@ -185,6 +230,10 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
             onAnalyze={analyze}
             provider={provider}
             onProviderChange={setProvider}
+            uploadedFromDocuments={uploadedFromDocuments}
+            onRefreshDocuments={() => void loadUploadedLeases()}
+            onUseUploadedDocument={handleUseUploadedDocument}
+            loadingUploadedId={loadingUploadedId}
           />
           </div>
         ) : null}

@@ -26,6 +26,7 @@ interface DrivePickerFolder {
   id: string
   name: string
   url: string
+  source?: 'myDrive' | 'shared' | 'sharedDrive'
 }
 
 type DrivePickerMode = 'existing' | 'parent'
@@ -39,9 +40,14 @@ const WS_OPTIONS = [
 ]
 
 const ADVISOR_OPTIONS = [
-  { value: 'Craig', label: 'Craig', imageUrl: 'https://i.pravatar.cc/160?img=12' },
-  { value: 'Gabriela', label: 'Gabriela', imageUrl: 'https://i.pravatar.cc/160?img=47' },
+  { value: 'Craig', label: 'Craig' },
+  { value: 'Gabriela', label: 'Gabriela' },
 ]
+
+function isPlaceholderAdvisorImage(imageUrl?: string | null) {
+  if (!imageUrl?.trim()) return true
+  return /pravatar\.cc/i.test(imageUrl)
+}
 
 function advisorImageSrc(imageUrl: string) {
   if (imageUrl.startsWith('/api/advisor-images/')) return imageUrl
@@ -50,6 +56,23 @@ function advisorImageSrc(imageUrl: string) {
   return index >= 0
     ? `/api/advisor-images/upload?key=${encodeURIComponent(imageUrl.slice(index + 1))}`
     : imageUrl
+}
+
+function resolveAdvisorImageUrl(
+  name: string,
+  clientAdvisors: Array<{ name: string; imageUrl: string }>,
+  library: Record<string, string>,
+) {
+  const normalized = name.trim().toLowerCase()
+  const onClient = clientAdvisors.find(existing => existing.name.trim().toLowerCase() === normalized)
+  if (onClient?.imageUrl && !isPlaceholderAdvisorImage(onClient.imageUrl)) {
+    return advisorImageSrc(onClient.imageUrl)
+  }
+  const fromLibrary = library[normalized] || library[name.trim()]
+  if (fromLibrary && !isPlaceholderAdvisorImage(fromLibrary)) {
+    return advisorImageSrc(fromLibrary)
+  }
+  return ''
 }
 
 const STAGE_OPTIONS = [
@@ -99,42 +122,42 @@ const AGENT_CATALOG = [
   { id: 'competitor_analysis', name: 'Competitor Analysis Agent', defaultDocumentIds: [] },
   { id: 'teaser', name: 'Deal Teaser Generator Agent', defaultDocumentIds: [] },
   { id: 'digital_presence', name: 'Digital Presence Agent', defaultDocumentIds: [] },
-  { id: 'employee_obligations', name: 'Employee Obligations Agent', defaultDocumentIds: ['employee_list', 'key_employee_contracts'] },
+  { id: 'employee_obligations', name: 'Employee Obligations Agent', defaultDocumentIds: ['key_employee_contracts', 'employee_handbook', 'non_compete_agreements', 'employee_benefits_summary', 'offer_letters', 'severance_agreements', 'retirement_plan_docs', 'pto_accrual_ledger', 'workers_comp_claims_24m'] },
   { id: 'employee_comp', name: 'Employee Staffing & Compensation Agent', defaultDocumentIds: ['employee_list'] },
   { id: 'facility_review', name: 'Facility Review Agent', defaultDocumentIds: ['health_safety', 'violations'] },
   { id: 'insurance_review', name: 'Insurance Review Agent', defaultDocumentIds: ['insurance_policies', 'insurance_claims_12m'] },
   { id: 'lease_analysis', name: 'Lease Analysis Agent', defaultDocumentIds: ['leases'] },
   { id: 'litigation_search', name: 'Litigation & Liens Agent', defaultDocumentIds: ['litigation_search_docs', 'pending_litigation'] },
-  { id: 'contract_analysis', name: 'Material Contracts Agent', defaultDocumentIds: [] },
+  { id: 'contract_analysis', name: 'Material Contracts Agent', defaultDocumentIds: ['material_contracts'] },
   { id: 'meeting_notes', name: 'Meeting Notes Agent', defaultDocumentIds: ['meeting_notes'] },
   { id: 'net_proceeds', name: 'Net Proceeds Calculator Agent', defaultDocumentIds: [] },
-  { id: 'org_chart_review', name: 'Org Chart Review Agent', defaultDocumentIds: [] },
+  { id: 'org_chart_review', name: 'Org Chart Review Agent', defaultDocumentIds: ['org_chart'] },
   { id: 'owner_gm_assessment', name: 'Owner & GM Assessment Agent', defaultDocumentIds: ['employee_list', 'org_chart', 'sop_manual'] },
-  { id: 'ownership_verification', name: 'Ownership Verification Agent', defaultDocumentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
-  { id: 'permits_zoning', name: 'Permits & Zoning Agent', defaultDocumentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
+  { id: 'ownership_verification', name: 'Ownership Verification Agent', defaultDocumentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
+  { id: 'permits_zoning', name: 'Permits & Zoning Agent', defaultDocumentIds: ['business_licenses', 'kennel_license', 'health_permit', 'fire_permit', 'zoning_approval', 'certificate_occupancy', 'conditional_use_permit', 'signage_permit', 'building_permits', 'environmental_permits', 'variance_approvals'] },
   { id: 'pricing_vertical', name: 'Pricing by Vertical Agent', defaultDocumentIds: ['revenue_breakdown', 'pricing_schedule'] },
   { id: 'professional_advisors', name: 'Professional Advisors Agent', defaultDocumentIds: [] },
   { id: 'real_estate_appraisal', name: 'Real Estate Appraisal Agent', defaultDocumentIds: ['real_estate_appraisal'] },
   { id: 'sales_process_review', name: 'Sales Process Review Agent', defaultDocumentIds: ['sales_process_transcript', 'pricing_schedule'] },
   { id: 'sales_readiness_roadmap', name: 'Sales Readiness Roadmap', defaultDocumentIds: [] },
-  { id: 'vendor_directory', name: 'Software & Vendors Agent', defaultDocumentIds: ['material_contracts'] },
+  { id: 'vendor_directory', name: 'Software & Vendors Agent', defaultDocumentIds: [] },
 ]
 
 const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentSelection[]> = {
   ws1: [
     { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
-    { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['employee_list', 'key_employee_contracts'] },
+    { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['key_employee_contracts', 'employee_handbook', 'non_compete_agreements', 'employee_benefits_summary', 'offer_letters', 'severance_agreements', 'retirement_plan_docs', 'pto_accrual_ledger', 'workers_comp_claims_24m'] },
     { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: ['employee_list'] },
     { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
     { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
-    { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: [] },
-    { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: [] },
+    { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: ['material_contracts'] },
+    { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: ['org_chart'] },
     { agentId: 'owner_gm_assessment', agentName: 'Owner & GM Assessment Agent', documentIds: ['employee_list', 'org_chart', 'sop_manual'] },
-    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
-    { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'zoning_approval', 'certificate_occupancy', 'building_permits'] },
-    { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: ['material_contracts'] },
+    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
+    { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'kennel_license', 'health_permit', 'fire_permit', 'zoning_approval', 'certificate_occupancy', 'conditional_use_permit', 'signage_permit', 'building_permits', 'environmental_permits', 'variance_approvals'] },
+    { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: [] },
     { agentId: 'sales_readiness_roadmap', agentName: 'Sales Readiness Roadmap', documentIds: [] },
   ],
   ws2: [
@@ -155,7 +178,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentS
     { agentId: 'teaser', agentName: 'Deal Teaser Generator Agent', documentIds: [] },
     { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
     { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent', documentIds: [] },
-    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure'] },
+    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
     { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
   ],
   both: [],
@@ -232,6 +255,9 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
   const [addingMember, setAddingMember] = useState(false)
   const [addingAdvisor, setAddingAdvisor] = useState(false)
   const [uploadingAdvisorImage, setUploadingAdvisorImage] = useState(false)
+  const [pendingAdvisorImageFile, setPendingAdvisorImageFile] = useState<File | null>(null)
+  const [pendingAdvisorImagePreview, setPendingAdvisorImagePreview] = useState('')
+  const [advisorImageError, setAdvisorImageError] = useState('')
   const [workstreamTemplates, setWorkstreamTemplates] = useState<WorkstreamTemplate[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState('')
   const [agentSearchOpen, setAgentSearchOpen] = useState(false)
@@ -252,6 +278,7 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
   const [drivePickerPath, setDrivePickerPath] = useState<DrivePickerFolder[]>([])
   const [drivePickerLoading, setDrivePickerLoading] = useState(false)
   const [drivePickerError, setDrivePickerError] = useState('')
+  const [advisorImageLibrary, setAdvisorImageLibrary] = useState<Record<string, string>>({})
   const advisorImageInputRef = useRef<HTMLInputElement | null>(null)
 
   // Second owner support — stored in sectionSubmissions.owner2
@@ -298,6 +325,28 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
       })
       .catch(() => {})
   }, [initial.id])
+
+  const loadAdvisorImageLibrary = async () => {
+    try {
+      const res = await fetch('/api/advisor-profiles/images', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      const images = (data?.images && typeof data.images === 'object') ? data.images as Record<string, string> : {}
+      const normalized: Record<string, string> = {}
+      for (const [key, value] of Object.entries(images)) {
+        if (typeof value === 'string' && value.trim()) {
+          normalized[key.trim().toLowerCase()] = value.trim()
+        }
+      }
+      setAdvisorImageLibrary(normalized)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  useEffect(() => {
+    void loadAdvisorImageLibrary()
+  }, [])
 
   const advisorDropdownOptions = useMemo(() => {
     const map = new Map<string, string>()
@@ -531,12 +580,14 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
     let nextAdvisors = [...client.advisors]
     if (assignedAdvisor && !nextAdvisors.some(a => a.name.toLowerCase() === assignedAdvisor.toLowerCase())) {
-      const known = ADVISOR_OPTIONS.find(a => a.value.toLowerCase() === assignedAdvisor.toLowerCase())
-      nextAdvisors.push({
-        id: 'adv' + Date.now(),
-        name: assignedAdvisor,
-        imageUrl: known?.imageUrl || 'https://i.pravatar.cc/160?img=12',
-      })
+      const imageUrl = resolveAdvisorImageUrl(assignedAdvisor, client.advisors, advisorImageLibrary)
+      if (imageUrl) {
+        nextAdvisors.push({
+          id: 'adv' + Date.now(),
+          name: assignedAdvisor,
+          imageUrl,
+        })
+      }
     }
 
     const nextPropertyOwnership: Client['propertyOwnership'] = propertyOwnership || ''
@@ -723,8 +774,18 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
   const removeMember = (id: string) => update('teamMembers', client.teamMembers.filter(m => m.id !== id))
 
+  const clearPendingAdvisorImage = () => {
+    if (pendingAdvisorImagePreview.startsWith('blob:')) {
+      URL.revokeObjectURL(pendingAdvisorImagePreview)
+    }
+    setPendingAdvisorImageFile(null)
+    setPendingAdvisorImagePreview('')
+    setAdvisorImageError('')
+  }
+
   const addAdvisor = () => {
-    if (!newAdvisor.name || !newAdvisor.imageUrl) return
+    if (pendingAdvisorImageFile || uploadingAdvisorImage) return
+    if (!newAdvisor.name || !newAdvisor.imageUrl || isPlaceholderAdvisorImage(newAdvisor.imageUrl)) return
     const nextAdvisors = [...client.advisors, { id: 'adv' + Date.now(), name: newAdvisor.name, imageUrl: newAdvisor.imageUrl }]
     const nextClient = { ...client, advisors: nextAdvisors }
     setClient(nextClient)
@@ -733,16 +794,36 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
         setClient(savedClient)
         onSaved(savedClient)
       }
+      void loadAdvisorImageLibrary()
     })
+    clearPendingAdvisorImage()
     setNewAdvisor({ name: '', imageUrl: '', previewUrl: '' })
     setAddingAdvisor(false)
   }
 
   const selectAdvisor = (name: string) => {
-    const advisor = ADVISOR_OPTIONS.find(option => option.value === name)
-    const savedAdvisor = client.advisors.find(existing => existing.name.trim().toLowerCase() === name.trim().toLowerCase())
-    const imageUrl = savedAdvisor?.imageUrl ? advisorImageSrc(savedAdvisor.imageUrl) : advisor?.imageUrl || ''
+    clearPendingAdvisorImage()
+    const imageUrl = resolveAdvisorImageUrl(name, client.advisors, advisorImageLibrary)
     setNewAdvisor({ name, imageUrl, previewUrl: imageUrl })
+
+    if (imageUrl || !name) return
+
+    // Library may still be loading, or this is the first client with a photo —
+    // fetch the latest real image for this advisor name across all clients.
+    void fetch(`/api/advisor-profiles/images?name=${encodeURIComponent(name)}`, { cache: 'no-store' })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        const fetched = typeof data?.imageUrl === 'string' ? data.imageUrl.trim() : ''
+        if (!fetched || isPlaceholderAdvisorImage(fetched)) return
+        const src = advisorImageSrc(fetched)
+        setAdvisorImageLibrary(prev => ({ ...prev, [name.trim().toLowerCase()]: fetched }))
+        setNewAdvisor(current => (
+          current.name === name && !current.imageUrl
+            ? { name, imageUrl: src, previewUrl: src }
+            : current
+        ))
+      })
+      .catch(() => {})
   }
 
   const removeAdvisor = (id: string) => {
@@ -756,37 +837,55 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     })
   }
 
-  const handleAdvisorImageUpload = async (file?: File | null) => {
+  const handleAdvisorImageSelect = (file?: File | null) => {
     if (!file) return
-    setUploadingAdvisorImage(true)
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Failed to read image'))
-      reader.onerror = () => reject(reader.error ?? new Error('Failed to read image'))
-      reader.readAsDataURL(file)
-    }).catch(() => '')
+    setAdvisorImageError('')
 
-    if (dataUrl) {
-      setNewAdvisor(p => ({ ...p, imageUrl: dataUrl, previewUrl: dataUrl }))
+    if (!file.type.startsWith('image/')) {
+      setAdvisorImageError('Only JPG, PNG, or WebP images are allowed.')
+      return
     }
+    if (file.size > 5 * 1024 * 1024) {
+      setAdvisorImageError('Advisor image exceeds the 5MB size limit.')
+      return
+    }
+
+    if (pendingAdvisorImagePreview.startsWith('blob:')) {
+      URL.revokeObjectURL(pendingAdvisorImagePreview)
+    }
+
+    const previewUrl = URL.createObjectURL(file)
+    setPendingAdvisorImageFile(file)
+    setPendingAdvisorImagePreview(previewUrl)
+    if (advisorImageInputRef.current) advisorImageInputRef.current.value = ''
+  }
+
+  const handleAdvisorImageSave = async () => {
+    if (!pendingAdvisorImageFile) return
+    setUploadingAdvisorImage(true)
+    setAdvisorImageError('')
 
     try {
       const form = new FormData()
-      form.append('file', file)
+      form.append('file', pendingAdvisorImageFile)
       form.append('clientId', client.id)
       const res = await fetch('/api/advisor-images/upload', {
         method: 'POST',
         body: form,
       })
       if (!res.ok) {
-        throw new Error(await res.text())
+        throw new Error((await res.text()) || 'Upload failed')
       }
       const uploaded = await res.json() as { imageUrl?: string }
-      if (uploaded.imageUrl) {
-        setNewAdvisor(p => ({ ...p, imageUrl: uploaded.imageUrl }))
+      if (!uploaded.imageUrl) {
+        throw new Error('Upload did not return an image URL')
       }
+      setNewAdvisor(p => ({ ...p, imageUrl: uploaded.imageUrl!, previewUrl: uploaded.imageUrl! }))
+      clearPendingAdvisorImage()
+      void loadAdvisorImageLibrary()
     } catch (error) {
       console.error(error)
+      setAdvisorImageError(error instanceof Error ? error.message : 'Failed to upload advisor image')
     } finally {
       setUploadingAdvisorImage(false)
     }
@@ -1160,8 +1259,30 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
                   options={[{ value: '', label: 'Select an advisor...' }, ...ADVISOR_OPTIONS.map(option => ({ value: option.value, label: option.label }))]}
                 />
                 <div className="flex items-center justify-end gap-2 pt-0.5">
-                  <Button variant="ghost" size="sm" onClick={() => setAddingAdvisor(false)}>Cancel</Button>
-                  <Button size="sm" onClick={addAdvisor} disabled={!newAdvisor.name || !newAdvisor.imageUrl || uploadingAdvisorImage}>Add Advisor</Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      clearPendingAdvisorImage()
+                      setNewAdvisor({ name: '', imageUrl: '', previewUrl: '' })
+                      setAddingAdvisor(false)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={addAdvisor}
+                    disabled={
+                      !newAdvisor.name ||
+                      !newAdvisor.imageUrl ||
+                      isPlaceholderAdvisorImage(newAdvisor.imageUrl) ||
+                      uploadingAdvisorImage ||
+                      Boolean(pendingAdvisorImageFile)
+                    }
+                  >
+                    Add Advisor
+                  </Button>
                 </div>
               </div>
 
@@ -1169,14 +1290,18 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
                 <input
                   ref={advisorImageInputRef}
                   type="file"
-                  accept="image/*"
-                  onChange={e => void handleAdvisorImageUpload(e.target.files?.[0] || null)}
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  onChange={e => handleAdvisorImageSelect(e.target.files?.[0] || null)}
                   className="hidden"
                 />
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 rounded-2xl overflow-hidden bg-amber-50 border border-amber-100 shrink-0 flex items-center justify-center">
-                    {newAdvisor.previewUrl || newAdvisor.imageUrl ? (
-                      <img src={newAdvisor.previewUrl || newAdvisor.imageUrl} alt="Advisor preview" className="w-full h-full object-cover" />
+                    {pendingAdvisorImagePreview || newAdvisor.previewUrl || newAdvisor.imageUrl ? (
+                      <img
+                        src={pendingAdvisorImagePreview || newAdvisor.previewUrl || newAdvisor.imageUrl}
+                        alt="Advisor preview"
+                        className="w-full h-full object-cover"
+                      />
                     ) : (
                       <ImageIcon className="w-6 h-6 text-amber-600" />
                     )}
@@ -1184,7 +1309,13 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-slate-700">
-                      {uploadingAdvisorImage ? 'Uploading advisor image...' : newAdvisor.previewUrl || newAdvisor.imageUrl ? 'Advisor image selected' : 'Upload advisor image'}
+                      {uploadingAdvisorImage
+                        ? 'Uploading advisor image...'
+                        : pendingAdvisorImageFile
+                          ? 'Image selected — click Save to upload'
+                          : newAdvisor.previewUrl || newAdvisor.imageUrl
+                            ? 'Advisor image ready'
+                            : 'Upload advisor image'}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">
                       JPG, PNG, or WebP. Maximum file size: 5MB. This image will appear in the client portal.
@@ -1195,27 +1326,49 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
                         Uploading...
                       </div>
                     )}
-                    {!uploadingAdvisorImage && (newAdvisor.previewUrl || newAdvisor.imageUrl) && (
+                    {!uploadingAdvisorImage && pendingAdvisorImageFile && (
+                      <div className="mt-2 inline-flex items-center gap-2 text-xs text-amber-700">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Ready to save
+                      </div>
+                    )}
+                    {!uploadingAdvisorImage && !pendingAdvisorImageFile && (newAdvisor.previewUrl || newAdvisor.imageUrl) && (
                       <div className="mt-2 inline-flex items-center gap-2 text-xs text-emerald-700">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         Image ready
                       </div>
                     )}
+                    {advisorImageError && (
+                      <p className="mt-2 text-xs text-rose-600">{advisorImageError}</p>
+                    )}
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={uploadingAdvisorImage}
-                    onClick={() => advisorImageInputRef.current?.click()}
-                    className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-all hover:bg-amber-100 shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {uploadingAdvisorImage ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={uploadingAdvisorImage}
+                      onClick={() => advisorImageInputRef.current?.click()}
+                      className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-all hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
                       <Upload className="w-3.5 h-3.5" />
-                    )}
-                    {uploadingAdvisorImage ? 'Uploading' : newAdvisor.previewUrl || newAdvisor.imageUrl ? 'Replace Image' : 'Choose File'}
-                  </button>
+                      {pendingAdvisorImageFile || newAdvisor.previewUrl || newAdvisor.imageUrl ? 'Replace File' : 'Choose File'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!pendingAdvisorImageFile || uploadingAdvisorImage}
+                      onClick={() => void handleAdvisorImageSave()}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-medium text-white transition-all hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {uploadingAdvisorImage ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Uploading
+                        </>
+                      ) : (
+                        'Save'
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1403,7 +1556,7 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
               onClick={() => void loadDriveFolders(null, [])}
               className={cn('font-medium hover:text-amber-700', drivePickerPath.length === 0 ? 'text-slate-800' : 'text-slate-500')}
             >
-              My Drive
+              Google Drive
             </button>
             {drivePickerPath.map((folder, index) => (
               <span key={folder.id} className="inline-flex items-center gap-2">
@@ -1440,6 +1593,12 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
                   >
                     <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
                     <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                    {folder.source === 'shared' && (
+                      <span className="rounded border border-sky-100 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700">Shared</span>
+                    )}
+                    {folder.source === 'sharedDrive' && (
+                      <span className="rounded border border-violet-100 bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">Shared drive</span>
+                    )}
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
                   </button>
                 ))}

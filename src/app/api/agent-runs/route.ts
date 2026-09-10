@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getLatestTaxLiabilityReport } from '@/lib/tax-liability-review/storage'
-import { agentLookupKeys, getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
+import { agentLookupKeys, getClientWorkstreamAgents, normalizeAgentStatusKey, resolveAgentDocumentIds } from '@/lib/workstream-agents'
 import { readChecklistSubmission, readRoadmapSubmission } from '@/lib/sale-readiness-checklist'
 import { VALUATION_DOCS, DOCUMENT_CATEGORIES } from '@/lib/documentData'
 import {
@@ -114,13 +114,34 @@ const AGENT_LABELS: Record<string, { label: string; tabKey: string; category: st
 }
 
 const DOCUMENT_NAMES: Record<string, string> = {}
+const DOCUMENT_TYPES: Record<string, 'required' | 'yes_no' | 'conditional'> = {}
 for (const doc of VALUATION_DOCS) {
   DOCUMENT_NAMES[doc.id] = doc.name
+  DOCUMENT_TYPES[doc.id] = doc.type
 }
 for (const cat of DOCUMENT_CATEGORIES) {
   for (const doc of cat.documents) {
     DOCUMENT_NAMES[doc.id] = doc.name
+    DOCUMENT_TYPES[doc.id] = doc.type
   }
+}
+
+/** Optional checklist docs are satisfied by upload OR an explicit No / N/A answer. */
+function isDocumentSatisfied(
+  documentId: string,
+  uploadedDocIds: Set<string>,
+  statusById: Map<string, { hasDoc: boolean | null; notApplicable: boolean; fileName: string | null }>,
+) {
+  if (uploadedDocIds.has(documentId)) return true
+  const status = statusById.get(documentId)
+  if (!status) return false
+  if (status.fileName && String(status.fileName).trim()) return true
+  const type = DOCUMENT_TYPES[documentId]
+  if (type === 'yes_no' || type === 'conditional') {
+    if (status.notApplicable) return true
+    if (status.hasDoc === false) return true
+  }
+  return false
 }
 
 
@@ -265,8 +286,8 @@ export async function GET(req: NextRequest) {
     safeFind(() => prisma.clientDocument.findMany({ where: { clientId }, select: { documentId: true } })),
     safeFind(() =>
       prisma.clientDocumentStatus.findMany({
-        where: { clientId, fileName: { not: null } },
-        select: { documentId: true, fileName: true },
+        where: { clientId },
+        select: { documentId: true, fileName: true, hasDoc: true, notApplicable: true },
       }),
     ),
   ])
@@ -447,7 +468,13 @@ export async function GET(req: NextRequest) {
   for (const d of uploadedDocs ?? []) {
     if (d.documentId) uploadedDocIds.add(d.documentId)
   }
+  const statusById = new Map<string, { hasDoc: boolean | null; notApplicable: boolean; fileName: string | null }>()
   for (const s of statusesWithFiles ?? []) {
+    statusById.set(s.documentId, {
+      hasDoc: s.hasDoc ?? null,
+      notApplicable: Boolean(s.notApplicable),
+      fileName: s.fileName ?? null,
+    })
     if (s.documentId && s.fileName && String(s.fileName).trim()) uploadedDocIds.add(s.documentId)
   }
   const hasAnyUploadedDocs = uploadedDocIds.size > 0
@@ -469,10 +496,10 @@ export async function GET(req: NextRequest) {
     const assignmentEntry = (approvals[agent.agentId] ?? approvals[statusKey]) as AgentApprovalWorkflow | undefined
     const workflow = deriveApprovalWorkflow(assignmentEntry, check.hasRun)
 
-    const requiredDocIds = agent.documentIds ?? []
+    const requiredDocIds = resolveAgentDocumentIds(agent.agentId, agent.documentIds)
     const hasDocRequirements = requiredDocIds.length > 0
     const missingDocs = requiredDocIds
-      .filter(id => !uploadedDocIds.has(id))
+      .filter(id => !isDocumentSatisfied(id, uploadedDocIds, statusById))
       .map(id => ({ id, name: DOCUMENT_NAMES[id] ?? id }))
 
     const uploadedCount = requiredDocIds.length - missingDocs.length

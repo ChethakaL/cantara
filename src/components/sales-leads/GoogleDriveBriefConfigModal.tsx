@@ -108,14 +108,22 @@ export default function GoogleDriveBriefConfigModal({
         ) : (
           <>
             <div className="flex items-center gap-1 text-xs text-slate-500 mb-3">
-              <button onClick={() => void load()} className="hover:text-slate-800">My Drive</button>
+              <button onClick={() => void load()} className="hover:text-slate-800">Google Drive</button>
               {path.map(folder => <span key={folder.id} className="flex items-center gap-1"><ChevronRight className="w-3 h-3" />{folder.name}</span>)}
             </div>
             <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200 divide-y">
               {folders.map(folder => (
                 <div key={folder.id} className={`flex items-center justify-between px-3 py-2 ${selected?.id === folder.id ? 'bg-amber-50' : ''}`}>
                   <button className="flex items-center gap-2 text-sm text-slate-700" onClick={() => setSelected(folder)}>
-                    <Folder className="w-4 h-4 text-amber-600" />{folder.name}{selected?.id === folder.id && <Check className="w-4 h-4 text-green-600" />}
+                    <Folder className="w-4 h-4 text-amber-600" />
+                    <span>{folder.name}</span>
+                    {(folder as { source?: string }).source === 'shared' && (
+                      <span className="rounded border border-sky-100 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700">Shared</span>
+                    )}
+                    {(folder as { source?: string }).source === 'sharedDrive' && (
+                      <span className="rounded border border-violet-100 bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">Shared drive</span>
+                    )}
+                    {selected?.id === folder.id && <Check className="w-4 h-4 text-green-600" />}
                   </button>
                   <button className="p-1 text-slate-400" onClick={() => void load(folder.id, [...path, folder])}><ChevronRight className="w-4 h-4" /></button>
                 </div>

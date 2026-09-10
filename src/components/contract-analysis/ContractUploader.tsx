@@ -1,11 +1,13 @@
 'use client'
 import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, X } from 'lucide-react'
-import { Button } from '@/components/ui'
+import { Upload, FileText, X, RefreshCw } from 'lucide-react'
+import { Button, Card, Badge, cn } from '@/components/ui'
 import { ContractDocument } from '../../lib/contract-analysis/types'
 import { AgentModelProviderSelect } from '@/components/admin/AgentModelProviderSelect'
 import type { AgentAiProvider } from '@/lib/agent-model-provider'
+import type { ClientUploadedDoc } from '@/lib/client-documents-client'
+import { isPdfFileName } from '@/lib/client-documents-client'
 
 interface Props {
   documents: ContractDocument[]
@@ -15,9 +17,25 @@ interface Props {
   onAnalyze: () => void
   provider: AgentAiProvider
   onProviderChange: (provider: AgentAiProvider) => void
+  uploadedFromDocuments?: ClientUploadedDoc[]
+  onRefreshDocuments?: () => void
+  onUseUploadedDocument?: (doc: ClientUploadedDoc) => void
+  loadingUploadedId?: string | null
 }
 
-export function ContractUploader({ documents, addDocuments, removeDocument, status, onAnalyze, provider, onProviderChange }: Props) {
+export function ContractUploader({
+  documents,
+  addDocuments,
+  removeDocument,
+  status,
+  onAnalyze,
+  provider,
+  onProviderChange,
+  uploadedFromDocuments = [],
+  onRefreshDocuments,
+  onUseUploadedDocument,
+  loadingUploadedId = null,
+}: Props) {
   const onDrop = useCallback((files: File[]) => {
     addDocuments(files)
   }, [addDocuments])
@@ -38,18 +56,92 @@ export function ContractUploader({ documents, addDocuments, removeDocument, stat
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
+  const busy = status !== 'idle' && status !== 'error'
+  const queuedNames = new Set(documents.map(doc => doc.name))
+
   return (
     <div className="space-y-6">
       <AgentModelProviderSelect
         value={provider}
         onChange={onProviderChange}
-        disabled={status !== 'idle' && status !== 'error'}
+        disabled={busy}
       />
+
+      {uploadedFromDocuments.length > 0 && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Uploaded from Documents ({uploadedFromDocuments.length})
+            </p>
+            {onRefreshDocuments && (
+              <button
+                type="button"
+                onClick={onRefreshDocuments}
+                className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-800"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Refresh
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-400">
+            PDFs can be added to this analysis. Spreadsheets from Documents are listed here for visibility but need a PDF for contract review.
+          </p>
+          <div className="space-y-2">
+            {uploadedFromDocuments.map(doc => {
+              const isPdf = isPdfFileName(doc.fileName)
+              const alreadyQueued = queuedNames.has(doc.fileName)
+              const loading = loadingUploadedId === doc.id
+              return (
+                <div
+                  key={doc.id}
+                  className={cn(
+                    'w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5',
+                    alreadyQueued
+                      ? 'border-emerald-300 bg-emerald-50/60'
+                      : 'border-slate-200 bg-white',
+                  )}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className={cn('w-4 h-4 flex-shrink-0', alreadyQueued ? 'text-emerald-600' : 'text-slate-400')} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700 truncate">{doc.fileName}</p>
+                      {doc.uploadedAt && (
+                        <p className="text-[11px] text-slate-400">
+                          Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {alreadyQueued ? (
+                      <Badge color="green">In queue</Badge>
+                    ) : isPdf ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || loading || !onUseUploadedDocument}
+                        onClick={() => onUseUploadedDocument?.(doc)}
+                      >
+                        {loading ? 'Adding…' : 'Add'}
+                      </Button>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">PDF only</span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
       <div
         {...getRootProps()}
         className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all ${
-          isDragActive ? 'border-amber-400 bg-amber-50' : 
-          status !== 'idle' && status !== 'error' ? 'border-slate-200 bg-slate-50 cursor-not-allowed' : 
+          isDragActive ? 'border-amber-400 bg-amber-50' :
+          busy ? 'border-slate-200 bg-slate-50 cursor-not-allowed' :
           'border-slate-200 hover:border-amber-300 hover:bg-amber-50/30 cursor-pointer'
         }`}
       >
@@ -60,7 +152,7 @@ export function ContractUploader({ documents, addDocuments, removeDocument, stat
             <p className="text-sm font-medium text-slate-600">Drop contract PDFs here</p>
             <p className="text-xs text-slate-400 mt-1">Upload all agreements, amendments, renewals, side letters, and addenda as separate files</p>
           </div>
-          <Button variant="outline" size="sm" disabled={status !== 'idle' && status !== 'error'}>Select Files</Button>
+          <Button variant="outline" size="sm" disabled={busy}>Select Files</Button>
         </div>
       </div>
 
@@ -76,7 +168,7 @@ export function ContractUploader({ documents, addDocuments, removeDocument, stat
               </Button>
             )}
           </div>
-          
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {documents.map((doc, i) => (
               <div key={i} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-white shadow-sm">
@@ -92,7 +184,7 @@ export function ContractUploader({ documents, addDocuments, removeDocument, stat
                 <button
                   onClick={() => removeDocument(i)}
                   className="p-1 hover:bg-rose-50 rounded-lg text-slate-300 hover:text-rose-500 transition-colors"
-                  disabled={status !== 'idle' && status !== 'error'}
+                  disabled={busy}
                 >
                   <X className="w-4 h-4" />
                 </button>

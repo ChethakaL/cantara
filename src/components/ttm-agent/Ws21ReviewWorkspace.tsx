@@ -8,10 +8,12 @@ export function Ws21ReviewWorkspace({
   analysis,
   actorName,
   onUpdated,
+  clientId,
 }: {
   analysis: TtmAnalysisView
   actorName: string
   onUpdated: (analysis: TtmAnalysisView) => void
+  clientId?: string
 }) {
   const unresolvedCount = analysis.flags.filter((f) => f.resolutionStatus !== 'ACTIONED').length
   const isApproved = analysis.status === 'APPROVED'
@@ -35,6 +37,7 @@ export function Ws21ReviewWorkspace({
         analysis={analysis}
         actorName={actorName}
         onUpdated={onUpdated}
+        clientId={clientId}
       />
 
       {/* Normalization Schedule removed from Step 1 — data review happens in Step 2 (GL Mapping) */}

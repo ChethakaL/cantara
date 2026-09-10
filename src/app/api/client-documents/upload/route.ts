@@ -2,7 +2,7 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ensureClientDriveSubfolder, uploadClientDocumentToDrive } from "@/lib/composio";
+import { uploadClientDocumentToDrive } from "@/lib/composio";
 import { assertS3Configured, buildPresignedFileUrl, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 import { syncDocumentStatusForUpload } from "@/lib/client-document-status-sync";
@@ -287,10 +287,15 @@ export async function POST(req: NextRequest) {
     const driveFolderId = extractDriveFolderId(client?.driveFolderId);
     if (driveFolderId) {
       void (async () => {
-        const uploads = await ensureClientDriveSubfolder(driveFolderId, "Client Uploads");
-        await uploadClientDocumentToDrive({
-          folderId: uploads.id,
+        const { ensureClientUploadDocumentFolder } = await import("@/lib/composio");
+        const target = await ensureClientUploadDocumentFolder({
+          clientFolderId: driveFolderId,
+          documentId,
           fileName: file.name,
+        });
+        await uploadClientDocumentToDrive({
+          folderId: target.folderId,
+          fileName: target.fileName,
           mimeType: file.type || "application/octet-stream",
           sourceUrl: await buildPresignedFileUrl(key),
         });

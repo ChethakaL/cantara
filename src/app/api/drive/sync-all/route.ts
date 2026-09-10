@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  ensureClientDriveSubfolder,
   saveGeneratedReportToDrive,
-  uploadClientDocumentToDrive,
 } from "@/lib/composio";
 import { prisma } from "@/lib/prisma";
-import { buildPresignedFileUrl } from "@/lib/s3";
 import { buildCompetitorReportHtml } from "@/lib/report-export/build-competitor-report";
 import { buildContractReportHtml } from "@/lib/report-export/build-contract-report";
 import { buildEmployeeObligationsReportHtml } from "@/lib/report-export/build-employee-obligations-report";
@@ -26,6 +23,10 @@ type DriveSyncSummary = {
   foldersCreatedOrFound: number;
   documentsMirrored: number;
   reportsArchived: number;
+  preCallBriefsMoved: number;
+  preCallBriefsUnmatched: number;
+  preCallBriefsDuplicatesRemoved: number;
+  unlinkedParentFolders: string[];
   errors: Array<{ clientId: string; message: string }>;
   logs: string[];
   skippedMissingFolder: number;
@@ -48,6 +49,10 @@ const emptySummary = (): DriveSyncSummary => ({
   foldersCreatedOrFound: 0,
   documentsMirrored: 0,
   reportsArchived: 0,
+  preCallBriefsMoved: 0,
+  preCallBriefsUnmatched: 0,
+  preCallBriefsDuplicatesRemoved: 0,
+  unlinkedParentFolders: [],
   errors: [],
   logs: [],
   skippedMissingFolder: 0,
@@ -275,22 +280,19 @@ function latestByCreatedAt<T extends { createdAt?: Date | string | null }>(items
 }
 
 async function mirrorDocuments(client: any, folderId: string) {
-  let count = 0;
-  const uploads = await ensureClientDriveSubfolder(folderId, "Client Uploads");
-  const docs = (client.ClientDocument ?? []).filter((doc: any) => doc.googleDriveFileId);
+  const { syncClientUploadsDriveStructure } = await import("@/lib/composio/drive");
+  const docs = (client.ClientDocument ?? []).filter(
+    (doc: any) => doc.fileName && (doc.localPath || doc.googleDriveFileId),
+  );
   const job = currentJob();
-  const results = await Promise.allSettled(docs.map(async (doc: any) => {
-    addLog(job, `Mirroring doc: ${doc.fileName}`);
-    console.log(`[DriveSync]   - Mirroring doc: ${doc.fileName}`);
-    return uploadClientDocumentToDrive({
-      folderId: uploads.id,
-      fileName: safeFileName(`${doc.documentId || "document"} - ${doc.fileName}`),
-      mimeType: doc.mimeType,
-      sourceUrl: doc.localPath ? await buildPresignedFileUrl(doc.localPath) : doc.googleDriveFileId,
-    });
-  }));
-  count += results.filter((result) => result.status === "fulfilled").length;
-  return count;
+  addLog(job, `Structuring ${docs.length} client upload(s) into category folders`);
+  const result = await syncClientUploadsDriveStructure({
+    clientFolderId: folderId,
+    documents: docs,
+    scaffoldAllFolders: true,
+  });
+  addLog(job, result.message);
+  return result.filesAlreadyInPlace + result.filesMoved + result.filesUploaded;
 }
 
 async function runDriveSync(job: DriveSyncJob, clientId?: string | null) {
@@ -317,6 +319,55 @@ async function runDriveSync(job: DriveSyncJob, clientId?: string | null) {
     job.message = clientId
       ? "Starting Google Drive sync for this client."
       : "Starting Google Drive sync. This can take more than 10 minutes for clients with many reports.";
+
+    // Full sync: organize loose Pre-Call Briefs in the shared parent folder first.
+    if (!clientId) {
+      try {
+        const { getDriveParentFolderId } = await import("@/lib/drive-settings");
+        const { organizePreCallBriefsInParentFolder } = await import("@/lib/composio/drive");
+        const parentFolderId = await getDriveParentFolderId();
+        if (parentFolderId) {
+          job.summary.phase = "Organizing Pre-Call Briefs in parent folder";
+          addLog(job, "Organizing Pre-Call Briefs in parent folder");
+          const leads = await (prisma as any).salesLead.findMany({
+            select: { businessName: true },
+          });
+          const linkedIds = new Set<string>();
+          for (const client of clients) {
+            const id = extractDriveFolderId(client.driveFolderId);
+            if (id) linkedIds.add(id);
+          }
+          const briefResult = await organizePreCallBriefsInParentFolder({
+            parentFolderId,
+            knownBusinessNames: (leads as Array<{ businessName: string | null }>)
+              .map((l) => l.businessName)
+              .filter((n): n is string => Boolean(n && n.trim())),
+            linkedClientFolderIds: linkedIds,
+          });
+          job.summary.preCallBriefsMoved = briefResult.moved;
+          job.summary.preCallBriefsUnmatched = briefResult.unmatchedMoved;
+          job.summary.preCallBriefsDuplicatesRemoved = briefResult.duplicatesTrashed;
+          job.summary.unlinkedParentFolders = briefResult.unlinkedFolders;
+          addLog(job, briefResult.message);
+          if (briefResult.unlinkedFolders.length) {
+            addLog(
+              job,
+              `Unlinked parent folders (not deleted): ${briefResult.unlinkedFolders.slice(0, 8).join(", ")}`,
+            );
+          }
+          for (const err of briefResult.errors) {
+            job.summary.errors.push({ clientId: "pre-call-briefs", message: err });
+          }
+        } else {
+          addLog(job, "No Drive parent folder configured — skipped Pre-Call Brief cleanup");
+        }
+      } catch (error) {
+        job.summary.errors.push({
+          clientId: "pre-call-briefs",
+          message: error instanceof Error ? error.message : "Pre-Call Brief organize failed",
+        });
+      }
+    }
 
     for (const client of clients) {
       const name = clientDisplayName(client);
@@ -352,7 +403,16 @@ async function runDriveSync(job: DriveSyncJob, clientId?: string | null) {
     job.finishedAt = new Date().toISOString();
     job.summary.currentClientName = null;
     job.summary.phase = "Complete";
-    job.message = `Sync complete: ${job.summary.foldersCreatedOrFound} assigned folders, ${job.summary.documentsMirrored} documents, ${job.summary.reportsArchived} reports.`;
+    job.message = [
+      `Sync complete: ${job.summary.foldersCreatedOrFound} assigned folders`,
+      `${job.summary.documentsMirrored} documents`,
+      `${job.summary.reportsArchived} reports`,
+      !clientId
+        ? `${job.summary.preCallBriefsMoved} briefs filed · ${job.summary.preCallBriefsDuplicatesRemoved} duplicates removed`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
   } catch (error) {
     console.error("Drive sync all error:", error);
     job.status = "error";

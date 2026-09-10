@@ -51,6 +51,7 @@ export async function saveProspectResearchToGoogleDoc(leadId: string) {
   const doc = await createPublicEditableGoogleDoc({
     folderUrl,
     fileName: `Pre-Call Brief - ${lead.businessName}`,
+    nestedFolders: ['Pre-Call Briefs', lead.businessName],
     html,
   })
   return prisma.salesLead.update({ where: { id: leadId }, data: { preCallBriefUrl: doc.webViewLink } })

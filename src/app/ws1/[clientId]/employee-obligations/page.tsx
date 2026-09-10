@@ -24,6 +24,7 @@ export default function WS16ReportPage() {
           dba={client?.dba || undefined}
           totalEmployeesSelfReported={client?.totalEmployeesSelfReported ?? undefined}
           employmentTypeBreakdown={client?.employmentTypeBreakdown ?? undefined}
+          documentStatuses={client?.documentStatuses}
         />
       </div>
     </div>

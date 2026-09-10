@@ -108,7 +108,7 @@ async function openAiWebSearch(args: {
   const prompt = buildWebSearchPrompt(args);
 
   try {
-    const rawText = await runOpenAiWebSearch({ prompt, model: args.model });
+    const rawText = await runOpenAiWebSearch({ prompt, model: args.model, preferLowCostTool: true });
     return parseWebSearchJson(rawText, args.channelLabel);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
