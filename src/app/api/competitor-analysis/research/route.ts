@@ -67,7 +67,10 @@ export async function POST(req: NextRequest) {
       competitor.websiteUrl
       || manualMatch?.websiteUrl
       || null;
-    if (!competitor.websiteUrl && competitorWebsiteUrl) {
+    // Drop Places placeholders like "N/A" so research does not search domain "n".
+    if (competitorWebsiteUrl && /^(n\/?a|na|none|null|-)$/i.test(competitorWebsiteUrl.trim())) {
+      competitor.websiteUrl = null;
+    } else if (!competitor.websiteUrl && competitorWebsiteUrl) {
       competitor.websiteUrl = competitorWebsiteUrl;
     }
     if ((!competitor.address || !competitor.address.trim()) && manualMatch?.address?.trim()) {
@@ -81,7 +84,7 @@ export async function POST(req: NextRequest) {
     });
 
     const competitorWebsiteResearch = await researchWebsite({
-      websiteUrl: competitorWebsiteUrl,
+      websiteUrl: competitor.websiteUrl,
       businessName: competitor.name,
       businessCategory: body.formData.businessCategory,
     });

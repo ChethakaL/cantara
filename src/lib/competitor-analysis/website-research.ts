@@ -11,8 +11,17 @@ const MAX_EXTRACT_FALLBACK_URLS = 5;
 function normalizeWebsiteUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return '';
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  // Google Places occasionally returns placeholders like "N/A" — those are not real sites.
+  if (/^(n\/?a|na|none|null|undefined|-|tbd|unknown|not available)$/i.test(trimmed)) return '';
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withScheme);
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    if (!host || host === 'n' || host.length < 3 || !host.includes('.')) return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
 }
 
 function getDomain(url: string): string {
