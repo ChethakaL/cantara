@@ -1411,7 +1411,7 @@ export default function PricingAnalysisTab({
           </div>
 
           <button
-            onClick={refreshInputs}
+            onClick={() => void refreshInputs()}
             disabled={loadingInputs}
             className="text-[11px] text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer transition-colors"
           >
