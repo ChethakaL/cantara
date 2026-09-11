@@ -1,38 +1,9 @@
 import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
-
-const TAVILY_API_URL = 'https://api.tavily.com/search'
-const FETCH_TIMEOUT_MS = 20000
-
-async function tavilySearch(query: string, apiKey: string) {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-  try {
-    const res = await fetch(TAVILY_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        search_depth: 'advanced',
-        max_results: 5,
-        include_answer: false,
-        include_raw_content: false,
-      }),
-    })
-    if (!res.ok) return []
-    const data = await res.json()
-    return (data.results ?? []).map((r: { title?: string; url?: string; content?: string }) => ({
-      title: r.title ?? '',
-      url: r.url ?? '',
-      content: r.content ?? '',
-    }))
-  } catch {
-    return []
-  } finally {
-    clearTimeout(timer)
-  }
-}
+import {
+  canRunOpenAiWebSearch,
+  resolveOpenAiWebSearchModel,
+  runOpenAiWebSearch,
+} from '@/lib/openai-web-search'
 
 export interface LitigationSearchResult {
   summary: string
@@ -57,23 +28,108 @@ function extractJsonObject(text: string): string {
   return cleaned.slice(start, end + 1)
 }
 
+type SearchSnippet = { title: string; url: string; content: string; query?: string }
+
+async function openAiLitigationSearch(args: {
+  businessName: string
+  ownerName: string
+  state: string
+  county?: string
+  city?: string
+  searchQueries: string[]
+}): Promise<SearchSnippet[]> {
+  if (!(await canRunOpenAiWebSearch())) {
+    console.warn('[Litigation Search] OPENAI_API_KEY not configured; skipping web search')
+    return []
+  }
+
+  const location = [args.city, args.county ? `${args.county} County` : null, args.state]
+    .filter(Boolean)
+    .join(', ')
+
+  const prompt = `You are collecting public-web evidence for an M&A litigation and lien search.
+
+Business: "${args.businessName}"
+Owner: "${args.ownerName}"
+Location: ${location || args.state}
+
+Search the public web using these queries:
+${args.searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+
+Look for court records, lawsuits, litigation, liens, judgments, UCC filings, bankruptcy filings, and similar public records related to this business and/or owner.
+
+Return ONLY a JSON array (max 20 items):
+[
+  {
+    "title": "Result title",
+    "url": "https://source-url",
+    "content": "Key facts found (parties, case type, dates, amounts, filing details)",
+    "query": "Which search query this came from"
+  }
+]
+
+Rules:
+- Prefer official court, secretary of state, county recorder, and reputable legal-news sources
+- Include exact names, dates, case numbers, and dollar amounts when present
+- Skip irrelevant marketing pages
+- If little is found, return an empty array []
+- Return ONLY the JSON array`
+
+  try {
+    const rawText = await runOpenAiWebSearch({
+      prompt,
+      model: resolveOpenAiWebSearchModel(),
+      preferLowCostTool: true,
+    })
+
+    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```\s*$/i, '').trim()
+    const snippets: SearchSnippet[] = []
+
+    try {
+      const parsed = JSON.parse(cleaned)
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (!item || typeof item !== 'object') continue
+          const record = item as Record<string, unknown>
+          const content = String(record.content ?? record.snippet ?? '').trim()
+          if (!content) continue
+          snippets.push({
+            title: String(record.title ?? 'Search result'),
+            url: String(record.url ?? '').trim(),
+            content: content.slice(0, 4000),
+            query: String(record.query ?? '').trim() || undefined,
+          })
+        }
+      }
+    } catch {
+      // Fall through to prose fallback.
+    }
+
+    if (!snippets.length && rawText.trim()) {
+      snippets.push({
+        title: 'OpenAI web search research',
+        url: '',
+        content: rawText.slice(0, 4000),
+      })
+    }
+
+    return snippets
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[Litigation Search] OpenAI web search failed:', message)
+    return []
+  }
+}
+
 async function buildLitigationPrompt(
   args: { businessName: string; ownerName: string; state: string; county?: string; city?: string },
   searchQueries: string[],
 ) {
-  const tavilyKey = process.env.TAVILY_API_KEY?.trim()
-  const snippets: string[] = []
-
-  if (tavilyKey) {
-    for (const query of searchQueries) {
-      const results = await tavilySearch(query, tavilyKey)
-      for (const result of results) {
-        snippets.push(
-          `Query: ${query}\nTitle: ${result.title}\nURL: ${result.url}\nContent: ${result.content}`,
-        )
-      }
-    }
-  }
+  const results = await openAiLitigationSearch({ ...args, searchQueries })
+  const snippets = results.map((result) => {
+    const queryLine = result.query ? `Query: ${result.query}\n` : ''
+    return `${queryLine}Title: ${result.title}\nURL: ${result.url}\nContent: ${result.content}`
+  })
 
   const researchBlock = snippets.length > 0
     ? snippets.join('\n\n---\n\n')

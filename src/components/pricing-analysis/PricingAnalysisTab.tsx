@@ -304,61 +304,74 @@ export default function PricingAnalysisTab({
     [clientId, markSavedSnapshot],
   )
 
-  // Load saved data on mount
+  const applyPortalPrefill = useCallback((prefill: {
+    sellerWebsiteUrl?: string
+    sellerManualPricingText?: string
+    competitors?: CompetitorPricingInput[]
+  } | null | undefined) => {
+    if (!prefill) return
+    setSellerWebsiteUrl(prefill.sellerWebsiteUrl ?? '')
+    setSellerManualPricingText(prefill.sellerManualPricingText ?? '')
+    const prefillCompetitors = [...(prefill.competitors ?? [])].slice(0, 5)
+    setCompetitors(Array.from({ length: 5 }, (_, index) => prefillCompetitors[index] ?? { name: '', websiteUrl: '' }))
+  }, [])
+
+  // Load saved report + always prefill portal inputs (even when a prior run exists)
   useEffect(() => {
     if (loadingRuns) return
-    if (activeRun?.report) {
-      const normalized = normalizePricingReport(activeRun.report)
-      if (normalized) {
-        setResult(normalized)
-        markSavedSnapshot(normalized)
-      }
-      setInitialLoading(false)
-      return
-    }
+    let cancelled = false
+
     const loadSaved = async () => {
       try {
+        if (activeRun?.report) {
+          const normalized = normalizePricingReport(activeRun.report)
+          if (normalized && !cancelled) {
+            setResult(normalized)
+            markSavedSnapshot(normalized)
+          }
+        }
+
         const res = await fetch(`/api/pricing-analysis?clientId=${encodeURIComponent(clientId)}&includePrefill=1`)
-        if (res.ok) {
-          const data = await res.json()
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (cancelled) return
+
+        // Only hydrate result from sectionSubmissions when history did not already supply one
+        if (!activeRun?.report) {
           const normalized = normalizePricingReport(data?.report)
           if (normalized) {
             setResult(normalized)
             markSavedSnapshot(normalized)
           }
-          if (data?.prefill) {
-            setSellerWebsiteUrl(data.prefill.sellerWebsiteUrl ?? '')
-            setSellerManualPricingText(data.prefill.sellerManualPricingText ?? '')
-            const prefillCompetitors = [...(data.prefill.competitors ?? [])].slice(0, 5)
-            setCompetitors(Array.from({ length: 5 }, (_, index) => prefillCompetitors[index] ?? { name: '', websiteUrl: '' }))
-          }
         }
+        applyPortalPrefill(data?.prefill)
       } catch { /* ignore */ }
       finally {
-        setInitialLoading(false)
+        if (!cancelled) setInitialLoading(false)
       }
     }
-    loadSaved()
-  }, [clientId, markSavedSnapshot, activeRun, loadingRuns])
 
-  const refreshInputs = async () => {
+    void loadSaved()
+    return () => {
+      cancelled = true
+    }
+  }, [clientId, markSavedSnapshot, activeRun, loadingRuns, applyPortalPrefill])
+
+  const refreshInputs = async (options?: { silent?: boolean }) => {
     setLoadingInputs(true)
     try {
       const res = await fetch(`/api/pricing-analysis?clientId=${encodeURIComponent(clientId)}&includePrefill=1`)
       if (res.ok) {
         const data = await res.json()
-        if (data?.prefill) {
-          if (data.prefill.sellerWebsiteUrl) setSellerWebsiteUrl(data.prefill.sellerWebsiteUrl)
-          if (data.prefill.sellerManualPricingText) setSellerManualPricingText(data.prefill.sellerManualPricingText)
-          if (data.prefill.competitors && data.prefill.competitors.length > 0) {
-            const prefillCompetitors = [...(data.prefill.competitors ?? [])].slice(0, 5)
-            setCompetitors(Array.from({ length: 5 }, (_, index) => prefillCompetitors[index] ?? { name: '', websiteUrl: '' }))
-          }
+        applyPortalPrefill(data?.prefill)
+        if (!options?.silent) {
+          setToast({ message: 'Pricing benchmark targets refreshed from client portal', type: 'success' })
         }
-        setToast({ message: 'Pricing benchmark targets refreshed from client portal', type: 'success' })
       }
     } catch {
-      setToast({ message: 'Failed to refresh inputs', type: 'error' })
+      if (!options?.silent) {
+        setToast({ message: 'Failed to refresh inputs', type: 'error' })
+      }
     } finally {
       setLoadingInputs(false)
     }
@@ -478,6 +491,8 @@ export default function PricingAnalysisTab({
     setResult(null)
     setEditMode(false)
     setError(null)
+    // Re-pull Required Info targets so "+ New Analysis" is never blank after a prior run
+    void refreshInputs({ silent: true })
   }
 
   const handleSave = async () => {
