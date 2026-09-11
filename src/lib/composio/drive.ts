@@ -934,22 +934,36 @@ export function resolveGeneratedReportAgentFolder(fileName: string, explicit?: s
     { test: /^ws2 derived\b/i, folder: "WS2 Derived" },
     { test: /^advisors-report\b/i, folder: "Professional Advisors" },
     { test: /professional advisors/i, folder: "Professional Advisors" },
+    { test: /^litigation(-report)?\b/i, folder: "Litigation Search" },
+    { test: /litigation search/i, folder: "Litigation Search" },
+    { test: /^insurance(-review)?\b/i, folder: "Insurance Review" },
+    { test: /^digital-presence\b/i, folder: "Digital Presence" },
+    { test: /^org-chart\b/i, folder: "Org Chart Review" },
+    { test: /org chart review/i, folder: "Org Chart Review" },
+    { test: /^pricing-vertical\b/i, folder: "Pricing by Vertical" },
+    { test: /pricing by vertical/i, folder: "Pricing by Vertical" },
+    { test: /^pricing analysis\b/i, folder: "Pricing Analysis" },
+    { test: /^competitor-pricing\b/i, folder: "Pricing Analysis" },
+    { test: /^facility-review\b/i, folder: "Facility Review" },
+    { test: /^real-estate-appraisal\b/i, folder: "Real Estate Appraisal" },
+    { test: /^ownership-verification\b/i, folder: "Ownership Verification" },
+    { test: /^permits-zoning\b/i, folder: "Permits & Zoning" },
+    { test: /^legal-entity-search\b/i, folder: "Legal Entity Search" },
+    { test: /^tax-(liability|reference)/i, folder: "Tax Liability Review" },
+    { test: /^occupancy-review\b/i, folder: "Occupancy Review" },
+    { test: /^employee-comp\b/i, folder: "Employee Comp" },
+    { test: /^loi-review\b/i, folder: "LOI Review" },
+    { test: /^vendor-report\b/i, folder: "Vendor Directory" },
     { test: /^lease-(summary|buyer|addendum)\b/i, folder: "Lease Analysis" },
     { test: /^contract-(summary|addendum)\b/i, folder: "Contract Analysis" },
     { test: /^employee-obligations\b/i, folder: "Employee Obligations" },
-    { test: /^insurance-review\b/i, folder: "Insurance Review" },
-    { test: /^facility-review\b/i, folder: "Facility Review" },
-    { test: /^digital-presence\b/i, folder: "Digital Presence" },
-    { test: /^tax-(liability|reference)/i, folder: "Tax Liability Review" },
     { test: /^net-proceeds\b/i, folder: "Net Proceeds" },
-    { test: /^permits-zoning\b/i, folder: "Permits & Zoning" },
-    { test: /^real-estate-appraisal\b/i, folder: "Real Estate Appraisal" },
-    { test: /^vendor-report\b/i, folder: "Vendor Directory" },
-    { test: /^ownership-verification\b/i, folder: "Ownership Verification" },
-    { test: /^legal-entity-search\b/i, folder: "Legal Entity Search" },
     { test: /sales readiness roadmap/i, folder: "Improvement Roadmap" },
+    { test: /owner.?gm.?assessment/i, folder: "Owner & GM Assessment" },
     { test: /-cim-/i, folder: "CIM" },
+    { test: /^cim\b/i, folder: "CIM" },
     { test: /-teaser-/i, folder: "Teaser" },
+    { test: /^teaser\b/i, folder: "Teaser" },
   ];
 
   for (const rule of rules) {
@@ -1053,6 +1067,7 @@ export async function saveGeneratedReportToDrive(args: {
 /**
  * Move any flat PDFs sitting directly under Generated Reports into
  * Generated Reports / {Agent Name} / based on file name.
+ * Also rescues misfiled files inside "Other Reports".
  */
 export async function structureFlatGeneratedReports(clientFolderId: string): Promise<{
   moved: number;
@@ -1062,6 +1077,14 @@ export async function structureFlatGeneratedReports(clientFolderId: string): Pro
   const reports = await consolidateDuplicateNamedFolders(clientFolderId, "Generated Reports");
   const children = await listDriveChildren(reports.id);
   const flatFiles = children.filter((c) => !c.isFolder);
+  const otherFolder = children.find((c) => c.isFolder && c.name === "Other Reports");
+  if (otherFolder) {
+    const otherKids = await listDriveChildren(otherFolder.id);
+    for (const kid of otherKids.filter((c) => !c.isFolder)) {
+      flatFiles.push(kid);
+    }
+  }
+
   let moved = 0;
   let skipped = 0;
   const errors: string[] = [];
@@ -1069,12 +1092,15 @@ export async function structureFlatGeneratedReports(clientFolderId: string): Pro
   for (const file of flatFiles) {
     try {
       const agentFolder = resolveGeneratedReportAgentFolder(file.name);
+      if (agentFolder === "Other Reports") {
+        skipped += 1;
+        continue;
+      }
       const targetFolderId = await ensureFolderPath(reports.id, [agentFolder]);
       if (targetFolderId === reports.id) {
         skipped += 1;
         continue;
       }
-      // Avoid clobbering: if same name already in agent folder, trash the flat leftover.
       const existing = await findFileInFolder(file.name, targetFolderId);
       if (existing && existing !== file.id) {
         const trashed = await trashDriveFile(file.id);
@@ -1082,7 +1108,15 @@ export async function structureFlatGeneratedReports(clientFolderId: string): Pro
         else skipped += 1;
         continue;
       }
-      const ok = await moveDriveFile(file.id, targetFolderId, reports.id);
+      // remove_parents: either Generated Reports root or Other Reports
+      const oldParent = otherFolder && file.name ? otherFolder.id : reports.id;
+      // Prefer explicit parent discovery via metadata when available
+      const meta = await executeGoogleDriveTool<any>("GOOGLEDRIVE_GET_FILE_METADATA", {
+        file_id: file.id,
+      }).catch(() => null);
+      const parents: string[] = meta?.data?.parents || meta?.parents || [oldParent];
+      const removeParent = parents.find((p) => p === reports.id || p === otherFolder?.id) || parents[0];
+      const ok = await moveDriveFile(file.id, targetFolderId, removeParent);
       if (ok) moved += 1;
       else {
         skipped += 1;
