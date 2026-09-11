@@ -4,14 +4,7 @@ import {
   structureFlatGeneratedReports,
 } from "@/lib/composio";
 import { prisma } from "@/lib/prisma";
-import { buildCompetitorReportHtml } from "@/lib/report-export/build-competitor-report";
-import { buildContractReportHtml } from "@/lib/report-export/build-contract-report";
-import { buildEmployeeObligationsReportHtml } from "@/lib/report-export/build-employee-obligations-report";
-import { buildLeaseReportHtml } from "@/lib/report-export/build-lease-report";
-import { buildMarkdownReportHtml } from "@/lib/report-export/build-markdown-report";
-import { parseReport as parseContractReport } from "@/lib/contract-analysis/parse-report";
-import { parseReport as parseLeaseReport } from "@/lib/lease-analysis/parse-report";
-import { parseWS16Markdown } from "@/lib/ws1-6/parser";
+import { buildClientGeneratedReportArchiveTasks } from "@/lib/drive/archive-generated-reports";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 900;
@@ -77,10 +70,6 @@ function currentJob() {
   return globalForDriveSync.cantaraDriveSyncJob;
 }
 
-function safeFileName(input: string) {
-  return input.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").replace(/\s+/g, " ").trim().slice(0, 180) || "report";
-}
-
 function addLog(job: DriveSyncJob, message: string) {
   const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   job.summary.logs = [`[${timestamp}] ${message}`, ...job.summary.logs].slice(0, 20);
@@ -97,177 +86,23 @@ function clientDisplayName(client: any) {
   return client.User?.name || client.businessName || "Client";
 }
 
-function asObject(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
-function markdownReportHtml(args: {
-  title: string;
-  clientName: string;
-  markdown: string;
-  generatedAt?: string | Date | null;
-}) {
-  return buildMarkdownReportHtml({
-    title: args.title,
-    clientName: args.clientName,
-    generatedAt: args.generatedAt,
-    markdown: args.markdown,
-  });
-}
-
-function latestBy<T>(items: T[], keyFn: (item: T) => string): T[] {
-  const map = new Map<string, T>();
-  for (const item of items) {
-    const key = keyFn(item);
-    const existing = map.get(key);
-    const itemDate = new Date((item as any).updatedAt || (item as any).createdAt || 0).getTime();
-    const existingDate = existing ? new Date((existing as any).updatedAt || (existing as any).createdAt || 0).getTime() : 0;
-    if (!existing || itemDate > existingDate) {
-      map.set(key, item);
-    }
-  }
-  return Array.from(map.values());
-}
-
 async function archiveReports(client: any, folderId: string) {
   let count = 0;
-  const tasks: Array<{ label: string; run: () => Promise<unknown> }> = [];
   const clientName = clientDisplayName(client);
-
-  const leases = latestBy(client.LeaseAnalysis ?? [], (item: any) => item.fileName || item.id) as any[];
-  for (const item of leases) {
-    const parsed = asObject(item.parsed) ?? parseLeaseReport(item.report);
-    tasks.push({
-      label: `Lease Analysis: ${item.fileName || item.id}`,
-      run: () => saveGeneratedReportToDrive({
-        folderId,
-        agentFolder: "Lease Analysis",
-        fileName: safeFileName(`Lease Analysis - ${String(item.fileName || item.id).replace(/(\.pdf)+$/i, "")}`),
-        html: buildLeaseReportHtml(parsed as any, clientName),
-      }),
-    });
-  }
-
-  const contracts = latestBy(client.ContractAnalysis ?? [], (item: any) => item.fileName || item.id) as any[];
-  for (const item of contracts) {
-    const parsed = asObject(item.parsed) ?? parseContractReport(item.report);
-    tasks.push({
-      label: `Contract Analysis: ${item.fileName || item.id}`,
-      run: () => saveGeneratedReportToDrive({
-        folderId,
-        agentFolder: "Contract Analysis",
-        fileName: safeFileName(`Contract Analysis - ${String(item.fileName || item.id).replace(/(\.pdf)+$/i, "")}`),
-        html: buildContractReportHtml(parsed as any, clientName),
-      }),
-    });
-  }
-
-  const competitors = latestBy(client.CompetitorAnalyses ?? [], (item: any) => "latest") as any[];
-  for (const item of competitors) {
-    const parsed = asObject(item.parsed);
-    tasks.push({
-      label: `Competitor Analysis`,
-      run: () => saveGeneratedReportToDrive({
-        folderId,
-        agentFolder: "Competitor Analysis",
-        fileName: safeFileName(`Competitor Analysis`),
-        overwritePrefix: "Competitor Analysis",
-        html: parsed
-          ? buildCompetitorReportHtml(parsed as any)
-          : markdownReportHtml({
-              title: "Competitor Analysis Report",
-              clientName,
-              markdown: (item as any).report,
-              generatedAt: item.createdAt,
-            }),
-      }),
-    });
-  }
-
-  const employeeReports = latestBy(client.EmployeeObligationsReports ?? [], (item: any) => "latest") as any[];
-  for (const item of employeeReports) {
-    const { report, flags } = parseWS16Markdown(item.markdown, clientName);
-    tasks.push({
-      label: `Employee Obligations`,
-      run: () => saveGeneratedReportToDrive({
-        folderId,
-        agentFolder: "Employee Obligations",
-        fileName: safeFileName(`Employee Obligations`),
-        overwritePrefix: "Employee Obligations",
-        html: buildEmployeeObligationsReportHtml({
-          documents: [], agreements: [], nonCompetes: [], benefits: [], contractors: [], keyPeople: [], keyPersonNarrative: "", coverageGaps: [],
-          buyerSummary: { workforceOverview: "No summary available.", nonCompeteProtections: "", assumedBenefitObligations: "", retirementAndPTO: "", independentContractorRisk: "", transitionConsiderations: "", counselItems: [] },
-          ...report,
-        } as any, flags as any, clientName),
-      }),
-    });
-  }
-
-  const ttms = latestBy(client.TtmAnalyses ?? [], (item: any) => "latest") as any[];
-  for (const item of ttms) {
-    if (!item.reportMarkdown) continue;
-    tasks.push({
-      label: `TTM Analysis`,
-      run: () => saveGeneratedReportToDrive({
-        folderId,
-        agentFolder: "TTM Analysis",
-        fileName: safeFileName(`TTM Analysis`),
-        overwritePrefix: "TTM Analysis",
-        html: markdownReportHtml({
-          title: `TTM Analysis v${item.version}`,
-          clientName,
-          markdown: item.reportMarkdown,
-          generatedAt: item.updatedAt,
-        }),
-      }),
-    });
-  }
-
-  const recasts = latestBy(client.Ws2RecastAnalyses ?? [], (item: any) => "latest") as any[];
-  for (const item of recasts) {
-    if (!item.reportMarkdown) continue;
-    tasks.push({
-      label: `WS2 Recast`,
-      run: () => saveGeneratedReportToDrive({
-        folderId,
-        agentFolder: "WS2 Recast",
-        fileName: safeFileName(`WS2 Recast`),
-        overwritePrefix: "WS2 Recast",
-        html: markdownReportHtml({
-          title: `WS2 Recast v${item.version}`,
-          clientName,
-          markdown: item.reportMarkdown,
-          generatedAt: item.updatedAt,
-        }),
-      }),
-    });
-  }
-
-  const derived = latestBy(client.Ws2DerivedReports ?? [], (item: any) => item.agentId) as any[];
-  for (const item of derived) {
-    if (!item.reportMarkdown) continue;
-    tasks.push({
-      label: `WS2 Derived: ${item.agentId}`,
-      run: () => saveGeneratedReportToDrive({
-        folderId,
-        agentFolder: "WS2 Derived",
-        fileName: safeFileName(`WS2 Derived - ${item.agentId}`),
-        overwritePrefix: `WS2 Derived - ${item.agentId}`,
-        html: markdownReportHtml({
-          title: `WS2 Derived ${item.agentId}`,
-          clientName,
-          markdown: item.reportMarkdown,
-          generatedAt: item.updatedAt,
-        }),
-      }),
-    });
-  }
+  const tasks = buildClientGeneratedReportArchiveTasks(client, clientName);
+  addLog(currentJob(), `Found ${tasks.length} generated report(s) to archive for ${clientName}`);
 
   for (const task of tasks) {
     try {
       addLog(currentJob(), `Archiving: ${task.label}`);
       console.log(`[DriveSync]   - Archiving: ${task.label}`);
-      await task.run();
+      await saveGeneratedReportToDrive({
+        folderId,
+        agentFolder: task.agentFolder,
+        fileName: task.fileName,
+        overwritePrefix: task.overwritePrefix,
+        html: task.html,
+      });
       count += 1;
     } catch (error) {
       console.error("[drive/sync-all] Report archive failed", {
@@ -275,16 +110,14 @@ async function archiveReports(client: any, folderId: string) {
         report: task.label,
         error,
       });
+      currentJob().summary.errors.push({
+        clientId: client.id,
+        message: `Report archive failed: ${task.label}`,
+      });
     }
   }
 
   return count;
-}
-
-function latestByCreatedAt<T extends { createdAt?: Date | string | null }>(items: T[] | null | undefined) {
-  return [...(items ?? [])].sort((a, b) =>
-    new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
-  )[0];
 }
 
 async function mirrorDocuments(client: any, folderId: string) {
@@ -292,14 +125,13 @@ async function mirrorDocuments(client: any, folderId: string) {
   const docs = (client.ClientDocument ?? []).filter(
     (doc: any) => doc.fileName && (doc.localPath || doc.googleDriveFileId),
   );
-  const job = currentJob();
-  addLog(job, `Structuring ${docs.length} client upload(s) into category folders`);
+  addLog(currentJob(), `Structuring ${docs.length} client upload(s) into category folders`);
   const result = await syncClientUploadsDriveStructure({
     clientFolderId: folderId,
     documents: docs,
     scaffoldAllFolders: true,
   });
-  addLog(job, result.message);
+  addLog(currentJob(), result.message);
   return result.filesAlreadyInPlace + result.filesMoved + result.filesUploaded;
 }
 
@@ -317,6 +149,14 @@ async function runDriveSync(job: DriveSyncJob, clientId?: string | null) {
         TtmAnalyses: true,
         Ws2RecastAnalyses: true,
         Ws2DerivedReports: true,
+        RealEstateAppraisalReports: true,
+        OwnershipVerificationReports: true,
+        PermitsZoningReports: true,
+        LegalEntitySearchReports: true,
+        TaxLiabilityReports: true,
+        CimReport: true,
+        TeaserReport: true,
+        AgentAnalysisRuns: true,
       },
       orderBy: { createdAt: "asc" },
     });
@@ -328,7 +168,6 @@ async function runDriveSync(job: DriveSyncJob, clientId?: string | null) {
       ? "Starting Google Drive sync for this client."
       : "Starting Google Drive sync. This can take more than 10 minutes for clients with many reports.";
 
-    // Full sync: organize loose Pre-Call Briefs in the shared parent folder first.
     if (!clientId) {
       try {
         const { getDriveParentFolderId } = await import("@/lib/drive-settings");
@@ -452,21 +291,19 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const clientId = typeof body.clientId === "string" && body.clientId.trim() ? body.clientId.trim() : null;
+  const clientId = typeof body?.clientId === "string" ? body.clientId : null;
 
   const job: DriveSyncJob = {
     id: `drive-sync-${Date.now()}`,
     status: "running",
     startedAt: new Date().toISOString(),
     finishedAt: null,
-    message: clientId ? "Client Google Drive sync started." : "Google Drive sync started. This can take more than 10 minutes.",
+    message: "Google Drive sync started. This can take more than 10 minutes.",
     summary: emptySummary(),
   };
   globalForDriveSync.cantaraDriveSyncJob = job;
-
   void runDriveSync(job, clientId);
-
-  return NextResponse.json(job, { status: 202 });
+  return NextResponse.json(job);
 }
 
 export async function GET() {
