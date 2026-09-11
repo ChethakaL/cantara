@@ -45,7 +45,8 @@ export type ArchiveReportTask = {
   agentFolder: string;
   fileName: string;
   overwritePrefix?: string;
-  html: string;
+  /** Lazy — only build HTML/PDF when Drive does not already have this report. */
+  buildHtml: () => string;
 };
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -111,17 +112,15 @@ function pushTask(
     agentFolder: string;
     fileName: string;
     overwritePrefix?: string;
-    html?: string | null;
+    buildHtml: () => string | null | undefined;
   },
 ) {
-  const html = (args.html || "").trim();
-  if (!html) return;
   tasks.push({
     label: args.label,
     agentFolder: args.agentFolder,
     fileName: safeFileName(args.fileName),
     overwritePrefix: args.overwritePrefix,
-    html,
+    buildHtml: () => (args.buildHtml() || "").trim(),
   });
 }
 
@@ -151,7 +150,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       label: `Lease Analysis: ${item.fileName || item.id}`,
       agentFolder: "Lease Analysis",
       fileName: `Lease Analysis - ${String(item.fileName || item.id).replace(/(\.pdf)+$/i, "")}`,
-      html: buildLeaseReportHtml(parsed as any, clientName),
+      buildHtml: () => buildLeaseReportHtml(parsed as any, clientName),
     });
   }
 
@@ -161,7 +160,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       label: `Contract Analysis: ${item.fileName || item.id}`,
       agentFolder: "Contract Analysis",
       fileName: `Contract Analysis - ${String(item.fileName || item.id).replace(/(\.pdf)+$/i, "")}`,
-      html: buildContractReportHtml(parsed as any, clientName),
+      buildHtml: () => buildContractReportHtml(parsed as any, clientName),
     });
   }
 
@@ -172,7 +171,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Competitor Analysis",
       fileName: "Competitor Analysis",
       overwritePrefix: "Competitor Analysis",
-      html: parsed
+      buildHtml: () => parsed
         ? buildCompetitorReportHtml(parsed as any)
         : item.report
           ? markdownHtml("Competitor Analysis Report", clientName, String(item.report), item.createdAt)
@@ -188,7 +187,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Employee Obligations",
       fileName: "Employee Obligations",
       overwritePrefix: "Employee Obligations",
-      html: buildEmployeeObligationsReportHtml(
+      buildHtml: () => buildEmployeeObligationsReportHtml(
         {
           documents: [],
           agreements: [],
@@ -222,7 +221,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "TTM Analysis",
       fileName: "TTM Analysis",
       overwritePrefix: "TTM Analysis",
-      html: markdownHtml(`TTM Analysis v${item.version ?? ""}`.trim(), clientName, item.reportMarkdown, item.updatedAt),
+      buildHtml: () => markdownHtml(`TTM Analysis v${item.version ?? ""}`.trim(), clientName, item.reportMarkdown, item.updatedAt),
     });
   }
 
@@ -233,7 +232,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "WS2 Recast",
       fileName: "WS2 Recast",
       overwritePrefix: "WS2 Recast",
-      html: markdownHtml(`WS2 Recast v${item.version ?? ""}`.trim(), clientName, item.reportMarkdown, item.updatedAt),
+      buildHtml: () => markdownHtml(`WS2 Recast v${item.version ?? ""}`.trim(), clientName, item.reportMarkdown, item.updatedAt),
     });
   }
 
@@ -244,7 +243,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "WS2 Derived",
       fileName: `WS2 Derived - ${item.agentId}`,
       overwritePrefix: `WS2 Derived - ${item.agentId}`,
-      html: markdownHtml(`WS2 Derived ${item.agentId}`, clientName, item.reportMarkdown, item.updatedAt),
+      buildHtml: () => markdownHtml(`WS2 Derived ${item.agentId}`, clientName, item.reportMarkdown, item.updatedAt),
     });
   }
 
@@ -256,7 +255,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Real Estate Appraisal",
       fileName: "Real Estate Appraisal",
       overwritePrefix: "Real Estate Appraisal",
-      html: markdownHtml("Real Estate Appraisal", clientName, item.markdown, item.updatedAt),
+      buildHtml: () => markdownHtml("Real Estate Appraisal", clientName, item.markdown, item.updatedAt),
     });
   }
 
@@ -269,7 +268,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Ownership Verification",
         fileName: "Ownership Verification",
         overwritePrefix: "Ownership Verification",
-        html: buildOwnershipVerificationReportHtml(report as any, flags as any, clientName),
+        buildHtml: () => buildOwnershipVerificationReportHtml(report as any, flags as any, clientName),
       });
     } catch {
       pushTask(tasks, {
@@ -277,7 +276,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Ownership Verification",
         fileName: "Ownership Verification",
         overwritePrefix: "Ownership Verification",
-        html: markdownHtml("Ownership Verification", clientName, item.markdown, item.updatedAt),
+        buildHtml: () => markdownHtml("Ownership Verification", clientName, item.markdown, item.updatedAt),
       });
     }
   }
@@ -291,7 +290,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Permits & Zoning",
         fileName: "Permits & Zoning",
         overwritePrefix: "Permits & Zoning",
-        html: buildPermitsZoningReportHtml(report as any, flags as any, clientName),
+        buildHtml: () => buildPermitsZoningReportHtml(report as any, flags as any, clientName),
       });
     } catch {
       pushTask(tasks, {
@@ -299,7 +298,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Permits & Zoning",
         fileName: "Permits & Zoning",
         overwritePrefix: "Permits & Zoning",
-        html: markdownHtml("Permits & Zoning", clientName, item.markdown, item.updatedAt),
+        buildHtml: () => markdownHtml("Permits & Zoning", clientName, item.markdown, item.updatedAt),
       });
     }
   }
@@ -313,7 +312,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Legal Entity Search",
         fileName: "Legal Entity Search",
         overwritePrefix: "Legal Entity Search",
-        html: buildLegalEntitySearchReportHtml(report as any, flags as any, clientName),
+        buildHtml: () => buildLegalEntitySearchReportHtml(report as any, flags as any, clientName),
       });
     } catch {
       pushTask(tasks, {
@@ -321,7 +320,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Legal Entity Search",
         fileName: "Legal Entity Search",
         overwritePrefix: "Legal Entity Search",
-        html: markdownHtml("Legal Entity Search", clientName, item.markdown, item.updatedAt),
+        buildHtml: () => markdownHtml("Legal Entity Search", clientName, item.markdown, item.updatedAt),
       });
     }
   }
@@ -335,7 +334,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Tax Liability Review",
         fileName: "Tax Liability Review",
         overwritePrefix: "Tax Liability Review",
-        html: buildTaxLiabilityReportHtml(report as any, flags as any, clientName),
+        buildHtml: () => buildTaxLiabilityReportHtml(report as any, flags as any, clientName),
       });
     } catch {
       pushTask(tasks, {
@@ -343,7 +342,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Tax Liability Review",
         fileName: "Tax Liability Review",
         overwritePrefix: "Tax Liability Review",
-        html: markdownHtml("Tax Liability Review", clientName, item.markdown, item.updatedAt),
+        buildHtml: () => markdownHtml("Tax Liability Review", clientName, item.markdown, item.updatedAt),
       });
     }
   }
@@ -357,7 +356,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "CIM",
       fileName: "CIM",
       overwritePrefix: "CIM",
-      html: storedHtml || generateCimHtml(data as any),
+      buildHtml: () => storedHtml || generateCimHtml(data as any),
     });
   }
 
@@ -370,7 +369,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Teaser",
       fileName: "Teaser",
       overwritePrefix: "Teaser",
-      html: storedHtml || generateTeaserHtml(data as any),
+      buildHtml: () => storedHtml || generateTeaserHtml(data as any),
     });
   }
 
@@ -384,7 +383,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Digital Presence",
         fileName: "Digital Presence",
         overwritePrefix: "Digital Presence",
-        html: buildDigitalPresenceReportHtml(report as any),
+        buildHtml: () => buildDigitalPresenceReportHtml(report as any),
       });
     }
   }
@@ -402,7 +401,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Insurance Review",
       fileName: `Insurance Review - ${String(docName).replace(/(\.pdf)+$/i, "")}`,
       overwritePrefix: "Insurance Review",
-      html: buildInsuranceReportHtml(summary as any, String(docName), clientName),
+      buildHtml: () => buildInsuranceReportHtml(summary as any, String(docName), clientName),
     });
   }
 
@@ -417,7 +416,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Employee Comp",
         fileName: "Employee Comp",
         overwritePrefix: "Employee Comp",
-        html: buildEmployeeCompReportHtml(employees, summary as any, clientName),
+        buildHtml: () => buildEmployeeCompReportHtml(employees, summary as any, clientName),
       });
     }
   }
@@ -431,7 +430,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Occupancy Review",
         fileName: "Occupancy Review",
         overwritePrefix: "Occupancy Review",
-        html: buildOccupancyReviewReportHtml(report as any),
+        buildHtml: () => buildOccupancyReviewReportHtml(report as any),
       });
     }
   }
@@ -446,7 +445,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Litigation Search",
       fileName: "Litigation Search",
       overwritePrefix: "Litigation Search",
-      html: buildLitigationReportHtml(litigation, clientName),
+      buildHtml: () => buildLitigationReportHtml(litigation, clientName),
     });
   }
 
@@ -459,7 +458,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "LOI Review",
         fileName: "LOI Review",
         overwritePrefix: "LOI Review",
-        html: buildLoiReviewReportHtml(report as any),
+        buildHtml: () => buildLoiReviewReportHtml(report as any),
       });
     }
   }
@@ -473,7 +472,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Pricing Analysis",
         fileName: "Pricing Analysis",
         overwritePrefix: "Pricing Analysis",
-        html: buildPricingAnalysisReportHtml(report as any, clientName),
+        buildHtml: () => buildPricingAnalysisReportHtml(report as any, clientName),
       });
     }
   }
@@ -487,7 +486,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Facility Review",
         fileName: "Facility Review",
         overwritePrefix: "Facility Review",
-        html: buildFacilityReviewReportHtml(report as any),
+        buildHtml: () => buildFacilityReviewReportHtml(report as any),
       });
     }
   }
@@ -501,7 +500,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "WS1 Assessment",
         fileName: `${clientName} - WS1 Internal Assessment`,
         overwritePrefix: "WS1 Internal Assessment",
-        html: buildAssessmentReportHtml(report as any),
+        buildHtml: () => buildAssessmentReportHtml(report as any),
       });
     }
   }
@@ -515,7 +514,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "WS2 Assessment",
         fileName: `${clientName} - WS2 Internal Assessment`,
         overwritePrefix: "WS2 Internal Assessment",
-        html: buildAssessmentReportHtml(report as any),
+        buildHtml: () => buildAssessmentReportHtml(report as any),
       });
     }
   }
@@ -529,7 +528,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Org Chart Review",
         fileName: "Org Chart Review",
         overwritePrefix: "Org Chart Review",
-        html: buildOrgChartReportHtml(report as any, clientName),
+        buildHtml: () => buildOrgChartReportHtml(report as any, clientName),
       });
     }
   }
@@ -543,7 +542,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Sales Process Review",
         fileName: "Sales Process Review",
         overwritePrefix: "Sales Process Review",
-        html: buildSalesReviewReportHtml(report as any, clientName),
+        buildHtml: () => buildSalesReviewReportHtml(report as any, clientName),
       });
     }
   }
@@ -557,7 +556,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Pricing by Vertical",
         fileName: "Pricing by Vertical",
         overwritePrefix: "Pricing by Vertical",
-        html: buildPricingVerticalReportHtml(report as any, clientName),
+        buildHtml: () => buildPricingVerticalReportHtml(report as any, clientName),
       });
     }
   }
@@ -572,7 +571,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Improvement Roadmap",
         fileName: `${clientName} - Sales Readiness Roadmap`,
         overwritePrefix: "Sales Readiness Roadmap",
-        html: buildImprovementRoadmapHtml(report as any),
+        buildHtml: () => buildImprovementRoadmapHtml(report as any),
       });
     }
   }
@@ -591,7 +590,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Buyer Report",
       fileName: `${clientName} - ${suffix} Buyer Report`,
       overwritePrefix: `${suffix} Buyer Report`,
-      html: buildBuyerReportHtml(report as any),
+      buildHtml: () => buildBuyerReportHtml(report as any),
     });
   }
 
@@ -604,7 +603,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Owner & GM Assessment",
         fileName: "Owner & GM Assessment",
         overwritePrefix: "Owner & GM Assessment",
-        html: buildOwnerGmReportHtml(report as any, clientName),
+        buildHtml: () => buildOwnerGmReportHtml(report as any, clientName),
       });
     }
   }
@@ -620,7 +619,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "CIM",
         fileName: "CIM",
         overwritePrefix: "CIM",
-        html: storedHtml || (data.contactName ? generateCimHtml(data as any) : null),
+        buildHtml: () => storedHtml || (data.contactName ? generateCimHtml(data as any) : null),
       });
     }
   }
@@ -634,7 +633,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
         agentFolder: "Teaser",
         fileName: "Teaser",
         overwritePrefix: "Teaser",
-        html: storedHtml || generateTeaserHtml(data as any),
+        buildHtml: () => storedHtml || generateTeaserHtml(data as any),
       });
     }
   }
@@ -647,7 +646,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Professional Advisors",
       fileName: "Professional Advisors",
       overwritePrefix: "Professional Advisors",
-      html: buildAdvisorsReportHtml(advisors as any, clientName),
+      buildHtml: () => buildAdvisorsReportHtml(advisors as any, clientName),
     });
   }
 
@@ -658,7 +657,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: "Vendor Directory",
       fileName: "Vendor Directory",
       overwritePrefix: "Vendor Directory",
-      html: buildVendorReportHtml(vendors as any, clientName),
+      buildHtml: () => buildVendorReportHtml(vendors as any, clientName),
     });
   }
 
@@ -675,7 +674,7 @@ export function buildClientGeneratedReportArchiveTasks(client: any, clientName: 
       agentFolder: folder,
       fileName: run.fileName || run.agentKey,
       overwritePrefix: String(run.fileName || run.agentKey).slice(0, 80),
-      html: markdownHtml(String(run.fileName || run.agentKey), clientName, run.markdown, run.updatedAt),
+      buildHtml: () => markdownHtml(String(run.fileName || run.agentKey), clientName, run.markdown, run.updatedAt),
     });
   }
 
