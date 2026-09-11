@@ -1111,6 +1111,7 @@ export default function FacilityReviewTab({
                     improvement: 'New maintenance item',
                     estimatedCost: '$1,000 - $3,000',
                     impact: 'Medium' as FacilityImpact,
+                    valueImpact: 'Medium' as FacilityImpact,
                     effort: 'Medium' as FacilityEffort,
                     timing: 'Before listing',
                   }

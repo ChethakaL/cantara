@@ -9,6 +9,11 @@ export interface FacilityZoneScore {
   rating: FacilityRating
   commentary: string
   keyFindings: string[]
+  /** Optional UI/report fields used by newer Facility Review editor. */
+  narrative?: string
+  strengths?: string[]
+  concerns?: string[]
+  photoCount?: number
 }
 
 export interface FacilityImprovement {
@@ -17,6 +22,9 @@ export interface FacilityImprovement {
   valueImpact: FacilityImpact
   effort: FacilityEffort
   timing: string
+  /** Optional UI aliases used by newer Facility Review editor. */
+  estimatedCost?: string
+  impact?: FacilityImpact
 }
 
 export interface FacilityReviewReport {

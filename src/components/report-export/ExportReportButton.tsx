@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Printer } from 'lucide-react'
-import { Button } from '@/components/ui'
+import { Button, cn } from '@/components/ui'
 
 interface Props {
   html?: string
@@ -11,9 +11,21 @@ interface Props {
   label?: string
   advisorAction?: boolean
   waitForImages?: boolean
+  /** Optional className forwarded to the download button (UI-only). */
+  buttonClassName?: string
+  className?: string
 }
 
-export function ExportReportButton({ html, prepareHtml, fileName, label, advisorAction = true, waitForImages }: Props) {
+export function ExportReportButton({
+  html,
+  prepareHtml,
+  fileName,
+  label,
+  advisorAction = true,
+  waitForImages,
+  buttonClassName,
+  className,
+}: Props) {
   const [saving, setSaving] = useState(false)
   const [loadingImages, setLoadingImages] = useState(false)
 
@@ -80,8 +92,8 @@ export function ExportReportButton({ html, prepareHtml, fileName, label, advisor
   }
 
   return (
-    <div className="flex items-center gap-2" data-advisor-action={advisorAction ? true : undefined}>
-      <Button size="sm" onClick={handlePrint} disabled={loadingImages}>
+    <div className={cn('flex items-center gap-2', className)} data-advisor-action={advisorAction ? true : undefined}>
+      <Button size="sm" onClick={handlePrint} disabled={loadingImages} className={buttonClassName}>
         <Printer className="w-3.5 h-3.5" />
         {loadingImages ? 'Loading...' : saving ? 'Saving...' : label || 'Export PDF'}
       </Button>

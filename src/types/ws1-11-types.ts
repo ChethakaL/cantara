@@ -142,6 +142,7 @@ export interface WS111Flag {
   description: string
   sourceRef: string
   status: 'pending' | 'confirmed' | 'na'
+  action?: string
 }
 
 export interface WS111Persistence {
@@ -150,4 +151,5 @@ export interface WS111Persistence {
   aiProvider?: string | null
   aiModel?: string | null
   metadata?: any
+  version?: number
 }

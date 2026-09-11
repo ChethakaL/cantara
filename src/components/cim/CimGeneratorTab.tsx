@@ -569,7 +569,7 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
             <div className="w-full sm:w-auto flex items-center justify-end gap-3">
               <Button
                 type="button"
-                disabled={!acknowledged || status === 'auto-filling'}
+                disabled={!acknowledged}
                 onClick={autoFill}
                 className={cn(
                   'h-10 px-5 rounded-lg font-medium text-xs text-white shadow-xs inline-flex items-center gap-2 cursor-pointer transition-all',
