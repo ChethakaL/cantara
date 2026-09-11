@@ -69,7 +69,8 @@ export async function createGoogleDriveConnectLink(callbackUrl: string, adminId?
 }
 
 export async function executeGoogleDriveTool<T = any>(slug: string, argumentsPayload: Record<string, unknown>, adminId?: string) {
-  const userId = adminId || getComposioAdminId() || ADMIN_DRIVE_USER_ID;
+  // Prefer the signed-in admin when they have Drive; otherwise fall back to shared entity.
+  const userId = await resolveGoogleDriveUserId(adminId);
   return composioFetch<{ data?: T; successful?: boolean; error?: unknown }>(`/tools/execute/${slug}`, {
     method: "POST",
     body: JSON.stringify({
@@ -77,6 +78,18 @@ export async function executeGoogleDriveTool<T = any>(slug: string, argumentsPay
       arguments: argumentsPayload,
     }),
   });
+}
+
+/** Prefer an identity that actually has an ACTIVE Google Drive connection. */
+async function resolveGoogleDriveUserId(preferred?: string | null): Promise<string> {
+  const candidates = [preferred, getComposioAdminId(), ADMIN_DRIVE_USER_ID].filter(
+    (id, i, arr): id is string => Boolean(id) && arr.indexOf(id) === i,
+  );
+  for (const userId of candidates) {
+    const conn = await getGoogleDriveConnection(userId).catch(() => null);
+    if (conn) return userId;
+  }
+  return candidates[0] || ADMIN_DRIVE_USER_ID;
 }
 
 export async function getGoogleDriveConnection(adminId?: string) {
@@ -165,11 +178,19 @@ function driveQueryString(value: string) {
 
 async function findFilesByPrefix(prefix: string, folderId: string) {
   const found = await executeGoogleDriveTool<any>("GOOGLEDRIVE_FIND_FILE", {
-    q: `name contains '${driveQueryString(prefix)}' and '${folderId}' in parents and trashed = false`,
-    fields: "files(id, name)",
+    q: `name contains '${driveQueryString(prefix)}' and '${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: "files(id, name, mimeType)",
   }).catch(() => null);
   const files = found?.data?.files ?? found?.files ?? [];
-  return Array.isArray(files) ? files.filter((f) => f.name.startsWith(prefix)) : [];
+  if (!Array.isArray(files)) return [];
+  // Never treat folders as “old report versions” — that was trashing agent folders mid-sync.
+  return files.filter(
+    (f: any) =>
+      f?.id &&
+      typeof f.name === "string" &&
+      f.name.startsWith(prefix) &&
+      f.mimeType !== "application/vnd.google-apps.folder",
+  );
 }
 
 async function findFileInFolder(name: string, folderId: string) {
@@ -980,6 +1001,24 @@ export function resolveGeneratedReportAgentFolder(fileName: string, explicit?: s
   return "Other Reports";
 }
 
+export async function generatedReportExistsInDrive(args: {
+  folderId: string;
+  fileName: string;
+  overwritePrefix?: string;
+  agentFolder?: string;
+}): Promise<boolean> {
+  const reports = await consolidateDuplicateNamedFolders(args.folderId, "Generated Reports");
+  const resolvedFileName = resolveGeneratedReportPdfName(args.fileName);
+  const agentFolder = resolveGeneratedReportAgentFolder(args.fileName, args.agentFolder);
+  const targetFolderId = await ensureFolderPath(reports.id, [agentFolder]);
+  if (await findFileInFolder(resolvedFileName, targetFolderId)) return true;
+  if (args.overwritePrefix) {
+    const existing = await findFilesByPrefix(args.overwritePrefix, targetFolderId);
+    if (existing.length > 0) return true;
+  }
+  return false;
+}
+
 export async function saveGeneratedReportToDrive(args: {
   folderId: string;
   fileName: string;
@@ -987,33 +1026,31 @@ export async function saveGeneratedReportToDrive(args: {
   overwritePrefix?: string;
   /** Agent / report-type folder under Generated Reports */
   agentFolder?: string;
-}) {
+  /** Default true for Sync All — skip PDF regen/upload when already filed. */
+  skipIfExists?: boolean;
+}): Promise<{ skipped?: boolean; reason?: string; agentFolder?: string; data?: any; webViewLink?: string }> {
   const reports = await consolidateDuplicateNamedFolders(args.folderId, "Generated Reports");
   const resolvedFileName = resolveGeneratedReportPdfName(args.fileName);
   const agentFolder = resolveGeneratedReportAgentFolder(args.fileName, args.agentFolder);
   const targetFolderId = await ensureFolderPath(reports.id, [agentFolder]);
 
-  const cleanupMatches = async (parentId: string) => {
+  const skipIfExists = args.skipIfExists !== false;
+  if (skipIfExists) {
+    const exact = await findFileInFolder(resolvedFileName, targetFolderId);
+    if (exact) {
+      console.log(`[Composio] Skip existing report: Generated Reports/${agentFolder}/${resolvedFileName}`);
+      return { skipped: true, reason: "exists", agentFolder };
+    }
     if (args.overwritePrefix) {
-      const existing = await findFilesByPrefix(args.overwritePrefix, parentId);
-      for (const file of existing) {
-        console.log(`[Composio] Cleaning up old version/file: ${file.name} (${file.id})`);
-        const ok = await trashDriveFile(file.id);
-        if (!ok) console.warn(`[Composio] Failed to delete ${file.name}`);
+      const existing = await findFilesByPrefix(args.overwritePrefix, targetFolderId);
+      if (existing.length > 0) {
+        console.log(
+          `[Composio] Skip existing report prefix "${args.overwritePrefix}" in Generated Reports/${agentFolder}`,
+        );
+        return { skipped: true, reason: "exists-prefix", agentFolder };
       }
-      return;
     }
-    const existingId = await findFileInFolder(resolvedFileName, parentId);
-    if (existingId) {
-      console.log(`[Composio] Deleting existing report to overwrite: ${resolvedFileName} (${existingId})`);
-      const ok = await trashDriveFile(existingId);
-      if (!ok) console.warn(`[Composio] Failed to delete existing file`);
-    }
-  };
-
-  // Clean agent folder + any legacy flat copies sitting directly under Generated Reports.
-  await cleanupMatches(targetFolderId);
-  await cleanupMatches(reports.id);
+  }
 
   assertS3Configured();
   const pdf = await renderHtmlToPdfBuffer(args.html);
@@ -1035,12 +1072,42 @@ export async function saveGeneratedReportToDrive(args: {
     mimeType: "application/pdf",
     sourceUrl: await buildPresignedFileUrl(key),
   });
+  if ((result as any)?.successful === false) {
+    throw new Error(
+      typeof (result as any).error === "string"
+        ? (result as any).error
+        : JSON.stringify((result as any).error ?? (result as any).data ?? result),
+    );
+  }
 
-  const fileId = extractDriveFileId((result as any)?.data ?? result);
-  if (fileId) {
-    console.log(`[Composio] Making file ${fileId} public...`);
+  const uploadedId = extractDriveFileId((result as any)?.data ?? result);
+
+  // Only trash prior FILE versions AFTER successful upload — never folders.
+  const cleanupMatches = async (parentId: string) => {
+    if (args.overwritePrefix) {
+      const existing = await findFilesByPrefix(args.overwritePrefix, parentId);
+      for (const file of existing) {
+        if (uploadedId && file.id === uploadedId) continue;
+        console.log(`[Composio] Cleaning up old version/file: ${file.name} (${file.id})`);
+        const ok = await trashDriveFile(file.id);
+        if (!ok) console.warn(`[Composio] Failed to delete ${file.name}`);
+      }
+      return;
+    }
+    const existingId = await findFileInFolder(resolvedFileName, parentId);
+    if (existingId && existingId !== uploadedId) {
+      console.log(`[Composio] Deleting existing report to overwrite: ${resolvedFileName} (${existingId})`);
+      const ok = await trashDriveFile(existingId);
+      if (!ok) console.warn(`[Composio] Failed to delete existing file`);
+    }
+  };
+  await cleanupMatches(targetFolderId);
+  await cleanupMatches(reports.id);
+
+  if (uploadedId) {
+    console.log(`[Composio] Making file ${uploadedId} public...`);
     await executeGoogleDriveTool("GOOGLEDRIVE_CREATE_PERMISSION", {
-      file_id: fileId,
+      file_id: uploadedId,
       role: "reader",
       type: "anyone",
     }).catch((err) => {
@@ -1049,12 +1116,13 @@ export async function saveGeneratedReportToDrive(args: {
   }
 
   const details = await executeGoogleDriveTool<any>("GOOGLEDRIVE_GET_FILE_METADATA", {
-    fileId,
+    fileId: uploadedId,
     fields: "id, name, webViewLink, webContentLink",
   }).catch(() => null);
 
   return {
     ...result,
+    skipped: false,
     data: details?.data ?? details ?? (result as any)?.data ?? result,
     agentFolder,
     webViewLink:

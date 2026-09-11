@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   saveGeneratedReportToDrive,
   structureFlatGeneratedReports,
+  generatedReportExistsInDrive,
 } from "@/lib/composio";
 import { prisma } from "@/lib/prisma";
 import { buildClientGeneratedReportArchiveTasks } from "@/lib/drive/archive-generated-reports";
@@ -88,12 +89,33 @@ function clientDisplayName(client: any) {
 
 async function archiveReports(client: any, folderId: string) {
   let count = 0;
+  let skipped = 0;
   const clientName = clientDisplayName(client);
   const tasks = buildClientGeneratedReportArchiveTasks(client, clientName);
   addLog(currentJob(), `Found ${tasks.length} generated report(s) to archive for ${clientName}`);
 
   for (const task of tasks) {
     try {
+      const exists = await generatedReportExistsInDrive({
+        folderId,
+        agentFolder: task.agentFolder,
+        fileName: task.fileName,
+        overwritePrefix: task.overwritePrefix,
+      });
+      if (exists) {
+        skipped += 1;
+        count += 1;
+        addLog(currentJob(), `Already on Drive — skipped: ${task.label}`);
+        console.log(`[DriveSync]   - Skipped (exists): ${task.label}`);
+        continue;
+      }
+
+      const html = task.buildHtml();
+      if (!html) {
+        addLog(currentJob(), `No HTML for ${task.label} — skipped`);
+        continue;
+      }
+
       addLog(currentJob(), `Archiving: ${task.label}`);
       console.log(`[DriveSync]   - Archiving: ${task.label}`);
       await saveGeneratedReportToDrive({
@@ -101,9 +123,11 @@ async function archiveReports(client: any, folderId: string) {
         agentFolder: task.agentFolder,
         fileName: task.fileName,
         overwritePrefix: task.overwritePrefix,
-        html: task.html,
+        html,
+        skipIfExists: false,
       });
       count += 1;
+      await new Promise((r) => setTimeout(r, 400));
     } catch (error) {
       console.error("[drive/sync-all] Report archive failed", {
         clientId: client.id,
@@ -117,6 +141,9 @@ async function archiveReports(client: any, folderId: string) {
     }
   }
 
+  if (skipped > 0) {
+    addLog(currentJob(), `${clientName}: ${skipped} report(s) already on Drive (skipped regen)`);
+  }
   return count;
 }
 
