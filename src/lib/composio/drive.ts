@@ -184,14 +184,92 @@ async function fileExistsInFolder(name: string, folderId: string) {
   return Boolean(await findFileInFolder(name, folderId));
 }
 
-async function ensureFolder(name: string, parentId?: string) {
-  const found = await executeGoogleDriveTool<any>("GOOGLEDRIVE_FIND_FOLDER", {
-    name_exact: name,
-    ...(parentId ? { parent_folder_id: parentId } : {}),
-  }).catch(() => null);
-  const foundId = found ? extractFirstFolderId(found.data ?? found) : null;
-  if (foundId) return { id: foundId, url: `https://drive.google.com/drive/folders/${foundId}` };
+/** Find every non-trashed folder with an exact name under a parent (handles prior duplicates). */
+async function findFoldersInParent(name: string, parentId: string): Promise<Array<{ id: string; name: string }>> {
+  const children = await listDriveChildren(parentId).catch(() => [] as DriveChild[]);
+  const fromList = children
+    .filter((c) => c.isFolder && c.name === name)
+    .map((c) => ({ id: c.id, name: c.name }));
+  if (fromList.length > 0) return fromList;
 
+  // Fallback query scoped to this parent (FIND_FOLDER historically missed siblings and created dupes).
+  const found = await executeGoogleDriveTool<any>("GOOGLEDRIVE_FIND_FILE", {
+    q: `name = '${driveQueryString(name)}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: "files(id, name, mimeType)",
+  }).catch(() => null);
+  const files = found?.data?.files ?? found?.files ?? found?.data?.data?.files ?? [];
+  if (!Array.isArray(files)) return [];
+  return files
+    .filter((f: any) => f?.id && f?.name === name && f?.trashed !== true)
+    .map((f: any) => ({ id: String(f.id), name: String(f.name) }));
+}
+
+async function pickCanonicalFolder(matches: Array<{ id: string; name: string }>) {
+  if (matches.length === 1) return matches[0];
+  let best = matches[0];
+  let bestCount = -1;
+  for (const match of matches) {
+    const kids = await listDriveChildren(match.id).catch(() => [] as DriveChild[]);
+    if (kids.length > bestCount) {
+      bestCount = kids.length;
+      best = match;
+    }
+  }
+  return best;
+}
+
+/**
+ * If multiple folders share the same name under a parent, move children into the
+ * fullest one and trash the empty duplicates. Prevents Sync from keeping/creating clutter.
+ */
+async function consolidateDuplicateNamedFolders(
+  parentId: string,
+  name: string,
+): Promise<{ id: string; url: string; mergedFrom: number; trashed: number }> {
+  const matches = await findFoldersInParent(name, parentId);
+  if (matches.length === 0) {
+    const created = await createDriveFolder(name, parentId);
+    return { ...created, mergedFrom: 0, trashed: 0 };
+  }
+
+  const canonical = await pickCanonicalFolder(matches);
+  let trashed = 0;
+  for (const dup of matches) {
+    if (dup.id === canonical.id) continue;
+    const kids = await listDriveChildren(dup.id).catch(() => [] as DriveChild[]);
+    for (const kid of kids) {
+      const moved = await moveDriveFile(kid.id, canonical.id, dup.id);
+      if (!moved) {
+        console.warn(`[DriveSync] Could not move ${kid.name} from duplicate "${name}" (${dup.id})`);
+      }
+    }
+    const remaining = await listDriveChildren(dup.id).catch(() => [] as DriveChild[]);
+    if (remaining.length === 0) {
+      await executeGoogleDriveTool("GOOGLEDRIVE_DELETE_FILE", { file_id: dup.id }).catch(() => null);
+      trashed += 1;
+      console.log(`[DriveSync] Trashed empty duplicate folder "${name}" (${dup.id})`);
+    } else {
+      console.warn(
+        `[DriveSync] Left duplicate "${name}" (${dup.id}) — ${remaining.length} item(s) could not be moved`,
+      );
+    }
+  }
+
+  if (matches.length > 1) {
+    console.log(
+      `[DriveSync] Consolidated ${matches.length} "${name}" folders → ${canonical.id} (trashed ${trashed})`,
+    );
+  }
+
+  return {
+    id: canonical.id,
+    url: `https://drive.google.com/drive/folders/${canonical.id}`,
+    mergedFrom: Math.max(0, matches.length - 1),
+    trashed,
+  };
+}
+
+async function createDriveFolder(name: string, parentId?: string) {
   const created = await executeGoogleDriveTool<any>("GOOGLEDRIVE_CREATE_FOLDER", {
     name,
     ...(parentId ? { parent_id: parentId } : {}),
@@ -201,6 +279,25 @@ async function ensureFolder(name: string, parentId?: string) {
     throw new Error(`Could not resolve Google Drive folder id for ${name}`);
   }
   return { id: folderId, url: `https://drive.google.com/drive/folders/${folderId}` };
+}
+
+async function ensureFolder(name: string, parentId?: string) {
+  if (parentId) {
+    const matches = await findFoldersInParent(name, parentId);
+    if (matches.length > 0) {
+      const canonical = await pickCanonicalFolder(matches);
+      return { id: canonical.id, url: `https://drive.google.com/drive/folders/${canonical.id}` };
+    }
+    return createDriveFolder(name, parentId);
+  }
+
+  // No parent: keep legacy FIND_FOLDER behavior for rare top-level ensures.
+  const found = await executeGoogleDriveTool<any>("GOOGLEDRIVE_FIND_FOLDER", {
+    name_exact: name,
+  }).catch(() => null);
+  const foundId = found ? extractFirstFolderId(found.data ?? found) : null;
+  if (foundId) return { id: foundId, url: `https://drive.google.com/drive/folders/${foundId}` };
+  return createDriveFolder(name);
 }
 
 export async function ensureClientDriveSubfolder(clientFolderId: string, name: string) {
@@ -264,7 +361,7 @@ export async function organizePreCallBriefsInParentFolder(args: {
     if (key && !knownByKey.has(key)) knownByKey.set(key, name.trim());
   }
 
-  const briefsRoot = await ensureFolder("Pre-Call Briefs", args.parentFolderId);
+  const briefsRoot = await consolidateDuplicateNamedFolders(args.parentFolderId, "Pre-Call Briefs");
   const folderCache = new Map<string, string>([[`${args.parentFolderId}/Pre-Call Briefs`, briefsRoot.id]]);
   const children = await listDriveChildren(args.parentFolderId);
 
@@ -383,9 +480,9 @@ export async function ensureClientDriveFolder(args: { clientName: string; client
 
   const clientFolder = await ensureFolder(args.clientName, args.parentFolderId);
   await Promise.all([
-    ensureFolder("Client Uploads", clientFolder.id),
-    ensureFolder("Generated Reports", clientFolder.id),
-    ensureFolder("Correspondence", clientFolder.id),
+    consolidateDuplicateNamedFolders(clientFolder.id, "Client Uploads"),
+    consolidateDuplicateNamedFolders(clientFolder.id, "Generated Reports"),
+    consolidateDuplicateNamedFolders(clientFolder.id, "Correspondence"),
   ]);
   return clientFolder;
 }
@@ -493,8 +590,12 @@ export async function syncClientUploadsDriveStructure(args: {
     message: "",
   };
 
-  const uploads = await ensureFolder("Client Uploads", args.clientFolderId);
+  const uploads = await consolidateDuplicateNamedFolders(args.clientFolderId, "Client Uploads");
   result.foldersEnsured += 1;
+  const consolidatedNote =
+    uploads.trashed > 0
+      ? `Merged ${uploads.mergedFrom} duplicate Client Uploads folder(s) (trashed ${uploads.trashed}). `
+      : "";
   const folderCache = new Map<string, string>([[uploads.id, uploads.id]]);
 
   const lookup = buildDocumentLookup();
@@ -687,9 +788,10 @@ export async function syncClientUploadsDriveStructure(args: {
     result.filesAlreadyInPlace === args.documents.length;
 
   if (result.alreadyStructured) {
-    result.message = `Already structured — ${result.filesAlreadyInPlace} file(s) in place.`;
+    result.message = `${consolidatedNote}Already structured — ${result.filesAlreadyInPlace} file(s) in place.`.trim();
   } else {
     result.message = [
+      consolidatedNote.trim() || null,
       `Synced ${args.documents.length} document(s):`,
       `${result.filesAlreadyInPlace} already in place`,
       `${result.filesMoved} moved`,
@@ -710,7 +812,7 @@ export async function ensureClientUploadDocumentFolder(args: {
   fileName?: string | null;
 }) {
   const { resolveClientUploadDrivePath } = await import("@/lib/client-document-paths");
-  const uploads = await ensureFolder("Client Uploads", args.clientFolderId);
+  const uploads = await consolidateDuplicateNamedFolders(args.clientFolderId, "Client Uploads");
   const path = resolveClientUploadDrivePath({
     documentId: args.documentId,
     fileName: args.fileName,
@@ -750,7 +852,7 @@ export async function saveGeneratedReportToDrive(args: {
   html: string;
   overwritePrefix?: string;
 }) {
-  const reports = await ensureFolder("Generated Reports", args.folderId);
+  const reports = await consolidateDuplicateNamedFolders(args.folderId, "Generated Reports");
   const baseName = args.fileName.replace(/\.html?$/i, "").replace(/\.pdf$/i, "");
   const resolvedFileName = `${baseName}.pdf`;
 
