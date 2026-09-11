@@ -186,7 +186,10 @@ const isBrowser = typeof window !== 'undefined'
 
 export async function getClients(): Promise<Client[]> {
   try {
-    const res = await fetch('/api/clients');
+    const res = await fetch('/api/clients', {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20000),
+    });
     if (!res.ok) throw new Error('Failed to fetch clients');
     return await res.json();
   } catch (error) {
@@ -197,7 +200,10 @@ export async function getClients(): Promise<Client[]> {
 
 export async function getClient(id: string): Promise<Client | null> {
   try {
-    const res = await fetch(`/api/clients/${id}`);
+    const res = await fetch(`/api/clients/${id}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20000),
+    });
     if (!res.ok) return null;
     return await res.json();
   } catch (error) {

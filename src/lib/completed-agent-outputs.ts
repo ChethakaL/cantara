@@ -45,8 +45,171 @@ const KNOWN_SOURCE_AGENTS: WorkstreamAgentSelection[] = [
   { agentId: 'tax_liability_review', agentName: 'Tax Liability Review Agent' },
 ]
 
-function isSourceAgent(agentId: string) {
+export function isRoadmapSourceAgent(agentId: string) {
   return !SKIP_STATUS_KEYS.has(normalizeAgentStatusKey(agentId))
+}
+
+function isSourceAgent(agentId: string) {
+  return isRoadmapSourceAgent(agentId)
+}
+
+const AGENT_TAB_KEYS: Record<string, string> = {
+  ttm: 'ttm',
+  client_location_map: 'client-location-map',
+  pricing_analysis: 'pricing-analysis',
+  competitor_analysis: 'competitor',
+  digital_presence: 'digital',
+  employee_obligations: 'employee-obligations',
+  employee_comp: 'employee-comp',
+  facility_review: 'facility-review',
+  insurance_review: 'insurance',
+  lease_analysis: 'lease',
+  legal_entity_search: 'legal-entity-search',
+  litigation_search: 'litigation',
+  contract_analysis: 'contract',
+  occupancy_review: 'occupancy-review',
+  org_chart_review: 'org-chart',
+  owner_gm_assessment: 'owner-gm-assessment',
+  ownership_verification: 'ownership-verification',
+  permits_zoning: 'permits-zoning',
+  pricing_vertical: 'pricing-vertical',
+  professional_advisors: 'advisors',
+  real_estate_appraisal: 'real-estate-appraisal',
+  sales_process_review: 'sales-process-review',
+  vendor_directory: 'vendor-directory',
+  tax_liability_review: 'tax-liability-review',
+}
+
+const AGENT_GROUPS: Record<string, 'WS1 — Risk Mitigation' | 'WS2 — Performance' | 'Shared'> = {
+  ttm: 'Shared',
+  client_location_map: 'Shared',
+  employee_obligations: 'WS1 — Risk Mitigation',
+  employee_comp: 'WS1 — Risk Mitigation',
+  insurance_review: 'WS1 — Risk Mitigation',
+  lease_analysis: 'WS1 — Risk Mitigation',
+  legal_entity_search: 'WS1 — Risk Mitigation',
+  litigation_search: 'WS1 — Risk Mitigation',
+  contract_analysis: 'WS1 — Risk Mitigation',
+  org_chart_review: 'WS1 — Risk Mitigation',
+  owner_gm_assessment: 'WS1 — Risk Mitigation',
+  ownership_verification: 'WS1 — Risk Mitigation',
+  permits_zoning: 'WS1 — Risk Mitigation',
+  professional_advisors: 'WS1 — Risk Mitigation',
+  real_estate_appraisal: 'WS1 — Risk Mitigation',
+  vendor_directory: 'WS1 — Risk Mitigation',
+  tax_liability_review: 'WS1 — Risk Mitigation',
+  pricing_analysis: 'WS2 — Performance',
+  competitor_analysis: 'WS2 — Performance',
+  digital_presence: 'WS2 — Performance',
+  facility_review: 'WS2 — Performance',
+  occupancy_review: 'WS2 — Performance',
+  pricing_vertical: 'WS2 — Performance',
+  sales_process_review: 'WS2 — Performance',
+}
+
+const AGENT_NOTES: Record<string, string> = {
+  ttm: 'Adjusted EBITDA, revenue trends, and valuation context for sale readiness.',
+  client_location_map: 'Customer geographic reach and service-area concentration.',
+  pricing_analysis: 'Competitive pricing position versus nearby operators.',
+  competitor_analysis: 'Local competitor landscape and positioning.',
+  digital_presence: 'Website, reviews, and online reputation health.',
+  employee_obligations: 'Contracts, handbook, benefits, and workforce obligations.',
+  employee_comp: 'Staffing levels, pay structure, and compensation risk.',
+  facility_review: 'Facility condition and buyer-facing operational readiness.',
+  insurance_review: 'Coverage adequacy, claims history, and insurance gaps.',
+  lease_analysis: 'Lease terms, assignment risk, and landlord consent issues.',
+  legal_entity_search: 'Entity standing, filings, and corporate cleanliness.',
+  litigation_search: 'Litigation, liens, and dispute exposure.',
+  contract_analysis: 'Material vendor/customer contract transferability.',
+  occupancy_review: 'Capacity utilization and boarding/daycare demand trends.',
+  org_chart_review: 'Management depth and key-person concentration.',
+  owner_gm_assessment: 'Owner dependency and GM operating autonomy.',
+  ownership_verification: 'Cap table, authority to sell, and ownership clarity.',
+  permits_zoning: 'Licenses, permits, and zoning compliance posture.',
+  pricing_vertical: 'Service-line pricing history and revenue mix.',
+  professional_advisors: 'CPA, attorney, and other advisor relationships.',
+  real_estate_appraisal: 'Owned real estate valuation support.',
+  sales_process_review: 'Inquiry conversion and booking process quality.',
+  vendor_directory: 'Critical software and vendor dependencies.',
+  tax_liability_review: 'Tax filings, notices, and potential tax exposure.',
+}
+
+export type RoadmapAgentSource = {
+  key: string
+  name: string
+  tabKey: string
+  group: string
+  required: false
+  ready: boolean
+  note: string
+}
+
+/** Workstream-aware optional source list for the Sales Readiness Roadmap start UI.
+ * Shows assigned workstream agents (ready or not), plus any other completed
+ * diligence agents advisors ran outside the assigned set.
+ */
+export async function listRoadmapAgentSources(
+  clientId: string,
+  assignedAgents: WorkstreamAgentSelection[] = [],
+): Promise<RoadmapAgentSource[]> {
+  const completed = await gatherCompletedAgentOutputs(clientId, assignedAgents)
+  const readyKeys = new Set(completed.map(item => normalizeAgentStatusKey(item.agentId)))
+  const completedByKey = new Map(
+    completed.map(item => [normalizeAgentStatusKey(item.agentId), item] as const),
+  )
+
+  const assignedSourceAgents = assignedAgents.filter(agent => isSourceAgent(agent.agentId))
+  const candidates: WorkstreamAgentSelection[] = [
+    ...(assignedSourceAgents.length ? assignedSourceAgents : []),
+    // Advisors often run agents outside the assigned workstream — surface those too.
+    ...completed.map(item => ({ agentId: item.agentId, agentName: item.agentName })),
+    // Fallback catalog when nothing is assigned yet.
+    ...(!assignedSourceAgents.length ? KNOWN_SOURCE_AGENTS : []),
+  ]
+
+  const seen = new Set<string>()
+  const sources: RoadmapAgentSource[] = []
+
+  for (const agent of candidates) {
+    if (!isSourceAgent(agent.agentId)) continue
+    const statusKey = normalizeAgentStatusKey(agent.agentId)
+    if (seen.has(statusKey)) continue
+    seen.add(statusKey)
+
+    const isAssigned = assignedSourceAgents.some(a => normalizeAgentStatusKey(a.agentId) === statusKey)
+    const ready = readyKeys.has(statusKey)
+    // Show: assigned agents always; non-assigned only if they have a completed output.
+    if (!isAssigned && !ready) continue
+
+    const completedMatch = completedByKey.get(statusKey)
+    sources.push({
+      key: agent.agentId,
+      name: completedMatch?.agentName || agent.agentName,
+      tabKey: AGENT_TAB_KEYS[agent.agentId] ?? agent.agentId,
+      group: isAssigned
+        ? (AGENT_GROUPS[agent.agentId] ?? 'Shared')
+        : 'Also run (outside assigned workstream)',
+      required: false,
+      ready,
+      note: isAssigned
+        ? (AGENT_NOTES[agent.agentId] ?? 'Completed diligence output used when generating the checklist.')
+        : `${AGENT_NOTES[agent.agentId] ?? 'Completed diligence output.'} Included because this agent was run even though it is outside the assigned workstream.`,
+    })
+  }
+
+  const groupOrder = [
+    'Shared',
+    'WS1 — Risk Mitigation',
+    'WS2 — Performance',
+    'Also run (outside assigned workstream)',
+  ]
+  return sources.sort((a, b) => {
+    const ga = groupOrder.indexOf(a.group)
+    const gb = groupOrder.indexOf(b.group)
+    if (ga !== gb) return (ga === -1 ? 99 : ga) - (gb === -1 ? 99 : gb)
+    if (a.ready !== b.ready) return a.ready ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
 }
 
 function excerpt(value: unknown, maxLen = 3500): string {

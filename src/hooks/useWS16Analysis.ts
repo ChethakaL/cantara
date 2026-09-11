@@ -40,8 +40,13 @@ export function useWS16Analysis({ clientId, clientName, state, dba, totalEmploye
     setError(null)
   }, [])
 
-  const analyze = useCallback(async (provider: AgentAiProvider = 'bedrock') => {
-    if (documents.length === 0) return
+  const analyze = useCallback(async (
+    provider: AgentAiProvider = 'bedrock',
+    docsOverride?: UploadedDoc[],
+  ) => {
+    const docs = docsOverride ?? documents
+    if (docs.length === 0) return
+    if (docsOverride) setDocuments(docsOverride)
     setStatus('uploading')
     setRawMarkdown('')
     setError(null)
@@ -57,7 +62,7 @@ export function useWS16Analysis({ clientId, clientName, state, dba, totalEmploye
           dba,
           totalEmployeesSelfReported,
           employmentTypeBreakdown,
-          documents: documents.map(d => ({
+          documents: docs.map(d => ({
             name: d.name,
             base64: d.base64,
             mediaType: d.mediaType,
@@ -99,7 +104,7 @@ export function useWS16Analysis({ clientId, clientName, state, dba, totalEmploye
         body: JSON.stringify({
           clientId,
           markdown: accumulated,
-          documentNames: documents.map(d => d.name),
+          documentNames: docs.map(d => d.name),
           aiProvider: provider,
           aiModel: resolveAgentModelId(provider),
         }),

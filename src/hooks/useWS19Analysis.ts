@@ -42,9 +42,11 @@ export function useWS19Analysis({ clientId, clientName, state, dba, propertyAddr
 
   const analyze = useCallback(async (
     provider: AgentAiProvider = 'bedrock',
-    options?: { allDocumentsUnavailable?: boolean },
+    options?: { allDocumentsUnavailable?: boolean; documents?: UploadedDoc[] },
   ) => {
-    if (documents.length === 0 && !options?.allDocumentsUnavailable) return
+    const docs = options?.documents ?? documents
+    if (docs.length === 0 && !options?.allDocumentsUnavailable) return
+    if (options?.documents) setDocuments(options.documents)
     setStatus('uploading')
     setRawMarkdown('')
     setError(null)
@@ -60,12 +62,12 @@ export function useWS19Analysis({ clientId, clientName, state, dba, propertyAddr
           dba,
           propertyAddress,
           municipality,
-          documents: documents.map(d => ({
+          documents: docs.map(d => ({
             name: d.name,
             base64: d.base64,
             mediaType: d.mediaType,
           })),
-          allDocumentsUnavailable: Boolean(options?.allDocumentsUnavailable && documents.length === 0),
+          allDocumentsUnavailable: Boolean(options?.allDocumentsUnavailable && docs.length === 0),
           provider,
           modelId: resolveAgentModelId(provider),
         }),
@@ -103,7 +105,7 @@ export function useWS19Analysis({ clientId, clientName, state, dba, propertyAddr
         body: JSON.stringify({
           clientId,
           markdown: accumulated,
-          documentNames: documents.map(d => d.name),
+          documentNames: docs.map(d => d.name),
           aiProvider: provider,
           aiModel: resolveAgentModelId(provider),
         }),

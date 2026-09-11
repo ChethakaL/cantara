@@ -26,9 +26,9 @@ import { buildPermitsZoningReportHtml } from '@/lib/report-export/build-permits-
 import { serializeWS19Report } from '@/lib/ws1-9/serialize-report'
 import { PermitsZoningStructuredEditor } from './PermitsZoningEditor'
 import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
-import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
-import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
 import { useAgentReportRuns } from '@/hooks/useAgentReportRuns'
+import { Plus, Trash2 } from 'lucide-react'
 import type { DocumentStatus } from '@/lib/store'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,6 +96,7 @@ interface PermitsZoningTabProps extends AgentTabReadOnlyProps {
   propertyAddress?: string
   municipality?: string
   documentStatuses?: Record<string, DocumentStatus>
+  onRefreshDocuments?: () => void | Promise<void>
 }
 
 type ReviewMetadata = {
@@ -112,6 +113,7 @@ export default function PermitsZoningTab({
   propertyAddress,
   municipality,
   documentStatuses,
+  onRefreshDocuments,
   readOnly = false,
 }: PermitsZoningTabProps) {
   const [savedReport, setSavedReport] = useState<WS19Persistence | null>(null)
@@ -124,7 +126,7 @@ export default function PermitsZoningTab({
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<WS19Report | null>(null)
   const [savingMarkdown, setSavingMarkdown] = useState(false)
-  const [slotAvailability, setSlotAvailability] = useState<Record<string, boolean>>({})
+  const [composingNew, setComposingNew] = useState(false)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
   const { historyItems, activeRun, activeId, setActiveId, reload, loading: loadingReport } = useAgentReportRuns(
@@ -166,6 +168,7 @@ export default function PermitsZoningTab({
 
   useEffect(() => {
     if (status === 'complete' && rawMarkdown) {
+      setComposingNew(false)
       void reload({ selectNewest: true }).then(() => {
         showToast('Analysis completed successfully')
       })
@@ -245,15 +248,6 @@ export default function PermitsZoningTab({
     }
   }
 
-  const handleNewAnalysis = () => {
-    setSavedReport(null)
-    setFlags([])
-    setEditMode(false)
-    setDraftReport(null)
-    clearAll()
-    showToast('Starting new analysis session')
-  }
-
   const startEditing = () => {
     setDraftReport(structuredClone(report))
     lastAutoSavedMarkdownRef.current = savedReport?.markdown ?? ''
@@ -327,6 +321,8 @@ export default function PermitsZoningTab({
       setFlags([])
       clearAll()
       setDeleteOpen(false)
+      setComposingNew(false)
+      void reload()
       showToast('Report deleted successfully')
     } catch (err) {
       console.error('Delete failed:', err)
@@ -336,68 +332,12 @@ export default function PermitsZoningTab({
     }
   }
 
-
   const readOnlyGate = agentTabReadOnlyGate(readOnly, loadingReport, Boolean(savedReport?.markdown), 'Permits & Zoning')
   if (readOnlyGate) return readOnlyGate
 
-  if (!savedReport && !isRunning) {
-    return (
-      <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
-        <div className="max-w-4xl mx-auto">
-          <Card className="p-10 border-stone-200 shadow-sm">
-            {!readOnly && (
-              <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isRunning} className="mb-6" />
-            )}
-            <WS19Uploader
-              clientId={clientId}
-              documentStatuses={documentStatuses}
-              onDocumentsReady={setDocuments}
-              onAvailabilityReady={setSlotAvailability}
-              onAnalyze={() =>
-                analyze(provider, {
-                  allDocumentsUnavailable:
-                    documents.length === 0 &&
-                    Object.keys(slotAvailability).length > 0 &&
-                    Object.values(slotAvailability).every(v => v === false),
-                })
-              }
-              isLoading={isRunning}
-            />
-            {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
-          </Card>
-        </div>
-        {toast && <StatusToast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      </div>
-    )
-  }
-
-  if (isRunning && !savedReport) {
-    return (
-      <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
-        <div className="max-w-4xl mx-auto">
-          <Card className="p-12 border-stone-200 shadow-sm bg-white">
-            <div className="flex flex-col items-center gap-8 text-center">
-              <div className="w-12 h-12 border-4 border-stone-100 border-t-stone-800 rounded-full animate-spin" />
-              <div className="space-y-2">
-                <h3 className="text-xl font-semibold text-stone-900 tracking-tight">Analyzing permits & zoning...</h3>
-                <p className="text-stone-500 max-w-sm mx-auto">
-                  Feeding documents to engine. This takes 1-2 minutes for large sets.
-                </p>
-              </div>
-              {rawMarkdown.length > 0 && (
-                <div className="w-full bg-stone-50 border border-stone-200 rounded-xl p-8 text-left max-h-[450px] overflow-auto shadow-inner">
-                  <div className="prose prose-stone prose-sm max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{rawMarkdown}</ReactMarkdown>
-                  </div>
-                </div>
-              )}
-            </div>
-          </Card>
-        </div>
-        {toast && <StatusToast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      </div>
-    )
-  }
+  const hasExistingReport = Boolean(savedReport) || historyItems.length > 0
+  const showUploader = !readOnly && !isRunning && (composingNew || !hasExistingReport)
+  const showReport = Boolean(savedReport) && !composingNew
 
   const tabs = [
     { id: 'summary', label: 'Summary' },
@@ -410,109 +350,245 @@ export default function PermitsZoningTab({
   ]
 
   return (
-    <div className="space-y-4">
-      <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
-
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        <AgentReportHistoryBar
-          runs={historyItems}
+    <div className="space-y-6">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={isRunning || deleting}
+          historyItems={historyItems}
           activeId={activeId}
-          onSelect={(run) => setActiveId(run.id)}
+          onSelectRun={(run) => {
+            setComposingNew(false)
+            setActiveId(run.id)
+          }}
           activeProvider={savedReport?.aiProvider}
           activeModel={savedReport?.aiModel}
         />
-        <AdvisorActions className="flex flex-wrap items-center gap-2">
-          {!readOnly && (editMode ? (
-            <>
+      )}
+
+      {/* Header Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+        <div>
+          <h2 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+            {showReport
+              ? 'Business Permits & Zoning Report'
+              : composingNew
+                ? 'Permits & Zoning Analysis'
+                : 'Permits & Zoning Analysis'}
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {showReport
+              ? `Municipal permits, business licenses, and zoning compliance report for ${clientName}`
+              : `Upload business permits and zoning verification to evaluate regulatory compliance and operating continuity for ${clientName}`}
+          </p>
+        </div>
+
+        {!readOnly && (
+          <div className="flex items-center gap-2 shrink-0">
+            {showReport && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8 text-xs font-medium text-slate-700 hover:text-slate-900 border-slate-200 cursor-pointer"
+                  onClick={() => setComposingNew(true)}
+                  data-advisor-action
+                >
+                  <Plus className="w-3.5 h-3.5 text-slate-500" /> New Analysis
+                </Button>
+                {savedReport && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-8 text-xs font-medium text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-slate-200 cursor-pointer"
+                    onClick={() => setDeleteOpen(true)}
+                    data-advisor-action
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </Button>
+                )}
+              </>
+            )}
+            {historyItems.length > 0 && composingNew && (
               <Button
-                size="sm"
                 variant="outline"
-                onClick={() => {
-                  setEditMode(false)
-                  setDraftReport(null)
-                }}
-                disabled={savingMarkdown}
+                size="sm"
+                onClick={() => setComposingNew(false)}
+                className="h-8 text-xs font-medium border-slate-200 cursor-pointer"
               >
                 Cancel
               </Button>
-              <Button size="sm" onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>
-                {savingMarkdown ? 'Saving...' : 'Save Final Version'}
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" variant="outline" onClick={startEditing}>
-              Edit Output
-            </Button>
-          ))}
-          <ExportReportButton
-            html={buildPermitsZoningReportHtml(draftReport ?? report, flags, clientName)}
-            fileName={`permits-zoning-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-            label="Export Permits & Zoning Report"
-          />
-        </AdvisorActions>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Workflow guidance banner */}
-      {!readOnly && (() => {
-        const pendingCount = flags.filter(f => f.status === 'pending').length
-        const totalCount = flags.length
-        const allDone = totalCount > 0 && pendingCount === 0
-        return allDone ? (
-          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-            <span className="text-emerald-600 text-sm">OK</span>
-            <p className="text-sm text-emerald-800">
-              All {totalCount} flags reviewed -- report is ready for export. Use <strong>"+ New Analysis"</strong> to re-run with updated documents.
-            </p>
+      {/* When running / streaming without a report showing */}
+      {isRunning && !showReport && (
+        <Card className="p-12 border-slate-200 shadow-sm bg-white">
+          <div className="flex flex-col items-center gap-8 text-center">
+            <div className="w-12 h-12 border-4 border-slate-100 border-t-slate-800 rounded-full animate-spin" />
+            <div className="space-y-2">
+              <h3 className="text-xl font-semibold text-slate-900 tracking-tight">Analyzing permits & zoning...</h3>
+              <p className="text-slate-500 max-w-sm mx-auto">
+                Feeding documents to engine. This takes 1-2 minutes for large sets.
+              </p>
+            </div>
+            {rawMarkdown.length > 0 && (
+              <div className="w-full bg-slate-50 border border-slate-200 rounded-xl p-8 text-left max-h-[450px] overflow-auto shadow-inner">
+                <div className="prose prose-slate prose-sm max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{rawMarkdown}</ReactMarkdown>
+                </div>
+              </div>
+            )}
           </div>
-        ) : totalCount > 0 ? (
-          <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-            <span className="text-amber-600 text-sm">!</span>
-            <p className="text-sm text-amber-800">
-              Review in progress -- {pendingCount} of {totalCount} flags remaining. Use <strong>"+ New Analysis"</strong> to re-run with updated documents.
-            </p>
-          </div>
-        ) : null
-      })()}
+        </Card>
+      )}
 
-      <Card className="overflow-hidden border-stone-200 shadow-sm bg-white ring-1 ring-stone-950/5">
-        <div className="flex border-b border-stone-100 bg-stone-50/50 px-4 overflow-x-auto whitespace-nowrap scrollbar-hide">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                'px-5 py-4 text-[12px] font-medium tracking-tight transition-all relative',
-                activeTab === tab.id ? 'text-stone-900' : 'text-stone-400 hover:text-stone-600'
-              )}
-            >
-              {tab.label}
-              {activeTab === tab.id && <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-stone-800" />}
-            </button>
-          ))}
-        </div>
+      {/* Uploader View */}
+      {showUploader && (
+        <Card className="p-6 border-slate-200 shadow-2xs bg-white">
+          <WS19Uploader
+            clientId={clientId}
+            documentStatuses={documentStatuses}
+            onDocumentsReady={setDocuments}
+            onAnalyze={(docs, options) =>
+              analyze(provider, {
+                documents: docs,
+                allDocumentsUnavailable: options?.allDocumentsUnavailable ?? (docs.length === 0),
+              })
+            }
+            isLoading={isRunning}
+            onCancel={hasExistingReport && composingNew ? () => setComposingNew(false) : undefined}
+            readOnly={readOnly}
+          />
+          {error && <p className="text-rose-500 text-sm mt-4 text-center">{error}</p>}
+        </Card>
+      )}
 
-        <div className="min-h-[500px]">
-          {editMode && draftReport && (
-            <PermitsZoningStructuredEditor
-              activeTab={activeTab}
-              report={draftReport}
-              onChange={setDraftReport}
-              flags={flags}
-              onConfirm={id => handleFlagUpdate(id, 'confirmed')}
-              onNA={id => handleFlagUpdate(id, 'na')}
-              onRelease={handleRelease}
-              isReleasing={releasing}
-            />
+      {/* Report View */}
+      {showReport && (
+        <div className="space-y-6">
+          <ReportHeader
+            report={report}
+            flags={flags}
+            onDelete={() => setDeleteOpen(true)}
+            onNewAnalysis={() => setComposingNew(true)}
+            readOnly={readOnly}
+          />
+
+          {isRunning && (
+            <Card className="border-amber-200 bg-amber-50/70 p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Analyzing permits & zoning...</p>
+                  <p className="text-xs text-slate-600">Re-analyzing with updated documents in the background...</p>
+                </div>
+              </div>
+            </Card>
           )}
-          {!editMode && activeTab === 'summary' && <SummaryTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
-          {!editMode && activeTab === 'documents' && <DocumentsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
-          {!editMode && activeTab === 'permits' && <PermitsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
-          {!editMode && activeTab === 'zoning' && <ZoningTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
-          {!editMode && activeTab === 'conditionaluse' && <ConditionalUseTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
-          {!editMode && activeTab === 'grandfathering' && <GrandfatheringTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
-          {!editMode && activeTab === 'review' && <AdminReviewTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} onRelease={handleRelease} isReleasing={releasing} />}
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div className="text-xs text-slate-500 font-medium">
+              {historyItems.length > 1 && `${historyItems.length} runs in history`}
+            </div>
+            <AdvisorActions className="flex flex-wrap items-center gap-2">
+              {!readOnly && (editMode ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setEditMode(false)
+                      setDraftReport(null)
+                    }}
+                    disabled={savingMarkdown}
+                    className="cursor-pointer"
+                  >
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown} className="cursor-pointer">
+                    {savingMarkdown ? 'Saving...' : 'Save Final Version'}
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="outline" onClick={startEditing} className="cursor-pointer">
+                  Edit Output
+                </Button>
+              ))}
+              <ExportReportButton
+                html={buildPermitsZoningReportHtml(draftReport ?? report, flags, clientName)}
+                fileName={`permits-zoning-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+                label="Export Permits & Zoning Report"
+              />
+            </AdvisorActions>
+          </div>
+
+          {/* Workflow guidance banner */}
+          {!readOnly && (() => {
+            const pendingCount = flags.filter(f => f.status === 'pending').length
+            const totalCount = flags.length
+            const allDone = totalCount > 0 && pendingCount === 0
+            return allDone ? (
+              <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <span className="text-emerald-600 text-sm">&#10003;</span>
+                <p className="text-sm text-emerald-800">
+                  All {totalCount} flags reviewed &mdash; report is ready for export. Use <strong>&ldquo;+ New Analysis&rdquo;</strong> to re-run with updated documents.
+                </p>
+              </div>
+            ) : totalCount > 0 ? (
+              <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <span className="text-amber-600 text-sm">&#9888;</span>
+                <p className="text-sm text-amber-800">
+                  Review in progress &mdash; {pendingCount} of {totalCount} flags remaining. Use <strong>&ldquo;+ New Analysis&rdquo;</strong> to re-run with updated documents.
+                </p>
+              </div>
+            ) : null
+          })()}
+
+          <Card className="overflow-hidden border-slate-200 shadow-sm bg-white ring-1 ring-slate-950/5">
+            <div className="flex border-b border-slate-100 bg-slate-50/50 px-4 overflow-x-auto whitespace-nowrap scrollbar-hide">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    'px-5 py-4 text-[12px] font-medium tracking-tight transition-all relative cursor-pointer',
+                    activeTab === tab.id ? 'text-slate-900 font-semibold' : 'text-slate-500 hover:text-slate-700'
+                  )}
+                >
+                  {tab.label}
+                  {activeTab === tab.id && <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-slate-900" />}
+                </button>
+              ))}
+            </div>
+
+            <div className="min-h-[500px]">
+              {editMode && draftReport && (
+                <PermitsZoningStructuredEditor
+                  activeTab={activeTab}
+                  report={draftReport}
+                  onChange={setDraftReport}
+                  flags={flags}
+                  onConfirm={id => handleFlagUpdate(id, 'confirmed')}
+                  onNA={id => handleFlagUpdate(id, 'na')}
+                  onRelease={handleRelease}
+                  isReleasing={releasing}
+                />
+              )}
+              {!editMode && activeTab === 'summary' && <SummaryTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+              {!editMode && activeTab === 'documents' && <DocumentsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+              {!editMode && activeTab === 'permits' && <PermitsTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+              {!editMode && activeTab === 'zoning' && <ZoningTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+              {!editMode && activeTab === 'conditionaluse' && <ConditionalUseTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+              {!editMode && activeTab === 'grandfathering' && <GrandfatheringTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} readOnly={readOnly} />}
+              {!editMode && activeTab === 'review' && <AdminReviewTab report={report} flags={flags} onConfirm={id => handleFlagUpdate(id, 'confirmed')} onNA={id => handleFlagUpdate(id, 'na')} onRelease={handleRelease} isReleasing={releasing} />}
+            </div>
+          </Card>
         </div>
-      </Card>
+      )}
 
       <DeleteConfirmModal
         isOpen={deleteOpen}

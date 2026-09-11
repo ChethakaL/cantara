@@ -27,9 +27,38 @@ export async function GET(req: NextRequest) {
   const key = `buyerReport_${workstream}`
   const report = submissions[key] ?? null
   const roadmap = readRoadmapSubmission(submissions)
+  const roadmapReady = Boolean(roadmap?.stage === 'report' && roadmap.markdown?.trim())
 
-  return NextResponse.json({ report, roadmapReady: Boolean(roadmap?.stage === 'report' && roadmap.markdown?.trim()) })
+  const sources = await checkAgentSources(clientId, workstream, submissions)
+
+  return NextResponse.json({ report, roadmapReady, sources })
 }
+
+export async function DELETE(req: NextRequest) {
+  const clientId = req.nextUrl.searchParams.get('clientId')
+  const workstream = req.nextUrl.searchParams.get('workstream') as 'ws1' | 'ws2'
+  if (!clientId || !workstream) return new Response('clientId and workstream required', { status: 400 })
+
+  const client = await prisma.clientProfile.findUnique({
+    where: { id: clientId },
+    select: { sectionSubmissions: true },
+  })
+  if (!client) return new Response('Client not found', { status: 404 })
+
+  const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
+    ? client.sectionSubmissions
+    : {}) as Record<string, any>
+  const key = `buyerReport_${workstream}`
+  delete current[key]
+
+  await prisma.clientProfile.update({
+    where: { id: clientId },
+    data: { sectionSubmissions: current },
+  })
+
+  return NextResponse.json({ success: true })
+}
+
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
@@ -305,3 +334,237 @@ function truncate(text: string, maxLen: number): string {
   const raw = typeof text === 'string' ? text : JSON.stringify(text ?? '')
   return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLen)
 }
+
+async function checkAgentSources(clientId: string, workstream: 'ws1' | 'ws2', submissions: Record<string, any>) {
+  const roadmap = readRoadmapSubmission(submissions)
+  const roadmapReady = Boolean(roadmap?.stage === 'report' && roadmap.markdown?.trim())
+
+  if (workstream === 'ws1') {
+    const [
+      ttm,
+      empObligations,
+      lease,
+      contract,
+      ownership,
+      permits,
+      legalEntity,
+      taxLiability,
+    ] = await Promise.all([
+      (prisma as any).ttmAnalysis.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+      (prisma as any).employeeObligationsReport.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+      (prisma as any).leaseAnalysis.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+      (prisma as any).contractAnalysis.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+      (prisma as any).ownershipVerificationReport.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+      (prisma as any).permitsZoningReport.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+      (prisma as any).legalEntitySearchReport.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+      (prisma as any).taxLiabilityReport.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+    ])
+
+    return [
+      {
+        key: 'roadmap',
+        name: 'Sales Readiness Roadmap',
+        tabKey: 'sales-readiness-roadmap',
+        required: true,
+        ready: roadmapReady,
+        note: 'Strategic action plan and seller readiness rating. Required to generate buyer report.',
+      },
+      {
+        key: 'ttm',
+        name: 'Valuation (TTM)',
+        tabKey: 'ttm',
+        required: false,
+        ready: Boolean(ttm),
+        note: 'Trailing twelve months adjusted EBITDA, revenue trends, and valuation multiples.',
+      },
+      {
+        key: 'employee-obligations',
+        name: 'Employee Obligations',
+        tabKey: 'employee-obligations',
+        required: false,
+        ready: Boolean(empObligations),
+        note: 'Workforce analysis, key personnel, employment agreements, and retirement/PTO obligations.',
+      },
+      {
+        key: 'employee-comp',
+        name: 'Employee Compensation',
+        tabKey: 'employee-comp',
+        required: false,
+        ready: Boolean(submissions.employeeCompReport),
+        note: 'Payroll breakdown, wage benchmarking, bonus structures, and overtime analysis.',
+      },
+      {
+        key: 'lease',
+        name: 'Lease Analysis',
+        tabKey: 'lease',
+        required: false,
+        ready: Boolean(lease),
+        note: 'Lease terms, renewal options, rent schedule, assignment clauses, and landlord consent requirements.',
+      },
+      {
+        key: 'contract',
+        name: 'Material Contracts',
+        tabKey: 'contract',
+        required: false,
+        ready: Boolean(contract),
+        note: 'Key supplier and customer contracts, exclusivity provisions, and assignment rights.',
+      },
+      {
+        key: 'ownership-verification',
+        name: 'Ownership Verification',
+        tabKey: 'ownership-verification',
+        required: false,
+        ready: Boolean(ownership),
+        note: 'Cap table, equity structure, operating agreements, and ownership authority.',
+      },
+      {
+        key: 'permits-zoning',
+        name: 'Permits & Zoning',
+        tabKey: 'permits-zoning',
+        required: false,
+        ready: Boolean(permits),
+        note: 'Business license, kennel/health permits, zoning approvals, and certificate of occupancy.',
+      },
+      {
+        key: 'legal-entity-search',
+        name: 'Legal Entity Search',
+        tabKey: 'legal-entity-search',
+        required: false,
+        ready: Boolean(legalEntity),
+        note: 'Secretary of State standing, formation documents, and corporate filings.',
+      },
+      {
+        key: 'tax-liability-review',
+        name: 'Tax Liability Review',
+        tabKey: 'tax-liability-review',
+        required: false,
+        ready: Boolean(taxLiability),
+        note: 'Tax return filings, sales tax compliance, payroll withholding, and potential exposure.',
+      },
+      {
+        key: 'insurance',
+        name: 'Insurance Review',
+        tabKey: 'insurance',
+        required: false,
+        ready: Boolean(submissions.insuranceReview),
+        note: 'General liability, property, workers\' compensation policies, coverage limits, and claims history.',
+      },
+      {
+        key: 'litigation',
+        name: 'Litigation & Liens',
+        tabKey: 'litigation',
+        required: false,
+        ready: Boolean(submissions.litigationSearch),
+        note: 'Court docket searches, UCC lien filings, pending litigation, and dispute records.',
+      },
+      {
+        key: 'org-chart',
+        name: 'Org Chart Review',
+        tabKey: 'org-chart',
+        required: false,
+        ready: Boolean(submissions.orgChart),
+        note: 'Organizational hierarchy, reporting relationships, and management depth.',
+      },
+      {
+        key: 'owner-gm-assessment',
+        name: 'Owner & GM Assessment',
+        tabKey: 'owner-gm-assessment',
+        required: false,
+        ready: Boolean(submissions.ownerGmAssessment),
+        note: 'Owner dependency analysis, day-to-day role delegation, and GM autonomy.',
+      },
+      {
+        key: 'advisors',
+        name: 'Professional Advisors',
+        tabKey: 'advisors',
+        required: false,
+        ready: Boolean(submissions.professionalAdvisors),
+        note: 'Existing CPA, attorney, insurance broker, and wealth management contacts.',
+      },
+      {
+        key: 'vendor-directory',
+        name: 'Software & Vendors',
+        tabKey: 'vendor-directory',
+        required: false,
+        ready: Boolean(submissions.vendorDirectory),
+        note: 'Key software licenses, booking platforms, suppliers, and critical vendor terms.',
+      },
+    ]
+  } else {
+    const [
+      ttm,
+      competitor,
+    ] = await Promise.all([
+      (prisma as any).ttmAnalysis.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+      (prisma as any).competitorAnalysis.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
+    ])
+
+    return [
+      {
+        key: 'roadmap',
+        name: 'Sales Readiness Roadmap',
+        tabKey: 'sales-readiness-roadmap',
+        required: true,
+        ready: roadmapReady,
+        note: 'Strategic action plan and seller readiness rating. Required to generate buyer report.',
+      },
+      {
+        key: 'ttm',
+        name: 'Valuation (TTM)',
+        tabKey: 'ttm',
+        required: false,
+        ready: Boolean(ttm),
+        note: 'TTM adjusted EBITDA, revenue trends, and valuation multiples.',
+      },
+      {
+        key: 'competitor',
+        name: 'Competitor Analysis',
+        tabKey: 'competitor',
+        required: false,
+        ready: Boolean(competitor),
+        note: 'Competitor landscape, service pricing comparison, and market share analysis.',
+      },
+      {
+        key: 'digital',
+        name: 'Digital Presence',
+        tabKey: 'digital',
+        required: false,
+        ready: Boolean(submissions.digitalPresence),
+        note: 'Website evaluation, Google Reviews, SEO authority, and customer reputation.',
+      },
+      {
+        key: 'facility-review',
+        name: 'Facility Review',
+        tabKey: 'facility-review',
+        required: false,
+        ready: Boolean(submissions.facilityReview),
+        note: 'Physical facility condition, expansion capacity, and equipment evaluation.',
+      },
+      {
+        key: 'pricing-analysis',
+        name: 'Competitive Pricing',
+        tabKey: 'pricing-analysis',
+        required: false,
+        ready: Boolean(submissions.pricingAnalysis),
+        note: 'Service pricing structure, revenue optimization opportunities, and discount analysis.',
+      },
+      {
+        key: 'pricing-vertical',
+        name: 'Pricing by Vertical',
+        tabKey: 'pricing-vertical',
+        required: false,
+        ready: Boolean(submissions.pricingVertical),
+        note: '24-month pricing schedule, revenue split across service lines, and historical rate increases.',
+      },
+      {
+        key: 'sales-process-review',
+        name: 'Sales Process Review',
+        tabKey: 'sales-process-review',
+        required: false,
+        ready: Boolean(submissions.salesProcessReview),
+        note: 'Inquiry conversion, booking discipline, customer follow-up, and sales performance.',
+      },
+    ]
+  }
+}
+

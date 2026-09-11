@@ -1,8 +1,8 @@
 'use client'
-import { useState, useCallback, useEffect } from 'react'
-import { Plus } from 'lucide-react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
+import { Plus, X, Trash2 } from 'lucide-react'
 import { Button, Card, Modal } from '@/components/ui'
-import type { ContractAnalysis } from '@/lib/store'
+import type { ContractAnalysis, DocumentStatus } from '@/lib/store'
 import { deleteContractAnalysis, getContractAnalyses, saveContractAnalysis, updateContractAnalysis } from '@/lib/store'
 import { useContractAnalysis } from '@/hooks/useContractAnalysis'
 import { parseReport } from '@/lib/contract-analysis/parse-report'
@@ -12,7 +12,8 @@ import { AnalysisProgress } from '../contract-analysis/AnalysisProgress'
 import { ContractReport } from '../contract-analysis/ContractReport'
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
-import { AgentRunHistoryPanel } from '@/components/admin/AgentRunHistoryPanel'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 import { formatAgentProviderLabel } from '@/lib/agent-model-provider'
 import {
   fetchClientDocumentFile,
@@ -25,9 +26,10 @@ const MATERIAL_CONTRACTS_DOCUMENT_ID = 'material_contracts'
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
+  documentStatuses?: Record<string, any>
 }
 
-export default function ContractAnalysisTab({ clientId, clientName, readOnly = false }: Props) {
+export default function ContractAnalysisTab({ clientId, clientName, documentStatuses, readOnly = false }: Props) {
   const [analyses, setAnalyses] = useState<ContractAnalysis[]>([])
   const [activeAnalysis, setActiveAnalysis] = useState<ContractAnalysis | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -160,11 +162,19 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
     ? uploads.map((doc) => doc.name).join(', ')
     : activeAnalysis?.fileName || ''
 
+  const historyItems: AgentRunHistoryItem[] = useMemo(() => {
+    return analyses.map((a) => ({
+      id: a.id,
+      fileName: a.fileName,
+      createdAt: typeof a.createdAt === 'string' ? a.createdAt : new Date(a.createdAt).toISOString(),
+      aiProvider: a.aiProvider,
+      aiModel: a.aiModel,
+    }))
+  }, [analyses])
+
+  const hasExistingReport = Boolean(displayReport) || analyses.length > 0
   const showUploader = !readOnly && status === 'idle' && (
-    composingNew
-    || analyses.length === 0
-    || uploads.length > 0
-    || uploadedFromDocuments.length > 0
+    composingNew || !hasExistingReport
   )
   const showReport = Boolean(displayReport) && !composingNew
 
@@ -173,36 +183,87 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={status !== 'idle' || deleting}
+          historyItems={historyItems}
+          activeId={activeAnalysis?.id}
+          onSelectRun={(run) => {
+            const found = analyses.find((analysis) => analysis.id === run.id)
+            if (found) {
+              setComposingNew(false)
+              setActiveAnalysis(found)
+            }
+          }}
+          activeProvider={activeAnalysis?.aiProvider}
+          activeModel={activeAnalysis?.aiModel}
+        />
+      )}
+
+      {/* Header Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Contract Analysis</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Upload business contracts to evaluate saleability, counterparty restrictions, and buyer risk</p>
-          <p className="text-xs text-slate-400 mt-1">Material contracts can also be uploaded in the Documents tab.</p>
-          {activeAnalysis?.aiProvider && !composingNew && (
-            <p className="text-xs text-slate-500 mt-1">
-              Viewing run: {formatAgentProviderLabel(activeAnalysis.aiProvider)}
-              {activeAnalysis.aiModel ? ` · ${activeAnalysis.aiModel}` : ''}
-            </p>
-          )}
+          <h2 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+            {showReport
+              ? 'Material Contracts Analysis Report'
+              : composingNew
+                ? 'New Contract Analysis'
+                : 'Material Contracts Analysis'}
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {showReport
+              ? `Vendor, supplier, software, and commercial customer agreements review for ${clientName}`
+              : `Upload business contracts to evaluate saleability, counterparty restrictions, and buyer risk for ${clientName}`}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <AgentRunHistoryPanel
-            runs={analyses}
-            activeId={activeAnalysis?.id}
-            onSelect={(run) => {
-              const found = analyses.find((analysis) => analysis.id === run.id)
-              if (found) {
-                setComposingNew(false)
-                setActiveAnalysis(found)
-              }
-            }}
-          />
-          {analyses.length > 0 && !composingNew && (
-            <Button variant="outline" size="sm" className="gap-2" onClick={beginNewAnalysis} data-advisor-action>
-              <Plus className="w-3.5 h-3.5" /> New Analysis
-            </Button>
-          )}
-        </div>
+
+        {!readOnly && (
+          <div className="flex items-center gap-2 shrink-0">
+            {showReport && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8 text-xs font-medium text-slate-700 hover:text-slate-900 border-slate-200"
+                  onClick={beginNewAnalysis}
+                  data-advisor-action
+                >
+                  <Plus className="w-3.5 h-3.5 text-slate-500" /> New Analysis
+                </Button>
+                {activeAnalysis && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-8 text-xs font-medium text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-slate-200"
+                    onClick={() => setDeleteOpen(true)}
+                    data-advisor-action
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </Button>
+                )}
+              </>
+            )}
+            {analyses.length > 0 && composingNew && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-medium text-slate-700"
+                onClick={() => {
+                  clearAll()
+                  setComposingNew(false)
+                  if (!activeAnalysis && analyses.length > 0) {
+                    setActiveAnalysis(analyses[0])
+                  }
+                }}
+                data-advisor-action
+              >
+                <X className="w-3.5 h-3.5 mr-1 text-slate-500" /> Cancel
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="space-y-6">
@@ -219,19 +280,28 @@ export default function ContractAnalysisTab({ clientId, clientName, readOnly = f
           </Card>
         ) : showUploader ? (
           <div data-advisor-action>
-          <ContractUploader
-            documents={uploads}
-            addDocuments={addDocuments}
-            removeDocument={removeDocument}
-            status={status}
-            onAnalyze={analyze}
-            provider={provider}
-            onProviderChange={setProvider}
-            uploadedFromDocuments={uploadedFromDocuments}
-            onRefreshDocuments={() => void loadUploadedContracts()}
-            onUseUploadedDocument={handleUseUploadedDocument}
-            loadingUploadedId={loadingUploadedId}
-          />
+            <ContractUploader
+              clientId={clientId}
+              documents={uploads}
+              addDocuments={addDocuments}
+              removeDocument={removeDocument}
+              status={status}
+              onAnalyze={analyze}
+              uploadedFromDocuments={uploadedFromDocuments}
+              documentStatus={documentStatuses?.[MATERIAL_CONTRACTS_DOCUMENT_ID]}
+              onRefreshDocuments={loadUploadedContracts}
+              onUseUploadedDocument={handleUseUploadedDocument}
+              loadingUploadedId={loadingUploadedId}
+              onCancel={analyses.length > 0 && composingNew ? () => {
+                clearAll()
+                setComposingNew(false)
+                if (!activeAnalysis && analyses.length > 0) {
+                  setActiveAnalysis(analyses[0])
+                }
+              } : undefined}
+              error={analysisError}
+              readOnly={readOnly}
+            />
           </div>
         ) : null}
 

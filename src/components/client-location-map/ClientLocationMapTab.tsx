@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MapPin,
   Upload,
@@ -16,11 +16,21 @@ import {
   Trash2,
   Plus,
   FileSpreadsheet,
+  FileText,
   Play,
+  RefreshCw,
 } from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { generateReportHtml, buildHtmlTable } from '@/lib/report-export/generate-report-html'
+import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
+
+function getAdminEmail(): string {
+  if (typeof window === 'undefined') return 'admin@cantarapet.com'
+  const cookie = document.cookie.split('; ').find((row) => row.startsWith('cantara_admin_email='))
+  if (cookie) return decodeURIComponent(cookie.split('=')[1] || '')
+  return localStorage.getItem('cantara_admin_email') || 'admin@cantarapet.com'
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,6 +148,146 @@ function createPinSvg(color: string, isFacility = false): string {
   </svg>`
 }
 
+function LocationMapDocumentSection({
+  clientId,
+  adminEmail,
+  uploadedDoc,
+  selectedFile,
+  loadingDocs,
+  onRefresh,
+  onUploaded,
+  readOnly,
+}: {
+  clientId: string
+  adminEmail: string
+  uploadedDoc: { recordId: string | null; fileName: string; uploadedAt: string | null } | null
+  selectedFile: File | null
+  loadingDocs: boolean
+  onRefresh: () => Promise<void> | void
+  onUploaded: (res: { fileName: string; uploadedAt: string }) => Promise<void> | void
+  readOnly?: boolean
+}) {
+  const hasDoc = Boolean(uploadedDoc?.fileName || selectedFile?.name)
+  const docFileName = uploadedDoc?.fileName || selectedFile?.name || null
+  const docUploadedAt = uploadedDoc?.uploadedAt || null
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+        <div className="flex items-center gap-2">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+            Required Location Document
+          </h4>
+          <span
+            className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+              hasDoc ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+            }`}
+          >
+            {hasDoc ? '1 of 1 ready' : '0 of 1 ready'}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => void onRefresh()}
+          disabled={loadingDocs}
+          className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3 h-3 ${loadingDocs ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+      <p className="text-xs text-slate-500">
+        Spreadsheet or CSV containing client/customer names, street addresses, and service types to map customer geographic reach.
+      </p>
+
+      {/* Document row card */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs hover:border-slate-300 transition-colors">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start gap-3">
+              <div
+                className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                  hasDoc ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                }`}
+              >
+                <FileSpreadsheet className="w-4.5 h-4.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h5 className="font-semibold text-slate-800 text-sm">
+                    Client Address List (CSV or Excel)
+                  </h5>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+                    Required
+                  </span>
+                  {hasDoc ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Uploaded
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                      Missing
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Spreadsheet or CSV containing client/customer names, street addresses, and service types (boarding, daycare, grooming, etc.) to map customer geographic reach.
+                </p>
+
+                {/* Uploaded file link display */}
+                {hasDoc && (
+                  <div className="flex flex-wrap gap-2 mt-2.5">
+                    <a
+                      href={`/api/client-documents/view?clientId=${encodeURIComponent(clientId)}&documentId=client_addresses`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs hover:bg-emerald-50 transition-colors"
+                      title="Click to view file"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="truncate max-w-[260px]">{docFileName}</span>
+                      {docUploadedAt && (
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          · {new Date(docUploadedAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </a>
+                  </div>
+                )}
+
+                {!hasDoc && (
+                  <div className="mt-2 text-[11px] flex items-center gap-1.5">
+                    <span className="text-amber-700 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 text-amber-500" />
+                      Missing — required to run map analysis
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Upload Button action (NO Yes/No buttons!) */}
+          {!readOnly && (
+            <div className="shrink-0 pt-0.5 self-start sm:self-center">
+              <ClientDocumentUpload
+                clientId={clientId}
+                documentId="client_addresses"
+                uploaderEmail={adminEmail}
+                currentFileName={docFileName}
+                label={hasDoc ? 'Replace' : 'Upload'}
+                variant="button"
+                onUploaded={onUploaded}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function ClientLocationMapTab({ clientId, clientName, businessAddress, readOnly = false }: Props) {
@@ -162,6 +312,10 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [editingIndex, setEditingIndex] = useState<number | 'new' | null>(null)
   const [entryDraft, setEntryDraft] = useState<ClientPin | null>(null)
   const [editMode, setEditMode] = useState(false)
+  const [composingNew, setComposingNew] = useState(false)
+  const [showDocsPanel, setShowDocsPanel] = useState(false)
+  const [loadingDocs, setLoadingDocs] = useState(false)
+  const adminEmail = useMemo(() => getAdminEmail(), [])
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const googleMapRef = useRef<google.maps.Map | null>(null)
@@ -169,13 +323,42 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const circlesRef = useRef<google.maps.Circle[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const reloadDocument = useCallback(async () => {
+    setLoadingDocs(true)
+    try {
+      const res = await fetch(`/api/client-location-map?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.uploadedDoc) {
+          setUploadedDoc(data.uploadedDoc)
+        } else {
+          setUploadedDoc(null)
+        }
+      }
+    } catch (e) {
+      console.error('Failed to reload location document:', e)
+    } finally {
+      setLoadingDocs(false)
+    }
+  }, [clientId])
+
   // ── Load existing data ──────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (businessAddress && !facilityAddress) {
+      setFacilityAddress(businessAddress)
+    }
+  }, [businessAddress, facilityAddress])
 
   useEffect(() => {
     const load = async () => {
       try {
         const res = await fetch(`/api/client-location-map?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
-        if (!res.ok) { setPhase('upload'); return }
+        if (!res.ok) {
+          setFacilityAddress(current => current || businessAddress || '')
+          setPhase('upload')
+          return
+        }
         const data = await res.json()
         if (data.uploadedDoc) {
           setUploadedDoc(data.uploadedDoc)
@@ -185,9 +368,11 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
           setFacilityAddress(data.mapData.facilityAddress || businessAddress || '')
           setPhase('map')
         } else {
+          setFacilityAddress(current => current || data.mapData?.facilityAddress || businessAddress || '')
           setPhase('upload')
         }
       } catch {
+        setFacilityAddress(current => current || businessAddress || '')
         setPhase('upload')
       }
     }
@@ -441,8 +626,9 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
 
   // ── Geocoding ───────────────────────────────────────────────────────────
 
-  const startGeocoding = async () => {
-    if (!parsedRows || parsedRows.length === 0) return
+  const startGeocoding = async (rowsToGeocode?: ClientPin[]) => {
+    const clients = rowsToGeocode || parsedRows
+    if (!clients || clients.length === 0) return
     setGeocoding(true)
     setError(null)
 
@@ -451,7 +637,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       await loadGoogleMapsScript(apiKey)
 
       const geocoder = new google.maps.Geocoder()
-      const updatedClients = [...parsedRows]
+      const updatedClients = [...clients]
       const total = updatedClients.length
       let done = 0
       setGeocodeProgress({ done: 0, total })
@@ -459,9 +645,9 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       // Geocode facility address first
       let facilityLat: number | undefined
       let facilityLng: number | undefined
-      if (facilityAddress) {
+      if (facilityAddress.trim()) {
         try {
-          const facilityResult = await geocodeAddress(geocoder, facilityAddress)
+          const facilityResult = await geocodeAddress(geocoder, facilityAddress.trim())
           facilityLat = facilityResult.lat
           facilityLng = facilityResult.lng
         } catch {
@@ -503,7 +689,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       }
 
       const newMapData: MapData = {
-        facilityAddress,
+        facilityAddress: facilityAddress.trim(),
         facilityLat,
         facilityLng,
         clients: updatedClients,
@@ -512,6 +698,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
 
       setMapData(newMapData)
       setPhase('map')
+      setComposingNew(false)
 
       // Save to server
       setSaving(true)
@@ -533,16 +720,64 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     }
   }
 
+  const runMapAnalysis = async () => {
+    if (!facilityAddress.trim()) {
+      setError('Facility address is required to calculate radius distances.')
+      return
+    }
+    if (!uploadedDoc && !selectedFile) {
+      setError('Please upload the Client Address List (CSV or Excel) first.')
+      return
+    }
+    setUploading(true)
+    setError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('clientId', clientId)
+      formData.append('facilityAddress', facilityAddress.trim())
+      if (selectedFile) {
+        formData.append('file', selectedFile)
+      } else {
+        formData.append('useUploadedDoc', 'true')
+      }
+
+      const res = await fetch('/api/client-location-map', { method: 'POST', body: formData })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Failed to parse client addresses from document')
+      }
+      const data = await res.json()
+      const rows: ClientPin[] = (data.clients || []).map((c: any) => ({
+        name: c.name,
+        address: c.address,
+        serviceType: c.serviceType as ServiceType,
+        geocodeStatus: 'pending' as const,
+      }))
+      if (!rows || rows.length === 0) {
+        throw new Error('No valid client addresses found in the document. Please check the file headers.')
+      }
+      setParsedRows(rows)
+      setUploading(false)
+      await startGeocoding(rows)
+    } catch (err: any) {
+      setError(err.message || 'Failed to process address document')
+      setUploading(false)
+    }
+  }
+
   // ── Reset / Re-upload ──────────────────────────────────────────────────
 
   const handleReset = async () => {
     setPhase('upload')
+    setComposingNew(false)
     setMapData(null)
     setSelectedFile(null)
     setParsedRows(null)
     setError(null)
     setGeocoding(false)
     setGeocodeProgress({ done: 0, total: 0 })
+    setFacilityAddress(businessAddress || '')
     // Clean up map
     markersRef.current.forEach(m => m.setMap(null))
     markersRef.current = []
@@ -678,6 +913,9 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     return buildLocationMapReportHtml(clientName, mapData, stats, mapSrc, mapCaption)
   }, [clientName, mapData, staticMapUrl, stats])
 
+  const hasDoc = Boolean(uploadedDoc?.fileName || selectedFile?.name)
+  const readyToRun = Boolean(hasDoc && facilityAddress.trim())
+
   // ── Render ─────────────────────────────────────────────────────────────
 
   if (phase === 'loading') {
@@ -689,266 +927,127 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     )
   }
 
-  // ── Upload Phase ────────────────────────────────────────────────────────
-
-  if (phase === 'upload') {
-    return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center">
-            <MapPin className="w-4.5 h-4.5 text-indigo-600" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-slate-800">Client Location Map</h2>
-            <p className="text-xs text-slate-500">Upload a CSV of client addresses to map and analyze geographic distribution</p>
-          </div>
-        </div>
-
-        {/* Facility Address */}
-        <Card className="p-5">
-          <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">
-            Facility Address (center point)
-          </label>
-          <input
-            type="text"
-            value={facilityAddress}
-            onChange={e => setFacilityAddress(e.target.value)}
-            placeholder="e.g. 123 Main St, Anytown, TX 75001"
-            className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 bg-white"
-          />
-          <p className="text-[11px] text-slate-400 mt-1.5">This will be the center of the map with radius rings drawn around it.</p>
-        </Card>
-
-        {/* Uploaded Document from Client / Advisor Portal */}
-        {uploadedDoc && !parsedRows && (
-          <Card className="p-5 border-indigo-200 bg-indigo-50/40 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white border border-indigo-200 flex items-center justify-center shrink-0 shadow-2xs">
-                  <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-bold text-slate-800">Uploaded Address List Found</h3>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                      Uploaded via Portal
-                    </span>
-                  </div>
-                  <p className="text-xs font-semibold text-indigo-950 mt-0.5">{uploadedDoc.fileName}</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {uploadedDoc.uploadedAt ? `Uploaded on ${new Date(uploadedDoc.uploadedAt).toLocaleDateString()}` : 'Ready for analysis'}
-                  </p>
-                </div>
-              </div>
-              <Button
-                onClick={handleRunFromUploadedDoc}
-                disabled={uploading || !facilityAddress}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-5 py-2.5 rounded-lg flex items-center gap-2 shrink-0 shadow-sm"
-              >
-                {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                {uploading ? 'Processing Document...' : 'Run Map Analysis from Uploaded File'}
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        {/* File Upload */}
-        <Card className="p-5">
-          <label className="block text-xs font-semibold text-slate-700 mb-3 uppercase tracking-wide">
-            {uploadedDoc ? 'Or Upload a Different Address List' : 'Upload Client Addresses'}
-          </label>
-          <div
-            onDragOver={e => { e.preventDefault(); setDragActive(true) }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={cn(
-              'relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all',
-              dragActive
-                ? 'border-indigo-400 bg-indigo-50/50'
-                : selectedFile
-                  ? 'border-indigo-300 bg-indigo-50/30'
-                  : 'border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50'
-            )}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              className="hidden"
-              onChange={e => {
-                const file = e.target.files?.[0]
-                if (file) handleFileSelect(file)
-              }}
-            />
-            {selectedFile ? (
-              <div className="flex items-center justify-center gap-3">
-                <CheckCircle2 className="w-5 h-5 text-indigo-500" />
-                <span className="text-sm font-medium text-slate-700">{selectedFile.name}</span>
-                <button
-                  onClick={e => { e.stopPropagation(); setSelectedFile(null); setParsedRows(null) }}
-                  className="ml-2 p-1 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <>
-                <Upload className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                <p className="text-sm text-slate-500 font-medium">Drop a CSV file here or click to browse</p>
-                <p className="text-[11px] text-slate-400 mt-1.5">Expected columns: Name/Client, Address/Location, Service/Type (optional)</p>
-              </>
-            )}
-          </div>
-
-          {selectedFile && !parsedRows && (
-            <div className="mt-4 flex justify-end">
-              <Button
-                onClick={handleUploadAndParse}
-                disabled={uploading}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-5 py-2.5 rounded-lg flex items-center gap-2"
-              >
-                {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                {uploading ? 'Parsing...' : 'Upload & Process'}
-              </Button>
-            </div>
-          )}
-        </Card>
-
-        {/* Error */}
-        {error && (
-          <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Preview Table */}
-        {parsedRows && parsedRows.length > 0 && (
-          <Card className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">Parsed Rows</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">{parsedRows.length} client addresses found</p>
-              </div>
-              <Button
-                onClick={startGeocoding}
-                disabled={geocoding || !facilityAddress}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-5 py-2.5 rounded-lg flex items-center gap-2"
-              >
-                {geocoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
-                {geocoding ? 'Geocoding...' : 'Geocode & Map'}
-              </Button>
-            </div>
-
-            {/* Geocoding progress bar */}
-            {geocoding && (
-              <div className="mb-4">
-                <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                  <span>Geocoding addresses...</span>
-                  <span>{geocodeProgress.done} / {geocodeProgress.total}</span>
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-indigo-500 rounded-full transition-all duration-300"
-                    style={{ width: `${geocodeProgress.total > 0 ? (geocodeProgress.done / geocodeProgress.total) * 100 : 0}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="max-h-64 overflow-y-auto border border-slate-100 rounded-lg">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">#</th>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Name</th>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Address</th>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Service</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsedRows.map((row, idx) => (
-                    <tr key={idx} className="border-t border-slate-50 hover:bg-slate-50/50">
-                      <td className="px-3 py-2 text-slate-400">{idx + 1}</td>
-                      <td className="px-3 py-2 text-slate-700 font-medium">{row.name}</td>
-                      <td className="px-3 py-2 text-slate-600 max-w-xs truncate">{row.address}</td>
-                      <td className="px-3 py-2">
-                        <span
-                          className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold text-white"
-                          style={{ backgroundColor: SERVICE_COLORS[row.serviceType] }}
-                        >
-                          {SERVICE_LABELS[row.serviceType]}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )}
-
-        {parsedRows && parsedRows.length === 0 && (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-            No valid rows found. Ensure your CSV has Name and Address columns.
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // ── Map Phase ───────────────────────────────────────────────────────────
-
   const successCount = mapData?.clients.filter(c => c.geocodeStatus === 'success').length || 0
   const failedCount = mapData?.clients.filter(c => c.geocodeStatus === 'failed').length || 0
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center">
-            <MapPin className="w-4.5 h-4.5 text-indigo-600" />
+    <div className="space-y-5">
+      {/* ── Active Map View ── */}
+      {mapData && !composingNew && (
+        <>
+          {/* Header Toolbar */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
+                <MapPin className="w-4.5 h-4.5 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 cantara-serif">Client Location Map</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {successCount} clients mapped{failedCount > 0 ? `, ${failedCount} failed to geocode` : ''}
+                  {mapData?.generatedAt ? ` · ${new Date(mapData.generatedAt).toLocaleDateString()}` : ''}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {!readOnly && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDocsPanel(prev => !prev)}
+                    className="gap-1.5 h-8 font-medium text-slate-700"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    {showDocsPanel ? 'Hide Documents' : 'Location Docs'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setComposingNew(true)
+                      setParsedRows(null)
+                      setError(null)
+                    }}
+                    className="gap-1.5 h-8 font-medium"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New Analysis
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => void runMapAnalysis()}
+                    disabled={!readyToRun || uploading || geocoding}
+                    className="gap-1.5 h-8 font-medium"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${uploading || geocoding ? 'animate-spin' : ''}`} />
+                    {uploading || geocoding ? 'Re-running...' : 'Re-run Map'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditMode(!editMode)}
+                    className="gap-1.5 h-8 font-medium text-slate-700"
+                  >
+                    {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                    {editMode ? 'Save' : 'Edit'}
+                  </Button>
+                  <ExportReportButton
+                    prepareHtml={prepareExportHtml}
+                    fileName={`${clientName} - Client Location Map.pdf`}
+                    label="Export PDF"
+                    waitForImages={true}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleReset}
+                    className="gap-1.5 h-8 font-medium text-slate-500"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reset
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg font-semibold text-slate-800">Client Location Map</h2>
-            <p className="text-xs text-slate-500">
-              {successCount} clients mapped{failedCount > 0 ? `, ${failedCount} failed to geocode` : ''}
-              {mapData?.generatedAt ? ` \u00b7 ${new Date(mapData.generatedAt).toLocaleDateString()}` : ''}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {!readOnly && (
-            <>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setEditMode(!editMode)
+
+          {/* Collapsible Documents Panel */}
+          {showDocsPanel && (
+            <Card className="p-6 border-slate-200 shadow-2xs">
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800">Location Map Source Document</h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Review document uploaded by the client or replace the address list.
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setShowDocsPanel(false)}>
+                  Close
+                </Button>
+              </div>
+              <LocationMapDocumentSection
+                clientId={clientId}
+                adminEmail={adminEmail}
+                uploadedDoc={uploadedDoc}
+                selectedFile={selectedFile}
+                loadingDocs={loadingDocs}
+                onRefresh={reloadDocument}
+                onUploaded={async (res) => {
+                  setUploadedDoc({
+                    recordId: null,
+                    fileName: res.fileName,
+                    uploadedAt: res.uploadedAt,
+                  })
+                  setSelectedFile(null)
+                  setParsedRows(null)
+                  setError(null)
+                  await reloadDocument()
                 }}
-              >
-                {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                {editMode ? 'Save' : 'Edit'}
-              </Button>
-              <ExportReportButton
-                prepareHtml={prepareExportHtml}
-                fileName={`${clientName} - Client Location Map.pdf`}
-                label="Export PDF"
-                waitForImages={true}
+                readOnly={readOnly}
               />
-              <Button
-                size="sm"
-                onClick={handleReset}
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Re-upload
-              </Button>
-            </>
+            </Card>
           )}
-        </div>
-      </div>
 
       {saving && (
         <div className="flex items-center gap-2 text-xs text-indigo-500">
@@ -1272,7 +1371,223 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         </div>
       </Card>
       )}
+        </>
+      )}
 
+      {/* ── Source Document & New Analysis Setup Card (when no map or composing new) ── */}
+      {(!mapData || composingNew) && (
+        <Card className="p-6 border-slate-200 shadow-2xs">
+          <div className="space-y-6">
+            <div className="flex items-start justify-between gap-4 pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 cantara-serif">Client Location Map Source Document</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Review document uploaded by the client or upload file directly. Required document must be present to start location map analysis.
+                </p>
+              </div>
+              {composingNew && mapData && (
+                <Button variant="outline" size="sm" onClick={() => setComposingNew(false)}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+
+            {/* Document Checklist Sector */}
+            <LocationMapDocumentSection
+              clientId={clientId}
+              adminEmail={adminEmail}
+              uploadedDoc={uploadedDoc}
+              selectedFile={selectedFile}
+              loadingDocs={loadingDocs}
+              onRefresh={reloadDocument}
+              onUploaded={async (res) => {
+                setUploadedDoc({
+                  recordId: null,
+                  fileName: res.fileName,
+                  uploadedAt: res.uploadedAt,
+                })
+                setSelectedFile(null)
+                setParsedRows(null)
+                setError(null)
+                await reloadDocument()
+              }}
+              readOnly={readOnly}
+            />
+
+            {/* Facility Address */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Facility Address (Center Point)
+                  </h4>
+                  {businessAddress && facilityAddress.trim() === businessAddress.trim() && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                      Pre-filled from primary address
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {businessAddress && facilityAddress.trim() !== businessAddress.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => setFacilityAddress(businessAddress)}
+                      className="text-[11px] font-medium text-indigo-600 hover:text-indigo-800 underline"
+                    >
+                      Reset to Primary Address
+                    </button>
+                  )}
+                  {facilityAddress.trim() ? (
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      Configured
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                      Missing
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                  Facility / Business Address
+                </label>
+                <div className="relative">
+                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={facilityAddress}
+                    onChange={e => setFacilityAddress(e.target.value)}
+                    placeholder="e.g. 123 Main St, Anytown, TX 75001"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 bg-white"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1.5">
+                  This location serves as the map center point with 5, 10, and 20-mile radius rings drawn around it. Pre-filled from the client profile&apos;s primary business address.
+                </p>
+              </div>
+            </div>
+
+            {/* Geocoding Progress Bar */}
+            {geocoding && (
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+                <div className="flex items-center justify-between text-xs text-indigo-900 font-medium mb-1.5">
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                    Geocoding client addresses...
+                  </span>
+                  <span>{geocodeProgress.done} / {geocodeProgress.total}</span>
+                </div>
+                <div className="h-2 bg-indigo-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                    style={{ width: `${geocodeProgress.total > 0 ? (geocodeProgress.done / geocodeProgress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Error Banner */}
+            {error && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            {/* Parsed Rows Preview */}
+            {parsedRows && parsedRows.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Parsed Address Records</h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{parsedRows.length} client addresses ready to map</p>
+                  </div>
+                </div>
+                <div className="max-h-60 overflow-y-auto border border-slate-100 rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">#</th>
+                        <th className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Name</th>
+                        <th className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Address</th>
+                        <th className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Service</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedRows.map((row, idx) => (
+                        <tr key={idx} className="border-t border-slate-50 hover:bg-slate-50/50">
+                          <td className="px-3 py-2 text-slate-400">{idx + 1}</td>
+                          <td className="px-3 py-2 text-slate-700 font-medium">{row.name}</td>
+                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate">{row.address}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold text-white"
+                              style={{ backgroundColor: SERVICE_COLORS[row.serviceType] }}
+                            >
+                              {SERVICE_LABELS[row.serviceType]}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Readiness Action Footer */}
+            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="text-xs">
+                {readyToRun ? (
+                  <span className="text-emerald-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    Required client address document and facility address ready. You can start the map analysis.
+                  </span>
+                ) : !hasDoc ? (
+                  <span className="text-amber-800 font-medium flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    Upload the required Client Address List (CSV or Excel) to run analysis.
+                  </span>
+                ) : (
+                  <span className="text-amber-800 font-medium flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    Enter the facility center-point address to run analysis.
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {composingNew && mapData && (
+                  <Button variant="outline" size="sm" onClick={() => setComposingNew(false)}>
+                    Cancel
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  onClick={() => void runMapAnalysis()}
+                  disabled={!readyToRun || uploading || geocoding || (readOnly && !composingNew)}
+                  className="gap-1.5"
+                >
+                  {uploading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Processing Document...
+                    </>
+                  ) : geocoding ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Geocoding ({geocodeProgress.done}/{geocodeProgress.total})...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5" /> {composingNew ? 'Run New Analysis' : 'Start Map Analysis'}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

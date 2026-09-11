@@ -415,6 +415,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       import('@/components/admin/AgentRunsTab')
       import('@/components/admin/AgentOverviewTab')
       import('@/components/admin/AdditionalRequirements')
+      // Preload frequent WS1 agent tabs so first open isn't a multi-second spinner
+      import('@/components/ws1-6/EmployeeObligationsTab')
+      import('@/components/ws1-8/OwnershipVerificationTab')
+      import('@/components/ws1-9/PermitsZoningTab')
+      import('@/components/ttm-agent/TtmAnalysisTab')
     }
     if ('requestIdleCallback' in window) {
       window.requestIdleCallback(preload, { timeout: 2000 })
@@ -423,41 +428,70 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     }
   }, [])
 
+  // Refresh client data periodically, but only while this browser tab is visible.
+  // Important: depend on `id` only — including `client` restarts the poll on every setClient
+  // and multiplies API load when several admin tabs are open.
   useEffect(() => {
-    if (!client) return
+    if (!id) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
 
+    const clearTimer = () => {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
+
+    const schedule = (delayMs: number) => {
+      clearTimer()
+      timer = setTimeout(() => {
+        void poll()
+      }, delayMs)
+    }
+
     const poll = async () => {
+      if (cancelled) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        schedule(15000)
+        return
+      }
       const startedAt = Date.now()
       try {
         const refreshed = await getClient(id)
         if (!cancelled && refreshed) setClient(refreshed)
       } finally {
         if (cancelled) return
-        // Avoid overlapping polls: schedule next run only after this one completes.
         const elapsed = Date.now() - startedAt
-        const delay = Math.max(4000, 8000 - elapsed)
-        timer = setTimeout(() => {
-          void poll()
-        }, delay)
+        const delay = Math.max(12000, 18000 - elapsed)
+        schedule(delay)
       }
     }
 
-    timer = setTimeout(() => {
-      void poll()
-    }, 4000)
+    schedule(5000)
+
+    const onVisibility = () => {
+      if (cancelled) return
+      if (document.visibilityState === 'visible') {
+        void poll()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
+      clearTimer()
+      document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [id, client])
+  }, [id])
 
   useEffect(() => {
-    if (!client) return
+    if (!client?.id) return
     let cancelled = false
+    let timer: ReturnType<typeof setInterval> | null = null
+
     const loadChecks = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       try {
         const res = await fetch(`/api/agent-status?clientId=${encodeURIComponent(client.id)}`, { cache: 'no-store' })
         if (!res.ok) return
@@ -468,10 +502,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       }
     }
     void loadChecks()
-    const timer = setInterval(() => void loadChecks(), 30000)
+    timer = setInterval(() => void loadChecks(), 30000)
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadChecks()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
       cancelled = true
-      clearInterval(timer)
+      if (timer) clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [client?.id])
 
@@ -483,9 +524,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   }, [client, activeTab, availableAgentTabs])
 
   useEffect(() => {
-    if (!client) return
+    if (!client?.id) return
     let cancelled = false
+    let timer: ReturnType<typeof setInterval> | null = null
+
     const loadApprovalLocks = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       try {
         const res = await fetch(`/api/agent-runs?clientId=${encodeURIComponent(client.id)}`, { cache: 'no-store' })
         if (!res.ok) return
@@ -502,10 +546,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       }
     }
     void loadApprovalLocks()
-    const timer = setInterval(() => void loadApprovalLocks(), 30000)
+    timer = setInterval(() => void loadApprovalLocks(), 30000)
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadApprovalLocks()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
       cancelled = true
-      clearInterval(timer)
+      if (timer) clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [client?.id])
 
@@ -772,10 +823,24 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               />
             )}
             {activeTab === 'lease' && (
-              <LeaseAnalysisTab clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
+              <LeaseAnalysisTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                documentStatuses={client.documentStatuses}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'real-estate-appraisal' && (
-              <RealEstateAppraisalTab clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
+              <RealEstateAppraisalTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                documentStatuses={client.documentStatuses}
+                onRefreshDocuments={async () => {
+                  const refreshed = await getClient(id)
+                  if (refreshed) setClient(refreshed)
+                }}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'employee-obligations' && (
               <EmployeeObligationsTab
@@ -790,7 +855,16 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               />
             )}
             {activeTab === 'contract' && (
-              <ContractAnalysisTab clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
+              <ContractAnalysisTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                documentStatuses={client.documentStatuses}
+                onRefreshDocuments={async () => {
+                  const refreshed = await getClient(id)
+                  if (refreshed) setClient(refreshed)
+                }}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'digital' && (
               <DigitalPresenceTab clientId={client.id} clientName={client.company || client.name} clientWebsite={client.websiteUrl} readOnly={activeAgentReadOnly} />
@@ -814,22 +888,53 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               />
             )}
             {activeTab === 'insurance' && (
-              <InsuranceReviewTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
+              <InsuranceReviewTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                documentStatuses={client.documentStatuses}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'advisors' && (
               <ProfessionalAdvisorsTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
             )}
             {activeTab === 'vendor-directory' && (
-              <VendorDirectoryTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
+              <VendorDirectoryTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                readOnly={activeAgentReadOnly}
+                onOpenMaterialContracts={() => setActiveTab('contract')}
+              />
             )}
             {activeTab === 'org-chart' && (
-              <OrgChartReviewTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
+              <OrgChartReviewTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                documentStatuses={client.documentStatuses}
+                onRefreshDocuments={async () => {
+                  const refreshed = await getClient(id)
+                  if (refreshed) setClient(refreshed)
+                }}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'litigation' && (
-              <LitigationSearchTab clientId={client.id} clientName={client.company || client.name} businessAddress={client.businessAddress} readOnly={activeAgentReadOnly} />
+              <LitigationSearchTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                businessAddress={client.businessAddress}
+                state={client.state}
+                documentStatuses={client.documentStatuses}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'employee-comp' && (
-              <EmployeeCompTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
+              <EmployeeCompTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                documentStatuses={client.documentStatuses}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'ownership-verification' && (
               <OwnershipVerificationTab
@@ -838,6 +943,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 state={client.state}
                 dba={client.dba || undefined}
                 documentStatuses={client.documentStatuses}
+                onRefreshDocuments={async () => {
+                  const refreshed = await getClient(id)
+                  if (refreshed) setClient(refreshed)
+                }}
                 readOnly={activeAgentReadOnly}
               />
             )}
@@ -849,6 +958,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 dba={client.dba || undefined}
                 propertyAddress={client.businessAddress || undefined}
                 documentStatuses={client.documentStatuses}
+                onRefreshDocuments={async () => {
+                  const refreshed = await getClient(id)
+                  if (refreshed) setClient(refreshed)
+                }}
                 readOnly={activeAgentReadOnly}
               />
             )}
@@ -885,6 +998,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 clientId={client.id}
                 clientName={client.company || client.name}
                 state={client.state}
+                documentStatuses={client.documentStatuses}
+                onRefreshDocuments={async () => {
+                  const refreshed = await getClient(id)
+                  if (refreshed) setClient(refreshed)
+                }}
                 readOnly={activeAgentReadOnly}
               />
             )}
@@ -895,13 +1013,28 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <AssessmentReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws2" readOnly={activeAgentReadOnly} />
             )}
             {activeTab === 'sales-readiness-roadmap' && (
-              <ImprovementRoadmapTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
+              <ImprovementRoadmapTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                readOnly={activeAgentReadOnly}
+                onOpenAgent={tabKey => setActiveTab(tabKey as TabKey)}
+              />
             )}
             {activeTab === 'ws1-buyer-report' && (
-              <BuyerReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws1" />
+              <BuyerReportTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                workstream="ws1"
+                onOpenAgent={tabKey => setActiveTab(tabKey as TabKey)}
+              />
             )}
             {activeTab === 'ws2-buyer-report' && (
-              <BuyerReportTab clientId={client.id} clientName={client.company || client.name} workstream="ws2" />
+              <BuyerReportTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                workstream="ws2"
+                onOpenAgent={tabKey => setActiveTab(tabKey as TabKey)}
+              />
             )}
             {/* Temporarily hidden per product direction. Do not delete; re-enable when the meeting notes agent is needed again. */}
             {/* {activeTab === 'meeting-notes' && (
@@ -911,13 +1044,27 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <NetProceedsCalculator clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} propertyOwnership={client.propertyOwnership} />
             )}
             {activeTab === 'teaser' && (
-              <TeaserGeneratorTab clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
+              <TeaserGeneratorTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                readOnly={activeAgentReadOnly}
+                onOpenAgent={tabKey => setActiveTab(tabKey as TabKey)}
+              />
             )}
             {activeTab === 'cim' && (
-              <CimGeneratorTab clientId={client.id} clientName={client.name} readOnly={activeAgentReadOnly} />
+              <CimGeneratorTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                readOnly={activeAgentReadOnly}
+                onOpenAgent={tabKey => setActiveTab(tabKey as TabKey)}
+              />
             )}
             {activeTab === 'loi-review' && (
-              <LoiReviewTab clientId={client.id} clientName={client.name} />
+              <LoiReviewTab
+                clientId={client.id}
+                clientName={client.company || client.name}
+                readOnly={activeAgentReadOnly}
+              />
             )}
             {activeTab === 'requirements' && (
               <AdditionalRequirementsAdmin clientId={client.id} />

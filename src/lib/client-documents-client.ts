@@ -8,29 +8,44 @@ export type ClientUploadedDoc = {
   documentId: string
 }
 
+/**
+ * List uploaded files for the given document slot IDs.
+ * Uses the batch endpoint (one round-trip) instead of N per-document fetches.
+ */
 export async function listClientDocuments(
   clientId: string,
   documentIds: string[],
 ): Promise<ClientUploadedDoc[]> {
-  const results = await Promise.all(
-    documentIds.map(async (documentId) => {
-      const res = await fetch(
-        `/api/client-documents?clientId=${encodeURIComponent(clientId)}&documentId=${encodeURIComponent(documentId)}&all=true`,
-        { cache: 'no-store' },
-      )
-      if (!res.ok) return [] as ClientUploadedDoc[]
-      const data = await res.json()
-      const docs = Array.isArray(data?.documents) ? data.documents : []
-      return docs.map((doc: { id: string; fileName: string; mimeType?: string | null; uploadedAt?: string }) => ({
+  if (documentIds.length === 0) return []
+
+  const wanted = new Set(documentIds)
+  const res = await fetch(
+    `/api/client-documents/batch?clientId=${encodeURIComponent(clientId)}`,
+    { cache: 'no-store' },
+  )
+  if (!res.ok) return []
+
+  const data = await res.json()
+  const byDocumentId = (data?.byDocumentId ?? {}) as Record<
+    string,
+    Array<{ id: string; fileName: string; mimeType?: string | null; uploadedAt?: string }>
+  >
+
+  const results: ClientUploadedDoc[] = []
+  for (const documentId of documentIds) {
+    if (!wanted.has(documentId)) continue
+    const docs = byDocumentId[documentId] ?? []
+    for (const doc of docs) {
+      results.push({
         id: doc.id,
         fileName: doc.fileName,
         mimeType: doc.mimeType ?? null,
         uploadedAt: doc.uploadedAt,
         documentId,
-      }))
-    }),
-  )
-  return results.flat()
+      })
+    }
+  }
+  return results
 }
 
 export async function fetchClientDocumentFile(args: {

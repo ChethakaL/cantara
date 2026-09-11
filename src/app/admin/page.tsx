@@ -170,6 +170,8 @@ export default function AdminDashboard() {
         try {
           const data = await getClients()
           if (active) setClients(data)
+        } catch {
+          if (active) setClients([])
         } finally {
           if (active) setLoadingClients(false)
         }

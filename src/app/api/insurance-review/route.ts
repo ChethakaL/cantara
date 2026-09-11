@@ -1,7 +1,12 @@
 import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { parseStoredInsuranceReview, serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
+import {
+  parseStoredInsuranceReview,
+  serializeInsuranceReview,
+  summarizeInsuranceDocuments,
+  type InsuranceDocumentInput,
+} from "@/lib/insurance-review";
 import { assertS3Configured, s3BucketName, s3Client } from "@/lib/s3";
 import {
   assertOpenAiConfiguredForAnalyze,
@@ -23,11 +28,12 @@ export async function GET(req: NextRequest) {
     const documents = await (prisma as any).clientDocument.findMany({
       where: {
         clientId,
-        documentId: "insurance_claims_12m",
+        documentId: { in: ["insurance_policies", "insurance_claims_12m"] },
       },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
+        documentId: true,
         fileName: true,
         mimeType: true,
         localPath: true,
@@ -44,18 +50,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ document: null, documents: [], summary: null });
     }
 
-    const latest = documents[0];
-    const parsedReview = parseStoredInsuranceReview(latest.aiReviewSummary);
+    const reviewedDoc = documents.find((d: any) => Boolean(d.aiReviewSummary)) ?? documents[0];
+    const parsedReview = parseStoredInsuranceReview(reviewedDoc.aiReviewSummary);
 
     return NextResponse.json({
       document: {
-        id: latest.id,
-        fileName: latest.fileName,
-        createdAt: latest.createdAt.toISOString(),
-        reviewStatus: latest.aiReviewStatus ?? null,
+        id: reviewedDoc.id,
+        documentId: reviewedDoc.documentId,
+        fileName: reviewedDoc.fileName,
+        createdAt: reviewedDoc.createdAt.toISOString(),
+        reviewStatus: reviewedDoc.aiReviewStatus ?? null,
       },
       documents: documents.map((document: any) => ({
         id: document.id,
+        documentId: document.documentId,
         fileName: document.fileName,
         createdAt: document.createdAt.toISOString(),
         reviewStatus: document.aiReviewStatus ?? null,
@@ -63,9 +71,9 @@ export async function GET(req: NextRequest) {
       summary: parsedReview
         ? {
             ...parsedReview,
-            claimType: latest.aiDetectedType || parsedReview.claimType,
-            flags: latest.aiReviewFlags ?? [],
-            status: latest.aiReviewStatus || parsedReview.status,
+            claimType: reviewedDoc.aiDetectedType || parsedReview.claimType,
+            flags: reviewedDoc.aiReviewFlags ?? [],
+            status: reviewedDoc.aiReviewStatus || parsedReview.status,
             cached: true,
           }
         : null,
@@ -94,14 +102,15 @@ export async function POST(req: NextRequest) {
       if (gate) return gate;
     }
 
-    const document = await (prisma as any).clientDocument.findFirst({
+    const documents = await (prisma as any).clientDocument.findMany({
       where: {
         clientId,
-        documentId: "insurance_claims_12m",
+        documentId: { in: ["insurance_policies", "insurance_claims_12m"] },
       },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
+        documentId: true,
         fileName: true,
         mimeType: true,
         localPath: true,
@@ -109,49 +118,69 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    if (!document?.localPath) {
-      return new Response("Insurance claim document not found", { status: 404 });
+    if (!documents.length) {
+      return new Response("No insurance documents found (upload insurance policies or insurance claims first)", { status: 404 });
     }
 
-    if (!(document.mimeType || "").includes("pdf") && !document.fileName.toLowerCase().endsWith(".pdf")) {
-      return new Response("Insurance Review Agent currently supports PDF uploads only", { status: 400 });
+    const fileInputs: InsuranceDocumentInput[] = [];
+    const validDocs: any[] = [];
+
+    for (const doc of documents) {
+      if (!doc.localPath) continue;
+      try {
+        const file = await s3Client.send(new GetObjectCommand({
+          Bucket: doc.storageBucket || s3BucketName,
+          Key: doc.localPath,
+        }));
+        const chunks: Buffer[] = [];
+        for await (const chunk of file.Body as any) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const bytes = Buffer.concat(chunks);
+        fileInputs.push({
+          fileName: doc.fileName,
+          base64: bytes.toString("base64"),
+          documentType: doc.documentId,
+        });
+        validDocs.push(doc);
+      } catch (docErr) {
+        console.warn(`[insurance-review] Failed to retrieve doc ${doc.id}:`, docErr);
+      }
     }
 
-    const file = await s3Client.send(new GetObjectCommand({
-      Bucket: document.storageBucket || s3BucketName,
-      Key: document.localPath,
-    }));
-    const chunks: Buffer[] = [];
-    for await (const chunk of file.Body as any) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    if (!fileInputs.length) {
+      return new Response("Could not read any insurance files from storage", { status: 404 });
     }
-    const bytes = Buffer.concat(chunks);
 
-    const review = await summarizeInsuranceClaimPdf({
-      fileName: document.fileName,
-      base64: bytes.toString("base64"),
+    const review = await summarizeInsuranceDocuments({
+      files: fileInputs,
       provider,
       modelId,
     });
 
-    await (prisma as any).clientDocument.update({
-      where: { id: document.id },
-      data: {
-        aiDetectedType: review.claimType || "insurance_claim",
-        aiReviewStatus: review.status || "complete",
-        aiReviewSummary: serializeInsuranceReview(review),
-        aiReviewFlags: review.withinLast12Months === false
-          ? [`Claim is older than 12 months${review.incidentDate && review.incidentDate !== "Unknown" ? ` (incident date: ${review.incidentDate})` : ""}.`]
-          : [],
-        aiReviewedAt: new Date(),
-      },
-    });
+    for (const doc of validDocs) {
+      await (prisma as any).clientDocument.update({
+        where: { id: doc.id },
+        data: {
+          aiDetectedType: review.claimType || (doc.documentId === 'insurance_policies' ? 'insurance_policy' : 'insurance_claim'),
+          aiReviewStatus: review.status || "complete",
+          aiReviewSummary: serializeInsuranceReview(review),
+          aiReviewFlags: review.withinLast12Months === false
+            ? [`Claim is older than 12 months${review.incidentDate && review.incidentDate !== "Unknown" ? ` (incident date: ${review.incidentDate})` : ""}.`]
+            : [],
+          aiReviewedAt: new Date(),
+        },
+      });
+    }
+
+    const primaryDoc = validDocs.find((d: any) => d.documentId === 'insurance_claims_12m') ?? validDocs[0];
 
     return NextResponse.json({
       document: {
-        id: document.id,
-        fileName: document.fileName,
+        id: primaryDoc.id,
+        fileName: primaryDoc.fileName,
       },
+      documents: validDocs.map((d: any) => ({ id: d.id, fileName: d.fileName })),
       summary: review,
     });
   } catch (error) {

@@ -101,6 +101,19 @@ export function getClientWorkstreamAgents(client: {
   let agents: WorkstreamAgentSelection[] = []
   if (client.workstreamAgents?.length) {
     agents = filterLeaseAgentSelection(client.workstreamAgents, client.propertyOwnership, realEstateRunLease, realEstateRunAppraisal)
+    // Heal catalog drift: older ClientManager copies omitted agents (e.g. legal_entity_search)
+    // from the saved workstreamAgents list. Re-attach any missing system defaults for
+    // standard workstreams so Agent Status / portal mapping stay complete.
+    if (client.workstream && !client.customWorkstream) {
+      const canonical = SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []
+      let merged = [...agents]
+      for (const agent of canonical) {
+        if (!merged.some(existing => existing.agentId === agent.agentId)) {
+          merged.push(agent)
+        }
+      }
+      agents = filterLeaseAgentSelection(merged, client.propertyOwnership, realEstateRunLease, realEstateRunAppraisal)
+    }
   } else if (client.customWorkstream?.agents?.length) {
     agents = filterLeaseAgentSelection(client.customWorkstream.agents, client.propertyOwnership, realEstateRunLease, realEstateRunAppraisal)
   } else if (client.workstream) {

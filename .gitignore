@@ -28,3 +28,6 @@ yarn-error.log*
 .DS_Store
 .eslintcache
 tsconfig.tsbuildinfo
+
+# Local DB backups (do not commit)
+.local-backups/

@@ -4,7 +4,7 @@ import { ClientApprovedEmptyState } from '@/components/client-portal/AgentClient
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bot, CheckCircle, FileText, Loader2, RefreshCw, Trash2, Upload,
-  AlertTriangle, ShieldCheck, Info, Users2, Pencil, Save,
+  AlertTriangle, ShieldCheck, Info, Users2, Pencil, Save, Plus, Play, AlertCircle, X,
 } from 'lucide-react'
 import { Badge, Button, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
@@ -94,6 +94,13 @@ function detectMediaType(file: File): string {
   }
 }
 
+function formatFileSize(bytes?: number | null): string {
+  if (!bytes || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function OwnerGmAssessmentTab({
@@ -108,6 +115,8 @@ export default function OwnerGmAssessmentTab({
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [assessment, setAssessment] = useState<OwnerGmAssessment | null>(null)
+  const [stagedFile, setStagedFile] = useState<File | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -116,6 +125,7 @@ export default function OwnerGmAssessmentTab({
   const [startingNew, setStartingNew] = useState(false)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedSnapshotRef = useRef('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { provider, setProvider } = useAgentAiProvider()
   const {
     runs,
@@ -212,20 +222,54 @@ export default function OwnerGmAssessmentTab({
     setAssessment(current => current ? { ...current, ...updates } : current)
   }
 
-  // ── Upload & analyze ──
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handleStageFile = (file: File) => {
+    setStagedFile(file)
+    setFileName(file.name)
+    setError(null)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) {
+      handleStageFile(file)
+    }
+  }
+
+  // ── Run analysis on staged transcript ──
+  const handleRunAssessment = async () => {
+    if (!stagedFile) return
     setRunning(true)
     setError(null)
-    setFileName(file.name)
+    setFileName(stagedFile.name)
     try {
-      const base64 = await fileToBase64(file)
-      const mediaType = detectMediaType(file)
+      const base64 = await fileToBase64(stagedFile)
+      const mediaType = detectMediaType(stagedFile)
       const res = await fetch('/api/owner-gm-assessment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, fileName: file.name, base64, mediaType, provider, modelId: resolveAgentModelId(provider) }),
+        body: JSON.stringify({
+          clientId,
+          fileName: stagedFile.name,
+          base64,
+          mediaType,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
@@ -235,17 +279,18 @@ export default function OwnerGmAssessmentTab({
       if (mountedRef.current) {
         setAssessment(data.assessment)
         lastSavedSnapshotRef.current = JSON.stringify(data.assessment)
+        setStartingNew(false)
+        setStagedFile(null)
       }
       await saveAgentAnalysisRunClient({
         clientId,
         agentKey: AGENT_RUN_KEYS.ownerGmAssessment,
-        fileName: file.name,
+        fileName: stagedFile.name,
         report: data.assessment,
-        documentNames: [file.name],
+        documentNames: [stagedFile.name],
         aiProvider: provider,
         aiModel: resolveAgentModelId(provider),
       })
-      setStartingNew(false)
       await reloadRuns({ selectNewest: true })
     } catch (err: any) {
       if (mountedRef.current) setError(err?.message ?? 'Analysis failed')
@@ -254,11 +299,28 @@ export default function OwnerGmAssessmentTab({
     }
   }
 
+  // ── Delete assessment ──
+  const handleDeleteAssessment = async () => {
+    if (!confirm('Are you sure you want to delete this Owner & GM assessment?')) return
+    try {
+      const res = await fetch(`/api/owner-gm-assessment?clientId=${encodeURIComponent(clientId)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Failed to delete assessment')
+      setAssessment(null)
+      setStartingNew(true)
+      setEditMode(false)
+      setStagedFile(null)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete assessment')
+    }
+  }
+
   // ── New analysis (keeps run history; does not delete prior runs) ──
   const handleNewAnalysis = () => {
     setError(null)
-    setAssessment(null)
     setFileName(null)
+    setStagedFile(null)
     setEditMode(false)
     setStartingNew(true)
   }
@@ -276,8 +338,10 @@ export default function OwnerGmAssessmentTab({
     return <ClientApprovedEmptyState agentName="Owner & GM Assessment" />
   }
 
+  const showReport = Boolean(assessment && !startingNew)
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {!readOnly && (
         <AgentRunToolbar
           provider={provider}
@@ -291,37 +355,83 @@ export default function OwnerGmAssessmentTab({
           activeVersion={startingNew ? null : activeRun?.version}
         />
       )}
-      {/* Header bar */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex items-start justify-between gap-4">
+
+      {showReport && assessment ? (
+        /* Serif Header - Report View */
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
           <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-200">
-                <Users2 className="w-4 h-4 text-indigo-600" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">Owner & GM Involvement Assessment</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Upload a call transcript to analyze owner dependency, GM retention risk, and management bench strength against the 40-question framework.
-                </p>
-              </div>
-            </div>
+            <h2 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              Owner &amp; GM Involvement Assessment Report
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              {clientName} &mdash; Generated {new Date(assessment.generatedAt).toLocaleString()}
+            </p>
           </div>
-          <AdvisorActions className="flex items-center gap-2">
-            {assessment && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleNewAnalysis() }}
-                disabled={running}
+          <div className="flex items-center gap-2 flex-wrap" data-advisor-action>
+            {!readOnly && (
+              <button
+                onClick={handleNewAnalysis}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                New Analysis
-              </Button>
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ New Assessment</span>
+              </button>
             )}
-          </AdvisorActions>
+            <button
+              onClick={() => {
+                if (editMode && assessment) void persistAssessment(assessment)
+                setEditMode(!editMode)
+              }}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border',
+                editMode
+                  ? 'bg-amber-50 text-amber-700 border-amber-300'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'
+              )}
+              disabled={saving}
+            >
+              {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+              <span>{saving ? 'Saving...' : editMode ? 'Done Editing' : 'Edit Output'}</span>
+            </button>
+            {saved && <span className="text-xs font-semibold text-emerald-600 animate-pulse">Saved</span>}
+            <ExportReportButton
+              html={buildOwnerGmReportHtml(assessment, clientName)}
+              fileName={`owner-gm-assessment-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+            />
+            {!readOnly && (
+              <button
+                onClick={handleDeleteAssessment}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                title="Delete Assessment"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Serif Header - Upload / New Analysis View */
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
+          <div>
+            <h2 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              {assessment ? 'Owner & GM Involvement Assessment' : 'Owner & GM InvolvementAssessment'}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Upload a call transcript to analyze owner dependency, GM retention risk, and management bench strength against the 40-question framework.
+            </p>
+          </div>
+          {assessment && (
+            <button
+              type="button"
+              onClick={() => setStartingNew(false)}
+              className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors self-start sm:self-auto"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -330,41 +440,228 @@ export default function OwnerGmAssessmentTab({
         </div>
       )}
 
-      {/* Upload area (no assessment yet) */}
-      {!readOnly && !assessment && !running && (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center space-y-3">
-          <FileText className="w-8 h-8 text-slate-300 mx-auto" />
-          <p className="text-sm font-medium text-slate-600">No transcript uploaded yet</p>
-          <p className="text-xs text-slate-400">Upload a call transcript (PDF, TXT, or DOCX) to run the Owner & GM Involvement Assessment.</p>
-          <div className="mt-4 text-center">
-            <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-medium cursor-pointer hover:bg-indigo-100 transition-colors">
-              <Upload className="w-3.5 h-3.5" />
-              Upload Transcript
-              <input
-                type="file"
-                accept=".pdf,.txt,.docx,.doc,.png,.jpg,.jpeg"
-                className="hidden"
-                onChange={handleFileUpload}
-                disabled={running}
-              />
-            </label>
+      {/* Uploader Section (when not viewing report) */}
+      {!showReport && !readOnly && (
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-2xs space-y-6">
+          {/* Sector: REQUIRED CALL TRANSCRIPT */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Required Call Transcript
+                </h4>
+                <span
+                  className={cn(
+                    'text-[11px] font-semibold px-2 py-0.5 rounded-full',
+                    stagedFile
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-rose-100 text-rose-800',
+                  )}
+                >
+                  {stagedFile ? '1 transcript ready' : '0 of 1 ready'}
+                </span>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">
+              Upload a call transcript to analyze owner dependency, GM retention risk, and management bench strength against the 40-question framework.
+            </p>
+
+            {/* Valuation-style Document Card Row */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={cn(
+                'p-4 rounded-xl border transition-all shadow-2xs',
+                isDragging
+                  ? 'border-amber-400 bg-amber-50/50'
+                  : stagedFile
+                    ? 'border-emerald-200 bg-emerald-50/40'
+                    : 'border-slate-200/80 bg-white hover:border-slate-300',
+              )}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={cn(
+                        'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+                        stagedFile
+                          ? 'bg-emerald-50 text-emerald-600'
+                          : 'bg-slate-100 text-slate-400',
+                      )}
+                    >
+                      <FileText className="w-4.5 h-4.5" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-slate-800">Call Transcript</p>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                          Required
+                        </span>
+
+                        {stagedFile ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" /> 1 Ready
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                            Missing
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        Upload a call transcript (PDF, TXT, or DOCX) to run the Owner &amp; GM Involvement Assessment.
+                      </p>
+
+                      {/* Queued / Uploaded File Chip */}
+                      {stagedFile ? (
+                        <div className="flex flex-wrap gap-2 mt-2.5">
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs">
+                            <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span className="truncate max-w-[240px] font-medium">{stagedFile.name}</span>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              ({formatFileSize(stagedFile.size)})
+                            </span>
+                            <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded font-semibold">
+                              Ready
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setStagedFile(null)
+                              }}
+                              className="text-slate-400 hover:text-rose-600 ml-1 transition-colors"
+                              title="Remove file"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-400 mt-2 italic">
+                          No transcript uploaded yet. Drag &amp; drop a file here, or click to upload.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Upload Button */}
+                <div className="shrink-0 pt-0.5">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.txt,.docx,.doc"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) handleStageFile(f)
+                      e.target.value = ''
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={running}
+                    className="gap-1.5 h-8 text-xs font-medium text-slate-700 hover:text-slate-900 border-slate-200"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-slate-500" />
+                    {stagedFile ? 'Replace Transcript' : 'Upload Transcript'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Running state banner */}
+          {running && (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-5 text-center space-y-2">
+              <Loader2 className="w-7 h-7 text-indigo-500 mx-auto animate-spin" />
+              <p className="text-sm font-semibold text-indigo-900">Analyzing transcript...</p>
+              <p className="text-xs text-indigo-600">
+                {fileName ? `Processing ${fileName}` : 'Running the 40-question assessment framework'}. This may take 30-60 seconds.
+              </p>
+            </div>
+          )}
+
+          {/* Bottom Readiness & Action Footer */}
+          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="text-xs">
+              {stagedFile ? (
+                <span className="text-emerald-700 font-medium flex items-center gap-1.5">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  Transcript ready ({stagedFile.name}). You can run Owner &amp; GM assessment.
+                </span>
+              ) : (
+                <span className="text-amber-800 font-medium flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  Upload a call transcript (PDF, TXT, or DOCX) to run the Owner &amp; GM Involvement Assessment.
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {stagedFile && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStagedFile(null)}
+                  disabled={running}
+                  className="h-8 text-xs text-slate-600 hover:text-rose-600"
+                >
+                  Clear
+                </Button>
+              )}
+              {assessment && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStartingNew(false)}
+                  disabled={running}
+                  className="h-8 text-xs text-slate-600 hover:text-slate-800"
+                >
+                  Cancel
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void handleRunAssessment()}
+                disabled={!stagedFile || running}
+                className={cn(
+                  'gap-1.5 h-8 text-xs font-semibold',
+                  stagedFile && !running
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-xs'
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200',
+                )}
+              >
+                {running ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Running Assessment...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Run Owner &amp; GM Assessment</span>
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Running state */}
-      {running && (
-        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-10 text-center space-y-3">
-          <Loader2 className="w-8 h-8 text-indigo-400 mx-auto animate-spin" />
-          <p className="text-sm font-medium text-indigo-700">Analyzing transcript...</p>
-          <p className="text-xs text-indigo-500">
-            {fileName ? `Processing ${fileName}` : 'Running the 40-question assessment framework'}. This may take 30-60 seconds.
-          </p>
-        </div>
-      )}
-
       {/* Results */}
-      {assessment && (
+      {showReport && assessment && (
         <>
           {/* Ratings strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -395,29 +692,6 @@ export default function OwnerGmAssessmentTab({
               </div>
             ))}
           </div>
-
-          {/* Export button */}
-          <AdvisorActions className="flex justify-end">
-            {!readOnly && (
-              <Button
-                size="sm"
-                variant={editMode ? 'primary' : 'outline'}
-                onClick={() => {
-                  if (editMode && assessment) void persistAssessment(assessment)
-                  setEditMode(!editMode)
-                }}
-                disabled={saving}
-              >
-                {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                {saving ? 'Saving...' : editMode ? 'Done Editing' : 'Edit Output'}
-              </Button>
-            )}
-            <ExportReportButton
-              html={buildOwnerGmReportHtml(assessment, clientName)}
-              fileName={`owner-gm-assessment-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-            />
-            {saved && <span className="text-xs font-semibold text-emerald-600">Saved</span>}
-          </AdvisorActions>
 
           {/* Executive Summary */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
@@ -857,18 +1131,15 @@ export default function OwnerGmAssessmentTab({
           )}
 
           {/* Re-upload option */}
-          <div className="flex justify-center">
-            <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-medium cursor-pointer hover:bg-slate-50 transition-colors">
+          <div className="flex justify-center pt-2">
+            <button
+              type="button"
+              onClick={handleNewAnalysis}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors shadow-xs"
+            >
               <RefreshCw className="w-3.5 h-3.5" />
               Upload New Transcript
-              <input
-                type="file"
-                accept=".pdf,.txt,.docx,.doc,.png,.jpg,.jpeg"
-                className="hidden"
-                onChange={handleFileUpload}
-                disabled={running}
-              />
-            </label>
+            </button>
           </div>
         </>
       )}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '@/lib/store'
 import { countUnreadForViewer, type ChatViewerRole } from '@/lib/chat-utils'
+import { subscribeChatSse } from '@/lib/chat-sse'
 
 async function fetchMessages(clientId: string): Promise<ChatMessage[]> {
   const res = await fetch(`/api/chat?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
@@ -53,20 +54,25 @@ export function useChatRoom(args: {
   useEffect(() => {
     if (!clientId) return
 
-    const params = new URLSearchParams({ clientId })
-    const source = new EventSource(`/api/chat/stream?${params.toString()}`)
-
-    source.addEventListener('update', () => {
-      void refresh()
-    })
-    source.addEventListener('open', () => setConnected(true))
-    source.onerror = () => setConnected(false)
-
-    return () => {
-      source.close()
+    // Only hold a live stream while the chat panel is open. Unread badges
+    // use useChatUnread / useAdminInboxUnread instead.
+    if (!isActive) {
       setConnected(false)
+      return
     }
-  }, [clientId, refresh])
+
+    const url = `/api/chat/stream?clientId=${encodeURIComponent(clientId)}`
+    return subscribeChatSse(
+      url,
+      () => {
+        void refresh()
+      },
+      {
+        onOpen: () => setConnected(true),
+        onError: () => setConnected(false),
+      },
+    )
+  }, [clientId, refresh, isActive])
 
   useEffect(() => {
     if (!isActive || !clientId) {
@@ -139,6 +145,7 @@ export function useAdminInboxUnread() {
   const [total, setTotal] = useState(0)
 
   const refresh = useCallback(async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     const res = await fetch('/api/chat/unread?viewer=admin', { cache: 'no-store' })
     if (!res.ok) return
     const data = await res.json()
@@ -148,11 +155,9 @@ export function useAdminInboxUnread() {
 
   useEffect(() => {
     void refresh()
-    const source = new EventSource('/api/chat/stream?scope=admin-inbox')
-    source.addEventListener('update', () => {
+    return subscribeChatSse('/api/chat/stream?scope=admin-inbox', () => {
       void refresh()
     })
-    return () => source.close()
   }, [refresh])
 
   return { counts, total, refresh }

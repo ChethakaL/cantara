@@ -76,10 +76,15 @@ export function useLeaseAnalysis(clientId?: string) {
     setError(null);
   };
 
-  const analyze = useCallback(async () => {
-    if (documents.length === 0) {
+  const analyze = useCallback(async (customDocs?: LeaseDocument[]) => {
+    const docsToUse = customDocs && customDocs.length > 0 ? customDocs : documents;
+    if (docsToUse.length === 0) {
       setError("Please upload at least one lease document.");
       return;
+    }
+
+    if (customDocs && customDocs.length > 0) {
+      setDocuments(customDocs);
     }
 
     setStatus("uploading");
@@ -97,7 +102,7 @@ export function useLeaseAnalysis(clientId?: string) {
           const res = await fetch("/api/lease-analysis/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ documents, clientId, provider, modelId: resolveAgentModelId(provider) }),
+            body: JSON.stringify({ documents: docsToUse, clientId, provider, modelId: resolveAgentModelId(provider) }),
           });
 
           if (!res.ok) {

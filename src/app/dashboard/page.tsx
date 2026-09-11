@@ -37,6 +37,7 @@ import {
   DOCUMENT_REFERENCE_TEMPLATES,
   MULTI_YEAR_UPLOAD_SLOTS,
   filterClientPortalDocuments,
+  filterPropertyOwnershipDocuments,
   getMultiYearCombinedId,
   getMultiYearUploadProgress,
   summarizeClientPortalProgress,
@@ -471,9 +472,11 @@ export default function ClientDashboard() {
   }, [])
 
   useEffect(() => {
-    if (!client) return
+    if (!client?.id) return
+    const clientId = client.id
     const interval = setInterval(async () => {
-      const refreshedClient = await getClient(client.id)
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      const refreshedClient = await getClient(clientId)
       if (refreshedClient) {
         setClient(refreshedClient)
         setDocStatuses(prev => {
@@ -486,10 +489,10 @@ export default function ClientDashboard() {
           return merged
         })
       }
-      setRequirements(await getRequirements(client.id))
+      setRequirements(await getRequirements(clientId))
     }, 30000)
     return () => clearInterval(interval)
-  }, [client, dirtyStatusIds])
+  }, [client?.id, dirtyStatusIds])
 
   useEffect(() => {
     if (!client) return
@@ -654,6 +657,12 @@ export default function ClientDashboard() {
   const getDocStatus = (docId: string): DocumentStatus =>
     docStatuses[docId] ?? { id: docId, hasDoc: null, assignedTo: null, uploadedAt: null, fileName: null, notApplicable: false }
 
+  const propertyOwnershipSubmissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
+    ? client.sectionSubmissions
+    : {}) as Record<string, unknown>
+  const realEstateRunLease = propertyOwnershipSubmissions.realEstateRunLease === true
+  const realEstateRunAppraisal = propertyOwnershipSubmissions.realEstateRunAppraisal !== false
+
   const categories = mergeDocumentCategories([
     ...(client.customWorkstream
       ? getDocsForAgentSelections(client.customWorkstream.agents)
@@ -662,8 +671,13 @@ export default function ClientDashboard() {
   ])
     .map(category => ({
       ...category,
-      documents: filterClientPortalDocuments(category.documents).filter(doc =>
-        client.propertyOwnership === 'owns' ? doc.id !== 'leases' : doc.id !== 'real_estate_appraisal'
+      documents: filterPropertyOwnershipDocuments(
+        filterClientPortalDocuments(category.documents),
+        {
+          propertyOwnership: client.propertyOwnership,
+          realEstateRunLease,
+          realEstateRunAppraisal,
+        },
       ),
     }))
     .filter(category => category.documents.length > 0)

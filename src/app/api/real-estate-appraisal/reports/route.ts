@@ -50,3 +50,30 @@ export async function PATCH(req: NextRequest) {
     return new Response('Internal Server Error', { status: 500 })
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const clientId = req.nextUrl.searchParams.get('clientId')
+    const reportId = req.nextUrl.searchParams.get('id')
+    if (!clientId) return new Response('Missing clientId', { status: 400 })
+
+    const target = reportId
+      ? await prisma.realEstateAppraisalReport.findFirst({ where: { id: reportId, clientId } })
+      : await prisma.realEstateAppraisalReport.findFirst({
+          where: { clientId },
+          orderBy: { createdAt: 'desc' },
+        })
+
+    if (!target) return new Response('Report not found', { status: 404 })
+
+    await prisma.realEstateAppraisalReport.delete({
+      where: { id: target.id },
+    })
+
+    return NextResponse.json({ success: true, deletedId: target.id })
+  } catch (error) {
+    console.error('[real-estate-appraisal/reports] DELETE', error)
+    return new Response('Internal Server Error', { status: 500 })
+  }
+}
+

@@ -2,8 +2,24 @@
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
-import { Bot, CheckCircle2, Download, Eye, FileText, Loader2, Printer, RotateCcw, Save, Sparkles, Circle, AlertCircle } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import {
+  Bot,
+  CheckCircle2,
+  Download,
+  Eye,
+  FileText,
+  Loader2,
+  Printer,
+  RotateCcw,
+  RotateCw,
+  Save,
+  Sparkles,
+  Circle,
+  AlertCircle,
+  Clock,
+  ExternalLink,
+} from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { TeaserInputData, DEFAULT_TEASER_INPUT } from '@/lib/teaser/types'
 import { generateTeaserHtml } from '@/lib/teaser/generate-html'
@@ -15,17 +31,66 @@ import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
 import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
 import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
+  onOpenAgent?: (tabKey: string) => void
 }
 
-export default function TeaserGeneratorTab({ clientId, clientName, readOnly = false }: Props) {
+interface PrerequisiteItem {
+  key: string
+  tabKey: string
+  label: string
+  note: string
+}
+
+const TEASER_PREREQUISITES: PrerequisiteItem[] = [
+  {
+    key: 'ttmAnalysis',
+    tabKey: 'ttm',
+    label: 'Financial Analysis & Valuation',
+    note: 'Historical revenue, gross margin, TTM summary, plus Recast add-backs / normalized EBITDA / valuation band when completed on the Valuation tab.',
+  },
+  {
+    key: 'lease',
+    tabKey: 'lease',
+    label: 'Commercial Lease Analysis',
+    note: 'Facility profile, square footage, lease term, rent, and renewal options.',
+  },
+  {
+    key: 'competitor',
+    tabKey: 'competitor',
+    label: 'Competitor & Market Analysis',
+    note: 'Competitive positioning, market landscape, and market advantages.',
+  },
+  {
+    key: 'employeeObligations',
+    tabKey: 'employee-obligations',
+    label: 'Employee Obligations (WS1-6)',
+    note: 'Workforce overview, key team members, and operational staffing.',
+  },
+  {
+    key: 'digitalPresence',
+    tabKey: 'digital',
+    label: 'Digital Presence & Brand Report',
+    note: 'Website performance, Google reviews, and online brand footprint.',
+  },
+  {
+    key: 'insuranceReview',
+    tabKey: 'insurance',
+    label: 'Insurance Review',
+    note: 'Insurance claims history and coverage context used when drafting teaser risk notes.',
+  },
+]
+
+export default function TeaserGeneratorTab({ clientId, clientName, readOnly = false, onOpenAgent }: Props) {
   const [status, setStatus] = useState<'idle' | 'auto-filling' | 'editing' | 'preview'>('idle')
   const [data, setData] = useState<TeaserInputData>(DEFAULT_TEASER_INPUT)
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [acknowledged, setAcknowledged] = useState(false)
   const [teaserFileUrl, setTeaserFileUrl] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -41,6 +106,34 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
     reload: reloadRuns,
     loading: loadingRuns,
   } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.teaser)
+
+  const [refreshing, setRefreshing] = useState(false)
+
+  const handleOpenAgent = useCallback(
+    (tabKey: string) => {
+      if (onOpenAgent) {
+        onOpenAgent(tabKey)
+      } else {
+        window.location.href = `/admin/client/${clientId}?tab=${tabKey}`
+      }
+    },
+    [onOpenAgent, clientId],
+  )
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      const res = await fetch(`/api/agent-status?clientId=${clientId}`, { cache: 'no-store' })
+      if (res.ok) {
+        const d = await res.json()
+        setPrereqs(d)
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   // ── Load prerequisite agent status ──────────────────────────────────────────
   useEffect(() => {
@@ -253,92 +346,193 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
   )
 
   // ---------- IDLE STATE ----------
-  const TEASER_PREREQS = [
-    { key: 'ttmAnalysis', label: 'Financial Analysis & Valuation (WS2-1)' },
-    { key: 'lease', label: 'Lease Analysis' },
-    { key: 'competitor', label: 'Competitor Analysis' },
-    { key: 'employeeObligations', label: 'Employee Obligations (WS1-6)' },
-    { key: 'digitalPresence', label: 'Digital Presence Report' },
-  ]
-
   if (status === 'idle') {
-    const completedCount = prereqs ? TEASER_PREREQS.filter(p => prereqs[p.key]).length : 0
-    const allComplete = prereqs ? TEASER_PREREQS.every(p => prereqs[p.key]) : false
+    const completedCount = prereqs ? TEASER_PREREQUISITES.filter(p => prereqs[p.key]).length : 0
+    const allComplete = prereqs ? TEASER_PREREQUISITES.every(p => prereqs[p.key]) : false
 
     return (
       <div className="space-y-6">
         {runToolbar}
-        <Card className="p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
-              <FileText className="w-5 h-5 text-amber-600" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800">Deal Teaser Generator</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Generate a professional investment teaser from client data across all agents.</p>
-            </div>
+
+        {/* Unified Serif Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-200">
+          <div>
+            <h3 className="font-serif text-xl font-bold text-slate-900 tracking-tight">Deal Teaser Generator</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Generate a professional 2-page blind investment teaser from client data across upstream agents.</p>
           </div>
-          <a
-            href="/samples/Cantara_Deal_Teaser_v2.docx"
-            download="Cantara_Deal_Teaser_v2.docx"
-            className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-cantara-beige text-slate-700 hover:bg-cantara-beige/50 px-3 py-1.5 text-xs bg-white"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download sample teaser
-          </a>
+          <AdvisorActions>
+            <a
+              href="/samples/Cantara_Deal_Teaser_v2.docx"
+              download="Cantara_Deal_Teaser_v2.docx"
+              className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 px-3 py-1.5 text-xs bg-white shadow-2xs"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-400" />
+              Download sample teaser
+            </a>
+          </AdvisorActions>
         </div>
-        </Card>
 
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
         )}
 
         {/* Prerequisite agent checklist */}
-        <Card className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">Prerequisite Agents</h4>
-            {prereqs && (
-              <Badge color={allComplete ? 'green' : completedCount > 0 ? 'gold' : 'red'}>
-                {completedCount}/{TEASER_PREREQS.length} complete
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-2xs space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Optional Context Agent Outputs
+              </h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Teaser generation synthesizes these optional agent outputs (plus insurance claims context when available) into a blind 2-page investment profile. Missing agents leave empty sections you can edit manually.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge color={allComplete ? 'green' : completedCount > 0 ? 'gold' : 'slate'} className="text-xs px-2.5 py-1">
+                {completedCount} of {TEASER_PREREQUISITES.length} complete
               </Badge>
-            )}
+              <button
+                type="button"
+                onClick={() => void handleRefresh()}
+                disabled={refreshing}
+                title="Refresh live agent status"
+                className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors disabled:opacity-50"
+              >
+                <RotateCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin text-amber-600')} />
+              </button>
+            </div>
           </div>
-          <p className="text-xs text-slate-500 mb-4">The teaser auto-fill pulls data from these agents. Missing agents will result in empty sections.</p>
-          <div className="space-y-2">
-            {TEASER_PREREQS.map(p => {
-              const done = prereqs?.[p.key] ?? false
+
+          <div className="space-y-3">
+            {TEASER_PREREQUISITES.map(p => {
+              const isReady = prereqs?.[p.key] ?? false
               return (
-                <div key={p.key} className={cn(
-                  'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm',
-                  done ? 'bg-emerald-50 border border-emerald-100 text-emerald-800' : 'bg-slate-50 border border-slate-100 text-slate-500'
-                )}>
-                  {done ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" /> : <Circle className="w-4 h-4 text-slate-300 flex-shrink-0" />}
-                  {p.label}
+                <div
+                  key={p.key}
+                  className={cn(
+                    'flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border transition-all',
+                    isReady
+                      ? 'border-emerald-200/80 bg-emerald-50/20'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  )}
+                >
+                  <div className="flex items-start gap-3.5 min-w-0">
+                    <div
+                      className={cn(
+                        'p-2.5 rounded-lg border shrink-0',
+                        isReady
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                          : 'bg-slate-50 border-slate-200 text-slate-400'
+                      )}
+                    >
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-900">
+                          {p.label}
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                          Optional
+                        </span>
+                        {isReady ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Ready
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            Not generated
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 leading-relaxed">{p.note}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenAgent(p.tabKey)}
+                      className="text-xs text-slate-700 border-slate-200 hover:bg-slate-100 h-8 px-3"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 mr-1.5 text-slate-400" />
+                      Open Agent
+                    </Button>
+                  </div>
                 </div>
               )
             })}
           </div>
-          {prereqs && !allComplete && (
-            <p className="text-xs text-amber-600 mt-3 flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" />
-              Some agents haven&apos;t been run yet. You can still auto-fill, but some sections may be empty.
-            </p>
-          )}
-        </Card>
 
-        <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/30 p-8 text-center space-y-4">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center">
-            <Sparkles className="w-7 h-7 text-amber-600" />
+          {/* Status alert */}
+          {allComplete ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <h5 className="text-xs font-semibold text-emerald-900">All Prerequisite Agents Ready</h5>
+                <p className="text-xs text-emerald-700 mt-0.5">
+                  All upstream agents have completed analysis runs. The auto-fill engine will pull available financial, operational, competitive, and insurance context into the teaser draft.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h5 className="text-xs font-semibold text-amber-900">Incomplete Prerequisite Agents</h5>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Some agents have not been run yet. You can still auto-fill the teaser with available data, but pending chapters will leave corresponding fields empty for manual completion.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Acknowledgment checkbox */}
+          {!allComplete && (
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 bg-slate-50/50 text-xs text-slate-600 cursor-pointer hover:bg-slate-50 transition-colors">
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={e => setAcknowledged(e.target.checked)}
+                className="mt-0.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span>
+                I understand that some prerequisite agents are not complete and wish to proceed with partial data auto-fill.
+              </span>
+            </label>
+          )}
+
+          {/* Readiness Footer */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200">
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              {completedCount > 0 ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{completedCount} of {TEASER_PREREQUISITES.length} agent outputs ready for synthesis</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>No prerequisite outputs yet. Auto-fill will populate defaults.</span>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button
+                type="button"
+                size="lg"
+                onClick={autoFill}
+                disabled={!allComplete && !acknowledged}
+                className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs px-6 py-2.5 h-auto shadow-sm"
+              >
+                <Sparkles className="w-4 h-4 mr-2 text-amber-400" />
+                Auto-Fill Teaser
+              </Button>
+            </div>
           </div>
-          <h4 className="text-lg font-semibold text-slate-800">Auto-Fill from Client Data</h4>
-          <p className="text-sm text-slate-500 max-w-md mx-auto">
-            Pull data from completed agents to pre-populate the teaser. You can review and edit everything before generating.
-          </p>
-          <Button size="lg" onClick={autoFill}>
-            <Sparkles className="w-4 h-4" />
-            Auto-Fill Teaser
-          </Button>
         </div>
       </div>
     )
@@ -347,9 +541,19 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
   // ---------- AUTO-FILLING STATE ----------
   if (status === 'auto-filling') {
     return (
-      <div className="py-24 flex flex-col items-center gap-4">
-        <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
-        <p className="text-sm text-slate-500">Gathering data from all agents...</p>
+      <div className="space-y-6">
+        {runToolbar}
+        <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-2xs flex flex-col items-center justify-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center">
+            <Loader2 className="w-6 h-6 animate-spin text-amber-600" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-base font-semibold text-slate-900">Auto-Filling Deal Teaser...</h4>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              Synthesizing financial performance, commercial lease highlights, competitive landscape, staffing model, and digital authority into teaser draft...
+            </p>
+          </div>
+        </div>
       </div>
     )
   }
@@ -357,35 +561,58 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
   // ---------- PREVIEW STATE ----------
   if (status === 'preview' && generatedHtml) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         {runToolbar}
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
-                <Eye className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">Teaser Preview</h3>
-                <p className="text-xs text-slate-400">Review the generated teaser below. Print or download as needed.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setStatus('editing')}>
-                <RotateCcw className="w-3.5 h-3.5" />
-                Back to Edit
-              </Button>
-              <Button variant="outline" size="sm" onClick={downloadHtml}>
-                <Download className="w-3.5 h-3.5" />
-                Download HTML
-              </Button>
-              <Button size="sm" onClick={printTeaser}>
-                <Printer className="w-3.5 h-3.5" />
-                Print / Save PDF
-              </Button>
-            </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-200">
+          <div>
+            <h3 className="font-serif text-xl font-bold text-slate-900 tracking-tight">Deal Teaser Preview</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Review the generated teaser below. Print, download as HTML, or edit fields as needed.</p>
           </div>
-        </Card>
+          <AdvisorActions>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStatus('editing')}
+              className="text-xs h-8"
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1" />
+              Back to Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadHtml}
+              className="text-xs h-8"
+            >
+              <Download className="w-3.5 h-3.5 mr-1" />
+              Download HTML
+            </Button>
+            <Button
+              size="sm"
+              onClick={printTeaser}
+              className="text-xs h-8 bg-slate-900 hover:bg-slate-800 text-white"
+            >
+              <Printer className="w-3.5 h-3.5 mr-1" />
+              Print / Save PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setStatus('idle')
+                setGeneratedHtml(null)
+              }}
+              className="text-xs h-8 text-slate-600 hover:text-slate-900"
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1" />
+              + New Analysis
+            </Button>
+          </AdvisorActions>
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+        )}
 
         <MondayLinker clientId={clientId} clientName={clientName} reportType="Teaser" fileUrl={teaserFileUrl} html={generatedHtml} />
 
@@ -415,55 +642,59 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
   return (
     <div className="space-y-6">
       {runToolbar}
-      <Card className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-amber-50 border border-amber-200">
-              <FileText className="w-4 h-4 text-amber-600" />
-            </div>
-            <div>
-              <div className="flex items-center gap-3">
-                <h3 className="text-sm font-semibold text-slate-800">Deal Teaser — Edit & Review</h3>
-                <a
-                  href="/samples/Cantara_Deal_Teaser_v2.docx"
-                  download="Cantara_Deal_Teaser_v2.docx"
-                  className="flex items-center gap-1.5 text-[10px] font-medium text-amber-600 hover:text-amber-700 hover:underline"
-                >
-                  <Download className="w-3 h-3" />
-                  Download sample teaser
-                </a>
-              </div>
-              <p className="text-xs text-slate-400">Review the auto-filled data below. Edit any fields, then generate the teaser.</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void saveDraft()}
-              disabled={saving}
-              className="text-[10px] h-8"
-            >
-              {saving ? (
-                <Loader2 className="w-3 h-3 animate-spin mr-1" />
-              ) : saveSuccess ? (
-                <CheckCircle2 className="w-3 h-3 text-green-500 mr-1" />
-              ) : (
-                <Save className="w-3 h-3 mr-1" />
-              )}
-              {saveSuccess ? 'Saved' : 'Save Draft'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={autoFill} className="text-[10px] h-8">
-              <Sparkles className="w-3.5 h-3.5" />
-              Re-fill
-            </Button>
-            <Button size="sm" onClick={() => void generate()} className="text-[10px] h-8">
-              <Bot className="w-3.5 h-3.5" />
-              Generate Teaser
-            </Button>
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-200">
+        <div>
+          <h3 className="font-serif text-xl font-bold text-slate-900 tracking-tight">Deal Teaser — Edit & Review</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Review the auto-filled data below. Edit any fields, then generate the teaser.</p>
         </div>
-      </Card>
+        <AdvisorActions>
+          <a
+            href="/samples/Cantara_Deal_Teaser_v2.docx"
+            download="Cantara_Deal_Teaser_v2.docx"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-400" />
+            Download sample teaser
+          </a>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void saveDraft()}
+            disabled={saving}
+            className="text-xs h-8"
+          >
+            {saving ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+            ) : saveSuccess ? (
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 mr-1" />
+            ) : (
+              <Save className="w-3.5 h-3.5 mr-1" />
+            )}
+            {saveSuccess ? (
+              <span className="text-emerald-600 font-semibold flex items-center gap-1 animate-pulse">Saved</span>
+            ) : (
+              'Save Draft'
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={autoFill}
+            className="text-xs h-8"
+          >
+            <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-500" />
+            Re-fill
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => void generate()}
+            className="text-xs h-8 bg-slate-900 hover:bg-slate-800 text-white"
+          >
+            <Bot className="w-3.5 h-3.5 mr-1 text-amber-400" />
+            Generate Teaser
+          </Button>
+        </AdvisorActions>
+      </div>
 
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
@@ -592,9 +823,13 @@ export default function TeaserGeneratorTab({ clientId, clientName, readOnly = fa
       </Card>
 
       {/* Generate Button */}
-      <div className="flex justify-end">
-        <Button size="lg" onClick={() => void generate()}>
-          <Bot className="w-4 h-4" />
+      <div className="flex justify-end pt-4 border-t border-slate-200">
+        <Button
+          size="lg"
+          onClick={() => void generate()}
+          className="bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs px-6 py-2.5 h-auto shadow-sm"
+        >
+          <Bot className="w-4 h-4 mr-2 text-amber-400" />
           Generate Teaser
         </Button>
       </div>

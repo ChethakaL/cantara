@@ -48,6 +48,41 @@ export function filterClientPortalDocuments<T extends { id: string }>(docs: T[])
   return docs.filter(isClientPortalDocument)
 }
 
+/**
+ * Real-estate docs depend on ownership + advisor checkboxes (Client Management).
+ * - Leaseholders: request `leases`, hide appraisal.
+ * - Owners: request appraisal when appraisal agent is on (default on); request `leases`
+ *   only when "Run Lease Analysis Agent" is checked.
+ */
+export function isPropertyOwnershipDocumentVisible(
+  docId: string,
+  opts: {
+    propertyOwnership?: string | null
+    realEstateRunLease?: boolean
+    realEstateRunAppraisal?: boolean
+  },
+): boolean {
+  const owns = opts.propertyOwnership === 'owns'
+  if (docId === 'leases') {
+    return owns ? opts.realEstateRunLease === true : true
+  }
+  if (docId === 'real_estate_appraisal') {
+    return owns ? opts.realEstateRunAppraisal !== false : false
+  }
+  return true
+}
+
+export function filterPropertyOwnershipDocuments<T extends { id: string }>(
+  docs: T[],
+  opts: {
+    propertyOwnership?: string | null
+    realEstateRunLease?: boolean
+    realEstateRunAppraisal?: boolean
+  },
+): T[] {
+  return docs.filter(doc => isPropertyOwnershipDocumentVisible(doc.id, opts))
+}
+
 export function getMultiYearSlotIds(docId: string): string[] | null {
   const slots = MULTI_YEAR_UPLOAD_SLOTS[docId]
   if (!slots) return null

@@ -1,7 +1,25 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw, MapPin, CheckCircle2, Circle, ClipboardCheck, ArrowRight, Plus, Trash2, Pencil, Save, X, FileSpreadsheet, Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  Circle,
+  ClipboardCheck,
+  ExternalLink,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+  MapPin,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCw,
+  Save,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
@@ -26,6 +44,16 @@ type RoadmapReport = {
   stage: SaleReadinessRoadmapStage
   checklist?: SaleReadinessChecklistItem[]
   sourceAgents?: string[]
+}
+
+type RoadmapAgentSource = {
+  key: string
+  name: string
+  tabKey: string
+  group: string
+  required: false
+  ready: boolean
+  note: string
 }
 
 function StatusBadge({ text }: { text: string }) {
@@ -618,13 +646,18 @@ export default function ImprovementRoadmapTab({
   clientId,
   clientName,
   readOnly = false,
+  onOpenAgent,
 }: {
   clientId: string
   clientName: string
   readOnly?: boolean
+  onOpenAgent?: (tabKey: string) => void
 }) {
   const [report, setReport] = useState<RoadmapReport | null>(null)
+  const [sources, setSources] = useState<RoadmapAgentSource[]>([])
+  const [canGenerateChecklist, setCanGenerateChecklist] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [generating, setGenerating] = useState<'checklist' | 'report' | null>(null)
   const [editingChecklist, setEditingChecklist] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -646,31 +679,62 @@ export default function ImprovementRoadmapTab({
   const approvedCount = checklistItems.filter(item => item.advisorApproved).length
   const hasChecklist = Boolean(report)
   const hasFullReport = stage === 'report' && Boolean(report?.markdown?.trim())
+  const readyCount = sources.filter(source => source.ready).length
 
-  const loadFromApi = async () => {
-    setLoading(true)
+  const loadFromApi = useCallback(async () => {
     setError(null)
     try {
       const res = await fetch(`/api/improvement-roadmap?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setReport(data.report)
+      setSources(Array.isArray(data.sources) ? data.sources : [])
+      setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load roadmap.')
-    } finally {
-      setLoading(false)
     }
-  }
+  }, [clientId])
 
   useEffect(() => {
     if (loadingRuns) return
-    if (activeRun?.report) {
-      setReport(activeRun.report as RoadmapReport)
-      setLoading(false)
-      return
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        if (activeRun?.report) {
+          setReport(activeRun.report as RoadmapReport)
+        }
+        // Always refresh source readiness for the start workspace.
+        const res = await fetch(`/api/improvement-roadmap?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+        if (!res.ok) throw new Error(await res.text())
+        const data = await res.json()
+        if (cancelled) return
+        if (!activeRun?.report) setReport(data.report)
+        setSources(Array.isArray(data.sources) ? data.sources : [])
+        setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load roadmap.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    void loadFromApi()
   }, [activeRun, loadingRuns, clientId])
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await loadFromApi()
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const handleOpenAgent = (tabKey: string) => {
+    onOpenAgent?.(tabKey)
+  }
 
   function selectRun(run: AgentRunHistoryItem) {
     setActiveId(run.id)
@@ -763,22 +827,235 @@ export default function ImprovementRoadmapTab({
     }) : '',
   [report, clientName])
 
+  const sourceGroups = useMemo(() => {
+    const groups: Array<{ label: string; items: RoadmapAgentSource[] }> = []
+    for (const source of sources) {
+      const existing = groups.find(group => group.label === source.group)
+      if (existing) existing.items.push(source)
+      else groups.push({ label: source.group, items: [source] })
+    }
+    return groups
+  }, [sources])
+
   if (loading || loadingRuns) {
     return (
       <div className="space-y-5">
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-base font-bold text-slate-800">Sales Readiness Roadmap</h2>
-            <p className="text-xs text-slate-500 mt-1">Seller-facing plan built from whatever agent outputs have already run</p>
+            <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">Sales Readiness Roadmap</h1>
+            <p className="text-xs text-slate-500 mt-1">Seller-facing plan built from completed diligence agent outputs</p>
           </div>
         </div>
         <Card className="p-16 text-center">
           <div className="mx-auto flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
             <p className="text-sm font-semibold text-slate-800">Loading Sales Readiness Roadmap...</p>
-            <p className="text-xs text-slate-500">Retrieving latest checklist and report data</p>
+            <p className="text-xs text-slate-500">Retrieving agent readiness and roadmap data</p>
           </div>
         </Card>
+      </div>
+    )
+  }
+
+  // Start workspace — before any checklist has been generated
+  if (!hasChecklist && generating !== 'checklist') {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+          <div>
+            <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              Sales Readiness Roadmap
+            </h1>
+            <p className="text-xs text-slate-500 mt-1">
+              {clientName} &mdash; Seller-facing checklist and action plan from completed agent outputs
+            </p>
+          </div>
+        </div>
+
+        {!readOnly && (
+          <AgentRunToolbar
+            provider={provider}
+            onProviderChange={setProvider}
+            disabled={generating !== null}
+            historyItems={historyItems}
+            activeId={activeId}
+            onSelectRun={selectRun}
+            activeProvider={activeRun?.aiProvider}
+            activeModel={activeRun?.aiModel}
+            activeVersion={activeRun?.version}
+          />
+        )}
+
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 px-4 py-3 rounded-lg">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600" />
+            {error}
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-6">
+          <div className="space-y-1">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2 border-b border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Optional Context Agent Inputs
+                </span>
+                <span
+                  className={cn(
+                    'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
+                    readyCount > 0
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200',
+                  )}
+                >
+                  {readyCount} of {sources.length || 0} ready
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void handleRefresh()}
+                disabled={refreshing}
+                className="text-[11px] text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+              >
+                <RotateCw className={cn('w-3 h-3', refreshing && 'animate-spin')} />
+                Refresh
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              No single agent is required. The checklist includes <strong>every completed diligence agent output</strong> found for this client &mdash; assigned workstream agents plus any others advisors ran outside that set.
+              Missing assigned agents are skipped. Click <strong>Open Agent</strong> to complete or re-run any analysis.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-xs text-slate-700 flex items-start gap-2.5">
+            <MapPin className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-slate-900">Minimum to start</p>
+              <p className="mt-0.5 leading-relaxed text-slate-600">
+                Need <strong>1 or more completed agent outputs</strong> to generate the checklist. Missing agents are skipped automatically.
+              </p>
+            </div>
+          </div>
+
+          {sources.length === 0 ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-800">
+              No diligence agents are assigned for this workstream yet. Assign agents in Client Management, run at least one, then refresh.
+            </div>
+          ) : (
+            <div className="max-h-[min(420px,50vh)] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-slate-50/40 p-3 space-y-5 pr-2">
+              {sourceGroups.map(group => (
+                <div key={group.label} className="space-y-3">
+                  {sourceGroups.length > 1 && (
+                    <p className="sticky top-0 z-10 text-[11px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50/95 backdrop-blur-xs py-1">
+                      {group.label}
+                    </p>
+                  )}
+                  {group.items.map(source => (
+                    <div
+                      key={source.key}
+                      className={cn(
+                        'rounded-xl border p-4 transition-all shadow-2xs',
+                        source.ready ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200/80 bg-white',
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={cn(
+                                'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+                                source.ready ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400',
+                              )}
+                            >
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-slate-800">{source.name}</p>
+                                <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                                  Optional
+                                </span>
+                                {source.ready ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Ready
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-400 border border-slate-200">
+                                    Not generated
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1 leading-relaxed">{source.note}</p>
+                              <p className="text-[11px] text-slate-400 mt-1.5">
+                                {source.ready
+                                  ? 'Agent report complete. Will be included when generating the checklist.'
+                                  : 'Not generated yet — optional. Checklist can still run without this agent.'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        {!readOnly && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenAgent(source.tabKey)}
+                            className="h-8 text-xs gap-1.5 shrink-0 cursor-pointer hover:bg-slate-50"
+                            title={`Go to ${source.name}`}
+                          >
+                            <span>Open Agent</span>
+                            <ExternalLink className="w-3 h-3 text-slate-400" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!canGenerateChecklist && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-800 flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-amber-900">No completed agent outputs yet</p>
+                <p className="mt-0.5 text-amber-800 leading-relaxed">
+                  Run at least one diligence agent above, then click Refresh. The checklist cannot be generated until one output exists.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!readOnly && (
+            <div className="sticky bottom-0 z-10 -mx-6 -mb-6 px-6 py-4 mt-2 border-t border-slate-200 bg-white/95 backdrop-blur-xs rounded-b-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="w-full sm:w-auto">
+                {canGenerateChecklist ? (
+                  <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      {readyCount} agent output{readyCount === 1 ? '' : 's'} ready — checklist can be generated.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs text-amber-700 font-medium">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Waiting for at least 1 completed agent output.</span>
+                  </div>
+                )}
+              </div>
+              <Button
+                onClick={() => void generate('checklist')}
+                disabled={generating !== null || !canGenerateChecklist}
+                className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                Generate Checklist
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     )
   }
@@ -800,8 +1077,8 @@ export default function ImprovementRoadmapTab({
       )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-slate-800">Sales Readiness Roadmap</h2>
-          <p className="text-xs text-slate-500 mt-1">Seller-facing plan built from whatever agent outputs have already run</p>
+          <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">Sales Readiness Roadmap</h1>
+          <p className="text-xs text-slate-500 mt-1">Seller-facing plan built from completed diligence agent outputs</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {hasFullReport && (
@@ -819,7 +1096,7 @@ export default function ImprovementRoadmapTab({
             size="sm"
             variant="outline"
             onClick={() => void generate('checklist')}
-            disabled={generating !== null || editingChecklist}
+            disabled={generating !== null || editingChecklist || !canGenerateChecklist}
           >
             <RefreshCw className={cn('w-3.5 h-3.5', generating === 'checklist' && 'animate-spin')} />
             {hasChecklist ? 'Regenerate Checklist' : 'Generate Checklist'}
@@ -930,17 +1207,7 @@ export default function ImprovementRoadmapTab({
             />
           )}
         </>
-      ) : generating ? null : (
-        <Card className="p-10 text-center">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
-            <MapPin className="w-7 h-7 text-emerald-500" />
-          </div>
-          <h3 className="text-lg font-semibold text-slate-800 mb-2">Sales Readiness Roadmap</h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto">
-            Use <strong>Generate Checklist</strong> above to build a checklist from every agent output that has already run, including custom workstreams. Approve the items you agree with, then generate the full seller-facing report.
-          </p>
-        </Card>
-      )}
+      ) : null}
     </div>
   )
 }

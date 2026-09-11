@@ -1,13 +1,16 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
-import { useDropzone } from 'react-dropzone'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   Upload,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
+  CheckCircle2,
   RefreshCw,
+  RotateCw,
   FileText,
+  FileSpreadsheet,
   Save,
   Pencil,
   TrendingUp,
@@ -17,6 +20,9 @@ import {
   BarChart3,
   Globe,
   Loader2,
+  Trash2,
+  X,
+  Plus,
 } from 'lucide-react'
 import { Badge, Button, Card, cn } from '@/components/ui'
 import type {
@@ -28,7 +34,6 @@ import type {
 } from '@/lib/pricing-vertical/types'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
-import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import { buildPricingVerticalReportHtml } from '@/lib/report-export/build-pricing-vertical-report'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
 import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
@@ -38,12 +43,6 @@ import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
 import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
 import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
-
-const ACCEPTED_TYPES: Record<string, string[]> = {
-  'application/pdf': ['.pdf'],
-  'image/png': ['.png'],
-  'image/jpeg': ['.jpg', '.jpeg'],
-}
 
 const TREND_CONFIG: Record<string, { color: 'green' | 'gold' | 'red' | 'slate'; label: string; icon: typeof TrendingUp }> = {
   increasing: { color: 'green', label: 'Increasing', icon: TrendingUp },
@@ -57,6 +56,94 @@ const SEVERITY_COLORS: Record<string, 'red' | 'gold' | 'green' | 'blue'> = {
   warning: 'gold',
   positive: 'green',
   informational: 'blue',
+}
+
+interface ToastState {
+  message: string
+  type: 'success' | 'error' | 'info'
+}
+
+function StatusToast({ toast, onClose }: { toast: ToastState | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => onClose(), 4000)
+    return () => clearTimeout(timer)
+  }, [toast, onClose])
+
+  if (!toast) return null
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-200">
+      <div
+        className={cn(
+          'flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-xs font-medium',
+          toast.type === 'success' && 'bg-emerald-50 border-emerald-200 text-emerald-900',
+          toast.type === 'error' && 'bg-rose-50 border-rose-200 text-rose-900',
+          toast.type === 'info' && 'bg-slate-900 border-slate-800 text-white',
+        )}
+      >
+        {toast.type === 'success' && <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />}
+        {toast.type === 'error' && <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+        <span>{toast.message}</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DeleteConfirmModal({
+  open,
+  title,
+  description,
+  onClose,
+  onConfirm,
+  confirmLabel = 'Delete',
+  isDeleting = false,
+}: {
+  open: boolean
+  title: string
+  description: string
+  onClose: () => void
+  onConfirm: () => void
+  confirmLabel?: string
+  isDeleting?: boolean
+}) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl space-y-4">
+        <div className="space-y-1">
+          <h3 className="text-base font-bold text-slate-900">{title}</h3>
+          <p className="text-xs text-slate-500 leading-relaxed">{description}</p>
+        </div>
+        <div className="flex items-center justify-end gap-2.5 pt-2">
+          <button
+            type="button"
+            disabled={isDeleting}
+            onClick={onClose}
+            className="px-3.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={isDeleting}
+            onClick={onConfirm}
+            className="px-3.5 py-2 text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── Editable Cell helper ────────────────────────────────────────────────────
@@ -87,6 +174,184 @@ function EditableCell({
   )
 }
 
+// ── Document Slot Definition ────────────────────────────────────────────────
+interface PricingDocumentSlot {
+  key: string
+  documentId: string
+  label: string
+  note: string
+  required: boolean
+  accept: string
+  isSpreadsheet: boolean
+}
+
+const PRICING_DOCUMENT_SLOTS: PricingDocumentSlot[] = [
+  {
+    key: 'pricing_schedule',
+    documentId: 'pricing_schedule',
+    label: 'Current Pricing Schedule',
+    note: 'Current rates for all services, plus any price changes or increases over the last 24 months (prior rate cards, old schedules, or notes showing when prices changed).',
+    required: true,
+    accept: '.pdf,.docx,.xlsx,.xls,.csv,.png,.jpg,.jpeg',
+    isSpreadsheet: false,
+  },
+  {
+    key: 'revenue_breakdown',
+    documentId: 'revenue_breakdown',
+    label: 'Revenue Breakdown by Service Line (36 months)',
+    note: 'Revenue split between boarding, daycare, grooming, training, etc. for the last 36 months — 3 fiscal years and trailing twelve months (TTM).',
+    required: true,
+    accept: '.xlsx,.xls,.csv,.pdf',
+    isSpreadsheet: true,
+  },
+]
+
+function PricingSlotRow({
+  slot,
+  docs,
+  onUpload,
+  onDelete,
+  uploading,
+  readOnly,
+}: {
+  slot: PricingDocumentSlot
+  docs: Array<{ id: string; fileName: string; documentId: string; uploadedAt?: string }>
+  onUpload: (documentId: string, files: FileList | null) => Promise<void>
+  onDelete: (docId: string) => Promise<void>
+  uploading: boolean
+  readOnly?: boolean
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const hasFiles = docs.length > 0
+
+  return (
+    <div
+      className={cn(
+        'rounded-xl border p-4 transition-all shadow-2xs',
+        hasFiles ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200/80 bg-white',
+      )}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={slot.accept}
+        multiple
+        className="hidden"
+        onChange={e => {
+          void onUpload(slot.documentId, e.target.files)
+          e.target.value = ''
+        }}
+      />
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-3">
+            <div
+              className={cn(
+                'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+                hasFiles ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400',
+              )}
+            >
+              {slot.isSpreadsheet ? (
+                <FileSpreadsheet className="w-4.5 h-4.5" />
+              ) : (
+                <FileText className="w-4.5 h-4.5" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-slate-800">{slot.label}</p>
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-200">
+                  Required
+                </span>
+                {hasFiles ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Uploaded
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-400 border border-slate-200">
+                    Not provided
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">{slot.note}</p>
+
+              {/* Uploaded files display */}
+              {hasFiles ? (
+                <div className="flex flex-wrap gap-2 mt-2.5">
+                  {docs.map(doc => (
+                    <div
+                      key={doc.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs hover:bg-emerald-50 transition-colors"
+                    >
+                      <a
+                        href={`/api/client-documents/download?id=${encodeURIComponent(doc.id)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 hover:underline"
+                        title="Click to view file"
+                      >
+                        {slot.isSpreadsheet ? (
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        )}
+                        <span className="truncate max-w-[240px]">{doc.fileName}</span>
+                        {doc.uploadedAt && (
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            &middot; {new Date(doc.uploadedAt).toLocaleDateString()}
+                          </span>
+                        )}
+                      </a>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => void onDelete(doc.id)}
+                          className="ml-1 text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors cursor-pointer"
+                          title="Remove file"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 mt-1.5">
+                  Not provided yet (required &mdash; client will upload in client portal or advisor can upload directly)
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {!readOnly && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            className="h-8 text-xs gap-1.5 shrink-0 cursor-pointer"
+          >
+            {uploading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Uploading...
+              </>
+            ) : (
+              <>
+                <Upload className="w-3.5 h-3.5" />
+                {hasFiles ? '+ Add more' : '+ Upload'}
+              </>
+            )}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function PricingByVerticalTab({
   clientId,
   clientName,
@@ -96,7 +361,6 @@ export default function PricingByVerticalTab({
   clientName: string
   readOnly?: boolean
 }) {
-  const [file, setFile] = useState<File | null>(null)
   const [uploadedDocs, setUploadedDocs] = useState<Array<{
     id: string
     fileName: string
@@ -104,6 +368,7 @@ export default function PricingByVerticalTab({
     uploadedAt?: string
   }>>([])
   const [analyzing, setAnalyzing] = useState(false)
+  const [uploadingSlot, setUploadingSlot] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<PricingVerticalReport | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -111,6 +376,17 @@ export default function PricingByVerticalTab({
   const [savedBadge, setSavedBadge] = useState(false)
   const [reanalyzeNotice, setReanalyzeNotice] = useState<string | null>(null)
   const [websiteUrl, setWebsiteUrl] = useState('')
+  const [websiteDetectedFrom, setWebsiteDetectedFrom] = useState<'digitalPresence' | 'clientProfile' | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [composingNew, setComposingNew] = useState(false)
+  const [toast, setToast] = useState<ToastState | null>(null)
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type })
+  }, [])
+
   const { provider, setProvider } = useAgentAiProvider()
   const {
     runs,
@@ -131,7 +407,7 @@ export default function PricingByVerticalTab({
             `/api/client-documents?clientId=${encodeURIComponent(clientId)}&documentId=${encodeURIComponent(documentId)}&all=true`,
             { cache: 'no-store' },
           )
-          if (!res.ok) return [] as Array<{ id: string; fileName: string; uploadedAt?: string }>
+          if (!res.ok) return [] as Array<{ id: string; fileName: string; uploadedAt?: string; documentId: string }>
           const data = await res.json()
           const docs = Array.isArray(data?.documents) ? data.documents : []
           return docs.map((doc: { id: string; fileName: string; uploadedAt?: string }) => ({
@@ -148,9 +424,34 @@ export default function PricingByVerticalTab({
     }
   }, [clientId])
 
+  const loadWebsiteUrl = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/client-data/${encodeURIComponent(clientId)}?section=digitalPresenceForm`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.websiteUrl) {
+          setWebsiteUrl(prev => prev || data.websiteUrl)
+          setWebsiteDetectedFrom('digitalPresence')
+          return
+        }
+      }
+      const compRes = await fetch(`/api/client-data/${encodeURIComponent(clientId)}?section=competitorPricingInputs`)
+      if (compRes.ok) {
+        const compData = await compRes.json()
+        if (compData?.sellerWebsiteUrl) {
+          setWebsiteUrl(prev => prev || compData.sellerWebsiteUrl)
+          setWebsiteDetectedFrom('clientProfile')
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [clientId])
+
   useEffect(() => {
     void loadUploadedPricingDocs()
-  }, [loadUploadedPricingDocs])
+    void loadWebsiteUrl()
+  }, [loadUploadedPricingDocs, loadWebsiteUrl])
 
   useEffect(() => {
     if (!readOnly) return
@@ -203,6 +504,7 @@ export default function PricingByVerticalTab({
 
   function selectRun(run: AgentRunHistoryItem) {
     setActiveId(run.id)
+    setComposingNew(false)
     const full = runs.find((item) => item.id === run.id)
     const payload = (full?.report ?? null) as PricingVerticalReport | null
     if (payload?.executiveSummary) {
@@ -228,19 +530,72 @@ export default function PricingByVerticalTab({
     await reloadRuns({ selectNewest: true })
   }
 
-  const onDrop = useCallback((accepted: File[]) => {
-    if (accepted.length > 0) {
-      setFile(accepted[0])
-      setError(null)
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await Promise.all([
+        loadUploadedPricingDocs(),
+        (async () => {
+          const res = await fetch(`/api/client-data/${encodeURIComponent(clientId)}?section=digitalPresenceForm`)
+          if (res.ok) {
+            const data = await res.json()
+            if (data?.websiteUrl) {
+              setWebsiteUrl(data.websiteUrl)
+              setWebsiteDetectedFrom('digitalPresence')
+            }
+          }
+        })(),
+      ])
+      showToast('Refreshed rate card documents and website from Digital Presence', 'success')
+    } catch {
+      showToast('Failed to refresh data', 'error')
+    } finally {
+      setRefreshing(false)
     }
-  }, [])
+  }
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: ACCEPTED_TYPES,
-    maxFiles: 1,
-    multiple: false,
-  })
+  const handleUploadDoc = async (documentId: string, files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setUploadingSlot(documentId)
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('clientId', clientId)
+        formData.append('documentId', documentId)
+        const res = await fetch('/api/client-documents/upload', {
+          method: 'POST',
+          body: formData,
+        })
+        if (!res.ok) {
+          const errText = await res.text()
+          throw new Error(errText || 'Upload failed')
+        }
+      }
+      await loadUploadedPricingDocs()
+      showToast('Document uploaded successfully', 'success')
+    } catch (err: any) {
+      showToast(err.message || 'Upload failed', 'error')
+    } finally {
+      setUploadingSlot(null)
+    }
+  }
+
+  const handleDeleteDoc = async (docId: string) => {
+    try {
+      const res = await fetch('/api/client-documents', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, recordId: docId }),
+      })
+      if (!res.ok) throw new Error('Failed to delete document')
+      await loadUploadedPricingDocs()
+      showToast('Document removed', 'success')
+    } catch (err: any) {
+      showToast(err.message || 'Failed to remove document', 'error')
+    }
+  }
 
   const handleReanalyze = async () => {
     if (!result) return
@@ -272,8 +627,10 @@ export default function PricingByVerticalTab({
       window.setTimeout(() => setReanalyzeNotice(null), 9000)
       void persistPricingVerticalToServer(data, { silent: true })
       await persistPricingVerticalRun(data)
+      showToast('Analysis re-run completed successfully', 'success')
     } catch (err: any) {
       setError(err.message || 'Re-run failed')
+      showToast(err.message || 'Re-run failed', 'error')
     } finally {
       setAnalyzing(false)
     }
@@ -302,26 +659,12 @@ export default function PricingByVerticalTab({
     setAnalyzing(true)
     setError(null)
     try {
-      let payloadFile: { fileName: string; base64: string; mediaType: string } | null = null
-      if (file) {
-        const buffer = await file.arrayBuffer()
-        const base64 = btoa(
-          new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ''),
-        )
-        payloadFile = {
-          fileName: file.name,
-          base64,
-          mediaType: file.type || 'application/pdf',
-        }
-      }
-
       const res = await fetch('/api/pricing-vertical', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientId,
           websiteUrl: websiteUrl.trim() || undefined,
-          ...payloadFile,
           provider,
           modelId: resolveAgentModelId(provider),
         }),
@@ -332,22 +675,35 @@ export default function PricingByVerticalTab({
       }
       const data: PricingVerticalReport = await res.json()
       setResult(data)
+      setComposingNew(false)
       await persistPricingVerticalRun(data)
+      showToast('Pricing grid built successfully', 'success')
     } catch (err: any) {
       setError(err.message || 'Analysis failed')
+      showToast(err.message || 'Analysis failed', 'error')
     } finally {
       setAnalyzing(false)
     }
   }
 
-  const handleReset = async () => {
-    setFile(null)
-    setResult(null)
-    setError(null)
-    setEditMode(false)
+  const handleDeleteReport = async () => {
+    setIsDeleting(true)
     try {
-      await fetch(`/api/pricing-vertical?clientId=${encodeURIComponent(clientId)}`, { method: 'DELETE' })
-    } catch { /* ignore */ }
+      const res = await fetch(`/api/pricing-vertical?clientId=${encodeURIComponent(clientId)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete report')
+      setResult(null)
+      setError(null)
+      setEditMode(false)
+      setActiveId(null)
+      setComposingNew(false)
+      await reloadRuns()
+      setDeleteModalOpen(false)
+      showToast('Pricing by vertical report deleted', 'success')
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete report', 'error')
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   const handleSave = async () => {
@@ -370,10 +726,12 @@ export default function PricingByVerticalTab({
       if (!res.ok) throw new Error('Save failed')
       if (!options.silent) {
         setSavedBadge(true)
+        showToast('Pricing by vertical report saved', 'success')
         setTimeout(() => setSavedBadge(false), 2000)
       }
     } catch (err: any) {
       setError(err.message || 'Save failed')
+      showToast(err.message || 'Save failed', 'error')
     } finally {
       if (!options.silent) setSaving(false)
     }
@@ -450,56 +808,45 @@ export default function PricingByVerticalTab({
   }
 
   // ── Results view ────────────────────────────────────────────────────────────
-  if (result) {
+  if (result && !composingNew) {
     return (
       <div className="space-y-6">
-        {!readOnly && (
-          <AgentRunToolbar
-            provider={provider}
-            onProviderChange={setProvider}
-            disabled={analyzing}
-            historyItems={historyItems}
-            activeId={activeId}
-            onSelectRun={selectRun}
-            activeProvider={activeRun?.aiProvider}
-            activeModel={activeRun?.aiModel}
-            activeVersion={activeRun?.version}
-          />
-        )}
-        {/* Header */}
-        <div className="flex items-center justify-between">
+        {/* Unified Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
           <div>
-            <h2 className="text-lg font-semibold text-slate-800">Pricing by Vertical Analysis</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              Pricing by Vertical Analysis
+            </h1>
+            <p className="text-xs text-slate-500 mt-1">
               {clientName} &mdash; {result.verticalSummaries.length} verticals analyzed &mdash; Generated{' '}
               {new Date(result.generatedAt).toLocaleString()}
             </p>
           </div>
-          <AdvisorActions className="flex items-center gap-3">
+          <AdvisorActions className="flex items-center gap-2.5 flex-wrap">
             {!readOnly && (
-              <button
+              <Button
+                type="button"
+                variant={editMode ? 'secondary' : 'outline'}
+                size="sm"
                 onClick={() => setEditMode(e => !e)}
-                className={cn(
-                  'flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors',
-                  editMode
-                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                )}
+                className={cn('h-8 text-xs cursor-pointer', editMode && 'bg-amber-50 text-amber-700 border-amber-300')}
               >
-                <Pencil className="w-3.5 h-3.5" />
+                <Pencil className="w-3.5 h-3.5 mr-1" />
                 {editMode ? 'Editing' : 'Edit'}
-              </button>
+              </Button>
             )}
             {!readOnly && editMode && (
               <div className="relative">
-                <button
+                <Button
+                  type="button"
+                  size="sm"
                   onClick={handleSave}
                   disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-sm transition-all"
+                  className="h-8 text-xs cursor-pointer bg-amber-600 hover:bg-amber-700 text-white"
                 >
-                  <Save className="w-3.5 h-3.5" />
+                  <Save className="w-3.5 h-3.5 mr-1" />
                   {saving ? 'Saving...' : 'Save'}
-                </button>
+                </Button>
                 {savedBadge && (
                   <span className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
                     Saved
@@ -518,20 +865,50 @@ export default function PricingByVerticalTab({
               size="sm"
               disabled={analyzing}
               onClick={() => void handleReanalyze()}
-              className="text-xs"
+              className="h-8 text-xs cursor-pointer"
             >
-              <RefreshCw className={cn('w-3.5 h-3.5', analyzing && 'animate-spin')} />
-              Re-run analysis
+              <RefreshCw className={cn('w-3.5 h-3.5 mr-1', analyzing && 'animate-spin')} />
+              Re-run
             </Button>
-            <button
-              onClick={handleReset}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              New Analysis
-            </button>
+            {!readOnly && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteModalOpen(true)}
+                className="h-8 text-xs text-rose-600 hover:bg-rose-50 border-slate-200 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                Delete
+              </Button>
+            )}
+            {!readOnly && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setComposingNew(true)}
+                className="h-8 text-xs cursor-pointer bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                New Analysis
+              </Button>
+            )}
           </AdvisorActions>
         </div>
+
+        {!readOnly && (
+          <AgentRunToolbar
+            provider={provider}
+            onProviderChange={setProvider}
+            disabled={analyzing}
+            historyItems={historyItems}
+            activeId={activeId}
+            onSelectRun={selectRun}
+            activeProvider={activeRun?.aiProvider}
+            activeModel={activeRun?.aiModel}
+            activeVersion={activeRun?.version}
+          />
+        )}
 
         {reanalyzeNotice && (
           <div
@@ -586,8 +963,6 @@ export default function PricingByVerticalTab({
           )}
         </div>
 
-        {/* Current Price Source card removed per client request — Source and Confidence not needed */}
-
         {/* Editable 24-month pricing grid */}
         <Card className="overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
@@ -603,11 +978,11 @@ export default function PricingByVerticalTab({
               </button>
             )}
           </div>
-            {editMode && (
-              <p className="text-[11px] text-amber-800/90 px-5 pb-2 border-b border-slate-100">
-                Edit the time column headers to match this resort&apos;s pricing cadence (e.g. quarterly vs. 6-month lookbacks). Labels sync to the exported PDF.
-              </p>
-            )}
+          {editMode && (
+            <p className="text-[11px] text-amber-800/90 px-5 pb-2 border-b border-slate-100">
+              Edit the time column headers to match this resort&apos;s pricing cadence (e.g. quarterly vs. 6-month lookbacks). Labels sync to the exported PDF.
+            </p>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -653,7 +1028,7 @@ export default function PricingByVerticalTab({
                           editMode={editMode}
                         />
                       </td>
-                  {periods.map((period, pi) => (
+                      {periods.map((period, pi) => (
                         <td key={`${row.id}-${period}-${pi}`} className="px-4 py-2.5">
                           <EditableCell
                             value={row.prices?.[period] ?? ''}
@@ -897,22 +1272,6 @@ export default function PricingByVerticalTab({
                       </p>
                     )}
                   </div>
-
-                  {/* Hidden per product direction (may restore later): yellow "Recommendation" box on each vertical summary card.
-                  <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-amber-600 font-bold">Recommendation</p>
-                    {editMode ? (
-                      <textarea
-                        value={vs.recommendation}
-                        onChange={e => updateVerticalSummary(i, 'recommendation', e.target.value)}
-                        rows={2}
-                        className="w-full border border-amber-300 rounded px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y mt-1"
-                      />
-                    ) : (
-                      <p className="text-xs text-slate-700 mt-1">{vs.recommendation}</p>
-                    )}
-                  </div>
-                  */}
                 </Card>
               )
             })}
@@ -968,6 +1327,20 @@ export default function PricingByVerticalTab({
             )}
           </div>
         </Card>
+
+        {/* Delete Confirmation Modal */}
+        <DeleteConfirmModal
+          open={deleteModalOpen}
+          title="Delete Pricing by Vertical Analysis?"
+          description="This will permanently delete the current pricing by vertical analysis report from this client record. The underlying website URL and document files will remain intact."
+          onClose={() => setDeleteModalOpen(false)}
+          onConfirm={handleDeleteReport}
+          confirmLabel="Delete Report"
+          isDeleting={isDeleting}
+        />
+
+        {/* Status Toast */}
+        <StatusToast toast={toast} onClose={() => setToast(null)} />
       </div>
     )
   }
@@ -976,6 +1349,17 @@ export default function PricingByVerticalTab({
   if (analyzing) {
     return (
       <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+          <div>
+            <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              Pricing by Vertical Analysis
+            </h1>
+            <p className="text-xs text-slate-500 mt-1">
+              Building 24-month rate card model for <span className="font-medium text-slate-700">{clientName}</span>...
+            </p>
+          </div>
+        </div>
+
         {!readOnly && (
           <AgentRunToolbar
             provider={provider}
@@ -991,15 +1375,15 @@ export default function PricingByVerticalTab({
         )}
         <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-xs">
           <div className="flex flex-col items-center justify-center space-y-4">
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-amber-200 border-t-amber-600" />
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
             <div className="space-y-1.5">
               <h3 className="text-lg font-bold text-slate-800 tracking-tight">Finding Current Prices &amp; Building Grid...</h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-                Scraping current rate cards, analyzing historical price evidence, and constructing the 24-month pricing model for {clientName}.
+                Scraping current rate cards from website, analyzing uploaded pricing schedules and revenue breakdowns, and constructing the 24-month pricing model for {clientName}.
               </p>
               <div className="pt-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 text-[11px] font-semibold border border-amber-200">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" /> Analysis in progress
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-800 text-[11px] font-semibold border border-indigo-200">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" /> Analysis in progress
                 </span>
               </div>
             </div>
@@ -1009,9 +1393,41 @@ export default function PricingByVerticalTab({
     )
   }
 
-  // ── Upload view ─────────────────────────────────────────────────────────────
+  const pricingDocs = uploadedDocs.filter(d => d.documentId === 'pricing_schedule')
+  const revenueDocs = uploadedDocs.filter(d => d.documentId === 'revenue_breakdown')
+  const satisfiedCount = (pricingDocs.length > 0 ? 1 : 0) + (revenueDocs.length > 0 ? 1 : 0)
+  const canAnalyze = satisfiedCount > 0 || Boolean(websiteUrl?.trim())
+
+  // ── Starting Workspace View ───────────────────────────────────────────────
   return (
     <div className="space-y-6">
+      {/* Unified Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+        <div>
+          <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+            Pricing by Vertical Analysis
+          </h1>
+          <p className="text-xs text-slate-500 mt-1">
+            Scrape current website prices, model historical changes, and build an editable 24-month price grid across all service verticals for{' '}
+            <span className="font-medium text-slate-700">{clientName}</span>.
+          </p>
+        </div>
+
+        {!readOnly && result && composingNew && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setComposingNew(false)}
+            className="h-8 text-xs cursor-pointer border-slate-200 text-slate-600 hover:bg-slate-50"
+          >
+            <X className="w-3.5 h-3.5 mr-1" />
+            Cancel &amp; Return to Report
+          </Button>
+        )}
+      </div>
+
+      {/* Toolbar */}
       {!readOnly && (
         <AgentRunToolbar
           provider={provider}
@@ -1025,129 +1441,184 @@ export default function PricingByVerticalTab({
           activeVersion={activeRun?.version}
         />
       )}
-      <div>
-        <h2 className="text-lg font-semibold text-slate-800">Pricing by Vertical Analysis</h2>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Scrape current website prices, then build an editable 24-month price grid for {clientName}
-        </p>
-        <p className="text-xs text-slate-400 mt-1">
-          Files uploaded under Current Pricing Schedule / revenue docs in the Documents tab are used automatically. You can optionally add another rate-card file below.
-        </p>
-      </div>
 
-      {uploadedDocs.length > 0 && (
-        <Card className="p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Uploaded from Documents ({uploadedDocs.length})
-            </p>
+      {/* Main Workspace Card */}
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-2xs space-y-6">
+        {/* Top Informational Copy */}
+        <p className="text-xs text-slate-500">
+          The Pricing by Vertical Agent scrapes publicly available rate cards from the client&apos;s business website (prefetched from Digital Presence &amp; Client Portal) and analyzes uploaded rate schedules from Documents. It constructs an editable 24-month historical pricing grid across boarding, daycare, grooming, and training, identifying price increases and margin impact.
+        </p>
+
+        {/* Card: Business Website */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-indigo-600" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Business Website (From Digital Presence / Client Portal)
+              </span>
+            </div>
+            {websiteDetectedFrom === 'digitalPresence' && websiteUrl && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                Auto-filled from Digital Presence
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <div className="relative flex-1">
+              <input
+                type="url"
+                value={websiteUrl}
+                onChange={e => {
+                  setWebsiteUrl(e.target.value)
+                  setWebsiteDetectedFrom(null)
+                }}
+                placeholder="https://example.com/pricing"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              />
+            </div>
+            {websiteUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  setWebsiteUrl('')
+                  setWebsiteDetectedFrom(null)
+                }}
+                className="px-3 py-2 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors shrink-0 cursor-pointer"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            The agent crawls this website to scrape current rate cards, peak season surcharges, and package pricing across boarding, daycare, grooming, and training.
+          </p>
+        </div>
+
+        {/* Sector Header: Required Pricing & Revenue Documents */}
+        <div className="space-y-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2 border-b border-slate-100">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Required Pricing &amp; Revenue Documents
+              </span>
+              <span
+                className={cn(
+                  'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
+                  satisfiedCount === 2
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : satisfiedCount > 0
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200',
+                )}
+              >
+                {satisfiedCount} of 2 uploaded
+              </span>
+            </div>
+
             <button
               type="button"
-              onClick={() => void loadUploadedPricingDocs()}
-              className="text-xs font-medium text-amber-700 hover:text-amber-800"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="text-[11px] text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer transition-colors shrink-0"
             >
+              <RotateCw className={cn('w-3 h-3', refreshing && 'animate-spin')} />
               Refresh
             </button>
           </div>
-          <div className="space-y-2">
-            {uploadedDocs.map(doc => (
-              <div
-                key={doc.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2.5"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileText className="w-4 h-4 flex-shrink-0 text-emerald-600" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-700 truncate">{doc.fileName}</p>
-                    <p className="text-[11px] text-slate-400">
-                      {doc.documentId === 'pricing_schedule' ? 'Current Pricing Schedule' : 'Revenue breakdown'}
-                      {doc.uploadedAt ? ` · ${new Date(doc.uploadedAt).toLocaleDateString()}` : ''}
-                    </p>
-                  </div>
-                </div>
-                <Badge color="green">Will be used</Badge>
+          <p className="text-xs text-slate-500">
+            Review documents uploaded by the client or upload files directly. Both documents are required for comprehensive pricing by vertical analysis.
+          </p>
+        </div>
+
+        {/* Document Card List */}
+        <div className="space-y-3">
+          {PRICING_DOCUMENT_SLOTS.map(slot => (
+            <PricingSlotRow
+              key={slot.key}
+              slot={slot}
+              docs={uploadedDocs.filter(d => d.documentId === slot.documentId)}
+              onUpload={handleUploadDoc}
+              onDelete={handleDeleteDoc}
+              uploading={uploadingSlot === slot.documentId}
+              readOnly={readOnly}
+            />
+          ))}
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 px-4 py-3 rounded-lg">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-600" />
+            {error}
+          </div>
+        )}
+
+        {/* Readiness Footer */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200">
+          <div className="w-full sm:w-auto">
+            {satisfiedCount === 2 ? (
+              <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  All 2 required documents ready{websiteUrl ? ' &bull; Website linked' : ''}. You can start the analysis.
+                </span>
               </div>
-            ))}
+            ) : satisfiedCount > 0 || websiteUrl ? (
+              <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  {satisfiedCount} of 2 documents ready{websiteUrl ? ' &bull; Website linked' : ''}. Ready to build pricing grid.
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-amber-800 font-medium">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Upload required pricing documents or provide business website to run analysis.</span>
+              </div>
+            )}
           </div>
-        </Card>
-      )}
 
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Business Website</label>
-        <div className="mt-2 flex flex-col gap-3 md:flex-row">
-          <input
-            value={websiteUrl}
-            onChange={e => setWebsiteUrl(e.target.value)}
-            placeholder="https://example.com/pricing"
-            className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
-          />
-          <span className="text-xs text-slate-400 md:self-center">Leave blank to use saved client website.</span>
+          <div className="w-full sm:w-auto flex items-center justify-end gap-3">
+            <Button
+              type="button"
+              disabled={!canAnalyze || analyzing}
+              onClick={handleAnalyze}
+              className={cn(
+                'h-10 px-5 rounded-lg font-medium text-xs text-white shadow-xs inline-flex items-center gap-2 cursor-pointer transition-all',
+                'bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed',
+              )}
+            >
+              {analyzing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Building Pricing Grid...</span>
+                </>
+              ) : (
+                <>
+                  <BarChart3 className="w-4 h-4 text-white" />
+                  <span>Build Pricing Grid</span>
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Dropzone */}
-      <div
-        {...getRootProps()}
-        className={cn(
-          'border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors',
-          isDragActive
-            ? 'border-amber-400 bg-amber-50/50'
-            : file
-              ? 'border-emerald-300 bg-emerald-50/30'
-              : 'border-slate-200 hover:border-slate-300 bg-slate-50/50',
-        )}
-      >
-        <input {...getInputProps()} />
-        {file ? (
-          <div className="flex flex-col items-center gap-2">
-            <FileText className="w-8 h-8 text-emerald-500" />
-            <p className="text-sm font-medium text-slate-700">{file.name}</p>
-            <p className="text-xs text-slate-400">Click or drag to replace</p>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <Upload className="w-8 h-8 text-slate-300" />
-            <p className="text-sm text-slate-500">
-              {isDragActive
-                ? 'Drop file here...'
-                : uploadedDocs.length > 0
-                  ? 'Optional: drag & drop another pricing file'
-                  : 'Drag & drop pricing history, or click to browse'}
-            </p>
-            <p className="text-xs text-slate-400">Optional PDF, PNG, or JPG</p>
-          </div>
-        )}
-      </div>
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        open={deleteModalOpen}
+        title="Delete Pricing by Vertical Analysis?"
+        description="This will permanently delete the current pricing by vertical analysis report from this client record. The underlying website URL and document files will remain intact."
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={handleDeleteReport}
+        confirmLabel="Delete Report"
+        isDeleting={isDeleting}
+      />
 
-      {error && (
-        <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-4 py-3 rounded-lg">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          {error}
-        </div>
-      )}
-
-      <button
-        onClick={handleAnalyze}
-        disabled={analyzing}
-        className={cn(
-          'flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold transition-all w-full md:w-auto',
-          !analyzing
-            ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-sm'
-            : 'bg-slate-100 text-slate-400 cursor-not-allowed',
-        )}
-      >
-        {analyzing ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
-            Finding Current Prices...
-          </>
-        ) : (
-          <>
-            <BarChart3 className="w-4 h-4" />
-            Build Pricing Grid
-          </>
-        )}
-      </button>
+      {/* Status Toast */}
+      <StatusToast toast={toast} onClose={() => setToast(null)} />
     </div>
   )
 }
