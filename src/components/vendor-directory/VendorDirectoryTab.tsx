@@ -484,7 +484,7 @@ export default function VendorDirectoryTab({
                         ? 'border-slate-200 text-slate-700 hover:text-slate-900 bg-white'
                         : 'bg-slate-900 text-white hover:bg-slate-800 border-none',
                     )}
-                    variant={hasRunContracts ? 'outline' : 'default'}
+                    variant={hasRunContracts ? 'outline' : 'primary'}
                   >
                     <FileText className="w-3.5 h-3.5" />
                     {hasRunContracts ? 'View Contracts' : 'Open Material Contracts'}

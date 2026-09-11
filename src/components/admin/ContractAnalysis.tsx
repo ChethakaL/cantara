@@ -27,9 +27,16 @@ interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
   documentStatuses?: Record<string, any>
+  onRefreshDocuments?: () => void | Promise<void>
 }
 
-export default function ContractAnalysisTab({ clientId, clientName, documentStatuses, readOnly = false }: Props) {
+export default function ContractAnalysisTab({
+  clientId,
+  clientName,
+  documentStatuses,
+  onRefreshDocuments,
+  readOnly = false,
+}: Props) {
   const [analyses, setAnalyses] = useState<ContractAnalysis[]>([])
   const [activeAnalysis, setActiveAnalysis] = useState<ContractAnalysis | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -62,6 +69,11 @@ export default function ContractAnalysisTab({ clientId, clientName, documentStat
       /* ignore */
     }
   }, [clientId])
+
+  const handleRefreshDocuments = useCallback(async () => {
+    await loadUploadedContracts()
+    if (onRefreshDocuments) await onRefreshDocuments()
+  }, [loadUploadedContracts, onRefreshDocuments])
 
   useEffect(() => {
     void loadUploadedContracts()
@@ -289,7 +301,7 @@ export default function ContractAnalysisTab({ clientId, clientName, documentStat
               onAnalyze={analyze}
               uploadedFromDocuments={uploadedFromDocuments}
               documentStatus={documentStatuses?.[MATERIAL_CONTRACTS_DOCUMENT_ID]}
-              onRefreshDocuments={loadUploadedContracts}
+              onRefreshDocuments={handleRefreshDocuments}
               onUseUploadedDocument={handleUseUploadedDocument}
               loadingUploadedId={loadingUploadedId}
               onCancel={analyses.length > 0 && composingNew ? () => {

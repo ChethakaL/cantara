@@ -533,7 +533,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
             ) : (
               <Button
                 type="button"
-                variant={report ? 'outline' : 'default'}
+                variant={report ? 'outline' : 'primary'}
                 size="sm"
                 onClick={handleNewAnalysis}
                 className={cn('h-8 text-xs cursor-pointer', !report && 'bg-slate-900 text-white hover:bg-slate-800')}

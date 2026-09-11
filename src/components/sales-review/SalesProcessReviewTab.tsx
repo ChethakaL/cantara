@@ -628,7 +628,7 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
             {!readOnly && (
               <Button
                 type="button"
-                variant={editMode ? 'secondary' : 'outline'}
+                variant="outline"
                 size="sm"
                 onClick={() => {
                   if (editMode) setDraft(null)

@@ -23,9 +23,9 @@ function ensureVisibilityBinding() {
   visibilityBound = true
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      for (const channel of channels.values()) closeSource(channel)
+      for (const channel of Array.from(channels.values())) closeSource(channel)
     } else {
-      for (const channel of channels.values()) {
+      for (const channel of Array.from(channels.values())) {
         if (channel.updates.size > 0) openSource(channel)
       }
     }
@@ -41,13 +41,13 @@ function openSource(channel: Channel) {
   channel.source = source
 
   source.addEventListener('update', event => {
-    for (const handler of channel.updates) handler(event as MessageEvent)
+    for (const handler of Array.from(channel.updates)) handler(event as MessageEvent)
   })
   source.addEventListener('open', () => {
-    for (const handler of channel.opens) handler()
+    for (const handler of Array.from(channel.opens)) handler()
   })
   source.onerror = () => {
-    for (const handler of channel.errors) handler()
+    for (const handler of Array.from(channel.errors)) handler()
   }
 }
 

@@ -125,4 +125,5 @@ export interface WS110Persistence {
   aiProvider?: string | null
   aiModel?: string | null
   metadata?: any
+  version?: number
 }

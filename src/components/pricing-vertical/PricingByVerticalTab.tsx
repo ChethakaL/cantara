@@ -826,7 +826,7 @@ export default function PricingByVerticalTab({
             {!readOnly && (
               <Button
                 type="button"
-                variant={editMode ? 'secondary' : 'outline'}
+                variant="outline"
                 size="sm"
                 onClick={() => setEditMode(e => !e)}
                 className={cn('h-8 text-xs cursor-pointer', editMode && 'bg-amber-50 text-amber-700 border-amber-300')}
