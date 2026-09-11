@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Loader2, Play, AlertCircle, RefreshCw, Plus } from 'lucide-react'
+import { CheckCircle2, Loader2, Play, AlertCircle, RefreshCw, Plus, FileSpreadsheet, FileText } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
 import { Badge, Button, Card, Input } from '@/components/ui'
@@ -18,11 +18,75 @@ import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
 import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
 import { formatAgentProviderLabel } from '@/lib/agent-model-provider'
 import { resolveAgentModelId } from '@/lib/agent-model-provider'
+import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
+import { listClientDocuments, type ClientUploadedDoc } from '@/lib/client-documents-client'
 
-const REQUIRED_DOCS: Array<{ id: TtmRequiredDocumentId; label: string }> = [
-  { id: 'monthly_pl_excel', label: 'Monthly P&L (36 months)' },
-  { id: 'monthly_bs_excel', label: 'Monthly Balance Sheet (36 months)' },
+export interface ValuationDocDef {
+  id: string
+  label: string
+  description: string
+  accept?: string
+}
+
+export const REQUIRED_VALUATION_DOCS: ValuationDocDef[] = [
+  {
+    id: 'monthly_pl_excel',
+    label: 'Monthly P&L Excel',
+    description: '36-month monthly P&L in Excel format with all GL codes visible.',
+    accept: '.xlsx,.xls,.csv',
+  },
+  {
+    id: 'monthly_bs_excel',
+    label: 'Monthly Balance Sheet Excel',
+    description: '36-month monthly balance sheet in Excel format with all GL codes visible.',
+    accept: '.xlsx,.xls,.csv',
+  },
+  {
+    id: 'shareholder_remuneration_36m',
+    label: 'Shareholder List + Remuneration (36 months)',
+    description: 'Owner/shareholder compensation detail for the last 36 months with GL cross-references.',
+    accept: '.xlsx,.xls,.csv,.pdf',
+  },
+  {
+    id: 'personal_expenses_36m',
+    label: 'Personal Expenses Charged to Business (36 months)',
+    description: 'List of personal expenses run through the business over the last 36 months with GL cross-references.',
+    accept: '.xlsx,.xls,.csv,.pdf',
+  },
+  {
+    id: 'non_recurring_expenses_36m',
+    label: 'Material One-Off Non-Recurring Expenses (36 months)',
+    description: 'List of non-recurring expenses above $5,000 over the last 36 months with GL cross-references.',
+    accept: '.xlsx,.xls,.csv,.pdf',
+  },
+  {
+    id: 'tenant_improvements_36m',
+    label: 'Material Tenant Improvements (36 months)',
+    description: 'List of tenant improvements above $5,000 over the last 36 months with GL cross-references.',
+    accept: '.xlsx,.xls,.csv,.pdf',
+  },
 ]
+
+export const OPTIONAL_VALUATION_DOCS: ValuationDocDef[] = [
+  {
+    id: 'accountant_statements',
+    label: 'Accountant-Prepared Financial Statements',
+    description: 'Three fiscal years of accountant-prepared financial statements. Upload all years in one PDF/ZIP, or one file per year.',
+    accept: '.pdf,.zip',
+  },
+]
+
+const ALL_VALUATION_DOC_IDS = [
+  ...REQUIRED_VALUATION_DOCS.map((d) => d.id),
+  ...OPTIONAL_VALUATION_DOCS.map((d) => d.id),
+]
+
+function getAdminEmail(): string {
+  if (typeof window === 'undefined') return 'admin@cantarapet.com'
+  const cookie = document.cookie.split('; ').find((row) => row.startsWith('cantara_admin_email='))
+  if (cookie) return decodeURIComponent(cookie.split('=')[1] || '')
+  return localStorage.getItem('cantara_admin_email') || 'admin@cantarapet.com'
+}
 
 
 // ── Step 3: Clean valuation range entry ─────────────────────────────────────
@@ -332,6 +396,270 @@ function GlMappingEditor({
   )
 }
 
+function ValuationDocRow({
+  doc,
+  isRequired,
+  clientId,
+  adminEmail,
+  onUploaded,
+  readOnly,
+}: {
+  doc: ValuationDocDef & {
+    uploaded: boolean
+    notAvailable?: boolean
+    fileName: string | null
+    uploadedAt: string | null
+    files: Array<{ id?: string; fileName: string; uploadedAt?: string | null }>
+  }
+  isRequired: boolean
+  clientId: string
+  adminEmail: string
+  onUploaded: () => Promise<void> | void
+  readOnly?: boolean
+}) {
+  const isExcel =
+    Boolean(doc.accept?.includes('.xls')) ||
+    Boolean(doc.fileName?.endsWith('.xlsx')) ||
+    Boolean(doc.fileName?.endsWith('.xls')) ||
+    Boolean(doc.fileName?.endsWith('.csv'))
+
+  return (
+    <div
+      className={`rounded-xl border p-4 transition-all shadow-2xs ${
+        doc.uploaded
+          ? 'border-emerald-200 bg-emerald-50/40'
+          : doc.notAvailable
+          ? 'border-amber-200 bg-amber-50/40'
+          : isRequired
+          ? 'border-amber-200/90 bg-amber-50/20'
+          : 'border-slate-200/80 bg-white'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-slate-800">{doc.label}</p>
+            {isRequired ? (
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                Required
+              </span>
+            ) : (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                Optional
+              </span>
+            )}
+            {doc.uploaded ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Uploaded
+              </span>
+            ) : doc.notAvailable ? (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                Not available with client
+              </span>
+            ) : (
+              <span
+                className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
+                  isRequired
+                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                    : 'bg-slate-50 text-slate-400 border border-slate-200'
+                }`}
+              >
+                {isRequired ? 'Missing' : 'Not provided'}
+              </span>
+            )}
+          </div>
+
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</p>
+
+          {/* Uploaded files display */}
+          {doc.uploaded && doc.files.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2.5">
+              {doc.files.map((file, idx) => (
+                <a
+                  key={file.id || idx}
+                  href={`/api/client-documents/view?clientId=${encodeURIComponent(clientId)}&documentId=${encodeURIComponent(doc.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs hover:bg-emerald-50 transition-colors"
+                  title="Click to view file"
+                >
+                  {isExcel ? (
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  )}
+                  <span className="truncate max-w-[260px]">{file.fileName}</span>
+                  {file.uploadedAt && (
+                    <span className="text-[10px] text-slate-400 font-normal">
+                      · {new Date(file.uploadedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </a>
+              ))}
+            </div>
+          )}
+
+          {!doc.uploaded && (
+            <div className="mt-2 text-[11px] flex items-center gap-1.5">
+              {doc.notAvailable ? (
+                <span className="text-amber-700 font-medium flex items-center gap-1">
+                  Marked as not available with client in portal
+                </span>
+              ) : isRequired ? (
+                <span className="text-amber-700 font-medium flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 text-amber-500" />
+                  Missing — required to run valuation analysis
+                </span>
+              ) : (
+                <span className="text-slate-400 font-normal">
+                  Not provided yet (optional — analysis can run without this)
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Upload Button action (NO Yes/No buttons!) */}
+        {!readOnly && (
+          <div className="shrink-0 pt-0.5">
+            <ClientDocumentUpload
+              clientId={clientId}
+              documentId={doc.id}
+              uploaderEmail={adminEmail}
+              currentFileName={doc.fileName}
+              label={doc.uploaded ? 'Replace' : 'Upload'}
+              variant="button"
+              onUploaded={async () => {
+                await onUploaded()
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ValuationDocumentsChecklist({
+  clientId,
+  adminEmail,
+  requiredReadiness,
+  optionalReadiness,
+  loadingDocs,
+  onRefresh,
+  readOnly,
+}: {
+  clientId: string
+  adminEmail: string
+  requiredReadiness: Array<
+    ValuationDocDef & {
+      uploaded: boolean
+      notAvailable?: boolean
+      fileName: string | null
+      uploadedAt: string | null
+      files: Array<{ id?: string; fileName: string; uploadedAt?: string | null }>
+    }
+  >
+  optionalReadiness: Array<
+    ValuationDocDef & {
+      uploaded: boolean
+      notAvailable?: boolean
+      fileName: string | null
+      uploadedAt: string | null
+      files: Array<{ id?: string; fileName: string; uploadedAt?: string | null }>
+    }
+  >
+  loadingDocs: boolean
+  onRefresh: () => Promise<void> | void
+  readOnly?: boolean
+}) {
+  const satisfiedRequiredCount = requiredReadiness.filter((d) => d.uploaded || d.notAvailable).length
+  const uploadedOptionalCount = optionalReadiness.filter((d) => d.uploaded).length
+
+  return (
+    <div className="space-y-6">
+      {/* Sector 1: Required Valuation Documents */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Required Valuation Documents
+            </h4>
+            <span
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                satisfiedRequiredCount === requiredReadiness.length
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {satisfiedRequiredCount} of {requiredReadiness.length} ready
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void onRefresh()}
+            disabled={loadingDocs}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${loadingDocs ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          Required valuation documents including monthly P&L, balance sheet, shareholder remuneration, and add-back disclosures.
+        </p>
+
+        <div className="space-y-2.5">
+          {requiredReadiness.map((doc) => (
+            <ValuationDocRow
+              key={doc.id}
+              doc={doc}
+              isRequired={true}
+              clientId={clientId}
+              adminEmail={adminEmail}
+              onUploaded={onRefresh}
+              readOnly={readOnly}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Sector 2: Optional Valuation Documents */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Optional Valuation Documents
+            </h4>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              {uploadedOptionalCount} of {optionalReadiness.length} uploaded
+            </span>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          Three fiscal years of accountant-prepared financial statements. Optional upload to cross-reference and validate figures.
+        </p>
+
+        <div className="space-y-2.5">
+          {optionalReadiness.map((doc) => (
+            <ValuationDocRow
+              key={doc.id}
+              doc={doc}
+              isRequired={false}
+              clientId={clientId}
+              adminEmail={adminEmail}
+              onUploaded={onRefresh}
+              readOnly={readOnly}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function TtmAnalysisTab({
   clientId,
   clientName,
@@ -350,7 +678,10 @@ export function TtmAnalysisTab({
   const [loadingAnalyses, setLoadingAnalyses] = useState(true)
   const [running, setRunning] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
+  const [uploadedDocsMap, setUploadedDocsMap] = useState<Record<string, ClientUploadedDoc[]>>({})
+  const [loadingDocs, setLoadingDocs] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const adminEmail = useMemo(() => getAdminEmail(), [])
   const [baselineBuildState, setBaselineBuildState] = useState<{
     analysisId: string | null
     running: boolean
@@ -364,21 +695,74 @@ export function TtmAnalysisTab({
   })
   const { provider, setProvider, recordModelUsed } = useAgentAiProvider()
 
-  const readiness = useMemo(
+  const reloadDocuments = useCallback(async () => {
+    setLoadingDocs(true)
+    try {
+      const docs = await listClientDocuments(clientId, ALL_VALUATION_DOC_IDS)
+      const mapped: Record<string, ClientUploadedDoc[]> = {}
+      for (const d of docs) {
+        if (!mapped[d.documentId]) mapped[d.documentId] = []
+        mapped[d.documentId].push(d)
+      }
+      setUploadedDocsMap(mapped)
+    } catch (e) {
+      console.error('Failed to load valuation documents:', e)
+    } finally {
+      setLoadingDocs(false)
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    void reloadDocuments()
+  }, [reloadDocuments])
+
+  const requiredReadiness = useMemo(
     () =>
-      REQUIRED_DOCS.map((doc) => {
+      REQUIRED_VALUATION_DOCS.map((doc) => {
         const status = documentStatuses[doc.id]
+        const dbDocs = uploadedDocsMap[doc.id] ?? []
+        const hasFile = Boolean(status?.fileName) || dbDocs.length > 0
+        const fileName = status?.fileName || dbDocs[0]?.fileName || null
+        const uploadedAt = status?.uploadedAt || dbDocs[0]?.uploadedAt || null
+        const notAvailable = status?.hasDoc === false || Boolean(status?.notApplicable)
         return {
           ...doc,
-          uploaded: Boolean(status?.fileName),
-          fileName: status?.fileName ?? null,
-          uploadedAt: status?.uploadedAt ?? null,
+          uploaded: hasFile,
+          notAvailable,
+          fileName,
+          uploadedAt,
+          files: dbDocs.length > 0 ? dbDocs : (fileName ? [{ id: doc.id, fileName, uploadedAt, documentId: doc.id }] : []),
         }
       }),
-    [documentStatuses],
+    [documentStatuses, uploadedDocsMap],
   )
 
-  const readyToRun = readiness.every((item) => item.uploaded)
+  const optionalReadiness = useMemo(
+    () =>
+      OPTIONAL_VALUATION_DOCS.map((doc) => {
+        const status = documentStatuses[doc.id]
+        const dbDocs = uploadedDocsMap[doc.id] ?? []
+        const hasFile = Boolean(status?.fileName) || dbDocs.length > 0
+        const fileName = status?.fileName || dbDocs[0]?.fileName || null
+        const uploadedAt = status?.uploadedAt || dbDocs[0]?.uploadedAt || null
+        const notAvailable = status?.hasDoc === false || Boolean(status?.notApplicable)
+        return {
+          ...doc,
+          uploaded: hasFile,
+          notAvailable,
+          fileName,
+          uploadedAt,
+          files: dbDocs.length > 0 ? dbDocs : (fileName ? [{ id: doc.id, fileName, uploadedAt, documentId: doc.id }] : []),
+        }
+      }),
+    [documentStatuses, uploadedDocsMap],
+  )
+
+  const coreWorkbooksReady =
+    (Boolean(documentStatuses['monthly_pl_excel']?.fileName) || (uploadedDocsMap['monthly_pl_excel']?.length ?? 0) > 0) &&
+    (Boolean(documentStatuses['monthly_bs_excel']?.fileName) || (uploadedDocsMap['monthly_bs_excel']?.length ?? 0) > 0)
+
+  const readyToRun = coreWorkbooksReady && requiredReadiness.every((item) => item.uploaded || item.notAvailable)
 
   const loadAnalyses = useCallback(async () => {
     setLoadingAnalyses(true)
@@ -426,15 +810,30 @@ export function TtmAnalysisTab({
     setError(null)
     setWizardStep(1)
     try {
-      const preparedDocuments = await Promise.all(
-        readiness.map((item) =>
-          prepareWs2DocumentFromServer({
+      const preparedDocuments: any[] = []
+      // 1. Required documents must succeed
+      for (const item of requiredReadiness) {
+        const prep = await prepareWs2DocumentFromServer({
+          clientId,
+          documentId: item.id as any,
+          fileName: item.fileName || item.label,
+        })
+        preparedDocuments.push(prep)
+      }
+      // 2. Uploaded optional documents
+      for (const item of optionalReadiness.filter((i) => i.uploaded)) {
+        try {
+          const prep = await prepareWs2DocumentFromServer({
             clientId,
-            documentId: item.id,
+            documentId: item.id as any,
             fileName: item.fileName || item.label,
-          }),
-        ),
-      )
+          })
+          preparedDocuments.push(prep)
+        } catch (err) {
+          console.warn(`Optional document ${item.id} skipped during preparation:`, err)
+        }
+      }
+
       logWs2PreparedDocuments('WS2-1 prepared documents', preparedDocuments)
       logWs2ClientEvent('WS2-1 run request', {
         clientId,
@@ -751,14 +1150,35 @@ export function TtmAnalysisTab({
             />
           )}
           {activeAnalysis && !readOnly && !composingNew && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={beginNewAnalysis}
+                className="gap-1.5 h-8 font-medium"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                New Analysis
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void runAgent()}
+                disabled={!readyToRun || running}
+                className="gap-1.5 h-8 font-medium"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                {running ? 'Analyzing...' : 'Re-run Analysis'}
+              </Button>
+            </>
+          )}
+          {composingNew && analyses.length > 0 && (
             <Button
+              variant="outline"
               size="sm"
-              onClick={() => void runAgent()}
-              disabled={!readyToRun || running}
-              className="gap-1.5 h-8 font-medium"
+              onClick={() => setComposingNew(false)}
+              className="gap-1.5 h-8 font-medium text-slate-600"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              {running ? 'Analyzing...' : 'Re-run Analysis'}
+              Cancel
             </Button>
           )}
         </div>
@@ -837,38 +1257,71 @@ export function TtmAnalysisTab({
 
       {/* No analysis yet, or composing a new run */}
       {(!activeAnalysis || composingNew) && !loadingAnalyses && (
-        <Card className="p-6">
-          <div className="space-y-4">
-            {composingNew && analyses.length > 0 && (
-              <p className="text-sm text-slate-600">
-                Start a new valuation run. Pick Claude or OpenAI above, then run analysis — previous runs stay in Run history.
-              </p>
-            )}
-            {readyToRun ? (
-              <div className="flex items-center gap-2 text-sm text-emerald-700">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                All required documents uploaded
+        <Card className="p-6 border-slate-200 shadow-2xs">
+          <div className="space-y-6">
+            <div className="flex items-start justify-between gap-4 pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 cantara-serif">Valuation Source Documents</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Review documents uploaded by the client or upload files directly. Required documents must be present to start valuation analysis.
+                </p>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-slate-700">Upload Required Documents</p>
-                {readiness.map((item) => (
-                  <div key={item.id} className="flex items-center gap-2 text-sm">
-                    {item.uploaded ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300" />}
-                    <span className={item.uploaded ? 'text-slate-600' : 'text-slate-800 font-medium'}>{item.label}</span>
-                    {item.fileName && <span className="text-xs text-slate-400">({item.fileName})</span>}
-                  </div>
-                ))}
+              {composingNew && analyses.length > 0 && (
+                <Button variant="outline" size="sm" onClick={() => setComposingNew(false)}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+
+            <ValuationDocumentsChecklist
+              clientId={clientId}
+              adminEmail={adminEmail}
+              requiredReadiness={requiredReadiness}
+              optionalReadiness={optionalReadiness}
+              loadingDocs={loadingDocs}
+              onRefresh={reloadDocuments}
+              readOnly={readOnly}
+            />
+
+            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="text-xs">
+                {readyToRun ? (
+                  <span className="text-emerald-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    All required valuation documents ready. You can start the analysis.
+                  </span>
+                ) : (
+                  <span className="text-amber-800 font-medium flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    Upload all required documents (Monthly P&L and Balance Sheet) to run analysis.
+                  </span>
+                )}
               </div>
-            )}
-            <Button size="sm" onClick={() => void runAgent()} disabled={!readyToRun || running || (readOnly && !composingNew)}>
-              {running ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...</> : <><Play className="w-3.5 h-3.5" /> {composingNew ? 'Run New Analysis' : 'Start Analysis'}</>}
-            </Button>
-            {composingNew && (
-              <Button variant="ghost" size="sm" onClick={() => setComposingNew(false)}>
-                Cancel
-              </Button>
-            )}
+
+              <div className="flex items-center gap-2 shrink-0">
+                {composingNew && analyses.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={() => setComposingNew(false)}>
+                    Cancel
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  onClick={() => void runAgent()}
+                  disabled={!readyToRun || running || (readOnly && !composingNew)}
+                  className="gap-1.5"
+                >
+                  {running ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5" /> {composingNew ? 'Run New Analysis' : 'Start Analysis'}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
           </div>
         </Card>
       )}

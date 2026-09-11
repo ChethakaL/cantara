@@ -127,7 +127,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const websiteUrl = (websiteUrlOverride || clientProfile.websiteUrl || '').trim()
+    const submissions = (clientProfile.sectionSubmissions as Record<string, any>) ?? {}
+    const dp = submissions.digitalPresenceForm ?? {}
+    const responses = submissions.agentFormResponses ?? {}
+    const websiteUrl = (
+      websiteUrlOverride ||
+      dp.websiteUrl ||
+      responses.businessWebsite ||
+      clientProfile.websiteUrl ||
+      ''
+    ).trim()
     const websiteResearch = websiteUrl
       ? await researchWebsite({
           websiteUrl,

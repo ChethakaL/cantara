@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       taxLiabilityReport,
       insuranceDoc,
       salesDoc,
+      ws2Recast,
       clientProfile,
     ] = await Promise.all([
       prisma.ttmAnalysis.findFirst({ where: { clientId }, select: { id: true } }).catch(() => null),
@@ -52,6 +53,11 @@ export async function GET(req: NextRequest) {
         orderBy: { createdAt: 'desc' },
         select: { aiReviewSummary: true, aiReviewStatus: true },
       })?.catch(() => null) ?? null,
+      (prisma as any).ws2RecastAnalysis?.findFirst?.({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, reportMarkdown: true, normalizedEbitda: true },
+      })?.catch(() => null) ?? null,
       prisma.clientProfile.findFirst({
         where: { id: clientId },
         select: { sectionSubmissions: true },
@@ -62,6 +68,7 @@ export async function GET(req: NextRequest) {
 
     const checks: Record<string, boolean> = {
       ttmAnalysis: Boolean(ttmAnalysis || submissions.valuation),
+      ws2Recast: Boolean(ws2Recast?.reportMarkdown || ws2Recast?.normalizedEbitda != null || ws2Recast?.id),
       lease: Boolean(lease),
       realEstateAppraisal: Boolean(realEstateAppraisal),
       competitor: Boolean(competitor),
@@ -72,7 +79,7 @@ export async function GET(req: NextRequest) {
       facilityReview: Boolean(facilityReview || submissions.facilityReview),
       pricingAnalysis: Boolean(pricingAnalysis || submissions.pricingAnalysis),
       pricingVertical: Boolean(pricingVertical || submissions.pricingVertical),
-      salesProcessReview: Boolean(salesProcessReview || submissions.salesProcessReview || insuranceDoc?.aiReviewSummary || salesDoc?.aiReviewSummary),
+      salesProcessReview: Boolean(salesProcessReview || submissions.salesProcessReview || salesDoc?.aiReviewSummary),
       legalEntitySearch: Boolean(legalEntitySearch),
       taxLiabilityReview: Boolean(taxLiabilityReport),
       insuranceReview: Boolean(insuranceDoc?.aiReviewSummary || insuranceDoc?.aiReviewStatus || submissions.insuranceReview),

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MessageCircle, Minimize2, X } from 'lucide-react'
 import { ChatThread } from '@/components/chat/ChatThread'
 import type { ChatMessage } from '@/lib/store'
+import { subscribeChatSse } from '@/lib/chat-sse'
 
 type InboxThread = {
   clientId: string
@@ -32,6 +33,7 @@ export default function AdminChatInboxWidget({ adminName }: { adminName: string 
   const [activeClientId, setActiveClientId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     const res = await fetch('/api/chat/admin-inbox', { cache: 'no-store' })
     if (!res.ok) return
     const data = await res.json()
@@ -40,11 +42,9 @@ export default function AdminChatInboxWidget({ adminName }: { adminName: string 
 
   useEffect(() => {
     void refresh()
-    const source = new EventSource('/api/chat/stream?scope=admin-inbox')
-    source.addEventListener('update', () => {
+    return subscribeChatSse('/api/chat/stream?scope=admin-inbox', () => {
       void refresh()
     })
-    return () => source.close()
   }, [refresh])
 
   const visibleThreads = useMemo(() => {

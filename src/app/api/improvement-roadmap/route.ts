@@ -7,7 +7,7 @@ import {
   resolveAnalyzeModelId,
 } from '@/lib/agent-analyze-provider'
 import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
-import { gatherCompletedAgentOutputs } from '@/lib/completed-agent-outputs'
+import { gatherCompletedAgentOutputs, listRoadmapAgentSources } from '@/lib/completed-agent-outputs'
 import {
   CHECKLIST_SUBMISSION_KEY,
   ROADMAP_SUBMISSION_KEY,
@@ -76,10 +76,7 @@ export async function GET(req: NextRequest) {
   const clientId = req.nextUrl.searchParams.get('clientId')
   if (!clientId) return new Response('clientId required', { status: 400 })
 
-  const client = await prisma.clientProfile.findUnique({
-    where: { id: clientId },
-    select: { sectionSubmissions: true },
-  })
+  const client = await loadClient(clientId)
   if (!client) return new Response('Client not found', { status: 404 })
 
   const submissions = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
@@ -89,7 +86,23 @@ export async function GET(req: NextRequest) {
     ? checklistState.items
     : Array.isArray(stored?.checklist) ? stored.checklist : []
 
-  return NextResponse.json({ report: withChecklist(stored, checklistItems) })
+  const assignedAgents = getClientWorkstreamAgents({
+    workstream: (client.workstream?.toLowerCase() as any) ?? null,
+    customWorkstream: client.customWorkstream as any,
+    workstreamAgents: client.ClientWorkstreamAgents as any,
+    propertyOwnership: propertyOwnership(submissions),
+    sectionSubmissions: submissions,
+  })
+  const sources = await listRoadmapAgentSources(clientId, assignedAgents)
+  const readyCount = sources.filter(source => source.ready).length
+
+  return NextResponse.json({
+    report: withChecklist(stored, checklistItems),
+    sources,
+    readyCount,
+    canGenerateChecklist: readyCount >= 1,
+    workstream: client.workstream ?? null,
+  })
 }
 
 export async function POST(req: NextRequest) {

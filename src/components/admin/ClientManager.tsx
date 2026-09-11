@@ -13,7 +13,7 @@ import { PROPERTY_OWNERSHIP_OPTIONS } from '@/lib/pet-business-categories'
 import { deleteWorkstreamTemplate, deleteClient, getWorkstreamTemplates, saveClient, saveWorkstreamTemplate } from '@/lib/store'
 import { type AgentDocumentSelection } from '@/lib/documentData'
 import type { Client, Workstream, BusinessType, WorkstreamTemplate } from '@/lib/store'
-import { getClientWorkstreamAgents } from '@/lib/workstream-agents'
+import { getClientWorkstreamAgents, SYSTEM_WORKSTREAM_AGENTS } from '@/lib/workstream-agents'
 import ClientPortalInvitePanel from '@/components/admin/ClientPortalInvitePanel'
 
 interface Owner2Data {
@@ -93,6 +93,7 @@ const AGENT_ICONS = {
   vendor_directory: Network,
   org_chart_review: Network,
   litigation_search: AlertCircle,
+  legal_entity_search: Scale,
   employee_comp: BadgeDollarSign,
   ownership_verification: Scale,
   permits_zoning: ClipboardList,
@@ -127,10 +128,12 @@ const AGENT_CATALOG = [
   { id: 'facility_review', name: 'Facility Review Agent', defaultDocumentIds: ['health_safety', 'violations'] },
   { id: 'insurance_review', name: 'Insurance Review Agent', defaultDocumentIds: ['insurance_policies', 'insurance_claims_12m'] },
   { id: 'lease_analysis', name: 'Lease Analysis Agent', defaultDocumentIds: ['leases'] },
+  { id: 'legal_entity_search', name: 'Legal Reports & Entity Search Agent', defaultDocumentIds: ['articles_org', 'shareholder_agreement', 'ownership_structure', 'business_licenses'] },
   { id: 'litigation_search', name: 'Litigation & Liens Agent', defaultDocumentIds: ['litigation_search_docs', 'pending_litigation'] },
   { id: 'contract_analysis', name: 'Material Contracts Agent', defaultDocumentIds: ['material_contracts'] },
   { id: 'meeting_notes', name: 'Meeting Notes Agent', defaultDocumentIds: ['meeting_notes'] },
   { id: 'net_proceeds', name: 'Net Proceeds Calculator Agent', defaultDocumentIds: [] },
+  { id: 'occupancy_review', name: 'Occupancy Review Agent', defaultDocumentIds: ['occupancy_review'] },
   { id: 'org_chart_review', name: 'Org Chart Review Agent', defaultDocumentIds: ['org_chart'] },
   { id: 'owner_gm_assessment', name: 'Owner & GM Assessment Agent', defaultDocumentIds: ['employee_list', 'org_chart', 'sop_manual'] },
   { id: 'ownership_verification', name: 'Ownership Verification Agent', defaultDocumentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
@@ -140,57 +143,26 @@ const AGENT_CATALOG = [
   { id: 'real_estate_appraisal', name: 'Real Estate Appraisal Agent', defaultDocumentIds: ['real_estate_appraisal'] },
   { id: 'sales_process_review', name: 'Sales Process Review Agent', defaultDocumentIds: ['sales_process_transcript', 'pricing_schedule'] },
   { id: 'sales_readiness_roadmap', name: 'Sales Readiness Roadmap', defaultDocumentIds: [] },
+  { id: 'tax_liability_review', name: 'Tax Liability Review Agent', defaultDocumentIds: ['tax_returns_3yr', 'irs_941_940_3yr', 'contractor_1099_agreements', 'sales_use_tax_3yr', 'irs_tax_notices_3yr'] },
   { id: 'vendor_directory', name: 'Software & Vendors Agent', defaultDocumentIds: [] },
+  { id: 'ws1_assessment', name: 'WS1 Assessment Report', defaultDocumentIds: [] },
+  { id: 'ws2_assessment', name: 'WS2 Assessment Report', defaultDocumentIds: [] },
 ]
 
-const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, AgentDocumentSelection[]> = {
-  ws1: [
-    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
-    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
-    { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent', documentIds: ['key_employee_contracts', 'employee_handbook', 'non_compete_agreements', 'employee_benefits_summary', 'offer_letters', 'severance_agreements', 'retirement_plan_docs', 'pto_accrual_ledger', 'workers_comp_claims_24m'] },
-    { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent', documentIds: ['employee_list'] },
-    { agentId: 'insurance_review', agentName: 'Insurance Review Agent', documentIds: ['insurance_policies', 'insurance_claims_12m'] },
-    { agentId: 'lease_analysis', agentName: 'Lease Analysis Agent', documentIds: ['leases'] },
-    { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
-    { agentId: 'contract_analysis', agentName: 'Material Contracts Agent', documentIds: ['material_contracts'] },
-    { agentId: 'org_chart_review', agentName: 'Org Chart Review Agent', documentIds: ['org_chart'] },
-    { agentId: 'owner_gm_assessment', agentName: 'Owner & GM Assessment Agent', documentIds: ['employee_list', 'org_chart', 'sop_manual'] },
-    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
-    { agentId: 'permits_zoning', agentName: 'Permits & Zoning Agent', documentIds: ['business_licenses', 'kennel_license', 'health_permit', 'fire_permit', 'zoning_approval', 'certificate_occupancy', 'conditional_use_permit', 'signage_permit', 'building_permits', 'environmental_permits', 'variance_approvals'] },
-    { agentId: 'vendor_directory', agentName: 'Software & Vendors Agent', documentIds: [] },
-    { agentId: 'sales_readiness_roadmap', agentName: 'Sales Readiness Roadmap', documentIds: [] },
-  ],
-  ws2: [
-    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
-    { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
-    { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
-    { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent', documentIds: [] },
-    { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
-    { agentId: 'facility_review', agentName: 'Facility Review Agent', documentIds: ['health_safety', 'violations'] },
-    { agentId: 'occupancy_review', agentName: 'Occupancy Review Agent', documentIds: ['occupancy_review'] },
-    { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent', documentIds: ['revenue_breakdown', 'pricing_schedule'] },
-    { agentId: 'sales_process_review', agentName: 'Sales Process Review Agent', documentIds: ['sales_process_transcript', 'pricing_schedule'] },
-    { agentId: 'sales_readiness_roadmap', agentName: 'Sales Readiness Roadmap', documentIds: [] },
-  ],
-  ma: [
-    { agentId: 'ttm', agentName: 'Valuation Agent', documentIds: [] },
-    { agentId: 'cim', agentName: 'CIM Generator Agent', documentIds: [] },
-    { agentId: 'teaser', agentName: 'Deal Teaser Generator Agent', documentIds: [] },
-    { agentId: 'litigation_search', agentName: 'Litigation & Liens Agent', documentIds: ['litigation_search_docs', 'pending_litigation'] },
-    { agentId: 'net_proceeds', agentName: 'Net Proceeds Calculator Agent', documentIds: [] },
-    { agentId: 'ownership_verification', agentName: 'Ownership Verification Agent', documentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
-    { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent', documentIds: [] },
-  ],
-  both: [],
-}
-SYSTEM_WORKSTREAM_AGENTS.both = [...SYSTEM_WORKSTREAM_AGENTS.ws1, ...SYSTEM_WORKSTREAM_AGENTS.ws2].filter(
-  (agent, index, agents) => agents.findIndex(item => item.agentId === agent.agentId) === index,
-)
+// SYSTEM_WORKSTREAM_AGENTS is imported from @/lib/workstream-agents (single source of truth)
 
 function mergeAgents(baseAgents: AgentDocumentSelection[], extraAgents: AgentDocumentSelection[]) {
   return [...baseAgents, ...extraAgents].filter(
     (agent, index, agents) => agents.findIndex(item => item.agentId === agent.agentId) === index,
   )
+}
+
+function toAgentDocumentSelection(agent: { agentId: string; agentName: string; documentIds?: string[] }): AgentDocumentSelection {
+  return {
+    agentId: agent.agentId,
+    agentName: agent.agentName,
+    documentIds: agent.documentIds ?? [],
+  }
 }
 
 function agentKey(agents: AgentDocumentSelection[]) {
@@ -227,7 +199,9 @@ function getBaseAgentsForClient(client: Client, customDraftMode: boolean): Agent
     })).filter(keepPropertyAgent)
   }
   return client.workstream
-    ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []).filter(keepPropertyAgent)
+    ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? [])
+        .map(toAgentDocumentSelection)
+        .filter(keepPropertyAgent)
     : []
 }
 
@@ -435,7 +409,9 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
       return
     }
     setDraftWorkstreamName('')
-    const systemAgents = client.workstream ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []) : []
+    const systemAgents = client.workstream
+      ? (SYSTEM_WORKSTREAM_AGENTS[client.workstream] ?? []).map(toAgentDocumentSelection)
+      : []
     const filteredSystemAgents = systemAgents.filter(agent => keepAgent(agent.agentId))
     let finalAgents = mergeAgents(filteredSystemAgents, clientSpecificAgents)
     if (isOwns && realEstateRunAppraisal && !finalAgents.some(a => a.agentId === 'real_estate_appraisal')) {
@@ -484,7 +460,11 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
   const addAgentToDraft = () => {
     const agent = AGENT_CATALOG.find(item => item.id === selectedAgentId)
     if (!agent || draftAgents.some(item => item.agentId === agent.id)) return
-    setDraftAgents(prev => [...prev, { agentId: agent.id, agentName: agent.name, documentIds: [] }])
+    setDraftAgents(prev => [...prev, {
+      agentId: agent.id,
+      agentName: agent.name,
+      documentIds: [...agent.defaultDocumentIds],
+    }])
     setSelectedAgentId('')
     setAgentSearch('')
     setAgentSearchOpen(false)

@@ -1,9 +1,17 @@
 'use client'
-// WS1-9 Business Permits & Zoning — Upload Screen
-// Portal Documents availability + uploads are mirrored here (same pattern as OV / EO).
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { FileText, RefreshCw, Save } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  AlertCircle,
+  CheckCircle2,
+  FileText,
+  Loader2,
+  Play,
+  RefreshCw,
+  Save,
+  Upload,
+} from 'lucide-react'
+import { Button } from '@/components/ui'
 import type { UploadedDoc } from '@/hooks/useWS19Analysis'
 import type { DocumentStatus } from '@/lib/store'
 import {
@@ -12,68 +20,97 @@ import {
   type ClientUploadedDoc,
 } from '@/lib/client-documents-client'
 
-const ALL_DOCUMENT_SLOTS = [
+export interface PermitsDocumentSlotDef {
+  key: string
+  documentIds: string[]
+  label: string
+  note: string
+  multi: boolean
+  accept?: string
+}
+
+export const ALL_DOCUMENT_SLOTS: PermitsDocumentSlotDef[] = [
   {
     key: 'business_license',
+    documentIds: ['business_licenses'],
     label: 'Business License',
     note: 'Current business license or registration certificate from the city/county.',
     multi: true,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'kennel_license',
+    documentIds: ['kennel_license'],
     label: 'Kennel License',
     note: 'Kennel or animal facility license required for pet boarding operations.',
     multi: false,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'health_permit',
+    documentIds: ['health_permit'],
     label: 'Health Permit',
     note: 'Health department permit or inspection certificate for animal care facilities.',
     multi: false,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'fire_permit',
+    documentIds: ['fire_permit'],
     label: 'Fire Permit',
     note: 'Fire department permit, inspection certificate, or occupancy load documentation.',
     multi: false,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'zoning_verification',
+    documentIds: ['zoning_approval', 'certificate_occupancy'],
     label: 'Zoning Verification / Certificate of Occupancy',
     note: 'Zoning verification letter, certificate of occupancy, or zoning compliance letter from the municipality.',
     multi: true,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'conditional_use_permit',
+    documentIds: ['conditional_use_permit'],
     label: 'Conditional Use Permit',
     note: 'CUP, special use permit, or special exception documentation including all conditions of approval.',
     multi: true,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'signage_permit',
+    documentIds: ['signage_permit'],
     label: 'Signage Permit',
     note: 'Any signage permits or approvals for the property.',
     multi: true,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'building_permits',
+    documentIds: ['building_permits'],
     label: 'Building Permits',
     note: 'Building permits for any facility modifications, renovations, or additions.',
     multi: true,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'environmental_permits',
+    documentIds: ['environmental_permits'],
     label: 'Environmental Permits',
     note: 'Environmental permits related to waste disposal, water runoff, or other environmental compliance.',
     multi: true,
+    accept: '.pdf,.docx,.doc',
   },
   {
     key: 'variance_approvals',
+    documentIds: ['variance_approvals'],
     label: 'Variance Approvals',
     note: 'Any variance approvals, zoning board decisions, or appeals documentation.',
     multi: true,
+    accept: '.pdf,.docx,.doc',
   },
-] as const
+]
 
 /** Maps Documents-tab / portal checklist IDs → Permits uploader slot keys */
 const DOCUMENTS_TAB_TO_SLOT: Record<string, string> = {
@@ -90,15 +127,6 @@ const DOCUMENTS_TAB_TO_SLOT: Record<string, string> = {
   variance_approvals: 'variance_approvals',
 }
 
-/** One slot may map to multiple portal checklist IDs (zoning + CO). */
-const SLOT_TO_DOCUMENT_IDS: Record<string, string[]> = (() => {
-  const map: Record<string, string[]> = {}
-  for (const [documentId, slotKey] of Object.entries(DOCUMENTS_TAB_TO_SLOT)) {
-    map[slotKey] = [...(map[slotKey] ?? []), documentId]
-  }
-  return map
-})()
-
 const PERMITS_DOCUMENT_IDS = Object.keys(DOCUMENTS_TAB_TO_SLOT)
 
 interface Props {
@@ -106,34 +134,10 @@ interface Props {
   documentStatuses?: Record<string, DocumentStatus>
   onDocumentsReady: (docs: UploadedDoc[]) => void
   onAvailabilityReady?: (hasDocument: Record<string, boolean>) => void
-  onAnalyze: () => void
+  onAnalyze: (docs: UploadedDoc[], options?: { allDocumentsUnavailable?: boolean }) => void | Promise<void>
   isLoading: boolean
-}
-
-function availabilityFromPortalStatus(status: DocumentStatus | undefined): boolean | undefined {
-  if (!status) return undefined
-  if (status.notApplicable) return false
-  if (status.hasDoc === false) return false
-  if (status.hasDoc === true || (status.fileName && String(status.fileName).trim())) return true
-  return undefined
-}
-
-function slotAvailabilityFromPortal(
-  statuses: Record<string, DocumentStatus> | undefined,
-  slotKey: string,
-): boolean | undefined {
-  const documentIds = SLOT_TO_DOCUMENT_IDS[slotKey] ?? []
-  let sawFalse = false
-  for (const documentId of documentIds) {
-    const value = availabilityFromPortalStatus(statuses?.[documentId])
-    if (value === true) return true
-    if (value === false) sawFalse = true
-  }
-  if (sawFalse && documentIds.every(id => availabilityFromPortalStatus(statuses?.[id]) !== undefined)) {
-    return false
-  }
-  if (sawFalse) return false
-  return undefined
+  onCancel?: () => void
+  readOnly?: boolean
 }
 
 export default function WS19Uploader({
@@ -143,105 +147,166 @@ export default function WS19Uploader({
   onAvailabilityReady,
   onAnalyze,
   isLoading,
+  onCancel,
+  readOnly = false,
 }: Props) {
   const [uploadedBySlot, setUploadedBySlot] = useState<Record<string, UploadedDoc[]>>({})
-  const [hasDocument, setHasDocument] = useState<Record<string, boolean>>({})
-  const [portalSourceBySlot, setPortalSourceBySlot] = useState<Record<string, boolean>>({})
   const [savingDraft, setSavingDraft] = useState(false)
   const [draftSaved, setDraftSaved] = useState(false)
   const [draftLoaded, setDraftLoaded] = useState(false)
   const [documentsTabUploads, setDocumentsTabUploads] = useState<ClientUploadedDoc[]>([])
-  const [importingDocId, setImportingDocId] = useState<string | null>(null)
+  const [loadingPortalDocs, setLoadingPortalDocs] = useState(false)
+  const [preparingAnalyze, setPreparingAnalyze] = useState(false)
 
-  const documentStatusesRef = useRef(documentStatuses)
-  documentStatusesRef.current = documentStatuses
   const uploadedBySlotRef = useRef(uploadedBySlot)
   uploadedBySlotRef.current = uploadedBySlot
-  const hasDocumentRef = useRef(hasDocument)
-  hasDocumentRef.current = hasDocument
+  const documentsTabUploadsRef = useRef(documentsTabUploads)
+  documentsTabUploadsRef.current = documentsTabUploads
   const onDocumentsReadyRef = useRef(onDocumentsReady)
   onDocumentsReadyRef.current = onDocumentsReady
-  const onAvailabilityReadyRef = useRef(onAvailabilityReady)
-  onAvailabilityReadyRef.current = onAvailabilityReady
 
-  const allUploadedDocs = Object.values(uploadedBySlot).flat()
-  const totalFileCount = allUploadedDocs.length
-  const totalSizeBytes = allUploadedDocs.reduce((acc, doc) => acc + (doc.base64.length * 3) / 4, 0)
-  const isOverLimits = totalFileCount > 15 || totalSizeBytes > 25 * 1024 * 1024
-
-  const allSlotsAnswered = ALL_DOCUMENT_SLOTS.every(slot => hasDocument[slot.key] !== undefined)
-  const allSlotsUnavailable = ALL_DOCUMENT_SLOTS.every(slot => hasDocument[slot.key] === false)
-  const canRun = (totalFileCount > 0 || (allSlotsAnswered && allSlotsUnavailable)) && !isOverLimits
-  const hasDraftInput = totalFileCount > 0 || Object.keys(hasDocument).length > 0
-
-  const unavailableSlots = ALL_DOCUMENT_SLOTS.filter(slot => hasDocument[slot.key] === false)
-
-  const syncReady = useCallback((nextUploaded: Record<string, UploadedDoc[]>, nextHas?: Record<string, boolean>) => {
-    onDocumentsReadyRef.current(Object.values(nextUploaded).flat())
-    if (nextHas) onAvailabilityReadyRef.current?.(nextHas)
+  const syncReady = useCallback((nextUploaded: Record<string, UploadedDoc[]>) => {
+    const flatDocs = Object.values(nextUploaded).flat()
+    onDocumentsReadyRef.current(flatDocs)
   }, [])
 
-  const persistDraft = useCallback(async (
-    nextHasDocument: Record<string, boolean>,
-    nextUploaded: Record<string, UploadedDoc[]>,
-  ) => {
-    try {
-      await fetch(`/api/client-data/${clientId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          section: 'permitsZoningDraft',
-          data: {
-            hasDocument: nextHasDocument,
-            uploadedBySlot: nextUploaded,
-            savedAt: new Date().toISOString(),
-          },
-        }),
-      })
-    } catch {
-      // best-effort
-    }
-  }, [clientId])
-
-  const syncPortalAvailability = useCallback(async (slotKey: string, available: boolean) => {
-    const documentIds = SLOT_TO_DOCUMENT_IDS[slotKey]
-    if (!documentIds?.length) return
-    try {
-      const statuses = Object.fromEntries(
-        documentIds.map(documentId => [
-          documentId,
-          {
-            hasDoc: available,
-            notApplicable: false,
-            unavailableDecision: null,
-            assignedTo: null,
-          },
-        ]),
-      )
-      await fetch('/api/client-portal/statuses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, statuses }),
-      })
-    } catch (err) {
-      console.warn('[WS19] Failed to sync portal availability', slotKey, err)
-    }
-  }, [clientId])
+  const persistDraft = useCallback(
+    async (nextUploaded: Record<string, UploadedDoc[]>) => {
+      try {
+        await fetch(`/api/client-data/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            section: 'permitsZoningDraft',
+            data: {
+              uploadedBySlot: nextUploaded,
+              savedAt: new Date().toISOString(),
+            },
+          }),
+        })
+      } catch {
+        // Draft persistence is best-effort.
+      }
+    },
+    [clientId],
+  )
 
   const loadDocumentsTabUploads = useCallback(async () => {
+    setLoadingPortalDocs(true)
     try {
       const docs = await listClientDocuments(clientId, PERMITS_DOCUMENT_IDS)
       setDocumentsTabUploads(docs)
       return docs
     } catch {
       return [] as ClientUploadedDoc[]
+    } finally {
+      setLoadingPortalDocs(false)
     }
   }, [clientId])
 
-  const importDocIntoSlot = useCallback(async (
+  // Load draft and portal documents once per client
+  useEffect(() => {
+    let cancelled = false
+    async function init() {
+      try {
+        const [draftRes, docs] = await Promise.all([
+          fetch(`/api/client-data/${clientId}?section=permitsZoningDraft`),
+          loadDocumentsTabUploads(),
+        ])
+        if (cancelled) return
+
+        let nextUploaded: Record<string, UploadedDoc[]> = {}
+        if (draftRes.ok) {
+          const draft = await draftRes.json()
+          if (draft?.uploadedBySlot) {
+            nextUploaded = draft.uploadedBySlot
+            setDraftLoaded(true)
+          }
+        }
+
+        if (cancelled) return
+        setUploadedBySlot(nextUploaded)
+        syncReady(nextUploaded)
+      } catch {
+        // Best-effort
+      }
+    }
+    void init()
+    return () => {
+      cancelled = true
+    }
+  }, [clientId, loadDocumentsTabUploads, syncReady])
+
+  // Calculate file counts & limits
+  const allLocalDocs = useMemo(() => Object.values(uploadedBySlot).flat(), [uploadedBySlot])
+  const localFileCount = allLocalDocs.length
+  const localSizeBytes = allLocalDocs.reduce((acc, doc) => acc + (doc.base64.length * 3) / 4, 0)
+
+  // Determine readiness for each slot
+  const slotReadinessMap = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        hasFiles: boolean
+        isUnavailable: boolean
+        portalDocs: ClientUploadedDoc[]
+        localDocs: UploadedDoc[]
+        portalStatus?: DocumentStatus
+        primaryDocumentId: string
+      }
+    > = {}
+
+    for (const slot of ALL_DOCUMENT_SLOTS) {
+      const portalDocs = documentsTabUploads.filter(d => slot.documentIds.includes(d.documentId))
+      const localDocs = uploadedBySlot[slot.key] ?? []
+
+      // Check portal status across mapped documentIds
+      let hasStatusFile = false
+      let allUnavailable = slot.documentIds.length > 0
+      let matchedStatus: DocumentStatus | undefined
+
+      for (const docId of slot.documentIds) {
+        const s = documentStatuses?.[docId]
+        if (s) {
+          matchedStatus = s
+          if (s.fileName && String(s.fileName).trim()) hasStatusFile = true
+          if (s.hasDoc === true) hasStatusFile = true
+          if (s.hasDoc !== false && !s.notApplicable) allUnavailable = false
+        } else {
+          allUnavailable = false
+        }
+      }
+
+      const hasFiles = localDocs.length > 0 || portalDocs.length > 0 || hasStatusFile
+      const isUnavailable = !hasFiles && allUnavailable
+
+      map[slot.key] = {
+        hasFiles,
+        isUnavailable,
+        portalDocs,
+        localDocs,
+        portalStatus: matchedStatus,
+        primaryDocumentId: slot.documentIds[0] || slot.key,
+      }
+    }
+
+    return map
+  }, [documentsTabUploads, uploadedBySlot, documentStatuses])
+
+  const satisfiedCount = useMemo(
+    () => ALL_DOCUMENT_SLOTS.filter(slot => slotReadinessMap[slot.key]?.hasFiles).length,
+    [slotReadinessMap],
+  )
+
+  const isOverLimits = localFileCount > 25 || localSizeBytes > 35 * 1024 * 1024
+  const busy = isLoading || preparingAnalyze
+  const hasDraftInput = localFileCount > 0
+  const canAnalyze = !isOverLimits
+
+  async function importDocIntoSlot(
     doc: ClientUploadedDoc,
     current: Record<string, UploadedDoc[]>,
-  ): Promise<{ uploaded: Record<string, UploadedDoc[]>; hasDocument: Record<string, boolean> } | null> => {
+  ): Promise<{ uploaded: Record<string, UploadedDoc[]> } | null> {
     const slotKey = DOCUMENTS_TAB_TO_SLOT[doc.documentId]
     if (!slotKey) return null
     const already = (current[slotKey] ?? []).some(item => item.name === doc.fileName)
@@ -266,123 +331,41 @@ export default function WS19Uploader({
     const nextSlotDocs = slot?.multi ? [...existing, nextDoc] : [nextDoc]
     return {
       uploaded: { ...current, [slotKey]: nextSlotDocs },
-      hasDocument: { [slotKey]: true },
     }
-  }, [clientId])
+  }
 
-  useEffect(() => {
-    let cancelled = false
-    async function loadDraftAndDocuments() {
+  async function ensurePortalDocsImported(): Promise<Record<string, UploadedDoc[]>> {
+    let nextUploaded = { ...uploadedBySlotRef.current }
+    let changed = false
+    for (const doc of documentsTabUploadsRef.current) {
       try {
-        const [draftRes, docs] = await Promise.all([
-          fetch(`/api/client-data/${clientId}?section=permitsZoningDraft`),
-          loadDocumentsTabUploads(),
-        ])
-        if (cancelled) return
-
-        let nextUploaded: Record<string, UploadedDoc[]> = {}
-        let nextHasDocument: Record<string, boolean> = {}
-        const nextPortalSource: Record<string, boolean> = {}
-        const statuses = documentStatusesRef.current
-
-        for (const slot of ALL_DOCUMENT_SLOTS) {
-          const fromPortal = slotAvailabilityFromPortal(statuses, slot.key)
-          if (fromPortal === undefined) continue
-          nextHasDocument[slot.key] = fromPortal
-          nextPortalSource[slot.key] = true
-        }
-
-        if (draftRes.ok) {
-          const draft = await draftRes.json()
-          if (draft) {
-            nextUploaded = draft.uploadedBySlot ?? {}
-            const draftHas = (draft.hasDocument ?? {}) as Record<string, boolean>
-            for (const [slotKey, value] of Object.entries(draftHas)) {
-              if (nextHasDocument[slotKey] === undefined) nextHasDocument[slotKey] = value
-            }
-            setDraftLoaded(true)
-          }
-        }
-
-        let importedAny = false
-        for (const doc of docs) {
-          if (cancelled) return
-          try {
-            const imported = await importDocIntoSlot(doc, nextUploaded)
-            if (!imported) continue
-            nextUploaded = imported.uploaded
-            nextHasDocument = { ...nextHasDocument, ...imported.hasDocument }
-            const slotKey = DOCUMENTS_TAB_TO_SLOT[doc.documentId]
-            if (slotKey) nextPortalSource[slotKey] = true
-            importedAny = true
-          } catch (err) {
-            console.warn('Failed to import permits document:', doc.fileName, err)
-          }
-        }
-
-        if (cancelled) return
-        setUploadedBySlot(nextUploaded)
-        setHasDocument(nextHasDocument)
-        setPortalSourceBySlot(nextPortalSource)
-        syncReady(nextUploaded, nextHasDocument)
-        if (importedAny) void persistDraft(nextHasDocument, nextUploaded)
-      } catch {
-        // never block uploader
+        const imported = await importDocIntoSlot(doc, nextUploaded)
+        if (!imported) continue
+        nextUploaded = imported.uploaded
+        changed = true
+      } catch (err) {
+        console.warn('Failed to import Permits document for analysis:', doc.fileName, err)
       }
     }
-    void loadDraftAndDocuments()
-    return () => { cancelled = true }
-  }, [clientId, importDocIntoSlot, loadDocumentsTabUploads, persistDraft, syncReady])
+    if (changed) {
+      setUploadedBySlot(nextUploaded)
+      syncReady(nextUploaded)
+      void persistDraft(nextUploaded)
+    } else {
+      syncReady(nextUploaded)
+    }
+    return nextUploaded
+  }
 
-  useEffect(() => {
-    if (!documentStatuses) return
-    setHasDocument(prev => {
-      const next = { ...prev }
-      let changed = false
-      for (const slot of ALL_DOCUMENT_SLOTS) {
-        const fromPortal = slotAvailabilityFromPortal(documentStatuses, slot.key)
-        if (fromPortal === undefined) continue
-        if (next[slot.key] !== fromPortal) {
-          next[slot.key] = fromPortal
-          changed = true
-        }
-      }
-      if (changed) onAvailabilityReadyRef.current?.(next)
-      return changed ? next : prev
-    })
-    setPortalSourceBySlot(prev => {
-      const next = { ...prev }
-      let changed = false
-      for (const slot of ALL_DOCUMENT_SLOTS) {
-        if (slotAvailabilityFromPortal(documentStatuses, slot.key) === undefined) continue
-        if (!next[slot.key]) {
-          next[slot.key] = true
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [documentStatuses])
-
-  async function handleUseDocumentsTabUpload(doc: ClientUploadedDoc) {
-    setImportingDocId(doc.id)
+  async function handleAnalyze() {
+    if (isLoading || preparingAnalyze) return
+    setPreparingAnalyze(true)
     try {
-      const imported = await importDocIntoSlot(doc, uploadedBySlotRef.current)
-      if (!imported) return
-      const nextHas = { ...hasDocumentRef.current, ...imported.hasDocument }
-      setUploadedBySlot(imported.uploaded)
-      setHasDocument(nextHas)
-      const slotKey = DOCUMENTS_TAB_TO_SLOT[doc.documentId]
-      if (slotKey) {
-        setPortalSourceBySlot(prev => ({ ...prev, [slotKey]: true }))
-        void syncPortalAvailability(slotKey, true)
-      }
-      syncReady(imported.uploaded, nextHas)
-      void persistDraft(nextHas, imported.uploaded)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to import document')
+      const nextUploaded = await ensurePortalDocsImported()
+      const flatDocs = Object.values(nextUploaded).flat()
+      await onAnalyze(flatDocs, { allDocumentsUnavailable: flatDocs.length === 0 })
     } finally {
-      setImportingDocId(null)
+      setPreparingAnalyze(false)
     }
   }
 
@@ -395,17 +378,17 @@ export default function WS19Uploader({
         body: JSON.stringify({
           section: 'permitsZoningDraft',
           data: {
-            hasDocument,
             uploadedBySlot,
             savedAt: new Date().toISOString(),
           },
         }),
       })
-      if (!res.ok) throw new Error('Save failed')
-      setDraftSaved(true)
-      setTimeout(() => setDraftSaved(false), 2000)
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save draft')
+      if (res.ok) {
+        setDraftSaved(true)
+        setTimeout(() => setDraftSaved(false), 3000)
+      }
+    } catch {
+      // best-effort
     } finally {
       setSavingDraft(false)
     }
@@ -413,37 +396,34 @@ export default function WS19Uploader({
 
   function handleFiles(slotKey: string, files: FileList | null) {
     if (!files || files.length === 0) return
+    const fileList = Array.from(files)
+    const slot = ALL_DOCUMENT_SLOTS.find(item => item.key === slotKey)
 
-    const readers = Array.from(files).map(
-      file =>
-        new Promise<UploadedDoc>(resolve => {
-          const reader = new FileReader()
-          reader.onload = e => {
-            const dataUrl = e.target?.result as string
-            const base64 = dataUrl.split(',')[1]
-            resolve({
-              name: file.name,
-              base64,
-              mediaType: file.type || 'application/octet-stream',
-              slotKey,
-              sizeBytes: file.size,
-            })
-          }
-          reader.readAsDataURL(file)
-        }),
-    )
+    fileList.forEach(file => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1] || ''
+        const mediaType = file.type || 'application/pdf'
+        const doc: UploadedDoc = {
+          name: file.name,
+          base64,
+          mediaType,
+          slotKey,
+          sizeBytes: file.size,
+        }
 
-    Promise.all(readers).then(docs => {
-      setUploadedBySlot(prev => {
-        const slot = prev[slotKey] ?? []
-        const updated = { ...prev, [slotKey]: [...slot, ...docs] }
-        const nextHas = { ...hasDocumentRef.current, [slotKey]: true }
-        setHasDocument(nextHas)
-        syncReady(updated, nextHas)
-        void persistDraft(nextHas, updated)
-        return updated
-      })
-      void syncPortalAvailability(slotKey, true)
+        setUploadedBySlot(prev => {
+          const existing = prev[slotKey] ?? []
+          const nextSlotDocs = slot?.multi
+            ? [...existing.filter(d => d.name !== file.name), doc]
+            : [doc]
+          const updated = { ...prev, [slotKey]: nextSlotDocs }
+          syncReady(updated)
+          void persistDraft(updated)
+          return updated
+        })
+      }
+      reader.readAsDataURL(file)
     })
   }
 
@@ -453,42 +433,40 @@ export default function WS19Uploader({
         ...prev,
         [slotKey]: (prev[slotKey] ?? []).filter(d => d.name !== name),
       }
-      syncReady(updated, hasDocumentRef.current)
-      void persistDraft(hasDocumentRef.current, updated)
+      syncReady(updated)
+      void persistDraft(updated)
       return updated
     })
   }
 
-  function toggleHasDocument(slotKey: string, value: boolean) {
-    const nextHas = { ...hasDocumentRef.current, [slotKey]: value }
-    setHasDocument(nextHas)
-    setPortalSourceBySlot(prev => ({ ...prev, [slotKey]: false }))
-    onAvailabilityReadyRef.current?.(nextHas)
-    void syncPortalAvailability(slotKey, value)
-
-    if (!value) {
-      setUploadedBySlot(prev => {
-        const updated = { ...prev, [slotKey]: [] }
-        syncReady(updated, nextHas)
-        void persistDraft(nextHas, updated)
-        return updated
-      })
-    } else {
-      void persistDraft(nextHas, uploadedBySlotRef.current)
-    }
-  }
-
   return (
-    <div className="space-y-5">
-      <div className="bg-stone-50 border border-stone-200 rounded-lg px-4 py-3 space-y-2">
-        <p className="text-[12px] text-stone-500 leading-relaxed">
-          For each document type below, indicate whether the seller has this document available.{' '}
-          <span className="font-medium text-stone-700">Select &ldquo;Yes&rdquo; to upload, or &ldquo;No&rdquo; if unavailable.</span>{' '}
-          The analysis will run with whatever documents are provided. Missing documents will be noted in the report.
+    <div className="space-y-6">
+      {/* Sector Header */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Optional Business Permits & Zoning Documents
+            </h4>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              {satisfiedCount} of {ALL_DOCUMENT_SLOTS.length} uploaded
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadDocumentsTabUploads()}
+            disabled={loadingPortalDocs}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw className={`w-3 h-3 ${loadingPortalDocs ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          All permits and zoning documents are optional. The analysis will run with whatever documents are provided, and any missing items will be noted in the report.
         </p>
-        <p className="text-[11px] text-stone-500 leading-relaxed">
-          Yes/No answers and files from the client portal Documents checklist are reflected here automatically and used as run context.
-        </p>
+
         {draftLoaded && (
           <p className="text-[11px] font-medium text-emerald-700">
             Draft restored for this client.
@@ -496,242 +474,293 @@ export default function WS19Uploader({
         )}
       </div>
 
-      {documentsTabUploads.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Uploaded from Documents ({documentsTabUploads.length})
-            </p>
-            <button
-              type="button"
-              onClick={() => void loadDocumentsTabUploads()}
-              className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-800"
-            >
-              <RefreshCw className="w-3 h-3" />
-              Refresh
-            </button>
-          </div>
-          <div className="space-y-2">
-            {documentsTabUploads.map(doc => {
-              const inQueue = allUploadedDocs.some(item => item.name === doc.fileName)
-              const slotKey = DOCUMENTS_TAB_TO_SLOT[doc.documentId]
-              const slotLabel = ALL_DOCUMENT_SLOTS.find(slot => slot.key === slotKey)?.label ?? doc.documentId
-              return (
-                <div
-                  key={doc.id}
-                  className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 ${
-                    inQueue ? 'border-emerald-300 bg-emerald-50/60' : 'border-slate-200 bg-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText className={`w-4 h-4 flex-shrink-0 ${inQueue ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-700 truncate">{doc.fileName}</p>
-                      <p className="text-[11px] text-slate-400">{slotLabel}</p>
-                    </div>
-                  </div>
-                  {inQueue ? (
-                    <span className="text-[11px] font-medium text-emerald-700">In queue</span>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={isLoading || importingDocId === doc.id}
-                      onClick={() => void handleUseDocumentsTabUpload(doc)}
-                      className="text-xs font-medium text-amber-700 hover:text-amber-800 disabled:opacity-50"
-                    >
-                      {importingDocId === doc.id ? 'Adding…' : 'Add'}
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {isOverLimits && (
-        <div className="flex gap-2 text-[12px] text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          <span>Warning:</span>
-          <span>Upload limit exceeded. Maximum 15 files and 25MB combined allowed.</span>
+        <div className="flex gap-2 text-[12px] text-rose-800 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+          <span>⚠</span>
+          <span>Upload limit exceeded. Maximum 25 files and 35MB combined allowed.</span>
         </div>
       )}
 
-      <div className="space-y-2">
-        {ALL_DOCUMENT_SLOTS.map(slot => (
-          <ToggleUploadSlot
-            key={slot.key}
-            slot={slot}
-            hasDocument={hasDocument[slot.key]}
-            files={uploadedBySlot[slot.key] ?? []}
-            fromPortal={Boolean(portalSourceBySlot[slot.key])}
-            onToggle={(value) => toggleHasDocument(slot.key, value)}
-            onFiles={handleFiles}
-            onRemove={removeFile}
-          />
-        ))}
+      {/* Document card list */}
+      <div className="space-y-2.5">
+        {ALL_DOCUMENT_SLOTS.map(slot => {
+          const readiness = slotReadinessMap[slot.key] ?? {
+            hasFiles: false,
+            isUnavailable: false,
+            portalDocs: [],
+            localDocs: [],
+            primaryDocumentId: slot.documentIds[0] || slot.key,
+          }
+          return (
+            <PermitDocRow
+              key={slot.key}
+              slot={slot}
+              clientId={clientId}
+              portalDocs={readiness.portalDocs}
+              localDocs={readiness.localDocs}
+              portalStatus={readiness.portalStatus}
+              primaryDocumentId={readiness.primaryDocumentId}
+              onFiles={handleFiles}
+              onRemove={removeFile}
+              readOnly={readOnly}
+            />
+          )
+        })}
       </div>
 
-      {unavailableSlots.length > 0 && (
-        <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          <p className="font-medium mb-1">Documents marked as unavailable ({unavailableSlots.length}):</p>
-          {unavailableSlots.map(slot => (
-            <p key={slot.key} className="text-amber-700">&bull; {slot.label} — will be noted as not provided in the report</p>
-          ))}
+      {/* Bottom Readiness & Action Footer */}
+      <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="text-xs">
+          {satisfiedCount > 0 ? (
+            <span className="text-emerald-700 font-medium flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              {satisfiedCount} document{satisfiedCount > 1 ? 's' : ''} ready. You can start the analysis.
+            </span>
+          ) : (
+            <span className="text-slate-500 font-medium flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
+              No documents uploaded. Analysis can run to note all documents as unavailable.
+            </span>
+          )}
         </div>
-      )}
 
-      <div className="pt-2 flex items-center justify-between gap-3 border-t border-stone-100">
-        <p className={`text-[11px] ${isOverLimits ? 'text-red-500 font-medium' : 'text-stone-400'}`}>
-          {totalFileCount} file{totalFileCount !== 1 ? 's' : ''} ({(totalSizeBytes / 1024 / 1024).toFixed(1)} MB)
-          {totalFileCount > 0 && ` · Max 15 files / 25 MB`}
-        </p>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={saveDraft}
-            disabled={!hasDraftInput || isLoading || savingDraft}
-            className={`relative inline-flex items-center gap-1.5 text-[12px] px-4 py-2 rounded-lg font-medium border transition-all ${
-              hasDraftInput && !isLoading && !savingDraft
-                ? 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
-                : 'bg-stone-50 text-stone-300 border-stone-100 cursor-not-allowed'
-            }`}
+        <div className="flex items-center gap-2 shrink-0">
+          {onCancel && (
+            <Button variant="outline" size="sm" onClick={onCancel} className="h-8 text-xs cursor-pointer">
+              Cancel
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void saveDraft()}
+            disabled={!hasDraftInput || busy || savingDraft}
+            className="gap-1.5 h-8 text-xs relative cursor-pointer"
           >
             <Save className="w-3.5 h-3.5" />
-            {savingDraft ? 'Saving...' : 'Save Draft'}
+            {savingDraft ? 'Saving…' : 'Save Draft'}
             {draftSaved && (
               <span className="absolute -top-2 -right-2 text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-medium animate-pulse">
                 Saved
               </span>
             )}
-          </button>
-          <button
-            onClick={onAnalyze}
-            disabled={!canRun || isLoading}
-            className={`text-[12px] px-4 py-2 rounded-lg font-medium transition-all ${
-              canRun && !isLoading
-                ? 'bg-stone-900 text-white hover:bg-stone-800'
-                : 'bg-stone-100 text-stone-400 cursor-not-allowed'
-            }`}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => void handleAnalyze()}
+            disabled={!canAnalyze || busy}
+            className="gap-1.5 h-8 text-xs font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
           >
-            {isLoading ? 'Running Analysis...' : 'Run Analysis ->'}
-          </button>
+            {busy ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {preparingAnalyze ? 'Preparing files…' : 'Analyzing…'}
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5" />
+                Run Permits & Zoning Analysis
+              </>
+            )}
+          </Button>
         </div>
       </div>
-
-      {allSlotsAnswered && allSlotsUnavailable && canRun ? (
-        <p className="text-[11px] text-stone-400 text-right -mt-3">
-          All documents marked No — run analysis to record that nothing was provided.
-        </p>
-      ) : !canRun ? (
-        <p className="text-[11px] text-stone-400 text-right -mt-3">
-          Upload at least one document, or mark every item Yes/No, to run the analysis
-        </p>
-      ) : null}
     </div>
   )
 }
 
-function ToggleUploadSlot({
+function PermitDocRow({
   slot,
-  hasDocument,
-  files,
-  fromPortal,
-  onToggle,
+  clientId,
+  portalDocs,
+  localDocs,
+  portalStatus,
+  primaryDocumentId,
   onFiles,
   onRemove,
+  readOnly,
 }: {
-  slot: (typeof ALL_DOCUMENT_SLOTS)[number]
-  hasDocument: boolean | undefined
-  files: UploadedDoc[]
-  fromPortal?: boolean
-  onToggle: (value: boolean) => void
-  onFiles: (key: string, files: FileList | null) => void
-  onRemove: (key: string, name: string) => void
+  slot: PermitsDocumentSlotDef
+  clientId: string
+  portalDocs: ClientUploadedDoc[]
+  localDocs: UploadedDoc[]
+  portalStatus?: DocumentStatus
+  primaryDocumentId: string
+  onFiles: (slotKey: string, files: FileList | null) => void
+  onRemove: (slotKey: string, name: string) => void
+  readOnly?: boolean
 }) {
+  const [isDragging, setIsDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const borderColor = hasDocument === false
-    ? 'border-stone-100 bg-stone-50/50'
-    : files.length > 0
-      ? 'border-green-200 bg-green-50'
-      : 'border-stone-200 bg-white'
+  const hasFiles = localDocs.length > 0 || portalDocs.length > 0 || Boolean(portalStatus?.fileName)
+  const isUnavailable = !hasFiles && (portalStatus?.hasDoc === false || Boolean(portalStatus?.notApplicable))
 
   return (
-    <div className={`border rounded-lg px-3 py-2.5 transition-colors ${borderColor}`}>
-      <div className="flex items-start justify-between gap-3">
+    <div
+      onDragOver={(e) => {
+        if (readOnly) return
+        e.preventDefault()
+        setIsDragging(true)
+      }}
+      onDragLeave={() => setIsDragging(false)}
+      onDrop={(e) => {
+        if (readOnly) return
+        e.preventDefault()
+        setIsDragging(false)
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          onFiles(slot.key, e.dataTransfer.files)
+        }
+      }}
+      className={`rounded-xl border p-4 transition-all shadow-2xs ${
+        isDragging
+          ? 'border-indigo-400 bg-indigo-50/50 ring-2 ring-indigo-400/20'
+          : hasFiles
+          ? 'border-emerald-200 bg-emerald-50/40'
+          : isUnavailable
+          ? 'border-amber-200 bg-amber-50/40'
+          : 'border-slate-200/80 bg-white'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className={`text-[12px] font-medium ${hasDocument === false ? 'text-stone-400' : 'text-stone-800'}`}>{slot.label}</p>
-            {fromPortal && hasDocument !== undefined && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                Portal: {hasDocument ? 'Yes' : 'No'}
-              </span>
-            )}
-          </div>
-          <p className="text-[11px] text-stone-400 leading-snug mt-0.5">{slot.note}</p>
-          {files.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {files.map((f: UploadedDoc) => (
-                <span
-                  key={f.name}
-                  className="inline-flex items-center gap-1 text-[11px] bg-white border border-stone-200 text-stone-600 px-2 py-0.5 rounded-full"
-                >
-                  {f.name.length > 28 ? f.name.slice(0, 28) + '...' : f.name}
-                  <button
-                    onClick={() => onRemove(slot.key, f.name)}
-                    className="text-stone-400 hover:text-red-500 transition-colors"
-                  >
-                    x
-                  </button>
-                </span>
-              ))}
+          <div className="flex items-start gap-3">
+            <div
+              className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                hasFiles
+                  ? 'bg-emerald-50 text-emerald-600'
+                  : isUnavailable
+                  ? 'bg-amber-50 text-amber-600'
+                  : 'bg-slate-100 text-slate-400'
+              }`}
+            >
+              <FileText className="w-4.5 h-4.5" />
             </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="flex items-center rounded-lg border border-stone-200 overflow-hidden">
-            <button
-              type="button"
-              onClick={() => onToggle(true)}
-              className={`text-[10px] font-medium px-2.5 py-1.5 transition-colors ${
-                hasDocument === true || files.length > 0
-                  ? 'bg-green-100 text-green-700'
-                  : 'text-stone-400 hover:bg-stone-50'
-              }`}
-            >
-              Yes
-            </button>
-            <button
-              type="button"
-              onClick={() => onToggle(false)}
-              className={`text-[10px] font-medium px-2.5 py-1.5 transition-colors ${
-                hasDocument === false
-                  ? 'bg-stone-200 text-stone-600'
-                  : 'text-stone-400 hover:bg-stone-50'
-              }`}
-            >
-              No
-            </button>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-slate-800">{slot.label}</p>
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                  Optional
+                </span>
+                {hasFiles ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Uploaded
+                  </span>
+                ) : isUnavailable ? (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                    Not available with client
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-400 border border-slate-200">
+                    Not provided
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">{slot.note}</p>
+
+              {/* Uploaded files display */}
+              {hasFiles && (
+                <div className="flex flex-wrap gap-2 mt-2.5">
+                  {/* Portal docs */}
+                  {portalDocs.map((pDoc, idx) => (
+                    <a
+                      key={pDoc.id || idx}
+                      href={`/api/client-documents/view?clientId=${encodeURIComponent(clientId)}&documentId=${encodeURIComponent(pDoc.documentId || primaryDocumentId)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs hover:bg-emerald-50 transition-colors cursor-pointer"
+                      title="Click to view file"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="truncate max-w-[240px]">{pDoc.fileName}</span>
+                      {pDoc.uploadedAt && (
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          · {new Date(pDoc.uploadedAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </a>
+                  ))}
+
+                  {/* Local docs */}
+                  {localDocs.map(lDoc => (
+                    <span
+                      key={lDoc.name}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="truncate max-w-[240px]">{lDoc.name}</span>
+                      {lDoc.sizeBytes && (
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          · {(lDoc.sizeBytes / 1024).toFixed(0)} KB
+                        </span>
+                      )}
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => onRemove(slot.key, lDoc.name)}
+                          className="text-slate-400 hover:text-rose-600 transition-colors ml-0.5 cursor-pointer"
+                          title="Remove file"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  ))}
+
+                  {/* Legacy single file name from status if not in portalDocs or localDocs */}
+                  {!portalDocs.length && !localDocs.length && portalStatus?.fileName && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs">
+                      <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="truncate max-w-[240px]">{portalStatus.fileName}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Status explanation note if not uploaded */}
+              {!hasFiles && (
+                <div className="mt-2 text-[11px] flex items-center gap-1.5">
+                  {isUnavailable ? (
+                    <span className="text-amber-700 font-medium flex items-center gap-1">
+                      Marked as not available with client in portal
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 font-normal">
+                      Not provided yet (optional — analysis can run without this)
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          {hasDocument !== false && (
-            <>
-              <input
-                ref={inputRef}
-                type="file"
-                className="hidden"
-                multiple={slot.multi}
-                accept=".pdf,.docx,.xlsx,.png"
-                onChange={e => onFiles(slot.key, e.target.files)}
-              />
-              <button
-                type="button"
-                className="text-[11px] px-2.5 py-1.5 rounded-lg border border-stone-200 text-stone-500 hover:bg-stone-50 transition-colors"
-                onClick={() => inputRef.current?.click()}
-              >
-                {files.length > 0 ? '+ Add more' : 'Upload'}
-              </button>
-            </>
-          )}
         </div>
+
+        {/* Upload Button action */}
+        {!readOnly && (
+          <div className="shrink-0 pt-0.5">
+            <input
+              ref={inputRef}
+              type="file"
+              className="hidden"
+              multiple={slot.multi}
+              accept={slot.accept || '.pdf,.docx,.doc'}
+              onChange={e => {
+                onFiles(slot.key, e.target.files)
+                e.target.value = ''
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => inputRef.current?.click()}
+              className="gap-1.5 h-8 text-xs font-medium cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              {hasFiles ? (slot.multi ? '+ Add more' : 'Replace') : 'Upload'}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

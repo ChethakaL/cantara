@@ -11,8 +11,19 @@ import {
   BarChart3,
   Plus,
   Trash2,
+  CheckCircle2,
+  AlertCircle,
+  Play,
+  RotateCw,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  Building2,
+  Globe,
+  FileText,
 } from 'lucide-react'
-import { Card, Badge, cn } from '@/components/ui'
+import { Card, Badge, cn, Button } from '@/components/ui'
+import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { CompetitorPricingInput, PricingAnalysisReport, PriceMatrixRow, PricingSummaryRow, PricingFlag } from '@/lib/pricing-analysis/types'
 import {
   getCompetitorNamesFromReport,
@@ -63,6 +74,79 @@ function formatPriceDisplay(value: string): string {
 
 function editPriceValue(value: string): string {
   return isEmptyPriceDisplay(value) ? '' : value
+}
+
+function DeleteConfirmModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  isDeleting,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: () => void
+  isDeleting?: boolean
+}) {
+  if (!isOpen) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="p-6 text-center space-y-3">
+          <div className="mx-auto w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center font-bold text-lg">
+            !
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-slate-900">Delete Competitive Pricing Report?</h3>
+            <p className="text-xs text-slate-500">
+              This will permanently remove the competitive pricing analysis for this client. You will need to re-run the analysis to regenerate it.
+            </p>
+          </div>
+        </div>
+        <div className="flex border-t border-slate-100 p-3 gap-2 bg-slate-50/50 justify-end">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={isDeleting} className="h-8 text-xs cursor-pointer">
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="h-8 text-xs bg-rose-600 text-white hover:bg-rose-700 border-none cursor-pointer"
+          >
+            {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StatusToast({
+  message,
+  type,
+  onClose,
+}: {
+  message: string
+  type: 'success' | 'error'
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000)
+    return () => clearTimeout(timer)
+  }, [onClose])
+
+  return (
+    <div
+      className={cn(
+        'fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-lg border text-xs font-medium animate-in fade-in slide-in-from-bottom-2 duration-200',
+        type === 'success'
+          ? 'bg-emerald-950 text-emerald-100 border-emerald-800/60'
+          : 'bg-rose-950 text-rose-100 border-rose-800/60',
+      )}
+    >
+      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+      <span>{message}</span>
+    </div>
+  )
 }
 
 // ── Editable Cell helper ────────────────────────────────────────────────────
@@ -161,6 +245,12 @@ export default function PricingAnalysisTab({
   )
   const [savingInputs, setSavingInputs] = useState(false)
   const [inputsSaved, setInputsSaved] = useState(false)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [loadingInputs, setLoadingInputs] = useState(false)
+  const [showManualEvidence, setShowManualEvidence] = useState(false)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const lastSavedSnapshotRef = useRef<string>('')
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -223,6 +313,7 @@ export default function PricingAnalysisTab({
         setResult(normalized)
         markSavedSnapshot(normalized)
       }
+      setInitialLoading(false)
       return
     }
     const loadSaved = async () => {
@@ -243,9 +334,35 @@ export default function PricingAnalysisTab({
           }
         }
       } catch { /* ignore */ }
+      finally {
+        setInitialLoading(false)
+      }
     }
     loadSaved()
   }, [clientId, markSavedSnapshot, activeRun, loadingRuns])
+
+  const refreshInputs = async () => {
+    setLoadingInputs(true)
+    try {
+      const res = await fetch(`/api/pricing-analysis?clientId=${encodeURIComponent(clientId)}&includePrefill=1`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.prefill) {
+          if (data.prefill.sellerWebsiteUrl) setSellerWebsiteUrl(data.prefill.sellerWebsiteUrl)
+          if (data.prefill.sellerManualPricingText) setSellerManualPricingText(data.prefill.sellerManualPricingText)
+          if (data.prefill.competitors && data.prefill.competitors.length > 0) {
+            const prefillCompetitors = [...(data.prefill.competitors ?? [])].slice(0, 5)
+            setCompetitors(Array.from({ length: 5 }, (_, index) => prefillCompetitors[index] ?? { name: '', websiteUrl: '' }))
+          }
+        }
+        setToast({ message: 'Pricing benchmark targets refreshed from client portal', type: 'success' })
+      }
+    } catch {
+      setToast({ message: 'Failed to refresh inputs', type: 'error' })
+    } finally {
+      setLoadingInputs(false)
+    }
+  }
 
   function selectRun(run: AgentRunHistoryItem) {
     setActiveId(run.id)
@@ -340,13 +457,27 @@ export default function PricingAnalysisTab({
     }
   }
 
-  const handleReset = async () => {
-    setResult(null)
-    setError(null)
-    setEditMode(false)
+  const handleDelete = async () => {
+    setIsDeleting(true)
     try {
       await fetch(`/api/pricing-analysis?clientId=${encodeURIComponent(clientId)}`, { method: 'DELETE' })
-    } catch { /* ignore */ }
+      setResult(null)
+      setError(null)
+      setEditMode(false)
+      setDeleteModalOpen(false)
+      setToast({ message: 'Pricing analysis report deleted', type: 'success' })
+      await reloadRuns()
+    } catch {
+      setToast({ message: 'Failed to delete report', type: 'error' })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const handleNewAnalysis = () => {
+    setResult(null)
+    setEditMode(false)
+    setError(null)
   }
 
   const handleSave = async () => {
@@ -472,9 +603,11 @@ export default function PricingAnalysisTab({
       })
       if (!res.ok) throw new Error('Save failed')
       setInputsSaved(true)
+      setToast({ message: 'Pricing targets saved successfully', type: 'success' })
       setTimeout(() => setInputsSaved(false), 2000)
     } catch (err: any) {
       setError(err.message || 'Save failed')
+      setToast({ message: 'Failed to save inputs', type: 'error' })
     } finally {
       setSavingInputs(false)
     }
@@ -602,11 +735,13 @@ export default function PricingAnalysisTab({
             activeVersion={activeRun?.version}
           />
         )}
-        {/* Header */}
-        <div className="flex items-center justify-between">
+        {/* Header Toolbar */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
           <div>
-            <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <h2 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              Competitive Pricing Analysis
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
               {clientName} &mdash; {result.competitorsAnalyzed} competitors analyzed &mdash; Generated{' '}
               {new Date(result.generatedAt).toLocaleString()}
             </p>
@@ -616,7 +751,8 @@ export default function PricingAnalysisTab({
               </p>
             )}
           </div>
-          <AdvisorActions className="flex items-center gap-3">
+
+          <AdvisorActions className="flex items-center gap-2 shrink-0 flex-wrap">
             {editMode && autoSaveStatus === 'saving' && (
               <span className="text-xs text-slate-500">Saving…</span>
             )}
@@ -627,44 +763,46 @@ export default function PricingAnalysisTab({
               <span className="text-xs text-red-600 font-medium">Save failed — use Save</span>
             )}
             {rerunComplete && (
-              <span className="px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
                 Analysis updated
               </span>
             )}
             {!readOnly && (
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={toggleEditMode}
                 className={cn(
-                  'flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors',
-                  editMode
-                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  'h-8 text-xs cursor-pointer',
+                  editMode && 'bg-amber-50 text-amber-700 border-amber-200',
                 )}
               >
-                <Pencil className="w-3.5 h-3.5" />
+                <Pencil className="w-3.5 h-3.5 mr-1" />
                 {editMode ? 'Editing' : 'Edit'}
-              </button>
+              </Button>
             )}
             {!readOnly && editMode && (
-              <button
+              <Button
+                size="sm"
                 onClick={handleAnalyze}
                 disabled={analyzing}
-                className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-70"
+                className="h-8 text-xs bg-slate-900 text-white hover:bg-slate-800 cursor-pointer"
               >
-                <RefreshCw className={cn('w-3.5 h-3.5', analyzing && 'animate-spin')} />
-                {analyzing ? 'Updating analysis...' : 'Run AI Again'}
-              </button>
+                <RotateCw className={cn('w-3.5 h-3.5 mr-1', analyzing && 'animate-spin')} />
+                {analyzing ? 'Updating...' : 'Run AI Again'}
+              </Button>
             )}
             {editMode && (
               <div className="relative">
-                <button
+                <Button
+                  size="sm"
                   onClick={handleSave}
                   disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-sm transition-all"
+                  className="h-8 text-xs bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer"
                 >
-                  <Save className="w-3.5 h-3.5" />
+                  <Save className="w-3.5 h-3.5 mr-1" />
                   {saving ? 'Saving...' : 'Save'}
-                </button>
+                </Button>
                 {savedBadge && (
                   <span className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
                     Saved
@@ -675,15 +813,29 @@ export default function PricingAnalysisTab({
             <ExportReportButton
               html={buildPricingAnalysisReportHtml(result, clientName)}
               fileName={`competitor-pricing-analysis-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-              label="Export PDF"
+              label="Export Pricing Report"
             />
-            <button
-              onClick={handleReset}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              New Analysis
-            </button>
+            {!readOnly && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleNewAnalysis}
+                  className="h-8 text-xs cursor-pointer"
+                >
+                  + New Analysis
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDeleteModalOpen(true)}
+                  className="h-8 text-xs text-rose-600 hover:text-rose-700 border-rose-200 hover:bg-rose-50 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                  Delete
+                </Button>
+              </>
+            )}
           </AdvisorActions>
         </div>
 
@@ -1114,13 +1266,81 @@ export default function PricingAnalysisTab({
             ))}
           </ol>
         </Card>
+        <DeleteConfirmModal
+          isOpen={deleteModalOpen}
+          onClose={() => setDeleteModalOpen(false)}
+          onConfirm={handleDelete}
+          isDeleting={isDeleting}
+        />
+        {toast && (
+          <StatusToast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
       </div>
     )
   }
 
-  // ── Upload view ─────────────────────────────────────────────────────────────
+  // ── Loading Gate ──
+  if (initialLoading || loadingRuns) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-6 h-6 border-2 border-amber-200 border-t-amber-600 rounded-full animate-spin" />
+          <p className="text-xs text-slate-400">Loading pricing analysis…</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Read-Only Gate ──
+  const readOnlyGate = agentTabReadOnlyGate(
+    readOnly,
+    initialLoading || loadingRuns,
+    Boolean(result),
+    'Competitive Pricing Analysis',
+  )
+  if (readOnlyGate) return readOnlyGate
+
+  // ── Analyzing Spinner ──
+  if (analyzing && !result) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-12 shadow-2xs text-center space-y-6">
+        <div className="w-12 h-12 border-3 border-amber-200 border-t-amber-600 rounded-full animate-spin mx-auto" />
+        <div className="space-y-1">
+          <h3 className="text-base font-semibold text-slate-900">
+            Benchmarking Competitive Pricing…
+          </h3>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            Extracting public rates and plans across {clientName} and 5 named competitors. This typically takes 1-2 minutes.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const readyCompetitorCount = competitors.filter(c => c.name.trim() && c.websiteUrl.trim()).length
+  const hasSellerUrl = Boolean(sellerWebsiteUrl.trim())
+  const canAnalyze = hasSellerUrl && readyCompetitorCount === 5
+
+  // ── Workspace / Input View ───────────────────────────────────────────────────
   return (
     <div className="space-y-6">
+      {/* Header Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+        <div>
+          <h2 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+            Competitive Pricing Analysis
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Direct pricing and services comparison across 5 named competitors for {clientName}
+          </p>
+        </div>
+      </div>
+
+      {/* AI Provider Toolbar */}
       {!readOnly && (
         <AgentRunToolbar
           provider={provider}
@@ -1134,90 +1354,374 @@ export default function PricingAnalysisTab({
           activeVersion={activeRun?.version}
         />
       )}
-      <div>
-        <h2 className="text-lg font-semibold text-slate-800">Competitive Pricing Analysis</h2>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Compare {clientName} pricing against exactly 5 named competitors using seller and competitor websites.
-        </p>
-        <p className="text-xs text-slate-400 mt-1">
-          Competitors are prefilled from Competitor Analysis or client collection inputs when available.
-        </p>
-      </div>
 
-      <Card className="p-5">
-        <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Seller Website</label>
-        <input
-          value={sellerWebsiteUrl}
-          onChange={e => setSellerWebsiteUrl(e.target.value)}
-          placeholder="https://seller-website.com/pricing"
-          className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
-        />
-      </Card>
+      {/* Main Workspace Card */}
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-2xs space-y-6">
+        {/* Card Title Block */}
+        <div>
+          <h3 className="text-base font-semibold text-slate-900">
+            Pricing Benchmark Targets
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            No document upload required. Competitor names and pricing page URLs are prefilled automatically from the <strong>Required Information</strong> form submitted in the Client Portal. You can verify, fine-tune, or manually override URLs below before running analysis.
+          </p>
+        </div>
 
-      <Card className="p-5">
-        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Competitors (all 5 required)</h3>
-        <div className="space-y-3">
-          {competitors.map((competitor, index) => (
-            <div key={index} className="grid gap-3 md:grid-cols-[1fr_1.4fr]">
+        {/* Sector Header / Readiness Bar */}
+        <div className="pt-2 border-t border-slate-100 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              PRICING BENCHMARK TARGETS
+            </h4>
+            <span
+              className={cn(
+                'text-[11px] font-semibold px-2 py-0.5 rounded-full',
+                readyCompetitorCount === 5 && hasSellerUrl
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-slate-100 text-slate-600',
+              )}
+            >
+              {readyCompetitorCount} of 5 competitors ready
+            </span>
+            <span
+              className={cn(
+                'text-[11px] font-semibold px-2 py-0.5 rounded-full',
+                hasSellerUrl
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-amber-50 text-amber-700 border border-amber-200',
+              )}
+            >
+              {hasSellerUrl ? 'Seller URL Ready' : 'Seller URL Missing'}
+            </span>
+          </div>
+
+          <button
+            onClick={refreshInputs}
+            disabled={loadingInputs}
+            className="text-[11px] text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer transition-colors"
+          >
+            <RotateCw className={cn('w-3 h-3', loadingInputs && 'animate-spin')} />
+            Refresh from Portal
+          </button>
+        </div>
+
+        {/* Information Banner */}
+        <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex items-start gap-3">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shrink-0 mt-0.5">
+            <Globe className="w-4 h-4" />
+          </div>
+          <div className="text-xs space-y-1">
+            <div className="font-semibold text-slate-800">
+              Automated Live Pricing Extraction
+            </div>
+            <p className="text-slate-600 leading-relaxed">
+              The AI agent crawls live public pricing tables from the seller and all 5 competitor websites. Provide direct links to pricing or service plans pages where possible (e.g., <code className="text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono">https://domain.com/pricing</code>) for maximum extraction accuracy.
+            </p>
+          </div>
+        </div>
+
+        {/* Target Cards */}
+        <div className="space-y-4">
+          {/* Card 1: Seller Pricing URL */}
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-4 mb-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900 truncate">
+                      Seller Website / Pricing Page URL
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                      Required
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {clientName}&apos;s public pricing, rate card, or service catalog URL
+                  </p>
+                </div>
+              </div>
+              {hasSellerUrl && (
+                <a
+                  href={sellerWebsiteUrl.trim().startsWith('http') ? sellerWebsiteUrl.trim() : `https://${sellerWebsiteUrl.trim()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 shrink-0"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Visit
+                </a>
+              )}
+            </div>
+
+            <div className="relative">
               <input
-                value={competitor.name}
-                onChange={e => updateCompetitor(index, 'name', e.target.value)}
-                placeholder={`Competitor ${index + 1} name`}
-                required
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
-              />
-              <input
-                value={competitor.websiteUrl}
-                onChange={e => updateCompetitor(index, 'websiteUrl', e.target.value)}
-                placeholder="https://competitor.com/pricing"
-                required
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                type="url"
+                value={sellerWebsiteUrl}
+                onChange={e => setSellerWebsiteUrl(e.target.value)}
+                placeholder="https://seller-website.com/pricing"
+                className="w-full text-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-mono"
               />
             </div>
-          ))}
-        </div>
-      </Card>
+          </div>
 
-      {error && (
-        <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-4 py-3 rounded-lg">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          {error}
-        </div>
-      )}
+          {/* Card 2: 5 Competitor Targets */}
+          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
+                  <BarChart3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900">
+                      Competitor Pricing Targets
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                      5 Required
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Named direct competitors and their public pricing URLs from Client Portal Required Info
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-medium text-slate-500">
+                {readyCompetitorCount} / 5 ready
+              </span>
+            </div>
 
-      {!readOnly && (
-        <>
-        <button
-        onClick={handleAnalyze}
-        disabled={analyzing || !sellerWebsiteUrl.trim() || competitors.filter(c => c.name.trim() && c.websiteUrl.trim()).length !== 5}
-        className={cn(
-          'flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold transition-all w-full md:w-auto',
-          !analyzing && sellerWebsiteUrl.trim() && competitors.filter(c => c.name.trim() && c.websiteUrl.trim()).length === 5
-            ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-sm'
-            : 'bg-slate-100 text-slate-400 cursor-not-allowed',
+            <div className="space-y-2.5">
+              {competitors.map((competitor, idx) => {
+                const isReady = Boolean(competitor.name.trim() && competitor.websiteUrl.trim())
+                const formattedUrl = competitor.websiteUrl.trim().startsWith('http') 
+                  ? competitor.websiteUrl.trim() 
+                  : `https://${competitor.websiteUrl.trim()}`
+
+                return (
+                  <div
+                    key={idx}
+                    className={cn(
+                      'p-3 rounded-lg border transition-all flex flex-col md:flex-row md:items-center gap-3',
+                      isReady
+                        ? 'border-slate-200 bg-slate-50/50'
+                        : 'border-amber-200/80 bg-amber-50/20',
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5 md:w-8 shrink-0">
+                      <span
+                        className={cn(
+                          'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0',
+                          isReady
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-slate-200 text-slate-600',
+                        )}
+                      >
+                        {idx + 1}
+                      </span>
+                    </div>
+
+                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                          Competitor {idx + 1} Name
+                        </label>
+                        <input
+                          type="text"
+                          value={competitor.name}
+                          onChange={e => updateCompetitor(idx, 'name', e.target.value)}
+                          placeholder={`e.g. Competitor ${idx + 1} Name`}
+                          className="w-full text-xs rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">
+                            Pricing Page URL
+                          </label>
+                          {competitor.websiteUrl.trim() && (
+                            <a
+                              href={formattedUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-slate-400 hover:text-slate-700 inline-flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="w-2.5 h-2.5" />
+                              Visit
+                            </a>
+                          )}
+                        </div>
+                        <input
+                          type="url"
+                          value={competitor.websiteUrl}
+                          onChange={e => updateCompetitor(idx, 'websiteUrl', e.target.value)}
+                          placeholder="https://competitor.com/pricing"
+                          className="w-full text-xs rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="hidden md:flex items-center justify-center shrink-0 w-8">
+                      {isReady ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-amber-400" title="Incomplete" />
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Optional: Manual Pricing Evidence Accordion */}
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => setShowManualEvidence(!showManualEvidence)}
+              className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-50/70 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900">
+                      Manual Pricing Evidence &amp; Text Override
+                    </span>
+                    <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                      Optional
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Paste copied rate cards, menus, or raw pricing text if websites have dynamic scripts or paywalls
+                  </p>
+                </div>
+              </div>
+              <ChevronDown
+                className={cn(
+                  'w-4 h-4 text-slate-400 transition-transform duration-200',
+                  showManualEvidence && 'rotate-180',
+                )}
+              />
+            </button>
+
+            {showManualEvidence && (
+              <div className="p-4 pt-1 border-t border-slate-100 space-y-4 bg-slate-50/30">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block mb-1">
+                    {clientName} Pricing Text
+                  </label>
+                  <textarea
+                    value={sellerManualPricingText}
+                    onChange={e => setSellerManualPricingText(e.target.value)}
+                    placeholder={'Full Day $62\nHalf Day $39\n10 Day Package $490\n20 Day Package $969'}
+                    rows={4}
+                    className="w-full text-xs rounded-lg border border-slate-200 bg-white p-2.5 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                  />
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {competitors.map((competitor, idx) => (
+                    <div key={`manual-evidence-${idx}`}>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block mb-1">
+                        {competitor.name.trim() || `Competitor ${idx + 1}`} Pricing Text
+                      </label>
+                      <textarea
+                        value={competitor.manualPricingText ?? ''}
+                        onChange={e => updateCompetitor(idx, 'manualPricingText', e.target.value)}
+                        placeholder="Paste raw pricing rows or table text..."
+                        rows={3}
+                        className="w-full text-xs rounded-lg border border-slate-200 bg-white p-2.5 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 px-4 py-3 rounded-lg">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-600" />
+            <span>{error}</span>
+          </div>
         )}
-      >
-        {analyzing ? (
-          <>
-            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Researching Competitive Pricing...
-          </>
-        ) : (
-          <>
-            <BarChart3 className="w-4 h-4" />
-            Run Competitive Pricing Analysis
-          </>
-        )}
-      </button>
-      <button
-        onClick={saveCompetitorInputs}
-        disabled={savingInputs}
-        className="ml-3 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
-      >
-        <Save className="w-4 h-4" />
-        {savingInputs ? 'Saving...' : inputsSaved ? 'Saved' : 'Save Inputs'}
-      </button>
-        </>
+
+        {/* Action Footer */}
+        <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-2">
+            {canAnalyze ? (
+              <span className="text-xs text-emerald-700 font-medium inline-flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                Seller URL and all 5 competitor benchmarks are configured and ready.
+              </span>
+            ) : (
+              <span className="text-xs text-amber-700 font-medium inline-flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-amber-600" />
+                {!hasSellerUrl
+                  ? 'Seller website URL is required.'
+                  : `${5 - readyCompetitorCount} more competitor benchmark${5 - readyCompetitorCount !== 1 ? 's' : ''} (name & URL) required.`}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={saveCompetitorInputs}
+              disabled={savingInputs}
+              className="h-9 px-4 text-xs font-medium cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5 mr-1.5" />
+              {savingInputs ? 'Saving...' : inputsSaved ? 'Saved' : 'Save Inputs'}
+            </Button>
+
+            <Button
+              size="sm"
+              onClick={handleAnalyze}
+              disabled={analyzing || !canAnalyze}
+              className={cn(
+                'h-9 px-5 text-xs font-semibold cursor-pointer border-none shadow-xs transition-all',
+                canAnalyze && !analyzing
+                  ? 'bg-slate-900 text-white hover:bg-slate-800'
+                  : 'bg-slate-100 text-slate-400 cursor-not-allowed',
+              )}
+            >
+              {analyzing ? (
+                <>
+                  <RotateCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  Benchmarking Pricing...
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 mr-1.5 fill-current" />
+                  Run Competitive Pricing Analysis
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <DeleteConfirmModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={handleDelete}
+        isDeleting={isDeleting}
+      />
+      {toast && (
+        <StatusToast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   )

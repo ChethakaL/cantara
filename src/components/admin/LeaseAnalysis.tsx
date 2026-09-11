@@ -1,11 +1,12 @@
 'use client'
-import { useState, useCallback, useEffect } from 'react'
-import { Plus } from 'lucide-react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
+import { Plus, X } from 'lucide-react'
 import { Button, Card, Modal } from '@/components/ui'
-import type { LeaseAnalysis } from '@/lib/store'
+import type { LeaseAnalysis, DocumentStatus } from '@/lib/store'
 import { saveLeaseAnalysis, getLeaseAnalyses, deleteLeaseAnalysis, updateLeaseAnalysis } from '@/lib/store'
 import { useLeaseAnalysis } from '@/hooks/useLeaseAnalysis'
-import type { LeaseReport as LeaseReportData } from '@/lib/lease-analysis/types'
+import type { LeaseReport as LeaseReportData, LeaseDocument } from '@/lib/lease-analysis/types'
+import { convertPdfToBase64 } from '@/lib/lease-analysis/pdf-to-base64'
 
 // Modular components
 import { LeaseUploader } from '../lease-analysis/LeaseUploader'
@@ -13,8 +14,8 @@ import { AnalysisProgress } from '../lease-analysis/AnalysisProgress'
 import { LeaseReport } from '../lease-analysis/LeaseReport'
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
-import { AgentRunHistoryPanel } from '@/components/admin/AgentRunHistoryPanel'
-import { formatAgentProviderLabel } from '@/lib/agent-model-provider'
+import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
+import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 import {
   fetchClientDocumentFile,
   listClientDocuments,
@@ -26,9 +27,10 @@ const LEASES_DOCUMENT_ID = 'leases'
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
+  documentStatuses?: Record<string, DocumentStatus>
 }
 
-export default function LeaseAnalysisTab({ clientId, clientName, readOnly = false }: Props) {
+export default function LeaseAnalysisTab({ clientId, clientName, documentStatuses, readOnly = false }: Props) {
   const [analyses, setAnalyses] = useState<LeaseAnalysis[]>([])
   const [activeAnalysis, setActiveAnalysis] = useState<LeaseAnalysis | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -36,7 +38,8 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
   const [uploadedFromDocuments, setUploadedFromDocuments] = useState<ClientUploadedDoc[]>([])
-  const [loadingUploadedId, setLoadingUploadedId] = useState<string | null>(null)
+  const [loadingPortalDocs, setLoadingPortalDocs] = useState(false)
+  const [isPreparing, setIsPreparing] = useState(false)
   const { 
     documents: uploads, 
     addDocuments, 
@@ -53,10 +56,13 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
   } = useLeaseAnalysis(clientId)
 
   const loadUploadedLeases = useCallback(async () => {
+    setLoadingPortalDocs(true)
     try {
       setUploadedFromDocuments(await listClientDocuments(clientId, [LEASES_DOCUMENT_ID]))
     } catch {
       /* ignore */
+    } finally {
+      setLoadingPortalDocs(false)
     }
   }, [clientId])
 
@@ -64,24 +70,60 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
     void loadUploadedLeases()
   }, [loadUploadedLeases])
 
-  const handleUseUploadedDocument = useCallback(async (doc: ClientUploadedDoc) => {
-    setLoadingUploadedId(doc.id)
+  const handleAnalyze = useCallback(async () => {
+    setIsPreparing(true)
     try {
-      const file = await fetchClientDocumentFile({
-        clientId,
-        documentId: doc.documentId,
-        recordId: doc.id,
-        fileName: doc.fileName,
-        mimeType: doc.mimeType,
-      })
-      await addDocuments([file])
-      setComposingNew(true)
-    } catch (err) {
-      console.error('Failed to load lease from Documents:', err)
+      const missingPortalDocs = uploadedFromDocuments.filter(
+        (pDoc) => !uploads.some((u) => u.name === pDoc.fileName),
+      )
+
+      let allDocs: LeaseDocument[] = [...uploads]
+
+      if (missingPortalDocs.length > 0) {
+        for (const pDoc of missingPortalDocs) {
+          try {
+            const file = await fetchClientDocumentFile({
+              clientId,
+              documentId: pDoc.documentId,
+              recordId: pDoc.id,
+              fileName: pDoc.fileName,
+              mimeType: pDoc.mimeType,
+            })
+            const base64 = await convertPdfToBase64(file)
+            allDocs.push({
+              name: file.name,
+              base64,
+              mediaType: 'application/pdf',
+              sizeBytes: file.size,
+            })
+          } catch (fetchErr) {
+            console.error(`Failed to fetch portal doc ${pDoc.fileName}:`, fetchErr)
+          }
+        }
+      }
+
+      if (allDocs.length === 0) {
+        return
+      }
+
+      await analyze(allDocs)
     } finally {
-      setLoadingUploadedId(null)
+      setIsPreparing(false)
     }
-  }, [addDocuments, clientId])
+  }, [analyze, clientId, uploadedFromDocuments, uploads])
+
+  const historyItems = useMemo<AgentRunHistoryItem[]>(
+    () =>
+      analyses.map((a, idx) => ({
+        id: a.id,
+        createdAt: a.createdAt,
+        fileName: a.fileName,
+        aiProvider: a.aiProvider ?? undefined,
+        aiModel: a.aiModel ?? undefined,
+        version: analyses.length - idx,
+      })),
+    [analyses],
+  )
 
   const loadAnalyses = useCallback(async () => {
     const data = await getLeaseAnalyses(clientId)
@@ -160,11 +202,9 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
     ? uploads.map(d => d.name).join(', ')
     : activeAnalysis?.fileName || ''
 
+  const hasExistingReport = Boolean(displayReport) || analyses.length > 0
   const showUploader = !readOnly && status === 'idle' && (
-    composingNew
-    || analyses.length === 0
-    || uploads.length > 0
-    || uploadedFromDocuments.length > 0
+    composingNew || !hasExistingReport
   )
   const showReport = Boolean(displayReport) && !composingNew
 
@@ -173,37 +213,74 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
 
   return (
     <div className="space-y-6">
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={status !== 'idle' || isPreparing || deleting}
+          historyItems={historyItems}
+          activeId={activeAnalysis?.id}
+          onSelectRun={(run) => {
+            const found = analyses.find((analysis) => analysis.id === run.id)
+            if (found) {
+              setComposingNew(false)
+              setActiveAnalysis(found)
+            }
+          }}
+          activeProvider={activeAnalysis?.aiProvider}
+          activeModel={activeAnalysis?.aiModel}
+        />
+      )}
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800 cantara-serif">Lease Analysis</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Upload lease PDFs to run full M&A due diligence analysis</p>
-          <p className="text-xs text-slate-400 mt-1">Lease documents can also be uploaded in the Documents tab.</p>
-          {activeAnalysis?.aiProvider && !composingNew && (
-            <p className="text-xs text-slate-500 mt-1">
-              Viewing run: {formatAgentProviderLabel(activeAnalysis.aiProvider)}
-              {activeAnalysis.aiModel ? ` · ${activeAnalysis.aiModel}` : ''}
-            </p>
-          )}
+          <h2 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+            {showReport
+              ? 'Commercial Lease Analysis Report'
+              : composingNew
+                ? 'New Lease Analysis'
+                : 'Commercial Lease Analysis'}
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {showReport
+              ? `Commercial lease due diligence, rent escalations, options & financial risks for ${clientName}`
+              : `Review and analyze commercial lease agreements and addendums for ${clientName}`}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <AgentRunHistoryPanel
-            runs={analyses}
-            activeId={activeAnalysis?.id}
-            onSelect={(run) => {
-              const found = analyses.find((analysis) => analysis.id === run.id)
-              if (found) {
-                setComposingNew(false)
-                setActiveAnalysis(found)
-              }
-            }}
-          />
-        {analyses.length > 0 && !composingNew && (
-          <Button variant="outline" size="sm" className="gap-2" onClick={beginNewAnalysis} data-advisor-action>
-            <Plus className="w-3.5 h-3.5" /> New Analysis
-          </Button>
+
+        {!readOnly && (
+          <div className="flex items-center gap-2 shrink-0">
+            {showReport && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 h-8 text-xs font-medium text-slate-700 hover:text-slate-900 border-slate-200"
+                onClick={beginNewAnalysis}
+                data-advisor-action
+              >
+                <Plus className="w-3.5 h-3.5 text-slate-500" /> New Analysis
+              </Button>
+            )}
+            {analyses.length > 0 && composingNew && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-medium text-slate-700"
+                onClick={() => {
+                  clearAll()
+                  setComposingNew(false)
+                  if (!activeAnalysis && analyses.length > 0) {
+                    setActiveAnalysis(analyses[0])
+                  }
+                }}
+                data-advisor-action
+              >
+                <X className="w-3.5 h-3.5 mr-1 text-slate-500" /> Cancel
+              </Button>
+            )}
+          </div>
         )}
-        </div>
       </div>
 
       {/* Main Content Area */}
@@ -222,19 +299,28 @@ export default function LeaseAnalysisTab({ clientId, clientName, readOnly = fals
           </Card>
         ) : showUploader ? (
           <div data-advisor-action>
-          <LeaseUploader 
-            documents={uploads}
-            addDocuments={addDocuments}
-            removeDocument={removeDocument}
-            status={status}
-            onAnalyze={analyze}
-            provider={provider}
-            onProviderChange={setProvider}
-            uploadedFromDocuments={uploadedFromDocuments}
-            onRefreshDocuments={() => void loadUploadedLeases()}
-            onUseUploadedDocument={handleUseUploadedDocument}
-            loadingUploadedId={loadingUploadedId}
-          />
+            <LeaseUploader 
+              clientId={clientId}
+              documents={uploads}
+              addDocuments={addDocuments}
+              removeDocument={removeDocument}
+              status={status}
+              onAnalyze={handleAnalyze}
+              uploadedFromDocuments={uploadedFromDocuments}
+              documentStatus={documentStatuses?.['leases']}
+              onRefreshDocuments={loadUploadedLeases}
+              loadingPortalDocs={loadingPortalDocs}
+              isPreparing={isPreparing}
+              onCancel={analyses.length > 0 && composingNew ? () => {
+                clearAll()
+                setComposingNew(false)
+                if (!activeAnalysis && analyses.length > 0) {
+                  setActiveAnalysis(analyses[0])
+                }
+              } : undefined}
+              error={analysisError}
+              readOnly={readOnly}
+            />
           </div>
         ) : null}
 

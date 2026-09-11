@@ -2,8 +2,30 @@
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab'
 
-import { useState, useEffect } from 'react'
-import { Bot, CheckCircle2, ChevronDown, ChevronRight, Circle, Download, Eye, FileText, Loader2, Plus, Printer, RotateCcw, Save, Sparkles, Trash2, AlertCircle, X, Upload } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import {
+  AlertCircle,
+  ArrowRight,
+  Bot,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  Download,
+  ExternalLink,
+  Eye,
+  FileText,
+  Loader2,
+  Plus,
+  Printer,
+  RotateCcw,
+  RotateCw,
+  Save,
+  Sparkles,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react'
 import { Card, Button, Input, Badge, Textarea, cn } from '@/components/ui'
 import { CimInputData, DEFAULT_CIM_INPUT } from '@/lib/cim/types'
 import { generateCimHtml } from '@/lib/cim/generate-html'
@@ -15,19 +37,58 @@ import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
 import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
 import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
+import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 
 interface Props extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
+  onOpenAgent?: (tabKey: string) => void
 }
 
-const CIM_PREREQUISITES = [
-  { key: 'ttmAnalysis', label: 'Financial Analysis & Valuation (WS2-1)' },
-  { key: 'lease', label: 'Lease Analysis' },
-  { key: 'competitor', label: 'Competitor Analysis' },
-  { key: 'employeeObligations', label: 'Employee Obligations (WS1-6)' },
-  { key: 'digitalPresence', label: 'Digital Presence Report' },
-  { key: 'orgChart', label: 'Org Chart Review' },
+interface PrerequisiteItem {
+  key: string
+  tabKey: string
+  label: string
+  note: string
+}
+
+const CIM_PREREQUISITES: PrerequisiteItem[] = [
+  {
+    key: 'ttmAnalysis',
+    tabKey: 'ttm',
+    label: 'Financial Analysis & Valuation',
+    note: 'Historical revenue, gross margin, TTM summary, plus Recast add-backs / normalized EBITDA when completed on the Valuation tab.',
+  },
+  {
+    key: 'lease',
+    tabKey: 'lease',
+    label: 'Lease Analysis',
+    note: 'Facility profile, square footage, lease term, monthly rent, and renewal options.',
+  },
+  {
+    key: 'competitor',
+    tabKey: 'competitor',
+    label: 'Competitor Analysis',
+    note: 'Competitive positioning, local market landscape, and key competitive advantages.',
+  },
+  {
+    key: 'employeeObligations',
+    tabKey: 'employee-obligations',
+    label: 'Employee Obligations (WS1-6)',
+    note: 'Workforce overview, key team members, compensation, and staff longevity.',
+  },
+  {
+    key: 'digitalPresence',
+    tabKey: 'digital',
+    label: 'Digital Presence Report',
+    note: 'Website performance, Google Reviews, SEO authority, and customer reputation.',
+  },
+  {
+    key: 'insuranceReview',
+    tabKey: 'insurance',
+    label: 'Insurance Review',
+    note: 'Insurance claims history and coverage context used when drafting CIM risk / diligence notes.',
+  },
 ]
 
 const CIM_BULLET_TEXTAREA_CLASS =
@@ -49,7 +110,7 @@ function Section({ title, number, children, defaultOpen = true }: { title: strin
   )
 }
 
-export default function CimGeneratorTab({ clientId, clientName, readOnly = false }: Props) {
+export default function CimGeneratorTab({ clientId, clientName, readOnly = false, onOpenAgent }: Props) {
   const [status, setStatus] = useState<'idle' | 'auto-filling' | 'editing' | 'preview'>('idle')
   const [data, setData] = useState<CimInputData>(DEFAULT_CIM_INPUT)
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null)
@@ -71,6 +132,34 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
     loading: loadingRuns,
   } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.cim)
 
+  const [refreshing, setRefreshing] = useState(false)
+
+  const handleOpenAgent = useCallback(
+    (tabKey: string) => {
+      if (onOpenAgent) {
+        onOpenAgent(tabKey)
+      } else {
+        window.location.href = `/admin/client/${clientId}?tab=${tabKey}`
+      }
+    },
+    [onOpenAgent, clientId],
+  )
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      const res = await fetch(`/api/agent-status?clientId=${clientId}`, { cache: 'no-store' })
+      if (res.ok) {
+        const d = await res.json()
+        setPrereqs(d)
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   // ── Load prerequisite agent status ──────────────────────────────────────────
   useEffect(() => {
     fetch(`/api/agent-status?clientId=${clientId}`)
@@ -78,6 +167,7 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
       .then(data => { if (data) setPrereqs(data) })
       .catch(() => {})
   }, [clientId])
+
 
   // ── Load Draft ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -290,99 +380,207 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
 
   // ---------- IDLE STATE ----------
   if (status === 'idle') {
+    const completedCount = prereqs ? CIM_PREREQUISITES.filter((p) => prereqs[p.key]).length : 0
+    const allComplete = prereqs ? CIM_PREREQUISITES.every((p) => prereqs[p.key]) : false
+
     return (
       <div className="space-y-6">
-        {runToolbar}
-        <Card className="p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
-                <FileText className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">CIM Generator</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Generate a Confidential Information Memorandum from client data across all agents.</p>
-              </div>
-            </div>
+        {/* Unified Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+          <div>
+            <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              CIM Generator
+            </h1>
+            <p className="text-xs text-slate-500 mt-1">
+              {clientName} &mdash; Generate a Confidential Information Memorandum from client data across all agents
+            </p>
+          </div>
+          <AdvisorActions className="flex items-center gap-2.5 flex-wrap">
             <a
               href="/samples/Cantara_CIM_v3.docx"
               download="Cantara_CIM_v3.docx"
-              className="inline-flex items-center gap-2 font-medium transition-all rounded-lg border border-cantara-beige text-slate-700 hover:bg-cantara-beige/50 px-3 py-1.5 text-xs bg-white"
+              className="inline-flex items-center gap-1.5 font-medium transition-all rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 px-3 py-1.5 text-xs bg-white cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
               Download sample CIM
             </a>
-          </div>
-        </Card>
+          </AdvisorActions>
+        </div>
+
+        {runToolbar}
 
         {error && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+          <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 px-4 py-3 rounded-lg">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600" />
+            {error}
+          </div>
         )}
 
-        {/* Prerequisite Agents — live status */}
-        {(() => {
-          const completedCount = prereqs ? CIM_PREREQUISITES.filter(p => prereqs[p.key]).length : 0
-          const allComplete = prereqs ? CIM_PREREQUISITES.every(p => prereqs[p.key]) : false
-          return (
-            <Card className="p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">Prerequisite Agents</h4>
-                {prereqs && (
-                  <Badge color={allComplete ? 'green' : completedCount > 0 ? 'gold' : 'red'}>
-                    {completedCount}/{CIM_PREREQUISITES.length} complete
-                  </Badge>
-                )}
+        {/* Main Setup Workspace Card */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-6">
+          {/* Sector Header */}
+          <div className="space-y-1">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2 border-b border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Prerequisite Agent Inputs
+                </span>
+                <span
+                  className={cn(
+                    'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
+                    allComplete
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : completedCount > 0
+                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                      : 'bg-slate-100 text-slate-600 border-slate-200',
+                  )}
+                >
+                  {completedCount} of {CIM_PREREQUISITES.length} complete
+                </span>
               </div>
-              <p className="text-xs text-slate-500 mb-4">The CIM auto-fill pulls data from these agents. Missing agents will result in empty sections.</p>
-              <div className="space-y-2">
-                {CIM_PREREQUISITES.map(p => {
-                  const done = prereqs?.[p.key] ?? false
-                  return (
-                    <div key={p.key} className={cn(
-                      'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm',
-                      done ? 'bg-emerald-50 border border-emerald-100 text-emerald-800' : 'bg-slate-50 border border-slate-100 text-slate-500'
-                    )}>
-                      {done ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" /> : <Circle className="w-4 h-4 text-slate-300 flex-shrink-0" />}
-                      {p.label}
-                    </div>
-                  )
-                })}
-              </div>
-              {prereqs && !allComplete && (
-                <p className="text-xs text-amber-600 mt-3 flex items-center gap-1.5">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  Some agents haven&apos;t been run yet. You can still auto-fill, but some sections may be empty.
-                </p>
-              )}
-            </Card>
-          )
-        })()}
 
-        {/* Acknowledgment */}
-        <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-3 hover:bg-slate-50 transition-colors">
-          <input
-            type="checkbox"
-            checked={acknowledged}
-            onChange={e => setAcknowledged(e.target.checked)}
-            className="mt-0.5 accent-amber-500"
-          />
-          <span className="text-sm text-slate-600">
-            I confirm that the prerequisite analyses listed above have been completed (or are intentionally skipped) for this client.
-          </span>
-        </label>
-
-        <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/30 p-12 text-center space-y-4">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center">
-            <Sparkles className="w-8 h-8 text-amber-600" />
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="text-[11px] text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+              >
+                <RotateCw className={cn('w-3 h-3', refreshing && 'animate-spin')} />
+                Refresh
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              The CIM auto-fill compiles narrative and financial data from these optional agent outputs (including Recast numbers from the Valuation tab when available, and Insurance claims context). Completed agent reports populate sections directly; missing ones can be completed or skipped. Click <strong>Open Agent</strong> to run any pending agent.
+            </p>
           </div>
-          <h4 className="text-lg font-semibold text-slate-800">Auto-Fill from Client Data</h4>
-          <p className="text-sm text-slate-500 max-w-md mx-auto">
-            Pull data from the Valuation Agent, Lease Analysis, Competitor Analysis, and other agents to pre-populate the CIM. Financial data is mapped directly; narrative sections are AI-generated. You can review and edit everything before generating.
-          </p>
-          <Button size="lg" onClick={autoFill} disabled={!acknowledged}>
-            <Sparkles className="w-4 h-4" />
-            Auto-Fill CIM
-          </Button>
+
+          {/* Prerequisite Card Rows */}
+          <div className="space-y-3">
+            {CIM_PREREQUISITES.map((p) => {
+              const done = prereqs?.[p.key] ?? false
+              return (
+                <div
+                  key={p.key}
+                  className={cn(
+                    'rounded-xl border p-4 transition-all shadow-2xs',
+                    done ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200/80 bg-white',
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={cn(
+                            'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+                            done ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400',
+                          )}
+                        >
+                          <FileText className="w-4.5 h-4.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold text-slate-800">{p.label}</p>
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                              Prerequisite
+                            </span>
+                            {done ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Ready
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-400 border border-slate-200">
+                                Not generated
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">{p.note}</p>
+
+                          <p className="text-[11px] text-slate-400 mt-1.5">
+                            {done
+                              ? 'Agent report complete. Ready to auto-fill into CIM sections.'
+                              : 'Not generated yet (optional — CIM auto-fill compiles with or without this agent output).'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenAgent(p.tabKey)}
+                      className="h-8 text-xs gap-1.5 shrink-0 cursor-pointer hover:bg-slate-50"
+                      title={`Go to ${p.label}`}
+                    >
+                      <span>Open Agent</span>
+                      <ExternalLink className="w-3 h-3 text-slate-400" />
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Prerequisite status notice */}
+          {prereqs && !allComplete && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-800 flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-amber-900">Incomplete Prerequisite Analyses</p>
+                <p className="mt-0.5 text-amber-800 leading-relaxed">
+                  Some prerequisite agents haven&apos;t been run yet. You can still auto-fill the CIM &mdash; completed sections will be populated automatically, and missing sections can be edited manually.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Acknowledgment Checkbox */}
+          <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-slate-50/60 p-4 hover:bg-slate-100/60 transition-colors">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(e) => setAcknowledged(e.target.checked)}
+              className="mt-0.5 accent-amber-600"
+            />
+            <span className="text-xs text-slate-600 leading-relaxed">
+              I confirm that the prerequisite analyses listed above have been completed (or are intentionally skipped) for this client.
+            </span>
+          </label>
+
+          {/* Readiness Footer */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200">
+            <div className="w-full sm:w-auto">
+              {completedCount > 0 ? (
+                <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {completedCount} of {CIM_PREREQUISITES.length} prerequisite agent outputs ready to auto-fill.
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs text-amber-800 font-medium">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Confirm the prerequisite acknowledgment checkbox to proceed with auto-fill.</span>
+                </div>
+              )}
+            </div>
+
+            <div className="w-full sm:w-auto flex items-center justify-end gap-3">
+              <Button
+                type="button"
+                disabled={!acknowledged || status === 'auto-filling'}
+                onClick={autoFill}
+                className={cn(
+                  'h-10 px-5 rounded-lg font-medium text-xs text-white shadow-xs inline-flex items-center gap-2 cursor-pointer transition-all',
+                  'bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed',
+                )}
+              >
+                <Sparkles className="w-4 h-4 text-white" />
+                <span>Auto-Fill CIM</span>
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -392,8 +590,15 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
   if (status === 'auto-filling') {
     return (
       <div className="py-24 flex flex-col items-center gap-4">
-        <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
-        <p className="text-sm text-slate-500">Gathering data from all agents and generating CIM content...</p>
+        <div className="w-12 h-12 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-amber-600" />
+        </div>
+        <div className="text-center space-y-1">
+          <h3 className="text-base font-semibold text-slate-800">Auto-Filling CIM from Prerequisite Agents...</h3>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            Gathering data from Valuation, Lease Analysis, Competitor Analysis, and other agents. This takes 15-30 seconds.
+          </p>
+        </div>
       </div>
     )
   }
@@ -401,35 +606,61 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
   // ---------- PREVIEW STATE ----------
   if (status === 'preview' && generatedHtml) {
     return (
-      <div className="space-y-4">
-        {runToolbar}
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
-                <Eye className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">CIM Preview</h3>
-                <p className="text-xs text-slate-400">Review the generated CIM below. Print or download as needed.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setStatus('editing')}>
-                <RotateCcw className="w-3.5 h-3.5" />
-                Back to Edit
-              </Button>
-              <Button variant="outline" size="sm" onClick={downloadHtml}>
-                <Download className="w-3.5 h-3.5" />
-                Download HTML
-              </Button>
-              <Button size="sm" onClick={printCim}>
-                <Printer className="w-3.5 h-3.5" />
-                Print / Save PDF
-              </Button>
-            </div>
+      <div className="space-y-6">
+        {/* Unified Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+          <div>
+            <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              Confidential Information Memorandum
+            </h1>
+            <p className="text-xs text-slate-500 mt-1">
+              {clientName} &mdash; Preview generated CIM document. Print or download as needed.
+            </p>
           </div>
-        </Card>
+          <AdvisorActions className="flex items-center gap-2.5 flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setStatus('editing')}
+              className="h-8 text-xs cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1" />
+              Back to Edit
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={downloadHtml}
+              className="h-8 text-xs cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 mr-1" />
+              Download HTML
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={printCim}
+              className="h-8 text-xs cursor-pointer bg-slate-900 hover:bg-slate-800 text-white"
+            >
+              <Printer className="w-3.5 h-3.5 mr-1" />
+              Print / Save PDF
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setStatus('idle')}
+              className="h-8 text-xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              New Analysis
+            </Button>
+          </AdvisorActions>
+        </div>
+
+        {runToolbar}
 
         <MondayLinker clientId={clientId} clientName={clientName} reportType="CIM" fileUrl={cimFileUrl} html={generatedHtml} />
 
@@ -448,36 +679,33 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
   // ---------- EDITING STATE ----------
   return (
     <div className="space-y-6">
-      {runToolbar}
-      {/* Top bar */}
-      <Card className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-amber-50 border border-amber-200">
-              <FileText className="w-4 h-4 text-amber-600" />
-            </div>
-            <div>
-              <div className="flex items-center gap-3">
-                <h3 className="text-sm font-semibold text-slate-800">CIM — Edit & Review</h3>
-                <a
-                  href="/samples/Cantara_CIM_v3.docx"
-                  download="Cantara_CIM_v3.docx"
-                  className="flex items-center gap-1.5 text-[10px] font-medium text-amber-600 hover:text-amber-700 hover:underline"
-                >
-                  <Download className="w-3 h-3" />
-                  Download sample CIM
-                </a>
-              </div>
-              <p className="text-xs text-slate-400">Review the auto-filled data below. Edit any fields, then generate the CIM.</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+      {/* Unified Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+        <div>
+          <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+            CIM &mdash; Edit &amp; Review
+          </h1>
+          <p className="text-xs text-slate-500 mt-1">
+            {clientName} &mdash; Review auto-filled data, edit sections, and generate the final CIM
+          </p>
+        </div>
+        <AdvisorActions className="flex items-center gap-2.5 flex-wrap">
+          <a
+            href="/samples/Cantara_CIM_v3.docx"
+            download="Cantara_CIM_v3.docx"
+            className="inline-flex items-center gap-1.5 font-medium transition-all rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 px-3 py-1.5 text-xs bg-white cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download sample CIM
+          </a>
+          <div className="relative">
             <Button
+              type="button"
               variant="outline"
               size="sm"
               onClick={() => void saveDraft()}
               disabled={saving}
-              className="text-[10px] h-8"
+              className="h-8 text-xs cursor-pointer"
             >
               {saving ? (
                 <Loader2 className="w-3 h-3 animate-spin mr-1" />
@@ -488,17 +716,35 @@ export default function CimGeneratorTab({ clientId, clientName, readOnly = false
               )}
               {saveSuccess ? 'Saved' : 'Save Draft'}
             </Button>
-            <Button variant="outline" size="sm" onClick={autoFill} className="text-[10px] h-8">
-              <Sparkles className="w-3.5 h-3.5" />
-              Re-fill
-            </Button>
-            <Button size="sm" onClick={() => void generate()} className="text-[10px] h-8">
-              <Bot className="w-3.5 h-3.5" />
-              Generate CIM
-            </Button>
+            {saveSuccess && (
+              <span className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                Saved
+              </span>
+            )}
           </div>
-        </div>
-      </Card>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={autoFill}
+            className="h-8 text-xs cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 mr-1" />
+            Re-fill
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void generate()}
+            className="h-8 text-xs cursor-pointer bg-slate-900 hover:bg-slate-800 text-white"
+          >
+            <Bot className="w-3.5 h-3.5 mr-1" />
+            Generate CIM
+          </Button>
+        </AdvisorActions>
+      </div>
+
+      {runToolbar}
 
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>

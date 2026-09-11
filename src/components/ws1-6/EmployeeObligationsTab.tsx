@@ -489,6 +489,7 @@ export default function EmployeeObligationsTab({
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<WS16Report | null>(null)
   const [savingMarkdown, setSavingMarkdown] = useState(false)
+  const [composingNew, setComposingNew] = useState(false)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
   const { historyItems, activeRun, activeId, setActiveId, reload, loading: loadingReport } = useAgentReportRuns(
@@ -556,6 +557,7 @@ export default function EmployeeObligationsTab({
         showToast('Analysis completed successfully')
       })
       clearAll()
+      setComposingNew(false)
     }
   }, [status, rawMarkdown, clearAll, reload])
 
@@ -702,10 +704,13 @@ export default function EmployeeObligationsTab({
   }
 
   const handleNewAnalysis = () => {
-    setSavedReport(null)
-    setFlags([])
+    setComposingNew(true)
     clearAll()
-    showToast('Starting new analysis session')
+  }
+
+  const handleCancelNewAnalysis = () => {
+    setComposingNew(false)
+    clearAll()
   }
 
   const handleDeleteConfirmed = async () => {
@@ -719,6 +724,7 @@ export default function EmployeeObligationsTab({
       setSavedReport(null)
       setFlags([])
       clearAll()
+      setComposingNew(false)
       setDeleteOpen(false)
       showToast('Report deleted successfully')
     } catch (err) {
@@ -729,28 +735,83 @@ export default function EmployeeObligationsTab({
     }
   }
 
-
   const readOnlyGate = agentTabReadOnlyGate(readOnly, loadingReport, Boolean(savedReport?.markdown), 'Employee Obligations')
   if (readOnlyGate) return readOnlyGate
 
-  if (!savedReport && !isRunning) {
+  if ((!savedReport || composingNew) && !isRunning) {
     return (
-      <div className="-m-6 bg-stone-50 min-h-[500px] p-6 lg:p-8">
-        <div className="max-w-4xl mx-auto">
-          <Card className="p-10 border-stone-200 shadow-sm">
-            {!readOnly && (
-              <AgentProviderBar provider={provider} onProviderChange={setProvider} disabled={isRunning} className="mb-6" />
+      <div className="space-y-5">
+        {/* Header toolbar */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 cantara-serif">Employee Obligations</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Automated labor agreements, non-compete, benefits, and contractor review.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {historyItems.length > 0 && (
+              <AgentReportHistoryBar
+                runs={historyItems}
+                activeId={composingNew ? null : activeId}
+                onSelect={(run) => {
+                  setComposingNew(false)
+                  setActiveId(run.id)
+                }}
+                activeProvider={savedReport?.aiProvider}
+                activeModel={savedReport?.aiModel}
+              />
             )}
+            {(!readOnly || composingNew) && (
+              <AgentProviderBar
+                provider={provider}
+                onProviderChange={setProvider}
+                disabled={isRunning}
+              />
+            )}
+            {composingNew && savedReport && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancelNewAnalysis}
+                className="gap-1.5 h-8 font-medium text-slate-600"
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <Card className="p-6 border-slate-200 shadow-2xs">
+          <div className="space-y-6">
+            <div className="flex items-start justify-between gap-4 pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 cantara-serif">
+                  Employee Obligations Source Documents
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Review documents uploaded by the client or upload files directly. All documents are optional — the analysis runs with whichever documents are available.
+                </p>
+              </div>
+              {composingNew && savedReport && (
+                <Button variant="outline" size="sm" onClick={handleCancelNewAnalysis}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+
             <WS16Uploader
               clientId={clientId}
               documentStatuses={documentStatuses}
               onDocumentsReady={setDocuments}
-              onAnalyze={() => analyze(provider)}
+              onAnalyze={(docs) => analyze(provider, docs)}
               isLoading={isRunning}
+              onCancel={savedReport ? handleCancelNewAnalysis : undefined}
+              readOnly={readOnly}
             />
+
             {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
-          </Card>
-        </div>
+          </div>
+        </Card>
+
         {toast && <StatusToast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       </div>
     )
@@ -798,6 +859,18 @@ export default function EmployeeObligationsTab({
   return (
     <div className="space-y-4">
       <ReportHeader report={report} flags={flags} onDelete={() => setDeleteOpen(true)} onNewAnalysis={handleNewAnalysis} readOnly={readOnly} />
+
+      {isRunning && (
+        <Card className="border-amber-200 bg-amber-50/70 p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Analyzing employee obligations...</p>
+              <p className="text-xs text-slate-600">Re-analyzing with updated documents in the background...</p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
         <AgentReportHistoryBar

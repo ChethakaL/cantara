@@ -69,9 +69,9 @@ export async function GET(req: NextRequest) {
       select: { sectionSubmissions: true },
     }),
     (prisma as any).clientDocument.findMany({
-      where: { clientId, documentId: 'occupancy_review' },
+      where: { clientId, documentId: { in: ['occupancy_review', 'occupancy_supporting'] } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, fileName: true, mimeType: true, localPath: true, createdAt: true },
+      select: { id: true, documentId: true, fileName: true, mimeType: true, localPath: true, createdAt: true },
     }),
   ])
   if (!client) return new Response('Client not found', { status: 404 })
@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
   const clientDocs = await Promise.all(
     (rawDocs || []).map(async (doc: any) => ({
       id: doc.id,
+      documentId: doc.documentId || 'occupancy_review',
       fileName: doc.fileName,
       mimeType: doc.mimeType,
       createdAt: doc.createdAt,
@@ -165,7 +166,7 @@ export async function POST(req: NextRequest) {
 
     // Load any portal-uploaded documents for 'occupancy_review'
     const storedDocs = await (prisma as any).clientDocument.findMany({
-      where: { clientId, documentId: 'occupancy_review' },
+      where: { clientId, documentId: { in: ['occupancy_review', 'occupancy_supporting'] } },
       orderBy: { createdAt: 'desc' },
       select: { fileName: true, mimeType: true, localPath: true, storageBucket: true },
     })

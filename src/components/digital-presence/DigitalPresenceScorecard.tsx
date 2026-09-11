@@ -32,6 +32,7 @@ interface Props {
   onRerun?: () => void;
   onEdit?: (channelType: string, metricIndex: number, value: string) => void;
   readOnly?: boolean;
+  embedded?: boolean;
 }
 
 const CHANNEL_ICONS: Record<ChannelType, React.ReactNode> = {
@@ -236,7 +237,7 @@ function handleExportJSON(report: DigitalPresenceReport) {
   URL.revokeObjectURL(url);
 }
 
-export default function DigitalPresenceScorecard({ report, onReset, onRerun, onEdit, readOnly = false }: Props) {
+export default function DigitalPresenceScorecard({ report, onReset, onRerun, onEdit, readOnly = false, embedded = false }: Props) {
   const [editMode, setEditMode] = useState(false);
   const [editedReport, setEditedReport] = useState<DigitalPresenceReport>(report);
   const [assetEditMode, setAssetEditMode] = useState(false);
@@ -283,54 +284,92 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
   return (
     <div className="space-y-6">
       {/* Header bar */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800">{currentReport.businessName}</h2>
-          <p className="text-xs text-slate-400">
-            Digital Presence Report &middot; Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
-          </p>
+      {embedded ? (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+              Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+              Overall Score: {currentReport.overallScore}/100
+            </span>
+          </div>
+          {!readOnly && (
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setEditMode(m => !m)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer',
+                  editMode
+                    ? 'border-amber-300 bg-amber-50 text-amber-700'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                )}
+              >
+                {editMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                {editMode ? 'Done Editing' : 'Edit Results'}
+              </button>
+              <button
+                type="button"
+                onClick={onRerun}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Re-run Analysis
+              </button>
+            </div>
+          )}
         </div>
-        {!readOnly && (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setEditMode(m => !m)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors',
-              editMode
-                ? 'border-amber-300 bg-amber-50 text-amber-700'
-                : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-            )}
-          >
-            {editMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-            {editMode ? 'Done Editing' : 'Edit Results'}
-          </button>
-          <ExportReportButton
-            html={buildDigitalPresenceReportHtml(currentReport)}
-            fileName={`digital-presence-${currentReport.businessName.replace(/\s+/g, '-').toLowerCase()}`}
-          />
-          <button
-            onClick={() => handleExportJSON(currentReport)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export JSON
-          </button>
-          <button
-            onClick={onRerun}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-700 hover:bg-amber-100 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Re-run Analysis
-          </button>
-          <button
-            onClick={onReset}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
-          >
-            New Analysis
-          </button>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">{currentReport.businessName}</h2>
+            <p className="text-xs text-slate-400">
+              Digital Presence Report &middot; Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
+          </div>
+          {!readOnly && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setEditMode(m => !m)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors cursor-pointer',
+                  editMode
+                    ? 'border-amber-300 bg-amber-50 text-amber-700'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                )}
+              >
+                {editMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                {editMode ? 'Done Editing' : 'Edit Results'}
+              </button>
+              <ExportReportButton
+                html={buildDigitalPresenceReportHtml(currentReport)}
+                fileName={`digital-presence-${currentReport.businessName.replace(/\s+/g, '-').toLowerCase()}`}
+              />
+              <button
+                onClick={() => handleExportJSON(currentReport)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export JSON
+              </button>
+              <button
+                onClick={onRerun}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Re-run Analysis
+              </button>
+              <button
+                onClick={onReset}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                New Analysis
+              </button>
+            </div>
+          )}
         </div>
-        )}
-      </div>
+      )}
 
       {/* Edit mode banner */}
       {editMode && (

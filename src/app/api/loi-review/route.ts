@@ -280,3 +280,28 @@ export async function PATCH(req: NextRequest) {
 
   return NextResponse.json({ report })
 }
+
+export async function DELETE(req: NextRequest) {
+  const clientId = req.nextUrl.searchParams.get('clientId')
+  if (!clientId) return new Response('clientId required', { status: 400 })
+
+  const client = await prisma.clientProfile.findUnique({
+    where: { id: clientId },
+    select: { sectionSubmissions: true },
+  })
+  if (!client) return new Response('Client not found', { status: 404 })
+
+  const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
+    ? client.sectionSubmissions
+    : {}) as Record<string, any>
+
+  const { loiReview: _removed, ...remaining } = current
+
+  await prisma.clientProfile.update({
+    where: { id: clientId },
+    data: { sectionSubmissions: remaining },
+  })
+
+  return NextResponse.json({ ok: true })
+}
+

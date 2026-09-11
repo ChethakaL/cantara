@@ -1,9 +1,25 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { RefreshCw, FileText, TrendingUp } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  Bot,
+  CheckCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Plus,
+  RefreshCw,
+  RotateCw,
+  Trash2,
+  TrendingUp,
+  X,
+} from 'lucide-react'
 import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import InlineEditableMarkdownReport from '@/components/report-export/InlineEditableMarkdownReport'
@@ -16,6 +32,7 @@ import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
 import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
 import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
+import { AdvisorActions, ClientApprovedEmptyState } from '@/components/client-portal/AgentClientPortalFrame'
 
 type BuyerReport = {
   workstream: string
@@ -26,17 +43,46 @@ type BuyerReport = {
   markdown: string
 }
 
+interface AgentSourceItem {
+  key: string
+  name: string
+  tabKey: string
+  required: boolean
+  ready: boolean
+  note: string
+}
+
+interface Props {
+  clientId: string
+  clientName: string
+  workstream: 'ws1' | 'ws2'
+  onOpenAgent?: (tabKey: string) => void
+  readOnly?: boolean
+}
+
 /** Map emoji status indicators to styled badges */
 function StatusBadge({ text }: { text: string }) {
   const kind = getStatusBadgeKind(text)
   if (kind === 'green') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">🟢 Green</span>
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+        🟢 Green
+      </span>
+    )
   }
   if (kind === 'yellow') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-semibold text-amber-700">🟡 Yellow</span>
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+        🟡 Yellow
+      </span>
+    )
   }
   if (kind === 'red') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-semibold text-rose-700">🔴 Red</span>
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-semibold text-rose-700">
+        🔴 Red
+      </span>
+    )
   }
   return <span>{String(text ?? '')}</span>
 }
@@ -84,31 +130,210 @@ const markdownComponents = {
   td: ({ children }: { children?: React.ReactNode }) => {
     const text = String(children ?? '')
     if (isStatusCell(text)) {
-      return <td className="border-t border-slate-100 px-4 py-3 align-top"><StatusBadge text={text} /></td>
+      return (
+        <td className="border-t border-slate-100 px-4 py-3 align-top">
+          <StatusBadge text={text} />
+        </td>
+      )
     }
     return <td className="border-t border-slate-100 px-4 py-3 align-top text-sm leading-6 text-slate-700">{children}</td>
   },
 }
 
+// ── Toast Component ─────────────────────────────────────────────────────────
+function StatusToast({
+  toast,
+  onClose,
+}: {
+  toast: { message: string; type: 'success' | 'error' | 'info' } | null
+  onClose: () => void
+}) {
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(onClose, 4000)
+    return () => clearTimeout(timer)
+  }, [toast, onClose])
+
+  if (!toast) return null
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-200">
+      <div
+        className={cn(
+          'flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-xs font-medium',
+          toast.type === 'success' && 'bg-emerald-50 border-emerald-200 text-emerald-900',
+          toast.type === 'error' && 'bg-rose-50 border-rose-200 text-rose-900',
+          toast.type === 'info' && 'bg-slate-900 border-slate-800 text-white',
+        )}
+      >
+        {toast.type === 'success' && <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />}
+        {toast.type === 'error' && <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+        <span>{toast.message}</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Delete Confirmation Modal ───────────────────────────────────────────────
+function DeleteConfirmModal({
+  open,
+  title,
+  description,
+  onClose,
+  onConfirm,
+  confirmLabel = 'Delete',
+  isDeleting = false,
+}: {
+  open: boolean
+  title: string
+  description: string
+  onClose: () => void
+  onConfirm: () => void
+  confirmLabel?: string
+  isDeleting?: boolean
+}) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl space-y-4">
+        <div className="space-y-1">
+          <h3 className="text-base font-bold text-slate-900">{title}</h3>
+          <p className="text-xs text-slate-500 leading-relaxed">{description}</p>
+        </div>
+        <div className="flex items-center justify-end gap-2.5 pt-2">
+          <button
+            type="button"
+            disabled={isDeleting}
+            onClick={onClose}
+            className="px-3.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={isDeleting}
+            onClick={onConfirm}
+            className="px-3.5 py-2 text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Agent Source Card Row ──────────────────────────────────────────────────
+function AgentSourceRow({
+  source,
+  onOpen,
+}: {
+  source: AgentSourceItem
+  onOpen: (tabKey: string) => void
+}) {
+  return (
+    <div
+      className={cn(
+        'rounded-xl border p-4 transition-all shadow-2xs',
+        source.ready ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200/80 bg-white',
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-3">
+            <div
+              className={cn(
+                'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+                source.ready ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400',
+              )}
+            >
+              <FileText className="w-4.5 h-4.5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-slate-800">{source.name}</p>
+                {source.required ? (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-200">
+                    Required
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                    Optional
+                  </span>
+                )}
+                {source.ready ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Ready
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-400 border border-slate-200">
+                    Not generated
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">{source.note}</p>
+
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                {source.ready
+                  ? 'Output generated and ready to be compiled into the buyer report.'
+                  : source.required
+                  ? 'Not generated yet (required — must be submitted in the roadmap agent before generating).'
+                  : 'Not generated yet (optional — buyer report compiles with or without this agent output).'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onOpen(source.tabKey)}
+          className="h-8 text-xs gap-1.5 shrink-0 cursor-pointer hover:bg-slate-50"
+          title={`Go to ${source.name}`}
+        >
+          <span>Open Agent</span>
+          <ExternalLink className="w-3 h-3 text-slate-400" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
 export default function BuyerReportTab({
   clientId,
   clientName,
   workstream,
-}: {
-  clientId: string
-  clientName: string
-  workstream: 'ws1' | 'ws2'
-}) {
+  onOpenAgent,
+  readOnly = false,
+}: Props) {
   const [report, setReport] = useState<BuyerReport | null>(null)
+  const [sources, setSources] = useState<AgentSourceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [roadmapReady, setRoadmapReady] = useState(false)
+  const [composingNew, setComposingNew] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [showSourceDrawer, setShowSourceDrawer] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
+
   const { provider, setProvider } = useAgentAiProvider()
   const {
     runs,
     historyItems: allHistoryItems,
-    activeRun: allActiveRun,
     activeId: allActiveId,
     setActiveId,
     reload: reloadRuns,
@@ -116,15 +341,22 @@ export default function BuyerReportTab({
   } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.buyerReport)
 
   const runsForWorkstream = useMemo(
-    () => runs.filter((run) => {
-      const meta = run.metadata as { workstream?: string } | null | undefined
-      return meta?.workstream === workstream || (!meta?.workstream && run.report && (run.report as BuyerReport).workstream === workstream)
-    }),
+    () =>
+      runs.filter((run) => {
+        const meta = run.metadata as { workstream?: string } | null | undefined
+        return (
+          meta?.workstream === workstream ||
+          (!meta?.workstream && run.report && (run.report as BuyerReport).workstream === workstream)
+        )
+      }),
     [runs, workstream],
   )
 
   const historyItems = useMemo(
-    () => runsForWorkstream.map((run) => allHistoryItems.find((item) => item.id === run.id)!).filter(Boolean),
+    () =>
+      runsForWorkstream
+        .map((run) => allHistoryItems.find((item) => item.id === run.id)!)
+        .filter(Boolean),
     [runsForWorkstream, allHistoryItems],
   )
 
@@ -134,38 +366,70 @@ export default function BuyerReportTab({
   )
 
   const activeId = activeRun?.id ?? null
-
   const wsLabel = workstream === 'ws1' ? 'WS1 — Risk Mitigation' : 'WS2 — Profitability & Growth'
 
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type })
+  }
+
+  const handleOpenAgent = useCallback(
+    (tabKey: string) => {
+      if (onOpenAgent) {
+        onOpenAgent(tabKey)
+      } else {
+        window.location.href = `/admin/client/${clientId}?tab=${tabKey}`
+      }
+    },
+    [onOpenAgent, clientId],
+  )
+
+  const loadFromApi = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/buyer-report?clientId=${encodeURIComponent(clientId)}&workstream=${workstream}`,
+        { cache: 'no-store' },
+      )
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      if (!activeRun?.report) {
+        setReport(data.report)
+      }
+      setRoadmapReady(Boolean(data.roadmapReady))
+      setSources(data.sources || [])
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to load buyer report.')
+    } finally {
+      setLoading(false)
+    }
+  }, [clientId, workstream, activeRun])
+
   useEffect(() => {
-    if (loadingRuns) return
+    if (loadingRuns || composingNew) return
     if (activeRun?.report) {
       setReport(activeRun.report as BuyerReport)
       setLoading(false)
+      void loadFromApi()
       return
     }
     void loadFromApi()
-  }, [activeRun, loadingRuns, clientId, workstream])
+  }, [activeRun, loadingRuns, loadFromApi, composingNew])
 
   function selectRun(run: AgentRunHistoryItem) {
+    setComposingNew(false)
     setActiveId(run.id)
     const full = runs.find((item) => item.id === run.id)
     if (full?.report) setReport(full.report as BuyerReport)
   }
 
-  const loadFromApi = async () => {
-    setLoading(true)
-    setError(null)
+  const handleRefresh = async () => {
+    setRefreshing(true)
     try {
-      const res = await fetch(`/api/buyer-report?clientId=${encodeURIComponent(clientId)}&workstream=${workstream}`, { cache: 'no-store' })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
-      setReport(data.report)
-      setRoadmapReady(Boolean(data.roadmapReady))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load buyer report.')
+      await loadFromApi()
+      showToast('Agent inputs refreshed', 'success')
+    } catch {
+      showToast('Failed to refresh agent inputs', 'error')
     } finally {
-      setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -176,7 +440,12 @@ export default function BuyerReportTab({
       const res = await fetch('/api/buyer-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, workstream, provider, modelId: resolveAgentModelId(provider) }),
+        body: JSON.stringify({
+          clientId,
+          workstream,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to generate buyer report.')
@@ -191,75 +460,202 @@ export default function BuyerReportTab({
         aiProvider: provider,
         aiModel: resolveAgentModelId(provider),
       })
+      setComposingNew(false)
       await reloadRuns({ selectNewest: true })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate buyer report.')
+      showToast('Buyer report generated successfully', 'success')
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to generate buyer report.')
+      showToast(err?.message ?? 'Failed to generate buyer report.', 'error')
     } finally {
       setGenerating(false)
     }
   }
 
-  const html = useMemo(() =>
-    report ? buildBuyerReportHtml(report) : '',
-  [report])
-
-  if (loading || loadingRuns) {
-    return <div className="h-48 flex items-center justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" /></div>
+  const handleDeleteReport = async () => {
+    setIsDeleting(true)
+    try {
+      const res = await fetch(
+        `/api/buyer-report?clientId=${encodeURIComponent(clientId)}&workstream=${workstream}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) throw new Error('Failed to delete report')
+      setReport(null)
+      setError(null)
+      setActiveId(null)
+      setComposingNew(false)
+      await reloadRuns()
+      setDeleteModalOpen(false)
+      showToast('Buyer report deleted', 'success')
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to delete report', 'error')
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
-  return (
-    <div className="space-y-5">
-      <AgentRunToolbar
-        provider={provider}
-        onProviderChange={setProvider}
-        disabled={generating}
-        historyItems={historyItems}
-        activeId={activeId}
-        onSelectRun={selectRun}
-        activeProvider={activeRun?.aiProvider}
-        activeModel={activeRun?.aiModel}
-        activeVersion={activeRun?.version}
-      />
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-bold text-slate-800">Buyer Report</h2>
-          <p className="text-xs text-slate-500 mt-1">{wsLabel} — Buyer-Facing Acquisition Summary</p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <Button size="sm" variant="outline" onClick={generate} disabled={generating || !roadmapReady} title={!roadmapReady ? 'Run the Sales Readiness Roadmap first' : undefined}>
-            <RefreshCw className={cn('w-3.5 h-3.5', generating && 'animate-spin')} />
-            {report ? 'Regenerate' : 'Generate Report'}
-          </Button>
-          {report && (
-            <ExportReportButton html={html} fileName={`${clientName} - ${wsLabel} Buyer Report.pdf`} label="Export PDF" />
-          )}
-        </div>
+  const html = useMemo(() => (report ? buildBuyerReportHtml(report) : ''), [report])
+
+  const requiredSources = useMemo(() => sources.filter((s) => s.required), [sources])
+  const optionalSources = useMemo(() => sources.filter((s) => !s.required), [sources])
+  const optionalReadyCount = useMemo(() => optionalSources.filter((s) => s.ready).length, [optionalSources])
+  const totalReadyCount = useMemo(() => sources.filter((s) => s.ready).length, [sources])
+
+  if (loading || loadingRuns) {
+    return (
+      <div className="py-12 flex justify-center">
+        <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
       </div>
+    )
+  }
 
-      {!roadmapReady && <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Run and submit the <strong>Sales Readiness Roadmap</strong> before generating this buyer report.</div>}
+  if (readOnly && !report) {
+    return <ClientApprovedEmptyState agentName={`${wsLabel} Buyer Report`} />
+  }
 
-      {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+  // ── Results / Report View ─────────────────────────────────────────────────
+  if (report && !composingNew) {
+    return (
+      <div className="space-y-6">
+        {/* Unified Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+          <div>
+            <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+              Buyer Report
+            </h1>
+            <p className="text-xs text-slate-500 mt-1">
+              {clientName} &mdash; {wsLabel} &mdash; Generated{' '}
+              {new Date(report.generatedAt || Date.now()).toLocaleString()}
+            </p>
+          </div>
+          <AdvisorActions className="flex items-center gap-2.5 flex-wrap">
+            <ExportReportButton
+              html={html}
+              fileName={`${clientName} - ${wsLabel} Buyer Report.pdf`}
+              label="Export PDF"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={generating || !roadmapReady}
+              onClick={generate}
+              className="h-8 text-xs cursor-pointer"
+            >
+              <RefreshCw className={cn('w-3.5 h-3.5 mr-1', generating && 'animate-spin')} />
+              Regenerate
+            </Button>
+            {!readOnly && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteModalOpen(true)}
+                className="h-8 text-xs text-rose-600 hover:bg-rose-50 border-slate-200 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                Delete
+              </Button>
+            )}
+            {!readOnly && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setComposingNew(true)}
+                className="h-8 text-xs cursor-pointer bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                New Analysis
+              </Button>
+            )}
+          </AdvisorActions>
+        </div>
 
-      {generating && !report && (
-        <Card className="p-8">
-          <div className="flex items-start gap-4">
-            <div className="mt-1 h-5 w-5 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin" />
-            <div className="flex-1">
-              <h3 className="text-sm font-bold text-slate-800">Generating buyer report</h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Creating a compelling buyer-facing report from all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agent findings. This takes 30-60 seconds.
+        {!readOnly && (
+          <AgentRunToolbar
+            provider={provider}
+            onProviderChange={setProvider}
+            disabled={generating}
+            historyItems={historyItems}
+            activeId={activeId}
+            onSelectRun={selectRun}
+            activeProvider={activeRun?.aiProvider}
+            activeModel={activeRun?.aiModel}
+            activeVersion={activeRun?.version}
+          />
+        )}
+
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 px-4 py-3 rounded-lg">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600" />
+            {error}
+          </div>
+        )}
+
+        {/* Source Inputs Summary Accordion */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setShowSourceDrawer((prev) => !prev)}
+              className="flex items-center gap-2 text-xs font-semibold text-slate-800 hover:text-slate-900 cursor-pointer"
+            >
+              {showSourceDrawer ? (
+                <ChevronDown className="w-4 h-4 text-slate-500" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-slate-500" />
+              )}
+              <span>Synthesized Agent Context</span>
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                {totalReadyCount} of {sources.length} agent outputs included
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setComposingNew(true)}
+              className="text-xs text-amber-700 hover:text-amber-800 font-medium inline-flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Manage &amp; Run Agent Inputs
+            </button>
+          </div>
+
+          {showSourceDrawer && (
+            <div className="pt-2 border-t border-slate-200/80 space-y-2">
+              <p className="text-xs text-slate-500">
+                Click <strong>Open Agent</strong> to run any pending agent or refine its output, then click <strong>Regenerate</strong> above to incorporate findings.
               </p>
-              <div className="mt-5 space-y-3">
-                <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
-                <div className="h-3 w-full animate-pulse rounded bg-slate-100" />
-                <div className="h-3 w-5/6 animate-pulse rounded bg-slate-100" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+                {sources.map((src) => (
+                  <div
+                    key={src.key}
+                    className={cn(
+                      'flex items-center justify-between p-2.5 rounded-lg border text-xs',
+                      src.ready ? 'bg-white border-emerald-200' : 'bg-slate-100/70 border-slate-200',
+                    )}
+                  >
+                    <div className="min-w-0 flex-1 pr-2">
+                      <p className="font-medium text-slate-800 truncate">{src.name}</p>
+                      <p className="text-[10px] text-slate-500">
+                        {src.ready ? 'Synthesized' : src.required ? 'Required missing' : 'Not generated'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAgent(src.tabKey)}
+                      className="px-2 py-1 text-[11px] rounded border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium inline-flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <span>Open</span>
+                      <ArrowRight className="w-3 h-3 text-slate-400" />
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
-        </Card>
-      )}
+          )}
+        </div>
 
-      {report ? (
+        {/* Editable Markdown Report */}
         <InlineEditableMarkdownReport
           report={report}
           markdownComponents={markdownComponents}
@@ -272,22 +668,241 @@ export default function BuyerReportTab({
             const data = await res.json()
             if (!res.ok) throw new Error(data.error || 'Failed to save buyer report.')
             setReport(data.report)
+            showToast('Buyer report saved successfully', 'success')
           }}
         />
-      ) : !generating ? (
-        <Card className="p-10 text-center">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-4">
-            <TrendingUp className="w-7 h-7 text-blue-500" />
-          </div>
-          <h3 className="text-lg font-semibold text-slate-800 mb-2">Buyer Report</h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
-            Generate a buyer-facing report that presents the business to potential acquirers, highlighting strengths and opportunities based on all {workstream === 'ws1' ? 'risk mitigation' : 'profitability & growth'} agent findings.
+
+        {/* Delete Confirmation Modal */}
+        <DeleteConfirmModal
+          open={deleteModalOpen}
+          title="Delete Buyer Report?"
+          description="This will permanently delete the current buyer report. The underlying agent findings and roadmap will remain intact."
+          onClose={() => setDeleteModalOpen(false)}
+          onConfirm={handleDeleteReport}
+          confirmLabel="Delete Report"
+          isDeleting={isDeleting}
+        />
+
+        {/* Status Toast */}
+        <StatusToast toast={toast} onClose={() => setToast(null)} />
+      </div>
+    )
+  }
+
+  // ── Launch / Setup View ───────────────────────────────────────────────────
+  return (
+    <div className="space-y-6">
+      {/* Unified Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+        <div>
+          <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+            Buyer Report
+          </h1>
+          <p className="text-xs text-slate-500 mt-1">
+            {clientName} &mdash; {wsLabel} &mdash; Buyer-Facing Acquisition Summary
           </p>
-          <Button onClick={generate} disabled={generating || !roadmapReady}>
-            Generate Buyer Report
-          </Button>
-        </Card>
-      ) : null}
+        </div>
+        <AdvisorActions className="flex items-center gap-2 shrink-0">
+          {composingNew && report && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setComposingNew(false)}
+              className="h-8 text-xs cursor-pointer"
+            >
+              Cancel
+            </Button>
+          )}
+        </AdvisorActions>
+      </div>
+
+      {!readOnly && (
+        <AgentRunToolbar
+          provider={provider}
+          onProviderChange={setProvider}
+          disabled={generating}
+          historyItems={historyItems}
+          activeId={composingNew ? null : activeId}
+          onSelectRun={selectRun}
+          activeProvider={composingNew ? null : activeRun?.aiProvider}
+          activeModel={composingNew ? null : activeRun?.aiModel}
+          activeVersion={composingNew ? null : activeRun?.version}
+        />
+      )}
+
+      {/* Main Setup Workspace Card */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-6">
+        {/* Sector Header 1: Required Roadmap Input */}
+        <div className="space-y-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2 border-b border-slate-100">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Required Agent Input
+              </span>
+              <span
+                className={cn(
+                  'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
+                  roadmapReady
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200',
+                )}
+              >
+                {roadmapReady ? '1 of 1 ready' : '0 of 1 ready'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="text-[11px] text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+            >
+              <RotateCw className={cn('w-3 h-3', refreshing && 'animate-spin')} />
+              Refresh
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">
+            The Sales Readiness Roadmap is strictly required. Acquirers rely on the roadmap&apos;s strategic readiness scoring and prioritized action plan.
+          </p>
+        </div>
+
+        {/* Required Slot Row */}
+        <div className="space-y-3">
+          {requiredSources.map((source) => (
+            <AgentSourceRow key={source.key} source={source} onOpen={handleOpenAgent} />
+          ))}
+          {requiredSources.length === 0 && (
+            <AgentSourceRow
+              source={{
+                key: 'roadmap',
+                name: 'Sales Readiness Roadmap',
+                tabKey: 'sales-readiness-roadmap',
+                required: true,
+                ready: roadmapReady,
+                note: 'Strategic action plan and seller readiness rating. Required to generate buyer report.',
+              }}
+              onOpen={handleOpenAgent}
+            />
+          )}
+        </div>
+
+        {/* Sector Header 2: Optional Context Agent Inputs */}
+        <div className="space-y-1 pt-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2 border-b border-slate-100">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Optional Context Agent Inputs ({wsLabel})
+              </span>
+              <span
+                className={cn(
+                  'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
+                  optionalReadyCount > 0
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200',
+                )}
+              >
+                {optionalReadyCount} of {optionalSources.length} ready
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            These agent reports provide supplemental diligence context. Missing reports do not block generation &mdash; the buyer report synthesizes all available findings. Click <strong>Open Agent</strong> to run any pending agent.
+          </p>
+        </div>
+
+        {/* Optional Slot Rows */}
+        <div className="space-y-3">
+          {optionalSources.map((source) => (
+            <AgentSourceRow key={source.key} source={source} onOpen={handleOpenAgent} />
+          ))}
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 px-4 py-3 rounded-lg">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600" />
+            {error}
+          </div>
+        )}
+
+        {generating && (
+          <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-8 text-center space-y-3">
+            <Loader2 className="w-8 h-8 text-blue-600 mx-auto animate-spin" />
+            <h3 className="text-base font-semibold text-slate-800">Generating Buyer Report...</h3>
+            <p className="text-xs text-slate-600 max-w-md mx-auto">
+              Synthesizing Sales Readiness Roadmap and findings from all {workstream === 'ws1' ? 'risk mitigation' : 'growth & profitability'} agents into an investment-grade buyer summary.
+            </p>
+          </div>
+        )}
+
+        {/* Readiness Footer */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200">
+          <div className="w-full sm:w-auto">
+            {roadmapReady ? (
+              <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  Roadmap ready &bull; {optionalReadyCount} of {optionalSources.length} optional agent outputs ready to synthesize.
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-amber-800 font-medium">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Sales Readiness Roadmap must be submitted before generating this buyer report.</span>
+              </div>
+            )}
+          </div>
+
+          <div className="w-full sm:w-auto flex items-center justify-end gap-3">
+            {composingNew && report && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setComposingNew(false)}
+                className="h-10 px-4 text-xs cursor-pointer"
+              >
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="button"
+              disabled={!roadmapReady || generating}
+              onClick={generate}
+              className={cn(
+                'h-10 px-5 rounded-lg font-medium text-xs text-white shadow-xs inline-flex items-center gap-2 cursor-pointer transition-all',
+                'bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed',
+              )}
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Generating Buyer Report...</span>
+                </>
+              ) : (
+                <>
+                  <Bot className="w-4 h-4 text-white" />
+                  <span>Generate Buyer Report</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Delete Confirm Modal */}
+      <DeleteConfirmModal
+        open={deleteModalOpen}
+        title="Delete Buyer Report?"
+        description="This will permanently delete the current buyer report. The underlying agent findings and roadmap will remain intact."
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={handleDeleteReport}
+        confirmLabel="Delete Report"
+        isDeleting={isDeleting}
+      />
+
+      {/* Status Toast */}
+      <StatusToast toast={toast} onClose={() => setToast(null)} />
     </div>
   )
 }

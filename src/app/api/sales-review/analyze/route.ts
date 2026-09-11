@@ -150,3 +150,29 @@ export async function PATCH(req: NextRequest) {
     return new Response(message, { status: 500 })
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const clientId = req.nextUrl.searchParams.get('clientId')
+    if (!clientId) {
+      return new Response('clientId is required', { status: 400 })
+    }
+
+    await (prisma as any).clientDocument.updateMany({
+      where: { clientId, documentId: DOCUMENT_ID },
+      data: {
+        aiReviewStatus: null,
+        aiReviewSummary: null,
+        aiReviewFlags: [],
+        aiReviewedAt: null,
+      },
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to delete sales process review.'
+    console.error('[sales-review/delete]', error)
+    return new Response(message, { status: 500 })
+  }
+}
+

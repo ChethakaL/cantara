@@ -7,7 +7,7 @@ import { Card, Badge, Button, cn } from '@/components/ui'
 import {
   Search, Upload, FileText, AlertTriangle, Shield, ShieldAlert, ShieldCheck,
   ChevronDown, ChevronUp, ExternalLink, Calendar, Loader2, X, FileUp,
-  CheckCircle,
+  CheckCircle, CheckCircle2, AlertCircle, Plus, RefreshCw, Scale, Play, Edit3, Eye,
 } from 'lucide-react'
 import type { LitigationSearchResult } from '@/lib/litigation-search/search'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
@@ -20,6 +20,12 @@ import { useGenericAgentRuns } from '@/hooks/useGenericAgentRuns'
 import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
 import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
+import { getAdminEmail, type DocumentStatus } from '@/lib/store'
+import {
+  fetchClientDocumentFile,
+  listClientDocuments,
+  type ClientUploadedDoc,
+} from '@/lib/client-documents-client'
 
 // ── US States ────────────────────────────────────────────────────────────────
 
@@ -33,6 +39,38 @@ const US_STATES = [
   'Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia',
   'Wisconsin','Wyoming',
 ]
+
+const STATE_ABBR_TO_FULL: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', FL: 'Florida', GA: 'Georgia',
+  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa',
+  KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri',
+  MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey',
+  NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio',
+  OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont',
+  VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+}
+
+function resolveUsState(stateProp?: string, address?: string): string {
+  if (stateProp) {
+    const trimmed = stateProp.trim()
+    if (US_STATES.includes(trimmed)) return trimmed
+    const upper = trimmed.toUpperCase()
+    if (STATE_ABBR_TO_FULL[upper]) return STATE_ABBR_TO_FULL[upper]
+  }
+  if (address) {
+    for (const [abbr, full] of Object.entries(STATE_ABBR_TO_FULL)) {
+      const regex = new RegExp(`\\b${abbr}\\b`, 'i')
+      if (regex.test(address)) return full
+    }
+    for (const full of US_STATES) {
+      if (address.toLowerCase().includes(full.toLowerCase())) return full
+    }
+  }
+  return ''
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -280,13 +318,22 @@ interface LitigationSearchTabProps extends AgentTabReadOnlyProps {
   clientId: string
   clientName: string
   businessAddress?: string
+  state?: string
+  documentStatuses?: Record<string, DocumentStatus>
 }
 
-export default function LitigationSearchTab({ clientId, clientName, businessAddress, readOnly = false }: LitigationSearchTabProps) {
+export default function LitigationSearchTab({
+  clientId,
+  clientName,
+  businessAddress,
+  state: initialState,
+  documentStatuses,
+  readOnly = false,
+}: LitigationSearchTabProps) {
   // Search form state
   const [businessName, setBusinessName] = useState(clientName)
   const [ownerName, setOwnerName] = useState('')
-  const [state, setState] = useState('')
+  const [state, setState] = useState(() => resolveUsState(initialState, businessAddress))
   const [county, setCounty] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchResult, setSearchResult] = useState<LitigationSearchResult | null>(null)
@@ -294,6 +341,12 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [composingNew, setComposingNew] = useState(false)
+
+  // Portal documents state
+  const [portalDocs, setPortalDocs] = useState<ClientUploadedDoc[]>([])
+  const [loadingPortalDocs, setLoadingPortalDocs] = useState(false)
+  const [isUploadingFile, setIsUploadingFile] = useState(false)
 
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -313,10 +366,29 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
     reload: reloadRuns,
     loading: loadingRuns,
   } = useGenericAgentRuns(clientId, AGENT_RUN_KEYS.litigationSearch)
-  const reportHtml = useMemo(() => {
-    const result = searchResult || docResult
-    return result ? buildLitigationReportHtml(result, clientName) : ''
-  }, [clientName, searchResult, docResult])
+
+  useEffect(() => {
+    if (!state) {
+      const resolved = resolveUsState(initialState, businessAddress)
+      if (resolved) setState(resolved)
+    }
+  }, [initialState, businessAddress, state])
+
+  const loadPortalDocs = useCallback(async () => {
+    setLoadingPortalDocs(true)
+    try {
+      const docs = await listClientDocuments(clientId, ['pending_litigation'])
+      setPortalDocs(docs)
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingPortalDocs(false)
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    void loadPortalDocs()
+  }, [loadPortalDocs])
 
   useEffect(() => {
     let cancelled = false
@@ -350,6 +422,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
 
   function selectRun(run: AgentRunHistoryItem) {
     setActiveId(run.id)
+    setComposingNew(false)
     const full = runs.find((item) => item.id === run.id)
     const payload = (full?.report ?? null) as { searchResult?: LitigationSearchResult; docResult?: LitigationSearchResult } | null
     if (payload?.searchResult) setSearchResult(payload.searchResult)
@@ -431,6 +504,7 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       const data: LitigationSearchResult = await res.json()
       setSearchResult(data)
       setEditMode(false)
+      setComposingNew(false)
       await persistLitigationRun(data, docResult)
     } catch (err: any) {
       setSearchError(err.message || 'Search failed')
@@ -439,17 +513,66 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
     }
   }, [businessName, ownerName, state, county, provider, docResult])
 
-  // ── Upload handler ─────────────────────────────────────────────────────────
+  // ── Document upload & analysis handler ──────────────────────────────────────
+
+  const handleFileUpload = async (file: File) => {
+    setIsUploadingFile(true)
+    setDocError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('clientId', clientId)
+      formData.append('documentId', 'pending_litigation')
+      formData.append('uploaderEmail', getAdminEmail())
+      const res = await fetch('/api/client-documents/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) {
+        console.warn('Failed to upload file to portal docs:', await res.text())
+      }
+      setUploadFile(file)
+      await loadPortalDocs()
+    } catch (err: any) {
+      setDocError(err?.message || 'File upload failed')
+    } finally {
+      setIsUploadingFile(false)
+    }
+  }
 
   const handleAnalyze = useCallback(async () => {
-    if (!uploadFile) return
+    let fileToAnalyze = uploadFile
+    if (!fileToAnalyze && portalDocs.length > 0) {
+      const doc = portalDocs[0]
+      try {
+        setAnalyzing(true)
+        setDocError('')
+        fileToAnalyze = await fetchClientDocumentFile({
+          clientId,
+          documentId: doc.documentId,
+          recordId: doc.id,
+          fileName: doc.fileName,
+          mimeType: doc.mimeType,
+        })
+      } catch (err: any) {
+        setDocError(err?.message || 'Failed to download disclosure document')
+        setAnalyzing(false)
+        return
+      }
+    }
+
+    if (!fileToAnalyze) {
+      setDocError('Please upload or select a document to analyze.')
+      return
+    }
+
     setAnalyzing(true)
     setDocError('')
     setDocResult(null)
 
     try {
       const formData = new FormData()
-      formData.append('file', uploadFile)
+      formData.append('file', fileToAnalyze)
       formData.append('provider', provider)
       formData.append('modelId', resolveAgentModelId(provider))
 
@@ -464,33 +587,75 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
       const data: LitigationSearchResult = await res.json()
       setDocResult(data)
       setEditMode(false)
+      setComposingNew(false)
       await persistLitigationRun(searchResult, data)
     } catch (err: any) {
       setDocError(err.message || 'Analysis failed')
     } finally {
       setAnalyzing(false)
     }
-  }, [uploadFile, provider, searchResult])
+  }, [uploadFile, portalDocs, clientId, provider, searchResult])
 
-  // ── Drag & drop ────────────────────────────────────────────────────────────
+  // ── Document readiness & calculations ───────────────────────────────────────
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setDragOver(false)
-    const file = e.dataTransfer.files?.[0]
-    if (file && (file.type === 'application/pdf' || file.type.startsWith('image/'))) {
-      setUploadFile(file)
+  const litigationStatus = documentStatuses?.['pending_litigation']
+  const hasLitigationFiles =
+    portalDocs.length > 0 ||
+    Boolean(litigationStatus?.fileName) ||
+    litigationStatus?.hasDoc === true ||
+    Boolean(uploadFile)
+  const isLitigationUnavailable =
+    !hasLitigationFiles &&
+    (litigationStatus?.hasDoc === false || Boolean(litigationStatus?.notApplicable))
+
+  const hasExistingReport = Boolean(searchResult || docResult)
+  const showActiveReport = Boolean(hasExistingReport && !composingNew)
+
+  const combinedRisk = useMemo<'high' | 'medium' | 'low' | 'clear'>(() => {
+    if (searchResult?.riskLevel === 'high' || docResult?.riskLevel === 'high') return 'high'
+    if (searchResult?.riskLevel === 'medium' || docResult?.riskLevel === 'medium') return 'medium'
+    if (searchResult?.riskLevel === 'low' || docResult?.riskLevel === 'low') return 'low'
+    return 'clear'
+  }, [searchResult, docResult])
+
+  const totalFindings = (searchResult?.findings?.length ?? 0) + (docResult?.findings?.length ?? 0)
+  const litigationCount = [
+    ...(searchResult?.findings ?? []),
+    ...(docResult?.findings ?? []),
+  ].filter((f) => f.type === 'litigation' || f.type === 'judgment').length
+  const lienCount = [
+    ...(searchResult?.findings ?? []),
+    ...(docResult?.findings ?? []),
+  ].filter((f) => f.type === 'lien' || f.type === 'ucc_filing' || f.type === 'bankruptcy').length
+
+  const combinedResult = useMemo<LitigationSearchResult | null>(() => {
+    if (!searchResult && !docResult) return null
+    if (searchResult && !docResult) return searchResult
+    if (!searchResult && docResult) return docResult
+    return {
+      riskLevel: combinedRisk,
+      summary: `Public Records Search: ${searchResult!.summary}\n\nDocument Analysis: ${docResult!.summary}`,
+      findings: [...(searchResult!.findings || []), ...(docResult!.findings || [])],
+      searchesPerformed: [
+        ...(searchResult!.searchesPerformed || []),
+        ...(docResult!.searchesPerformed || []),
+      ],
+      generatedAt: docResult!.generatedAt || searchResult!.generatedAt,
     }
-  }, [])
+  }, [searchResult, docResult, combinedRisk])
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) setUploadFile(file)
-  }, [])
+  const reportHtml = useMemo(() => {
+    return combinedResult ? buildLitigationReportHtml(combinedResult, clientName) : ''
+  }, [clientName, combinedResult])
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const readOnlyGate = agentTabReadOnlyGate(readOnly, !hydrated, Boolean(searchResult || docResult), 'Litigation & Liens')
+  const readOnlyGate = agentTabReadOnlyGate(
+    readOnly,
+    !hydrated,
+    Boolean(searchResult || docResult),
+    'Litigation & Liens',
+  )
   if (readOnlyGate) return readOnlyGate
 
   return (
@@ -508,238 +673,526 @@ export default function LitigationSearchTab({ clientId, clientName, businessAddr
           activeVersion={activeRun?.version}
         />
       )}
-      {/* Header */}
-      <div>
-        <h2 className="text-lg font-bold text-slate-800 tracking-tight">Litigation & Lien Search</h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Search public records and analyze uploaded documents for litigation, liens, judgments, UCC filings, and bankruptcy.
-        </p>
-        <p className="text-xs text-slate-400 mt-1">Lien search and court record documents can also be uploaded in the Documents tab.</p>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* ── Web Search Section ──────────────────────────────────────────────── */}
-        <Card className="p-5 space-y-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Search className="w-4 h-4 text-amber-600" />
-            <h3 className="text-sm font-bold text-slate-800">Public Records Search</h3>
-          </div>
-
-          {/* Legal Business Name */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Legal Business Name</label>
-            <input
-              type="text"
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
-              placeholder="e.g. Downtown Dog Lounge LLC"
-            />
-          </div>
-
-          {/* Owner Name */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Owner Name(s)</label>
-            <input
-              type="text"
-              value={ownerName}
-              onChange={(e) => setOwnerName(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
-              placeholder="e.g. John Smith"
-            />
-          </div>
-
-          {/* State */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">State</label>
-            <select
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 bg-white"
-            >
-              <option value="">Select state...</option>
-              {US_STATES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* County */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">County <span className="text-slate-300">(optional)</span></label>
-            <input
-              type="text"
-              value={county}
-              onChange={(e) => setCounty(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
-              placeholder="e.g. Los Angeles"
-            />
-          </div>
-
-          {/* Search button */}
-          <Button
-            onClick={handleSearch}
-            disabled={searching || !businessName.trim() || !state}
-            className="w-full justify-center"
-          >
-            {searching ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Searching public records...
-              </>
-            ) : (
-              <>
-                <Search className="w-4 h-4" />
-                Search Public Records
-              </>
-            )}
-          </Button>
-
-          {searchError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600">
-              {searchError}
-            </div>
-          )}
-        </Card>
-
-        {/* ── Document Upload Section ─────────────────────────────────────────── */}
-        <Card className="p-5 space-y-4">
-          <div className="flex items-center gap-2 mb-1">
-            <FileText className="w-4 h-4 text-amber-600" />
-            <h3 className="text-sm font-bold text-slate-800">Document Analysis</h3>
-          </div>
-
-          <p className="text-xs text-slate-400">
-            Upload court records, lien reports, or UCC search results for AI analysis.
+      {/* Header Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
+        <div>
+          <h2 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+            {showActiveReport
+              ? 'Litigation & Lien Search Report'
+              : composingNew
+                ? 'New Litigation & Lien Search'
+                : 'Litigation & Lien Search'}
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {showActiveReport
+              ? `Public records, lien filings, court judgments & legal disclosures for ${clientName}`
+              : `Search public records and analyze legal dispute disclosures for ${clientName}`}
           </p>
+        </div>
 
-          {/* Drop zone */}
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={cn(
-              'border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors',
-              dragOver
-                ? 'border-amber-400 bg-amber-50/50'
-                : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
-            )}
-          >
-            <FileUp className={cn('w-8 h-8 mx-auto mb-2', dragOver ? 'text-amber-500' : 'text-slate-300')} />
-            <p className="text-xs text-slate-500 font-medium">
-              {dragOver ? 'Drop file here' : 'Drag & drop or click to upload'}
-            </p>
-            <p className="text-[10px] text-slate-400 mt-1">PDF or image files</p>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,image/*"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-
-          {/* Selected file */}
-          {uploadFile && (
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-              <FileText className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              <span className="text-xs text-slate-600 truncate flex-1">{uploadFile.name}</span>
-              <button
-                onClick={() => { setUploadFile(null); setDocResult(null) }}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
-          {/* Analyze button */}
-          <Button
-            onClick={handleAnalyze}
-            disabled={analyzing || !uploadFile}
-            variant="outline"
-            className="w-full justify-center"
-          >
-            {analyzing ? (
+        {!readOnly && (
+          <div className="flex items-center gap-2 shrink-0">
+            {showActiveReport && (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Analyzing document...
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4" />
-                Analyze Document
-              </>
-            )}
-          </Button>
-
-          {docError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600">
-              {docError}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* ── Results ─────────────────────────────────────────────────────────── */}
-      {(searchResult || docResult) && (
-        <Card className="p-6 space-y-8">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-800">Results</h3>
-            <AdvisorActions className="flex items-center gap-2">
-              {saving && (
-                <span className="flex items-center gap-1 text-xs font-semibold text-slate-400">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Saving
-                </span>
-              )}
-              {saved && !saving && (
-                <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600">
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  Saved
-                </span>
-              )}
-              {!readOnly && (
                 <Button
                   variant="outline"
-                  onClick={() => setEditMode(!editMode)}
+                  size="sm"
+                  onClick={() => setComposingNew(true)}
+                  className="gap-1.5 h-8 text-xs font-medium text-slate-700 hover:text-slate-900 border-slate-200"
                 >
+                  <Plus className="w-3.5 h-3.5 text-slate-500" />
+                  New Search
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditMode(!editMode)}
+                  className="gap-1.5 h-8 text-xs font-medium text-slate-700"
+                >
+                  {editMode ? <Eye className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
                   {editMode ? 'Preview Output' : 'Edit Output'}
                 </Button>
-              )}
-              <ExportReportButton
-                html={reportHtml}
-                fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
-                label="Export PDF"
-              />
-            </AdvisorActions>
+                <ExportReportButton
+                  html={reportHtml}
+                  fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
+                  label="Export PDF"
+                />
+              </>
+            )}
+            {composingNew && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setComposingNew(false)}
+                className="h-8 text-xs font-medium text-slate-700"
+              >
+                Cancel
+              </Button>
+            )}
           </div>
-          {editMode && !readOnly ? (
-            <div className="space-y-8">
-              {searchResult && (
-                <LitigationResultsEditor title="Web Search Results" result={searchResult} onChange={setSearchResult} />
-              )}
-              {searchResult && docResult && <hr className="border-slate-100" />}
-              {docResult && (
-                <LitigationResultsEditor title="Document Analysis Results" result={docResult} onChange={setDocResult} />
-              )}
+        )}
+      </div>
+
+      {/* ── Active Report View ── */}
+      {showActiveReport && (
+        <div className="space-y-6">
+          {/* 4 Executive KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Card className={cn('p-4 border', RISK_CONFIG[combinedRisk].bg, RISK_CONFIG[combinedRisk].border)}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Risk Level
+                </span>
+                {React.createElement(RISK_CONFIG[combinedRisk].icon, {
+                  className: cn('w-4 h-4', RISK_CONFIG[combinedRisk].text),
+                })}
+              </div>
+              <p className={cn('text-lg font-bold', RISK_CONFIG[combinedRisk].text)}>
+                {RISK_CONFIG[combinedRisk].label}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {totalFindings === 0 ? 'No adverse records found' : `${totalFindings} total finding${totalFindings !== 1 ? 's' : ''}`}
+              </p>
+            </Card>
+
+            <Card className="p-4 border border-slate-200 bg-white">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Public Records
+                </span>
+                <Search className="w-4 h-4 text-amber-600" />
+              </div>
+              <p className="text-lg font-bold text-slate-800">
+                {searchResult ? `${searchResult.findings.length} Record${searchResult.findings.length !== 1 ? 's' : ''}` : 'Not Run'}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {searchResult ? `${searchResult.searchesPerformed.length} queries executed` : 'Registry query'}
+              </p>
+            </Card>
+
+            <Card className="p-4 border border-slate-200 bg-white">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Litigation & Liens
+                </span>
+                <Scale className="w-4 h-4 text-blue-600" />
+              </div>
+              <p className="text-lg font-bold text-slate-800">
+                {litigationCount} Court / {lienCount} Lien
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {litigationCount + lienCount === 0 ? 'Clear public docket' : 'Recorded filings'}
+              </p>
+            </Card>
+
+            <Card className="p-4 border border-slate-200 bg-white">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Client Disclosure
+                </span>
+                <FileText className="w-4 h-4 text-emerald-600" />
+              </div>
+              <p className="text-lg font-bold text-slate-800 truncate">
+                {hasLitigationFiles
+                  ? `${portalDocs.length + (uploadFile ? 1 : 0)} Disclosed`
+                  : isLitigationUnavailable
+                    ? 'No Disputes'
+                    : 'None Provided'}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                {docResult
+                  ? 'AI analysis complete'
+                  : hasLitigationFiles
+                    ? 'Document attached'
+                    : 'Client portal disclosure'}
+              </p>
+            </Card>
+          </div>
+
+          {/* Diligence Findings & Search Results */}
+          <Card className="p-6 space-y-8">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800">Diligence Findings & Search Results</h3>
+              <div className="flex items-center gap-2">
+                {saving && (
+                  <span className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Saving…
+                  </span>
+                )}
+                {saved && !saving && (
+                  <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Saved
+                  </span>
+                )}
+              </div>
             </div>
-          ) : (
-            <>
-              {searchResult && (
-                <ResultsSection title="Web Search Results" result={searchResult} />
+
+            {editMode && !readOnly ? (
+              <div className="space-y-8">
+                {searchResult && (
+                  <LitigationResultsEditor title="Web Search Results" result={searchResult} onChange={setSearchResult} />
+                )}
+                {searchResult && docResult && <hr className="border-slate-100" />}
+                {docResult && (
+                  <LitigationResultsEditor title="Document Analysis Results" result={docResult} onChange={setDocResult} />
+                )}
+              </div>
+            ) : (
+              <>
+                {searchResult && (
+                  <ResultsSection title="Web Search Results" result={searchResult} />
+                )}
+                {searchResult && docResult && (
+                  <hr className="border-slate-100" />
+                )}
+                {docResult && (
+                  <ResultsSection title="Document Analysis Results" result={docResult} />
+                )}
+              </>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* ── Search & Document Workspace (Shown when no report or composing new) ── */}
+      {(!showActiveReport || composingNew) && (
+        <div className="space-y-6">
+          {/* Sector 1: Optional Client Disclosure Document */}
+          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Optional Legal Disclosure Document
+                </h4>
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                  {hasLitigationFiles
+                    ? `${portalDocs.length + (uploadFile ? 1 : 0)} uploaded`
+                    : '0 of 1 uploaded'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadPortalDocs()}
+                disabled={loadingPortalDocs}
+                className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={cn('w-3 h-3', loadingPortalDocs && 'animate-spin')} />
+                Refresh
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Disclosure of any active, pending, or threatened litigation, arbitrations, regulatory proceedings, or formal disputes from the client portal.
+            </p>
+
+            {/* Valuation-consistent card row */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDragOver(true)
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragOver(false)
+                const file = e.dataTransfer.files?.[0]
+                if (file) void handleFileUpload(file)
+              }}
+              className={cn(
+                'p-4 rounded-xl border transition-all',
+                dragOver
+                  ? 'border-amber-400 bg-amber-50/50'
+                  : hasLitigationFiles
+                    ? 'border-slate-200 bg-white hover:border-slate-300'
+                    : 'border-slate-200 bg-slate-50/50 hover:border-amber-200 hover:bg-amber-50/20',
               )}
-              {searchResult && docResult && (
-                <hr className="border-slate-100" />
-              )}
-              {docResult && (
-                <ResultsSection title="Document Analysis Results" result={docResult} />
-              )}
-            </>
-          )}
-        </Card>
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={cn(
+                        'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+                        hasLitigationFiles
+                          ? 'bg-emerald-50 text-emerald-600'
+                          : isLitigationUnavailable
+                            ? 'bg-amber-50 text-amber-600'
+                            : 'bg-slate-100 text-slate-400',
+                      )}
+                    >
+                      <FileText className="w-4.5 h-4.5" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-slate-800">
+                          Pending Litigation / Legal Disputes
+                        </p>
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                          Optional
+                        </span>
+
+                        {hasLitigationFiles ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Uploaded
+                          </span>
+                        ) : isLitigationUnavailable ? (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                            No active litigation / Not applicable
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-400 border border-slate-200">
+                            Not provided
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        Disclosure of any active, pending, or threatened litigation, court judgments, or legal dispute documents.
+                      </p>
+
+                      {/* Uploaded file chips */}
+                      {hasLitigationFiles && (
+                        <div className="flex flex-wrap gap-2 mt-2.5">
+                          {portalDocs.map((doc, idx) => (
+                            <a
+                              key={doc.id || idx}
+                              href={`/api/client-documents/view?clientId=${encodeURIComponent(clientId)}&documentId=pending_litigation&recordId=${encodeURIComponent(doc.id)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs hover:bg-emerald-50 transition-colors"
+                              title="Click to view file in new tab"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="truncate max-w-[240px] font-medium">{doc.fileName}</span>
+                              {doc.uploadedAt && (
+                                <span className="text-[10px] text-slate-400 font-normal">
+                                  · {new Date(doc.uploadedAt).toLocaleDateString()}
+                                </span>
+                              )}
+                              <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded font-semibold">
+                                Active
+                              </span>
+                            </a>
+                          ))}
+
+                          {uploadFile && !portalDocs.some((d) => d.fileName === uploadFile.name) && (
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-amber-200 text-slate-800 shadow-2xs">
+                              <FileText className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span className="truncate max-w-[220px] font-medium">{uploadFile.name}</span>
+                              <span className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.2 rounded font-semibold">
+                                Local
+                              </span>
+                              {!readOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setUploadFile(null)
+                                    setDocResult(null)
+                                  }}
+                                  className="text-slate-400 hover:text-rose-500 transition-colors ml-0.5"
+                                  title="Remove file"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                {!readOnly && (
+                  <div className="flex items-center gap-2 shrink-0 pt-0.5">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) void handleFileUpload(f)
+                        e.target.value = ''
+                      }}
+                      disabled={isUploadingFile || analyzing}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploadingFile || analyzing}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
+                    >
+                      {isUploadingFile ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Uploading…
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3.5 h-3.5 text-slate-500" />
+                          {hasLitigationFiles ? 'Replace' : 'Upload'}
+                        </>
+                      )}
+                    </button>
+
+                    {hasLitigationFiles && (
+                      <Button
+                        size="sm"
+                        onClick={() => void handleAnalyze()}
+                        disabled={analyzing || isUploadingFile}
+                        className="gap-1.5 h-8 text-xs font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        {analyzing ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Analyzing…
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5" />
+                            Analyze Document
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {docError && (
+              <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 px-4 py-3 rounded-lg">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{docError}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Sector 2: Public Records & Lien Search */}
+          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Public Records & Lien Search
+              </h4>
+            </div>
+            <p className="text-xs text-slate-500">
+              Search state and county public records, UCC lien registries, civil court judgments, and bankruptcy dockets.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              {/* Legal Business Name */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Legal Business Name
+                </label>
+                <input
+                  type="text"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 bg-white"
+                  placeholder="e.g. Downtown Dog Lounge LLC"
+                  disabled={searching}
+                />
+              </div>
+
+              {/* Owner Name */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Owner Name(s)
+                </label>
+                <input
+                  type="text"
+                  value={ownerName}
+                  onChange={(e) => setOwnerName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 bg-white"
+                  placeholder="e.g. John Smith"
+                  disabled={searching}
+                />
+              </div>
+
+              {/* State */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">State</label>
+                <select
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 bg-white"
+                  disabled={searching}
+                >
+                  <option value="">Select state...</option>
+                  {US_STATES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* County */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  County <span className="text-slate-400">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={county}
+                  onChange={(e) => setCounty(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 bg-white"
+                  placeholder="e.g. Los Angeles"
+                  disabled={searching}
+                />
+              </div>
+            </div>
+
+            {searchError && (
+              <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 px-4 py-3 rounded-lg">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{searchError}</span>
+              </div>
+            )}
+
+            {/* Action Footer */}
+            <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="text-xs">
+                {businessName.trim() && state ? (
+                  <span className="text-emerald-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    Search parameters ready. You can query public records.
+                  </span>
+                ) : (
+                  <span className="text-amber-800 font-medium flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    Enter business name and select state to search public records.
+                  </span>
+                )}
+              </div>
+
+              <Button
+                size="sm"
+                onClick={handleSearch}
+                disabled={searching || !businessName.trim() || !state}
+                className="gap-1.5 h-8 text-xs font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {searching ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Searching Public Records…
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-3.5 h-3.5" />
+                    Search Public Records
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
