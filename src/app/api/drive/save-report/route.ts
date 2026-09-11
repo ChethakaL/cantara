@@ -12,7 +12,7 @@ function extractDriveFolderId(value?: string | null) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, fileName, html } = await req.json();
+    const { clientId, fileName, html, agentFolder } = await req.json();
     if (!clientId || !fileName || !html) {
       return new Response("clientId, fileName, and html are required", { status: 400 });
     }
@@ -26,7 +26,12 @@ export async function POST(req: NextRequest) {
       return new Response("Client does not have a Google Drive folder", { status: 409 });
     }
 
-    const result = await saveGeneratedReportToDrive({ folderId, fileName, html });
+    const result = await saveGeneratedReportToDrive({
+      folderId,
+      fileName,
+      html,
+      ...(typeof agentFolder === "string" && agentFolder.trim() ? { agentFolder: agentFolder.trim() } : {}),
+    });
     return NextResponse.json({ saved: true, result });
   } catch (error) {
     console.error("Save report to Drive error:", error);

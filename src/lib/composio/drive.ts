@@ -43,7 +43,7 @@ async function getGoogleDriveAuthConfigId() {
           "GOOGLEDRIVE_FIND_FILE",
           "GOOGLEDRIVE_UPLOAD_FROM_URL",
           "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",
-          "GOOGLEDRIVE_DELETE_FILE",
+          "GOOGLEDRIVE_GOOGLE_DRIVE_DELETE_FOLDER_OR_FILE_ACTION",
           "GOOGLEDRIVE_MOVE_FILE",
           "GOOGLEDRIVE_CREATE_PERMISSION",
           "GOOGLEDRIVE_SHARE_FILE",
@@ -245,7 +245,7 @@ async function consolidateDuplicateNamedFolders(
     }
     const remaining = await listDriveChildren(dup.id).catch(() => [] as DriveChild[]);
     if (remaining.length === 0) {
-      await executeGoogleDriveTool("GOOGLEDRIVE_DELETE_FILE", { file_id: dup.id }).catch(() => null);
+      await trashDriveFile(dup.id);
       trashed += 1;
       console.log(`[DriveSync] Trashed empty duplicate folder "${name}" (${dup.id})`);
     } else {
@@ -405,7 +405,7 @@ export async function organizePreCallBriefsInParentFolder(args: {
 
       // Duplicate already in target — trash this root copy
       if (sameName.length > 0) {
-        await executeGoogleDriveTool("GOOGLEDRIVE_DELETE_FILE", { file_id: child.id }).catch(() => null);
+        await trashDriveFile(child.id);
         result.duplicatesTrashed += 1;
         continue;
       }
@@ -439,7 +439,7 @@ export async function organizePreCallBriefsInParentFolder(args: {
         if (group.length <= 1) continue;
         // Keep the first, trash the rest
         for (const dup of group.slice(1)) {
-          await executeGoogleDriveTool("GOOGLEDRIVE_DELETE_FILE", { file_id: dup.id }).catch(() => null);
+          await trashDriveFile(dup.id);
           result.duplicatesTrashed += 1;
         }
       }
@@ -544,6 +544,27 @@ async function moveDriveFile(fileId: string, newParentId: string, oldParentId?: 
   } catch {
     return false;
   }
+}
+
+/** Trash a file/folder. Prefer the shared Drive entity (file owner), then the current admin. */
+async function trashDriveFile(fileId: string): Promise<boolean> {
+  const attempts = [ADMIN_DRIVE_USER_ID, getComposioAdminId()].filter(
+    (id, i, arr): id is string => Boolean(id) && arr.indexOf(id) === i,
+  );
+  for (const userId of attempts) {
+    try {
+      const result = await executeGoogleDriveTool<any>(
+        "GOOGLEDRIVE_GOOGLE_DRIVE_DELETE_FOLDER_OR_FILE_ACTION",
+        { fileId, supportsAllDrives: true },
+        userId,
+      );
+      if (result.successful === false || result.error) continue;
+      return true;
+    } catch {
+      // try next identity
+    }
+  }
+  return false;
 }
 
 export type ClientUploadsDriveSyncResult = {
@@ -672,6 +693,17 @@ export async function syncClientUploadsDriveStructure(args: {
       const inPlace = targetChildren.find((c) => !c.isFolder && c.name === path.fileName);
       if (inPlace) {
         result.filesAlreadyInPlace += 1;
+        // Prior syncs often left a flat copy under Client Uploads — remove it when structured.
+        const flatDup =
+          flatFiles.find((f) => f.name === path.fileName) ||
+          flatFiles.find((f) => f.name === (doc.fileName || ""));
+        if (flatDup && flatDup.id !== inPlace.id) {
+          const trashed = await trashDriveFile(flatDup.id);
+          if (trashed) {
+            const idx = flatFiles.findIndex((f) => f.id === flatDup.id);
+            if (idx >= 0) flatFiles.splice(idx, 1);
+          }
+        }
         continue;
       }
 
@@ -714,7 +746,7 @@ export async function syncClientUploadsDriveStructure(args: {
             sourceUrl,
             skipExistingCheck: true,
           });
-          await executeGoogleDriveTool("GOOGLEDRIVE_DELETE_FILE", { file_id: flatMatch.id }).catch(() => null);
+          await trashDriveFile(flatMatch.id);
           result.filesUploaded += 1;
           const idx = flatFiles.findIndex((f) => f.id === flatMatch.id);
           if (idx >= 0) flatFiles.splice(idx, 1);
@@ -778,6 +810,29 @@ export async function syncClientUploadsDriveStructure(args: {
       result.errors.push(
         `${doc.fileName || doc.id}: ${error instanceof Error ? error.message : "sync failed"}`,
       );
+    }
+  }
+
+  // Final sweep: remove any remaining flat files under Client Uploads that already
+  // exist (by name) somewhere in the category tree — leftover from older upload-based syncs.
+  if (flatFiles.length > 0) {
+    const structuredNames = new Set<string>();
+    for (const categoryId of Array.from(categoryFolders.values())) {
+      const catChildren = await childrenOf(categoryId);
+      for (const checklist of catChildren.filter((c) => c.isFolder)) {
+        const files = await childrenOf(checklist.id);
+        for (const f of files) {
+          if (!f.isFolder) structuredNames.add(f.name);
+        }
+      }
+    }
+    for (const flat of [...flatFiles]) {
+      if (!structuredNames.has(flat.name)) continue;
+      const trashed = await trashDriveFile(flat.id);
+      if (trashed) {
+        const idx = flatFiles.findIndex((f) => f.id === flat.id);
+        if (idx >= 0) flatFiles.splice(idx, 1);
+      }
     }
   }
 
@@ -846,33 +901,105 @@ export async function uploadClientDocumentToDrive(args: {
   return result;
 }
 
+/** Normalize report file names so we never write `foo.pdf.pdf`. */
+export function resolveGeneratedReportPdfName(fileName: string): string {
+  const base = fileName
+    .replace(/\.html?$/i, "")
+    .replace(/(\.pdf)+$/i, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+  return `${base || "report"}.pdf`;
+}
+
+/**
+ * Map a report file name to the agent folder under Generated Reports.
+ * Explicit `agentFolder` from callers always wins.
+ */
+export function resolveGeneratedReportAgentFolder(fileName: string, explicit?: string | null): string {
+  const fromExplicit = (explicit || "").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, " ").trim();
+  if (fromExplicit) return fromExplicit.slice(0, 120);
+
+  const raw = fileName.replace(/\.html?$/i, "").replace(/(\.pdf)+$/i, "").trim();
+  const lower = raw.toLowerCase();
+
+  const rules: Array<{ test: RegExp; folder: string }> = [
+    { test: /^lease analysis\b/i, folder: "Lease Analysis" },
+    { test: /^contract analysis\b/i, folder: "Contract Analysis" },
+    { test: /^competitor analysis\b/i, folder: "Competitor Analysis" },
+    { test: /^employee obligations\b/i, folder: "Employee Obligations" },
+    { test: /^ttm analysis\b/i, folder: "TTM Analysis" },
+    { test: /^ws2 recast\b/i, folder: "WS2 Recast" },
+    { test: /^ws2 derived\b/i, folder: "WS2 Derived" },
+    { test: /^advisors-report\b/i, folder: "Professional Advisors" },
+    { test: /professional advisors/i, folder: "Professional Advisors" },
+    { test: /^lease-(summary|buyer|addendum)\b/i, folder: "Lease Analysis" },
+    { test: /^contract-(summary|addendum)\b/i, folder: "Contract Analysis" },
+    { test: /^employee-obligations\b/i, folder: "Employee Obligations" },
+    { test: /^insurance-review\b/i, folder: "Insurance Review" },
+    { test: /^facility-review\b/i, folder: "Facility Review" },
+    { test: /^digital-presence\b/i, folder: "Digital Presence" },
+    { test: /^tax-(liability|reference)/i, folder: "Tax Liability Review" },
+    { test: /^net-proceeds\b/i, folder: "Net Proceeds" },
+    { test: /^permits-zoning\b/i, folder: "Permits & Zoning" },
+    { test: /^real-estate-appraisal\b/i, folder: "Real Estate Appraisal" },
+    { test: /^vendor-report\b/i, folder: "Vendor Directory" },
+    { test: /^ownership-verification\b/i, folder: "Ownership Verification" },
+    { test: /^legal-entity-search\b/i, folder: "Legal Entity Search" },
+    { test: /sales readiness roadmap/i, folder: "Improvement Roadmap" },
+    { test: /-cim-/i, folder: "CIM" },
+    { test: /-teaser-/i, folder: "Teaser" },
+  ];
+
+  for (const rule of rules) {
+    if (rule.test.test(raw) || rule.test.test(lower)) return rule.folder;
+  }
+
+  // "{Client} - {Agent Name}" portal exports
+  const dashParts = raw.split(/\s+-\s+/);
+  if (dashParts.length >= 2) {
+    const maybeAgent = dashParts.slice(1).join(" - ").trim();
+    if (maybeAgent && maybeAgent.length <= 80) return maybeAgent.slice(0, 120);
+  }
+
+  return "Other Reports";
+}
+
 export async function saveGeneratedReportToDrive(args: {
   folderId: string;
   fileName: string;
   html: string;
   overwritePrefix?: string;
+  /** Agent / report-type folder under Generated Reports */
+  agentFolder?: string;
 }) {
   const reports = await consolidateDuplicateNamedFolders(args.folderId, "Generated Reports");
-  const baseName = args.fileName.replace(/\.html?$/i, "").replace(/\.pdf$/i, "");
-  const resolvedFileName = `${baseName}.pdf`;
+  const resolvedFileName = resolveGeneratedReportPdfName(args.fileName);
+  const agentFolder = resolveGeneratedReportAgentFolder(args.fileName, args.agentFolder);
+  const targetFolderId = await ensureFolderPath(reports.id, [agentFolder]);
 
-  if (args.overwritePrefix) {
-    const existing = await findFilesByPrefix(args.overwritePrefix, reports.id);
-    for (const file of existing) {
-      console.log(`[Composio] Cleaning up old version/file: ${file.name} (${file.id})`);
-      await executeGoogleDriveTool("GOOGLEDRIVE_DELETE_FILE", { file_id: file.id }).catch((err) => {
-        console.warn(`[Composio] Failed to delete ${file.name}: ${err.message}`);
-      });
+  const cleanupMatches = async (parentId: string) => {
+    if (args.overwritePrefix) {
+      const existing = await findFilesByPrefix(args.overwritePrefix, parentId);
+      for (const file of existing) {
+        console.log(`[Composio] Cleaning up old version/file: ${file.name} (${file.id})`);
+        const ok = await trashDriveFile(file.id);
+        if (!ok) console.warn(`[Composio] Failed to delete ${file.name}`);
+      }
+      return;
     }
-  } else {
-    const existingId = await findFileInFolder(resolvedFileName, reports.id);
+    const existingId = await findFileInFolder(resolvedFileName, parentId);
     if (existingId) {
       console.log(`[Composio] Deleting existing report to overwrite: ${resolvedFileName} (${existingId})`);
-      await executeGoogleDriveTool("GOOGLEDRIVE_DELETE_FILE", { file_id: existingId }).catch((err) => {
-        console.warn(`[Composio] Failed to delete existing file: ${err.message}`);
-      });
+      const ok = await trashDriveFile(existingId);
+      if (!ok) console.warn(`[Composio] Failed to delete existing file`);
     }
-  }
+  };
+
+  // Clean agent folder + any legacy flat copies sitting directly under Generated Reports.
+  await cleanupMatches(targetFolderId);
+  await cleanupMatches(reports.id);
 
   assertS3Configured();
   const pdf = await renderHtmlToPdfBuffer(args.html);
@@ -889,7 +1016,7 @@ export async function saveGeneratedReportToDrive(args: {
   );
 
   const result = await uploadClientDocumentToDrive({
-    folderId: reports.id,
+    folderId: targetFolderId,
     fileName: resolvedFileName,
     mimeType: "application/pdf",
     sourceUrl: await buildPresignedFileUrl(key),
@@ -915,11 +1042,59 @@ export async function saveGeneratedReportToDrive(args: {
   return {
     ...result,
     data: details?.data ?? details ?? (result as any)?.data ?? result,
+    agentFolder,
     webViewLink:
       details?.data?.webViewLink ??
       details?.webViewLink ??
       ((result as any)?.data?.webViewLink ?? (result as any)?.webViewLink),
   };
+}
+
+/**
+ * Move any flat PDFs sitting directly under Generated Reports into
+ * Generated Reports / {Agent Name} / based on file name.
+ */
+export async function structureFlatGeneratedReports(clientFolderId: string): Promise<{
+  moved: number;
+  skipped: number;
+  errors: string[];
+}> {
+  const reports = await consolidateDuplicateNamedFolders(clientFolderId, "Generated Reports");
+  const children = await listDriveChildren(reports.id);
+  const flatFiles = children.filter((c) => !c.isFolder);
+  let moved = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const file of flatFiles) {
+    try {
+      const agentFolder = resolveGeneratedReportAgentFolder(file.name);
+      const targetFolderId = await ensureFolderPath(reports.id, [agentFolder]);
+      if (targetFolderId === reports.id) {
+        skipped += 1;
+        continue;
+      }
+      // Avoid clobbering: if same name already in agent folder, trash the flat leftover.
+      const existing = await findFileInFolder(file.name, targetFolderId);
+      if (existing && existing !== file.id) {
+        const trashed = await trashDriveFile(file.id);
+        if (trashed) moved += 1;
+        else skipped += 1;
+        continue;
+      }
+      const ok = await moveDriveFile(file.id, targetFolderId, reports.id);
+      if (ok) moved += 1;
+      else {
+        skipped += 1;
+        errors.push(`${file.name}: move failed`);
+      }
+    } catch (error) {
+      skipped += 1;
+      errors.push(`${file.name}: ${error instanceof Error ? error.message : "failed"}`);
+    }
+  }
+
+  return { moved, skipped, errors };
 }
 
 function driveFolderId(value: string) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   saveGeneratedReportToDrive,
+  structureFlatGeneratedReports,
 } from "@/lib/composio";
 import { prisma } from "@/lib/prisma";
 import { buildCompetitorReportHtml } from "@/lib/report-export/build-competitor-report";
@@ -140,7 +141,8 @@ async function archiveReports(client: any, folderId: string) {
       label: `Lease Analysis: ${item.fileName || item.id}`,
       run: () => saveGeneratedReportToDrive({
         folderId,
-        fileName: safeFileName(`Lease Analysis - ${item.fileName || item.id}.pdf`),
+        agentFolder: "Lease Analysis",
+        fileName: safeFileName(`Lease Analysis - ${String(item.fileName || item.id).replace(/(\.pdf)+$/i, "")}`),
         html: buildLeaseReportHtml(parsed as any, clientName),
       }),
     });
@@ -153,7 +155,8 @@ async function archiveReports(client: any, folderId: string) {
       label: `Contract Analysis: ${item.fileName || item.id}`,
       run: () => saveGeneratedReportToDrive({
         folderId,
-        fileName: safeFileName(`Contract Analysis - ${item.fileName || item.id}.pdf`),
+        agentFolder: "Contract Analysis",
+        fileName: safeFileName(`Contract Analysis - ${String(item.fileName || item.id).replace(/(\.pdf)+$/i, "")}`),
         html: buildContractReportHtml(parsed as any, clientName),
       }),
     });
@@ -166,7 +169,8 @@ async function archiveReports(client: any, folderId: string) {
       label: `Competitor Analysis`,
       run: () => saveGeneratedReportToDrive({
         folderId,
-        fileName: safeFileName(`Competitor Analysis.pdf`),
+        agentFolder: "Competitor Analysis",
+        fileName: safeFileName(`Competitor Analysis`),
         overwritePrefix: "Competitor Analysis",
         html: parsed
           ? buildCompetitorReportHtml(parsed as any)
@@ -187,7 +191,8 @@ async function archiveReports(client: any, folderId: string) {
       label: `Employee Obligations`,
       run: () => saveGeneratedReportToDrive({
         folderId,
-        fileName: safeFileName(`Employee Obligations.pdf`),
+        agentFolder: "Employee Obligations",
+        fileName: safeFileName(`Employee Obligations`),
         overwritePrefix: "Employee Obligations",
         html: buildEmployeeObligationsReportHtml({
           documents: [], agreements: [], nonCompetes: [], benefits: [], contractors: [], keyPeople: [], keyPersonNarrative: "", coverageGaps: [],
@@ -205,7 +210,8 @@ async function archiveReports(client: any, folderId: string) {
       label: `TTM Analysis`,
       run: () => saveGeneratedReportToDrive({
         folderId,
-        fileName: safeFileName(`TTM Analysis.pdf`),
+        agentFolder: "TTM Analysis",
+        fileName: safeFileName(`TTM Analysis`),
         overwritePrefix: "TTM Analysis",
         html: markdownReportHtml({
           title: `TTM Analysis v${item.version}`,
@@ -224,7 +230,8 @@ async function archiveReports(client: any, folderId: string) {
       label: `WS2 Recast`,
       run: () => saveGeneratedReportToDrive({
         folderId,
-        fileName: safeFileName(`WS2 Recast.pdf`),
+        agentFolder: "WS2 Recast",
+        fileName: safeFileName(`WS2 Recast`),
         overwritePrefix: "WS2 Recast",
         html: markdownReportHtml({
           title: `WS2 Recast v${item.version}`,
@@ -243,7 +250,8 @@ async function archiveReports(client: any, folderId: string) {
       label: `WS2 Derived: ${item.agentId}`,
       run: () => saveGeneratedReportToDrive({
         folderId,
-        fileName: safeFileName(`WS2 Derived - ${item.agentId}.pdf`),
+        agentFolder: "WS2 Derived",
+        fileName: safeFileName(`WS2 Derived - ${item.agentId}`),
         overwritePrefix: `WS2 Derived - ${item.agentId}`,
         html: markdownReportHtml({
           title: `WS2 Derived ${item.agentId}`,
@@ -391,6 +399,21 @@ async function runDriveSync(job: DriveSyncJob, clientId?: string | null) {
         job.summary.documentsMirrored += await mirrorDocuments(client, folderId);
         job.summary.phase = "Generating and uploading report PDFs";
         job.summary.reportsArchived += await archiveReports(client, folderId);
+        job.summary.phase = "Structuring Generated Reports folders";
+        try {
+          const structured = await structureFlatGeneratedReports(folderId);
+          if (structured.moved > 0) {
+            addLog(job, `${name}: moved ${structured.moved} flat report(s) into agent folders`);
+          }
+          for (const err of structured.errors) {
+            job.summary.errors.push({ clientId: client.id, message: `Generated Reports: ${err}` });
+          }
+        } catch (error) {
+          job.summary.errors.push({
+            clientId: client.id,
+            message: error instanceof Error ? error.message : "Generated Reports structure failed",
+          });
+        }
       } catch (error) {
         job.summary.errors.push({
           clientId: client.id,
