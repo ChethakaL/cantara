@@ -314,6 +314,23 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     });
   }
 
+  async function handleSaveReportEdits(nextReport: DigitalPresenceReport) {
+    setReport(nextReport);
+    const aiProvider = (activeRun?.aiProvider as string) || DIGITAL_PRESENCE_PROVIDER;
+    const aiModel = activeRun?.aiModel || resolveAgentModelId(DIGITAL_PRESENCE_PROVIDER);
+    await persistReport(nextReport, { aiProvider, aiModel });
+    await saveAgentAnalysisRunClient({
+      clientId,
+      agentKey: AGENT_RUN_KEYS.digitalPresence,
+      fileName: `${nextReport.businessName} — Digital Presence`,
+      report: nextReport,
+      aiProvider,
+      aiModel,
+    });
+    await reloadRuns({ selectNewest: true });
+    showToast('Digital presence edits saved', 'success');
+  }
+
   async function handleSubmit(formData: DigitalAssetFormData) {
     setLastFormData(formData);
     setStatus('researching');
@@ -709,6 +726,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
           onReset={handleReset}
           onRerun={handleRerun}
           onEdit={handleEdit}
+          onSaveEdits={handleSaveReportEdits}
           readOnly={readOnly}
           embedded={true}
         />

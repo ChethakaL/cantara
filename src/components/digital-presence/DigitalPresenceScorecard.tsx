@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Globe,
   MapPin,
@@ -31,6 +31,8 @@ interface Props {
   onReset?: () => void;
   onRerun?: () => void;
   onEdit?: (channelType: string, metricIndex: number, value: string) => void;
+  /** Persist the full edited report to DB (sectionSubmissions + agent run history). */
+  onSaveEdits?: (report: DigitalPresenceReport) => Promise<void>;
   readOnly?: boolean;
   embedded?: boolean;
 }
@@ -237,11 +239,18 @@ function handleExportJSON(report: DigitalPresenceReport) {
   URL.revokeObjectURL(url);
 }
 
-export default function DigitalPresenceScorecard({ report, onReset, onRerun, onEdit, readOnly = false, embedded = false }: Props) {
+export default function DigitalPresenceScorecard({ report, onReset, onRerun, onEdit, onSaveEdits, readOnly = false, embedded = false }: Props) {
   const [editMode, setEditMode] = useState(false);
   const [editedReport, setEditedReport] = useState<DigitalPresenceReport>(report);
   const [assetEditMode, setAssetEditMode] = useState(false);
   const [excludedAssets, setExcludedAssets] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [savedBadge, setSavedBadge] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEditedReport(report);
+  }, [report]);
 
   const currentReport = editedReport;
   const criticalCount = currentReport.channels.reduce((acc, ch) => acc + ch.flags.filter(f => f.severity === 'critical').length, 0);
@@ -265,8 +274,44 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
         return { ...ch, keyMetrics: updatedMetrics };
       }),
     }));
-    // Persist the override so re-run preserves it
+    // Keep in-memory overrides so a later re-run can re-apply manual values.
     onEdit?.(channelType, metricIndex, value);
+  }
+
+  async function persistEdits() {
+    if (!onSaveEdits) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSaveEdits(editedReport);
+      setSavedBadge(true);
+      setTimeout(() => setSavedBadge(false), 2000);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save edits');
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleToggleEditMode() {
+    if (readOnly) return;
+    if (editMode) {
+      // Leaving edit mode — persist manual edits to DB.
+      if (onSaveEdits) {
+        try {
+          await persistEdits();
+          setEditMode(false);
+        } catch {
+          // Stay in edit mode so the user can retry.
+        }
+        return;
+      }
+      setEditMode(false);
+      return;
+    }
+    setEditMode(true);
+    setSaveError(null);
   }
 
   function toggleAssetExclusion(index: number) {
@@ -281,6 +326,33 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
     });
   }
 
+  const editControls = !readOnly ? (
+    <div className="flex items-center gap-2 self-end sm:self-auto">
+      <button
+        type="button"
+        onClick={() => void handleToggleEditMode()}
+        disabled={saving}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer disabled:opacity-60',
+          editMode
+            ? 'border-amber-300 bg-amber-50 text-amber-700'
+            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+        )}
+      >
+        {editMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+        {editMode ? (saving ? 'Saving...' : savedBadge ? 'Saved' : 'Done Editing') : 'Edit Results'}
+      </button>
+      <button
+        type="button"
+        onClick={onRerun}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer"
+      >
+        <RefreshCw className="w-3.5 h-3.5" />
+        Re-run Analysis
+      </button>
+    </div>
+  ) : null;
+
   return (
     <div className="space-y-6">
       {/* Header bar */}
@@ -293,32 +365,11 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
               Overall Score: {currentReport.overallScore}/100
             </span>
+            {saveError && (
+              <span className="text-xs font-medium text-rose-600">{saveError}</span>
+            )}
           </div>
-          {!readOnly && (
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              <button
-                type="button"
-                onClick={() => setEditMode(m => !m)}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer',
-                  editMode
-                    ? 'border-amber-300 bg-amber-50 text-amber-700'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                )}
-              >
-                {editMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                {editMode ? 'Done Editing' : 'Edit Results'}
-              </button>
-              <button
-                type="button"
-                onClick={onRerun}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Re-run Analysis
-              </button>
-            </div>
-          )}
+          {editControls}
         </div>
       ) : (
         <div className="flex items-center justify-between">
@@ -327,20 +378,25 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
             <p className="text-xs text-slate-400">
               Digital Presence Report &middot; Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
+            {saveError && (
+              <p className="text-xs font-medium text-rose-600 mt-1">{saveError}</p>
+            )}
           </div>
           {!readOnly && (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setEditMode(m => !m)}
+                type="button"
+                onClick={() => void handleToggleEditMode()}
+                disabled={saving}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors cursor-pointer',
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors cursor-pointer disabled:opacity-60',
                   editMode
                     ? 'border-amber-300 bg-amber-50 text-amber-700'
                     : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                 )}
               >
                 {editMode ? <Check className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                {editMode ? 'Done Editing' : 'Edit Results'}
+                {editMode ? (saving ? 'Saving...' : savedBadge ? 'Saved' : 'Done Editing') : 'Edit Results'}
               </button>
               <ExportReportButton
                 html={buildDigitalPresenceReportHtml(currentReport)}
@@ -376,7 +432,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onE
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3">
           <Pencil className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-700 leading-relaxed">
-            Edit mode is active. Click on any metric value or summary text to update it manually. Changes are saved in real-time.
+            Edit mode is active. Update metric values or summaries, then click <strong>Done Editing</strong> to save changes to the client record.
           </p>
         </div>
       )}
