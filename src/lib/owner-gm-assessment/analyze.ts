@@ -1,5 +1,6 @@
 import type { OwnerGmAssessment } from "./types";
 import { createAgentMessage, type AgentMessageBlock } from "@/lib/llm-completion";
+import { extractTranscriptText } from "@/lib/sales-review/analyze";
 
 const SYSTEM_PROMPT = `You are the Owner & GM Involvement Assessment Agent for Cantara, a business sale-readiness and M&A diligence platform.
 
@@ -94,7 +95,7 @@ You will receive a call transcript from a discovery or diligence call with a bus
 - **informational**: Part-time GM, multiple owners, comp details for modeling
 
 ## Output Format
-Return ONLY valid JSON matching this exact structure (no markdown, no code fences):
+Return ONLY valid JSON matching this exact structure (no markdown, no code fences, no commentary before or after the JSON):
 {
   "generatedAt": "<ISO timestamp>",
   "ownerDependencyRating": "High" | "Medium" | "Low",
@@ -180,43 +181,119 @@ Rules:
 - Recommendations should be actionable next steps for the advisory team.
 - counselItems are talking points to raise with the owner in follow-up conversations.`;
 
+const MAX_TRANSCRIPT_CHARS = 120_000;
+
+function isPdf(mediaType: string, fileName: string) {
+  return mediaType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+}
+
+function isDocx(mediaType: string, fileName: string) {
+  const lower = fileName.toLowerCase();
+  return (
+    mediaType.includes("wordprocessingml")
+    || mediaType === "application/msword"
+    || lower.endsWith(".docx")
+    || lower.endsWith(".doc")
+  );
+}
+
+function isPlainText(mediaType: string, fileName: string) {
+  const lower = fileName.toLowerCase();
+  return mediaType.startsWith("text/") || lower.endsWith(".txt") || lower.endsWith(".md");
+}
+
+function stripJsonFence(text: string) {
+  const t = text.trim();
+  const fence = /^```(?:json)?\s*([\s\S]*?)```$/m.exec(t);
+  if (fence) return fence[1].trim();
+  return t;
+}
+
+function parseAssessmentJson(rawText: string): OwnerGmAssessment {
+  const cleaned = stripJsonFence(rawText);
+  try {
+    return JSON.parse(cleaned) as OwnerGmAssessment;
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1)) as OwnerGmAssessment;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  throw new Error(
+    "The model did not return a valid Owner & GM assessment. Try a clearer transcript file (TXT, DOCX, or text-based PDF).",
+  );
+}
+
 export async function analyzeOwnerGmTranscript(args: {
   fileName: string;
   base64: string;
   mediaType: string;
 }): Promise<OwnerGmAssessment> {
+  const buffer = Buffer.from(args.base64, "base64");
+  const mediaType = args.mediaType || "application/octet-stream";
+  const fileName = args.fileName || "transcript";
   const contentBlocks: AgentMessageBlock[] = [];
 
-  if (args.mediaType === "application/pdf") {
-    contentBlocks.push({
-      type: "document",
-      title: args.fileName,
-      source: {
-        type: "base64",
-        media_type: "application/pdf",
-        data: args.base64,
-      },
-    });
-  } else if (args.mediaType.startsWith("image/")) {
+  if (mediaType.startsWith("image/")) {
     contentBlocks.push({
       type: "image",
       source: {
-        media_type: args.mediaType,
+        media_type: mediaType,
         data: args.base64,
       },
     });
-  } else {
-    const text = Buffer.from(args.base64, "base64").toString("utf-8");
     contentBlocks.push({
       type: "text",
-      text: `[Transcript content from file: ${args.fileName}]\n\n${text}`,
+      text: `Analyze this call transcript image against the 40-question Owner & GM Involvement framework. Extract every data point available and produce the full assessment JSON.\n\nFile name: ${fileName}`,
     });
-  }
+  } else {
+    let transcriptText = "";
+    try {
+      if (isPdf(mediaType, fileName) || isDocx(mediaType, fileName) || isPlainText(mediaType, fileName)) {
+        transcriptText = (await extractTranscriptText(buffer, mediaType, fileName)).trim();
+      } else {
+        transcriptText = buffer.toString("utf-8").trim();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to read transcript file";
+      throw new Error(`Could not read transcript from ${fileName}. ${message}`);
+    }
 
-  contentBlocks.push({
-    type: "text",
-    text: `Analyze this call transcript against the 40-question Owner & GM Involvement framework. Extract every data point available and produce the full assessment JSON.\n\nFile name: ${args.fileName}`,
-  });
+    // Scanned PDFs often have no extractable text — still attach the PDF for Claude/Bedrock.
+    if (!transcriptText && isPdf(mediaType, fileName)) {
+      contentBlocks.push({
+        type: "document",
+        title: fileName,
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: args.base64,
+        },
+      });
+      contentBlocks.push({
+        type: "text",
+        text: `The attached PDF may be scanned. Read the call transcript from the document and analyze it against the 40-question Owner & GM Involvement framework. Return ONLY the assessment JSON.\n\nFile name: ${fileName}`,
+      });
+    } else if (!transcriptText) {
+      throw new Error(
+        `Could not extract readable text from ${fileName}. Upload a TXT, DOCX, or text-based PDF transcript.`,
+      );
+    } else {
+      contentBlocks.push({
+        type: "text",
+        text: `[Call transcript from file: ${fileName}]\n\n${transcriptText.slice(0, MAX_TRANSCRIPT_CHARS)}`,
+      });
+      contentBlocks.push({
+        type: "text",
+        text: `Analyze this call transcript against the 40-question Owner & GM Involvement framework. Extract every data point available and produce the full assessment JSON.\n\nFile name: ${fileName}`,
+      });
+    }
+  }
 
   const rawText = await createAgentMessage({
     system: SYSTEM_PROMPT,
@@ -225,8 +302,11 @@ export async function analyzeOwnerGmTranscript(args: {
     temperature: 0,
   });
 
-  const cleaned = rawText.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
-  return JSON.parse(cleaned) as OwnerGmAssessment;
+  const assessment = parseAssessmentJson(rawText);
+  if (!assessment.generatedAt) {
+    assessment.generatedAt = new Date().toISOString();
+  }
+  return assessment;
 }
 
 export function serializeOwnerGmAssessment(assessment: OwnerGmAssessment): string {
