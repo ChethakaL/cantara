@@ -172,6 +172,7 @@ async function runFacilityAnalysis(args: {
   location: string
   prompt: string
   images: Array<{ fileName: string; base64: string; mediaType: string }>
+  notesDocument?: { fileName: string; base64: string; mediaType: 'application/pdf' }
   provider?: AgentAiProvider
   modelId?: string
 }): Promise<FacilityReviewReport> {
@@ -179,19 +180,39 @@ async function runFacilityAnalysis(args: {
   const logicalModel = process.env.FACILITY_REVIEW_MODEL || DEFAULT_MODEL
   const model = resolveModel(logicalModel)
 
-  const content: AgentMessageBlock[] = args.images.flatMap((image, index) => [
-    {
-      type: 'image' as const,
+  const content: AgentMessageBlock[] = []
+
+  if (args.notesDocument) {
+    content.push({
+      type: 'document',
+      title: args.notesDocument.fileName,
       source: {
-        media_type: image.mediaType,
-        data: image.base64,
+        type: 'base64',
+        media_type: args.notesDocument.mediaType,
+        data: args.notesDocument.base64,
       },
-    },
-    {
-      type: 'text' as const,
-      text: `Image ${index + 1}: ${image.fileName}`,
-    },
-  ])
+    })
+    content.push({
+      type: 'text',
+      text: `Attached advisor meeting notes document: ${args.notesDocument.fileName}`,
+    })
+  }
+
+  content.push(
+    ...args.images.flatMap((image, index) => [
+      {
+        type: 'image' as const,
+        source: {
+          media_type: image.mediaType,
+          data: image.base64,
+        },
+      },
+      {
+        type: 'text' as const,
+        text: `Image ${index + 1}: ${image.fileName}`,
+      },
+    ]),
+  )
 
   content.push({
     type: 'text',
@@ -214,20 +235,40 @@ ${FACILITY_REPORT_JSON_SCHEMA}`,
     })
   } else {
     const client = await requireAIClient()
-    const anthropicContent: Anthropic.Messages.ContentBlockParam[] = args.images.flatMap((image, index) => [
-      {
-        type: 'image' as const,
+    const anthropicContent: Anthropic.Messages.ContentBlockParam[] = []
+
+    if (args.notesDocument) {
+      anthropicContent.push({
+        type: 'document',
         source: {
-          type: 'base64' as const,
-          media_type: image.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-          data: image.base64,
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: args.notesDocument.base64,
         },
-      },
-      {
-        type: 'text' as const,
-        text: `Image ${index + 1}: ${image.fileName}`,
-      },
-    ])
+        title: args.notesDocument.fileName,
+      } as Anthropic.Messages.ContentBlockParam)
+      anthropicContent.push({
+        type: 'text',
+        text: `Attached advisor meeting notes document: ${args.notesDocument.fileName}`,
+      })
+    }
+
+    anthropicContent.push(
+      ...args.images.flatMap((image, index) => [
+        {
+          type: 'image' as const,
+          source: {
+            type: 'base64' as const,
+            media_type: image.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+            data: image.base64,
+          },
+        },
+        {
+          type: 'text' as const,
+          text: `Image ${index + 1}: ${image.fileName}`,
+        },
+      ]),
+    )
 
     anthropicContent.push({
       type: 'text',
@@ -292,15 +333,20 @@ export async function analyzeAdvisorFacilityReview(args: {
   location: string
   meetingNotes: string
   images: Array<{ fileName: string; base64: string; mediaType: string }>
+  notesDocument?: { fileName: string; base64: string; mediaType: 'application/pdf' }
 }): Promise<FacilityReviewReport> {
   const imageNote = args.images.length
     ? `${args.images.length} advisor visit photo(s) are attached as supporting evidence.`
     : 'No visit photos were uploaded — base the assessment only on the advisor notes below.'
+  const documentNote = args.notesDocument
+    ? `An uploaded meeting notes PDF (${args.notesDocument.fileName}) is attached. Prefer its contents when pasted notes are empty or incomplete.`
+    : ''
 
   return runFacilityAnalysis({
     businessName: args.businessName,
     location: args.location,
     images: args.images,
+    notesDocument: args.notesDocument,
     prompt: `Create the SAME Cantara Pet Business Advisors Facility Assessment Report format used for standard seller intake reviews — with overall score, zone scores, prioritized improvements, and all standard report sections.
 
 This is an ADVISOR-RUN facility review from a site visit. The seller intake form was NOT used. Use ONLY the advisor meeting notes and any uploaded visit photos.
@@ -308,9 +354,10 @@ This is an ADVISOR-RUN facility review from a site visit. The seller intake form
 Business name: ${args.businessName}
 Location: ${args.location || 'Unknown'}
 ${imageNote}
+${documentNote}
 
 Advisor meeting notes and visit observations:
-${args.meetingNotes}
+${args.meetingNotes || '(No pasted notes — use the attached meeting notes document.)'}
 
 Use sale-readiness buyer lens for pet boarding, daycare, grooming, training, and veterinary-adjacent facilities. Treat advisor notes as the primary source of truth. Use photos only as supporting evidence. Do not invent conditions not supported by the notes or visible images.
 Set reportVersion to "v1.0 — Advisor Visit".`,
