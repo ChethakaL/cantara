@@ -69,7 +69,10 @@ Return ONLY valid JSON in this exact shape:
   ]
 }
 
-Be thorough. Extract EVERY employee you can find. Do not skip or summarize.`
+Be thorough. Extract EVERY employee you can find. Do not skip or summarize.
+Return ONLY the JSON object. No markdown fences, no commentary before or after.`
+
+const MAX_OUTPUT_TOKENS = Number(process.env.EMPLOYEE_COMP_MAX_TOKENS) || 16000
 
 function buildSummary(employees: EmployeeCompRow[]): EmployeeCompReport['summary'] {
   const fullTime = employees.filter(e => e.employeeType.toLowerCase().includes('full'))
@@ -117,6 +120,69 @@ function assignIds(rows: Omit<EmployeeCompRow, 'id'>[]): EmployeeCompRow[] {
   return rows.map((r, i) => ({ ...r, id: `emp-${Date.now()}-${i}` }))
 }
 
+function stripJsonFence(text: string) {
+  const t = text.trim()
+  const fence = /^```(?:json)?\s*([\s\S]*?)```$/im.exec(t)
+  if (fence) return fence[1].trim()
+  return t
+}
+
+function parsePayrollJson(rawText: string): { employees?: Omit<EmployeeCompRow, 'id'>[] } {
+  const cleaned = stripJsonFence(rawText)
+  try {
+    return JSON.parse(cleaned) as { employees?: Omit<EmployeeCompRow, 'id'>[] }
+  } catch {
+    // Models often append commentary after a valid JSON object — slice the outer object.
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1)) as { employees?: Omit<EmployeeCompRow, 'id'>[] }
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  throw new Error(
+    'Payroll analysis returned invalid JSON. Try again, or split a very large spreadsheet into fewer employees per file.',
+  )
+}
+
+async function requestPayrollExtraction(args: {
+  provider: AgentAiProvider
+  modelId?: string
+  system: string
+  content: any[]
+  maxTokens: number
+}): Promise<{ rawText: string; truncated: boolean }> {
+  if (args.provider === 'openai') {
+    const rawText = await createAgentMessage({
+      provider: args.provider,
+      model: args.modelId,
+      system: args.system,
+      content: args.content as Parameters<typeof createAgentMessage>[0]['content'],
+      maxTokens: args.maxTokens,
+      temperature: 0,
+    })
+    return { rawText: rawText.trim(), truncated: false }
+  }
+
+  const client = await requireAIClient()
+  const response = await client.messages.create({
+    model: resolveModel('claude-sonnet-4-20250514'),
+    max_tokens: args.maxTokens,
+    temperature: 0,
+    system: args.system,
+    messages: [{ role: 'user', content: args.content }],
+  })
+  const rawText = response.content
+    .filter((b) => b.type === 'text')
+    .map((b) => ('text' in b ? b.text : ''))
+    .join('')
+    .trim()
+  return { rawText, truncated: response.stop_reason === 'max_tokens' }
+}
+
 export async function analyzePayrollDocument(args: {
   fileName?: string
   base64?: string
@@ -140,13 +206,13 @@ export async function analyzePayrollDocument(args: {
         source: { type: 'base64', media_type: args.mediaType, data: args.base64 },
       })
     } else if (
-      args.mediaType.includes('spreadsheet') ||
-      args.mediaType.includes('excel') ||
-      args.fileName?.endsWith('.xlsx') ||
-      args.fileName?.endsWith('.xls') ||
-      args.fileName?.endsWith('.csv')
+      args.mediaType.includes('spreadsheet')
+      || args.mediaType.includes('excel')
+      || args.fileName?.endsWith('.xlsx')
+      || args.fileName?.endsWith('.xls')
+      || args.fileName?.endsWith('.csv')
     ) {
-      // Excel/CSV: parse server-side and send as text (Claude only accepts PDF for documents)
+      // Excel/CSV: parse server-side and send as text (Claude only accepts PDF/images as binary docs)
       try {
         const XLSX = require('xlsx')
         const buffer = Buffer.from(args.base64, 'base64')
@@ -163,7 +229,6 @@ export async function analyzePayrollDocument(args: {
         })
       } catch (parseErr) {
         console.error('Failed to parse spreadsheet, sending as raw text:', parseErr)
-        // Fallback: decode as text
         const decoded = Buffer.from(args.base64, 'base64').toString('utf-8')
         content.push({
           type: 'text',
@@ -179,38 +244,48 @@ export async function analyzePayrollDocument(args: {
 
   content.push({ type: 'text', text: textInstruction })
 
-  let rawText: string
-  if (provider === 'openai') {
-    rawText = await createAgentMessage({
-      provider,
-      model: args.modelId,
-      system: SYSTEM_PROMPT,
-      content: content as Parameters<typeof createAgentMessage>[0]['content'],
-      maxTokens: 8000,
-      temperature: 0,
-    })
-  } else {
-    const client = await requireAIClient()
-    const response = await client.messages.create({
-      model: resolveModel('claude-sonnet-4-20250514'),
-      max_tokens: 8000,
-      temperature: 0,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content }],
-    })
-    rawText = response.content
-      .filter((b) => b.type === 'text')
-      .map((b) => ('text' in b ? b.text : ''))
-      .join('')
-  }
-  rawText = rawText.trim()
+  let { rawText, truncated } = await requestPayrollExtraction({
+    provider,
+    modelId: args.modelId,
+    system: SYSTEM_PROMPT,
+    content,
+    maxTokens: MAX_OUTPUT_TOKENS,
+  })
 
-  const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
-  const parsed = JSON.parse(cleaned)
+  let parsed: { employees?: Omit<EmployeeCompRow, 'id'>[] }
+  try {
+    parsed = parsePayrollJson(rawText)
+  } catch (firstError) {
+    // One retry with a stricter "JSON only" reminder — handles flaky trailing commentary.
+    const retry = await requestPayrollExtraction({
+      provider,
+      modelId: args.modelId,
+      system: `${SYSTEM_PROMPT}\n\nCRITICAL: Your previous response was not valid parseable JSON. Reply with the JSON object only.`,
+      content,
+      maxTokens: MAX_OUTPUT_TOKENS,
+    })
+    rawText = retry.rawText
+    truncated = truncated || retry.truncated
+    try {
+      parsed = parsePayrollJson(rawText)
+    } catch {
+      if (truncated) {
+        throw new Error(
+          `Payroll analysis hit the ${MAX_OUTPUT_TOKENS} token output limit before finishing. Split the spreadsheet or raise EMPLOYEE_COMP_MAX_TOKENS.`,
+        )
+      }
+      throw firstError
+    }
+  }
+
+  if (truncated && (!parsed.employees || parsed.employees.length === 0)) {
+    throw new Error(
+      `Payroll analysis hit the ${MAX_OUTPUT_TOKENS} token output limit before finishing. Split the spreadsheet or raise EMPLOYEE_COMP_MAX_TOKENS.`,
+    )
+  }
 
   const employees = assignIds(parsed.employees ?? [])
 
-  // Back-fill estimated annual salary for hourly employees without one
   for (const emp of employees) {
     if (emp.payType === 'Hourly' && emp.annualSalary === null && emp.hourlyRate !== null) {
       emp.annualSalary = Math.round(emp.hourlyRate * 2080 * 100) / 100
