@@ -90,7 +90,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ assessment });
   } catch (error) {
     console.error("[owner-gm-assessment] POST error:", error);
-    return new Response("Internal Server Error", { status: 500 });
+    const message = error instanceof Error ? error.message : "Internal Server Error";
+    // Surface actionable extract/parse errors to the UI instead of a generic 500.
+    if (
+      /could not read|could not extract|did not return a valid|upload a txt|docx|pdf/i.test(message)
+    ) {
+      return new Response(message, { status: 400 });
+    }
+    return new Response(message || "Internal Server Error", { status: 500 });
   }
 }
 

@@ -68,10 +68,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const nextAssigned = typeof body.assignedAdvisor === 'string' ? body.assignedAdvisor.trim() || null : null;
       existingSubmissions.assignedAdvisor = nextAssigned;
 
-      if (body.applyAdvisorToAllAgents) {
+      if (body.applyAdvisorToAllAgents && nextAssigned) {
+        // Backfill only — never clobber an agent that already has an assignee.
         const approvals = { ...((existingSubmissions.agentApprovals as Record<string, any>) ?? {}) };
         for (const key of Object.keys(approvals)) {
-          approvals[key] = { ...(approvals[key] as object), assignedTo: nextAssigned };
+          const entry = (approvals[key] ?? {}) as { assignedTo?: string | null };
+          const existing = typeof entry.assignedTo === "string" ? entry.assignedTo.trim() : "";
+          if (existing) continue;
+          approvals[key] = { ...entry, assignedTo: nextAssigned };
         }
         existingSubmissions.agentApprovals = approvals;
       }

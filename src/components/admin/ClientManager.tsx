@@ -549,9 +549,14 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
 
     if (assignedAdvisor) {
       mergedSectionSubmissions.assignedAdvisor = assignedAdvisor
+      // Only backfill Assigned To when an agent has no assignee yet.
+      // Never overwrite Craig/Gabby (etc.) assignments just because Client Management was saved.
       const approvals = { ...((mergedSectionSubmissions.agentApprovals as Record<string, unknown>) ?? {}) }
       for (const key of Object.keys(approvals)) {
-        approvals[key] = { ...(approvals[key] as object), assignedTo: assignedAdvisor }
+        const entry = (approvals[key] ?? {}) as { assignedTo?: string | null }
+        const existing = typeof entry.assignedTo === 'string' ? entry.assignedTo.trim() : ''
+        if (existing) continue
+        approvals[key] = { ...entry, assignedTo: assignedAdvisor }
       }
       mergedSectionSubmissions.agentApprovals = approvals
     } else {
@@ -597,6 +602,8 @@ export default function ClientManager({ client: initial, onSaved, onDeleted, onD
     const updated = {
       ...nextClient,
       assignedAdvisor: assignedAdvisor || null,
+      // Ask the API to backfill blank agent assignees only (see clients/[id] route).
+      // Existing Assigned To values must not be overwritten on a normal Client Management save.
       applyAdvisorToAllAgents: true,
       provisionedAt: isFirstProvision ? now : client.provisionedAt,
       workstreamAgents: (agentsEqual(baseAgents, normalizedDraftAgents) ? [] : normalizedDraftAgents).map(agent => ({ id: agent.agentId, ...agent })),
