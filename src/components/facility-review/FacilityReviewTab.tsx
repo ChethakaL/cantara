@@ -37,6 +37,12 @@ const ACCEPTED_TYPES = {
   'image/webp': ['.webp'],
 }
 
+const ACCEPTED_MEETING_NOTES_TYPES = {
+  'application/pdf': ['.pdf'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'text/plain': ['.txt'],
+}
+
 const RATING_BADGE: Record<FacilityRating, 'green' | 'blue' | 'gold' | 'red'> = {
   Excellent: 'green',
   Good: 'blue',
@@ -361,6 +367,9 @@ export default function FacilityReviewTab({
   const [location, setLocation] = useState(businessAddress || '')
   const [notes, setNotes] = useState('')
   const [meetingNotes, setMeetingNotes] = useState('')
+  const [meetingNotesFileName, setMeetingNotesFileName] = useState<string | null>(null)
+  const [meetingNotesFile, setMeetingNotesFile] = useState<File | null>(null)
+  const [extractingNotes, setExtractingNotes] = useState(false)
   const [advisorImages, setAdvisorImages] = useState<File[]>([])
   const [reportRunMode, setReportRunMode] = useState<'standard' | 'advisor' | null>(null)
   const [intakeQuestions, setIntakeQuestions] = useState<FacilityIntakeQuestion[]>([])
@@ -446,6 +455,9 @@ export default function FacilityReviewTab({
       if (advisorInputsRes.ok) {
         const advisorInputs = await advisorInputsRes.json()
         if (advisorInputs?.meetingNotes) setMeetingNotes(advisorInputs.meetingNotes)
+        if (typeof advisorInputs?.meetingNotesFileName === 'string' && advisorInputs.meetingNotesFileName.trim()) {
+          setMeetingNotesFileName(advisorInputs.meetingNotesFileName.trim())
+        }
         if (advisorInputs?.location) setLocation(advisorInputs.location)
         if (advisorInputs?.businessName) setBusinessName(advisorInputs.businessName)
       }
@@ -646,7 +658,7 @@ export default function FacilityReviewTab({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           section: 'facilityReviewAdvisorInputs',
-          data: { businessName, location, meetingNotes, runMode: 'advisor' },
+          data: { businessName, location, meetingNotes, meetingNotesFileName, runMode: 'advisor' },
         }),
       })
       showToast('Advisor visit notes saved', 'success')
@@ -780,11 +792,11 @@ export default function FacilityReviewTab({
     })
   }
 
-  const advisorNotesMissing = !meetingNotes.trim()
+  const advisorNotesMissing = !meetingNotes.trim() && !meetingNotesFile
 
   const analyzeAdvisorRun = async () => {
-    if (!meetingNotes.trim()) {
-      setError('Fill in meeting notes / visit observations before generating the report.')
+    if (advisorNotesMissing) {
+      setError('Paste meeting notes or upload a meeting notes document before generating the report.')
       return
     }
     setAnalyzing(true)
@@ -794,6 +806,7 @@ export default function FacilityReviewTab({
       form.append('businessName', businessName)
       form.append('location', location)
       form.append('meetingNotes', meetingNotes)
+      if (meetingNotesFile) form.append('meetingNotesFile', meetingNotesFile)
       advisorImages.forEach(file => form.append('images', file))
       const res = await fetch('/api/facility-review/advisor-analyze', { method: 'POST', body: form })
       if (!res.ok) throw new Error(await res.text())
@@ -813,7 +826,7 @@ export default function FacilityReviewTab({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             section: 'facilityReviewAdvisorInputs',
-            data: { businessName, location, meetingNotes, runMode: 'advisor' },
+            data: { businessName, location, meetingNotes, meetingNotesFileName, runMode: 'advisor' },
           }),
         })
         setSaved(true)
@@ -843,6 +856,69 @@ export default function FacilityReviewTab({
     multiple: true,
     maxFiles: 20,
     maxSize: 5 * 1024 * 1024,
+  })
+
+  const extractMeetingNotesFile = useCallback(async (file: File) => {
+    setMeetingNotesFile(file)
+    setMeetingNotesFileName(file.name)
+    setExtractingNotes(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/facility-review/extract-notes', { method: 'POST', body: form })
+      if (!res.ok) {
+        // Keep the uploaded file even when text extraction fails — generate can still use the file.
+        setToast({
+          message: `Uploaded ${file.name}. Text could not be previewed — you can still generate from the file.`,
+          type: 'info',
+        })
+        return
+      }
+      const data = await res.json() as { fileName?: string; text?: string }
+      const extracted = String(data.text ?? '').trim()
+      if (!extracted) {
+        setToast({
+          message: `Uploaded ${file.name}. No preview text found — you can still generate from the file.`,
+          type: 'info',
+        })
+        return
+      }
+      setMeetingNotes(current => {
+        const existing = current.trim()
+        if (!existing) return extracted
+        return `${existing}\n\n---\nUploaded meeting notes (${file.name}):\n${extracted}`
+      })
+      setMeetingNotesFileName(data.fileName || file.name)
+      setToast({ message: `Loaded notes from ${file.name}`, type: 'success' })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to extract meeting notes preview'
+      setToast({
+        message: `Uploaded ${file.name}. ${message} You can still generate from the file.`,
+        type: 'info',
+      })
+    } finally {
+      setExtractingNotes(false)
+    }
+  }, [])
+
+  const onMeetingNotesDocDrop = useCallback((accepted: File[]) => {
+    const file = accepted[0]
+    if (!file) return
+    void extractMeetingNotesFile(file)
+  }, [extractMeetingNotesFile])
+
+  const {
+    getRootProps: getMeetingNotesRootProps,
+    getInputProps: getMeetingNotesInputProps,
+    isDragActive: meetingNotesDragActive,
+  } = useDropzone({
+    onDrop: onMeetingNotesDocDrop,
+    accept: ACCEPTED_MEETING_NOTES_TYPES,
+    multiple: false,
+    maxFiles: 1,
+    maxSize: 15 * 1024 * 1024,
+    disabled: extractingNotes || readOnly,
   })
 
   const handleDeleteReport = async () => {
@@ -1339,12 +1415,12 @@ export default function FacilityReviewTab({
                 <span
                   className={cn(
                     'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
-                    meetingNotes.trim()
+                    meetingNotes.trim() || meetingNotesFile
                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                       : 'bg-amber-50 text-amber-700 border-amber-200',
                   )}
                 >
-                  {meetingNotes.trim() ? 'Notes Recorded' : 'Notes Required'}
+                  {meetingNotes.trim() || meetingNotesFile ? 'Notes Recorded' : 'Notes Required'}
                 </span>
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                   {advisorImages.length} visit photos staged
@@ -1483,10 +1559,67 @@ export default function FacilityReviewTab({
                 />
                 {advisorNotesMissing && (
                   <p className="text-[11px] text-amber-700 mt-1 font-medium">
-                    Meeting notes are required before you can run the advisor facility review.
+                    Paste notes above or upload a meeting notes document below.
                   </p>
                 )}
               </div>
+
+              <div className="relative flex items-center gap-3 py-0.5">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">or</span>
+                <div className="h-px flex-1 bg-slate-200" />
+              </div>
+
+              <div
+                {...getMeetingNotesRootProps()}
+                className={cn(
+                  'rounded-lg border border-dashed p-4 text-center transition-colors',
+                  readOnly || extractingNotes ? 'cursor-not-allowed opacity-70' : 'cursor-pointer',
+                  meetingNotesDragActive ? 'bg-blue-50 border-blue-300' : 'border-slate-200 hover:bg-slate-50',
+                )}
+              >
+                <input {...getMeetingNotesInputProps()} />
+                {extractingNotes ? (
+                  <>
+                    <Loader2 className="w-5 h-5 text-blue-500 mx-auto mb-2 animate-spin" />
+                    <p className="text-xs font-semibold text-slate-700">Extracting meeting notes...</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Reading PDF / DOCX / TXT text for preview</p>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                    <p className="text-xs font-semibold text-slate-700">Upload meeting notes document</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">PDF, DOCX, or TXT up to 15MB — enough on its own even if preview text is empty</p>
+                  </>
+                )}
+              </div>
+
+              {meetingNotesFileName && (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2">
+                  <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium text-slate-800">{meetingNotesFileName}</p>
+                    <p className="text-[10px] text-slate-500">
+                      {meetingNotes.trim()
+                        ? 'Preview loaded above — edit before generating if needed'
+                        : 'File staged for AI — textarea preview empty, but generate is allowed'}
+                    </p>
+                  </div>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMeetingNotesFile(null)
+                        setMeetingNotesFileName(null)
+                      }}
+                      className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
+                      title="Remove uploaded meeting notes file"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Card 3: Visit Photos */}
@@ -1562,12 +1695,14 @@ export default function FacilityReviewTab({
                 {!advisorNotesMissing ? (
                   <span className="text-xs text-emerald-700 font-medium inline-flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    Meeting notes and {advisorImages.length} photo(s) staged. Ready for advisor review.
+                    {meetingNotesFile && !meetingNotes.trim()
+                      ? `Meeting notes file staged with ${advisorImages.length} photo(s). Ready for advisor review.`
+                      : `Meeting notes and ${advisorImages.length} photo(s) staged. Ready for advisor review.`}
                   </span>
                 ) : (
                   <span className="text-xs text-amber-700 font-medium inline-flex items-center gap-1.5">
                     <AlertCircle className="w-4 h-4 text-amber-600" />
-                    Meeting notes / visit observations are required to generate the report.
+                    Paste notes or upload a meeting notes document to generate the report.
                   </span>
                 )}
               </div>
