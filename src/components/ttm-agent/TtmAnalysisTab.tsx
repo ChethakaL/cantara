@@ -111,6 +111,12 @@ function Step3ValuationRange({
   const parseNum = (v: string) => { const n = Number(v.trim().replace(/,/g, '')); return Number.isFinite(n) ? n : null }
   const fmtCurrency = (v: number | null | undefined) => typeof v === 'number' && Number.isFinite(v) ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'
   const fmtMultiple = (v: number | null | undefined) => typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(1)}x` : '—'
+  const flagCardTitle = (flag: { title: string; description?: string | null }) => {
+    if (flag.title !== 'LLM addback extraction note') return flag.title
+    const note = flag.description?.replace(/\s+/g, ' ').trim()
+    if (!note) return flag.title
+    return note.length <= 100 ? note : `${note.slice(0, 100).replace(/\s+\S*$/, '').trim()}…`
+  }
 
   const resolveFlag = async (flagId: string, action: 'RESOLVE' | 'ESCALATE_CLIENT') => {
     if (!latestRecast) return; setSavingFlagId(flagId)
@@ -237,18 +243,21 @@ function Step3ValuationRange({
               <h4 className="text-sm font-semibold text-slate-800 mb-1">Add-Back Flags</h4>
               <p className="text-xs text-slate-400 mb-4">Review each flagged add-back before finalizing the valuation.</p>
               <div className="space-y-3">
-                {unresolvedFlags.map(flag => (
+                {unresolvedFlags.map(flag => {
+                  const title = flagCardTitle(flag)
+                  return (
                   <div key={flag.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">{flag.title}</p>
-                      {flag.description && flag.description !== flag.title && (<p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{flag.description}</p>)}
+                      <p className="text-sm font-medium text-slate-800 truncate">{title}</p>
+                      {flag.description && flag.description !== title && (<p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{flag.description}</p>)}
                     </div>
                     <div className="flex gap-2 flex-shrink-0">
                       <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'RESOLVE')}>Keep</Button>
                       <Button size="sm" variant="outline" disabled={savingFlagId === flag.id} onClick={() => void resolveFlag(flag.id, 'ESCALATE_CLIENT')}>Remove</Button>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </Card>
           )}
