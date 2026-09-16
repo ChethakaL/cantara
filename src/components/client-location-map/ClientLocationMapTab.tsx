@@ -59,6 +59,10 @@ interface MapData {
   clients: ClientPin[]
   generatedAt: string
   statsOverrides?: Record<string, StatsOverride>
+  /** Bedrock-refreshed insights from advisor edits (preferred over heuristic templates). */
+  insights?: string[]
+  narrativeSummary?: string
+  insightsUpdatedAt?: string
 }
 
 interface Props {
@@ -312,6 +316,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [editingIndex, setEditingIndex] = useState<number | 'new' | null>(null)
   const [entryDraft, setEntryDraft] = useState<ClientPin | null>(null)
   const [editMode, setEditMode] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
   const [showDocsPanel, setShowDocsPanel] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(false)
@@ -322,6 +327,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const markersRef = useRef<google.maps.Marker[]>([])
   const circlesRef = useRef<google.maps.Circle[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const preEditSnapshotRef = useRef<MapData | null>(null)
 
   const reloadDocument = useCallback(async () => {
     setLoadingDocs(true)
@@ -796,8 +802,9 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     }
   }
 
-  const persistMapData = async (nextMapData: MapData) => {
+  const persistMapData = async (nextMapData: MapData, options?: { localOnly?: boolean }) => {
     setMapData(nextMapData)
+    if (options?.localOnly) return
     setSaving(true)
     try {
       await fetch('/api/client-location-map', {
@@ -809,6 +816,64 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       setError('Map changes were applied locally but could not be saved.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const startEditMode = () => {
+    if (!mapData) return
+    preEditSnapshotRef.current = structuredClone(mapData)
+    setEditMode(true)
+    setError(null)
+  }
+
+  const cancelEditMode = () => {
+    if (reanalyzing) return
+    if (preEditSnapshotRef.current) setMapData(preEditSnapshotRef.current)
+    preEditSnapshotRef.current = null
+    setEditMode(false)
+    setError(null)
+  }
+
+  /** Persist advisor-edited overrides, then secretly refresh insights via Bedrock. */
+  const updateAnalysisFromEdits = async () => {
+    if (!mapData) return
+    const currentStats = computeStats(mapData)
+    if (!currentStats) {
+      setError('Cannot update analysis without geocoded clients and a facility location.')
+      return
+    }
+    setReanalyzing(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/client-location-map', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          clientName,
+          mapData,
+          reanalyzeFromEdits: true,
+          statsSnapshot: {
+            total: currentStats.total,
+            withinRadius: currentStats.withinRadius,
+            countWithinRadius: currentStats.countWithinRadius,
+            byService: currentStats.byService,
+            facilityAddress: mapData.facilityAddress,
+          },
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || (typeof data === 'string' ? data : null) || `Update failed (${res.status})`)
+      }
+      const next = (data.mapData ?? mapData) as MapData
+      setMapData(next)
+      preEditSnapshotRef.current = null
+      setEditMode(false)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update analysis from edits')
+    } finally {
+      setReanalyzing(false)
     }
   }
 
@@ -986,12 +1051,24 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setEditMode(!editMode)}
-                    className="gap-1.5 h-8 font-medium text-slate-700"
+                    onClick={() => (editMode ? cancelEditMode() : startEditMode())}
+                    disabled={reanalyzing}
+                    className={cn('gap-1.5 h-8 font-medium text-slate-700', editMode && 'bg-amber-50 text-amber-700 border-amber-300')}
                   >
-                    {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                    {editMode ? 'Save' : 'Edit'}
+                    {editMode ? <X className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                    {editMode ? 'Cancel' : 'Edit'}
                   </Button>
+                  {editMode && (
+                    <Button
+                      size="sm"
+                      onClick={() => void updateAnalysisFromEdits()}
+                      disabled={reanalyzing}
+                      className="gap-1.5 h-8 font-medium bg-slate-900 text-white hover:bg-slate-800"
+                    >
+                      <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
+                      {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+                    </Button>
+                  )}
                   <ExportReportButton
                     prepareHtml={prepareExportHtml}
                     fileName={`${clientName} - Client Location Map.pdf`}
@@ -1084,13 +1161,13 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                           const overrides = mapData?.statsOverrides || {}
                           const generalOverrides = overrides['general'] || {}
                           if (mapData) {
-                            persistMapData({ 
+                            void persistMapData({ 
                               ...mapData, 
                               statsOverrides: {
                                 ...overrides,
                                 'general': { ...generalOverrides, [ring.miles]: Math.min(100, Math.max(0, val)) }
                               }
-                            })
+                            }, { localOnly: true })
                           }
                         }}
                       />
@@ -1143,13 +1220,13 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                                 const overrides = mapData?.statsOverrides || {}
                                 const typeOverrides = overrides[type] || {}
                                 if (mapData) {
-                                  persistMapData({ 
+                                  void persistMapData({ 
                                     ...mapData, 
                                     statsOverrides: {
                                       ...overrides,
                                       [type]: { ...typeOverrides, total: val }
                                     }
-                                  })
+                                  }, { localOnly: true })
                                 }
                               }}
                             />
@@ -1177,7 +1254,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                                         [type]: { ...typeOverrides, [ring.miles]: Math.min(100, Math.max(0, val)) }
                                       }
                                       if (mapData) {
-                                        persistMapData({ ...mapData, statsOverrides: nextOverrides })
+                                        void persistMapData({ ...mapData, statsOverrides: nextOverrides }, { localOnly: true })
                                       }
                                     }}
                                   />
@@ -1195,9 +1272,17 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                   )
                 })}
               </div>
+              {editMode && !readOnly && (
+                <p className="mt-3 text-xs text-slate-500">
+                  Edit radius % / service counts above, then click <span className="font-semibold text-slate-700">Update analysis from edits</span> to refresh insights so they match your numbers.
+                </p>
+              )}
               {stats.insights.length > 0 && (
                 <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
-                  <h4 className="text-xs font-semibold text-indigo-900 mb-2">AI-style insights</h4>
+                  <h4 className="text-xs font-semibold text-indigo-900 mb-2">Insights</h4>
+                  {mapData?.narrativeSummary && !editMode && (
+                    <p className="text-xs text-indigo-900/80 mb-2 leading-relaxed">{mapData.narrativeSummary}</p>
+                  )}
                   <ul className="space-y-1.5 text-xs text-indigo-900/80">
                     {stats.insights.map((insight, idx) => (
                       <li key={idx} className="flex gap-2">
@@ -1716,10 +1801,12 @@ function computeStats(mapData: MapData | null) {
     const count = geocoded.filter(c =>
       haversineDistance(mapData.facilityLat!, mapData.facilityLng!, c.lat!, c.lng!) <= ring.miles
     ).length
-    countWithinRadius[ring.miles] = count
     const computed = Math.round((count / total) * 100)
-    const override = mapData.statsOverrides?.['general']?.[ring.miles]
+    const override = mapData.statsOverrides?.['general']?.[ring.miles as 5 | 10 | 20]
     withinRadius[ring.miles] = override !== undefined ? override : computed
+    // When % is advisor-overridden, reflect implied headcount so UI stays consistent.
+    countWithinRadius[ring.miles] =
+      override !== undefined ? Math.round((total * withinRadius[ring.miles]) / 100) : count
   })
 
   const byService = (['daycare', 'boarding', 'grooming'] as const).reduce((acc, type) => {
@@ -1739,16 +1826,22 @@ function computeStats(mapData: MapData | null) {
       const count = serviceClients.filter(c =>
         haversineDistance(mapData.facilityLat!, mapData.facilityLng!, c.lat!, c.lng!) <= ring.miles
       ).length
-      serviceCounts[ring.miles] = count
       const computed = serviceTotal > 0 ? Math.round((count / serviceTotal) * 100) : 0
-      const override = mapData.statsOverrides?.[type]?.[ring.miles]
+      const override = mapData.statsOverrides?.[type]?.[ring.miles as 5 | 10 | 20]
       serviceWithin[ring.miles] = override !== undefined ? override : computed
+      serviceCounts[ring.miles] =
+        override !== undefined
+          ? Math.round((effectiveTotal * serviceWithin[ring.miles]) / 100)
+          : count
     })
     acc[type] = { total: effectiveTotal, withinRadius: serviceWithin, countWithinRadius: serviceCounts }
     return acc
   }, {} as Record<'daycare' | 'boarding' | 'grooming', { total: number; withinRadius: Record<number, number>; countWithinRadius: Record<number, number> }>)
 
-  const insights = buildLocationInsights(total, withinRadius, byService)
+  const insights =
+    Array.isArray(mapData.insights) && mapData.insights.length > 0
+      ? mapData.insights
+      : buildLocationInsights(total, withinRadius, byService)
 
   return { total, withinRadius, countWithinRadius, byService, insights }
 }
@@ -1780,7 +1873,11 @@ function buildLocationMapReportHtml(
     clientName,
     generatedAt: mapData?.generatedAt || new Date().toISOString(),
     kpis,
-    summaryHtml: stats?.insights.length ? `<p>${safe(stats.insights.join(' '))}</p>` : '<p>No insights available.</p>',
+    summaryHtml: mapData?.narrativeSummary
+      ? `<p>${safe(mapData.narrativeSummary)}</p>${stats?.insights.length ? `<ul>${stats.insights.map((i) => `<li>${safe(i)}</li>`).join('')}</ul>` : ''}`
+      : stats?.insights.length
+        ? `<p>${safe(stats.insights.join(' '))}</p>`
+        : '<p>No insights available.</p>',
     sections: [
       { title: 'Service Breakdown', content: buildHtmlTable(['Service', 'Clients', 'Within 5 mi', 'Within 10 mi', 'Within 20 mi'], serviceRows) },
       ...(staticMapUrl ? [{ title: 'Location Map', content: mapSection, newPage: true }] : []),

@@ -489,6 +489,7 @@ export default function EmployeeObligationsTab({
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<WS16Report | null>(null)
   const [savingMarkdown, setSavingMarkdown] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
@@ -641,8 +642,71 @@ export default function EmployeeObligationsTab({
     }
   }
 
+  const updateAnalysisFromEdits = async () => {
+    if (!savedReport || !draftReport || readOnly) return
+    setReanalyzing(true)
+    try {
+      // Persist table edits first
+      const editedMarkdown = serializeWS16Report(draftReport, flags)
+      const saveRes = await fetch(`/api/employee-obligations/reports?clientId=${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          markdown: editedMarkdown,
+          metadata: (savedReport as any).metadata ?? undefined,
+        }),
+      })
+      if (!saveRes.ok) throw new Error(await saveRes.text().catch(() => 'Failed to save edits'))
+
+      const res = await fetch('/api/employee-obligations/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reanalyzeFromEdits: true,
+          existingReport: draftReport,
+          clientId,
+          clientName,
+          provider,
+          modelId: undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to update analysis from edits')
+      }
+      const nextReport = (data.report ?? data) as WS16Report
+      if (!nextReport?.buyerSummary) throw new Error('Update analysis returned an empty report')
+
+      const nextMarkdown = serializeWS16Report(nextReport, flags)
+      const persistRes = await fetch(`/api/employee-obligations/reports?clientId=${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          markdown: nextMarkdown,
+          metadata: (savedReport as any).metadata ?? undefined,
+        }),
+      })
+      if (!persistRes.ok) throw new Error(await persistRes.text().catch(() => 'Failed to persist updated analysis'))
+      const persistData = await persistRes.json()
+      if (persistData.report) {
+        setSavedReport(persistData.report)
+        const { flags: pFlags } = parseWS16Markdown(persistData.report.markdown, clientName)
+        setFlags(mergeFlagStatuses(pFlags || [], persistData.report.metadata))
+        lastAutoSavedMarkdownRef.current = persistData.report.markdown
+      }
+      setDraftReport(null)
+      setEditMode(false)
+      showToast('Employee obligations analysis updated from edits')
+    } catch (err: any) {
+      console.error(err)
+      showToast(err?.message || 'Failed to update analysis from edits', 'error')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
+
   useEffect(() => {
-    if (!editMode || !savedReport || !draftReport) return
+    if (!editMode || !savedReport || !draftReport || reanalyzing) return
     const editedMarkdown = serializeWS16Report(draftReport, flags)
     if (editedMarkdown === lastAutoSavedMarkdownRef.current) return
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
@@ -652,7 +716,7 @@ export default function EmployeeObligationsTab({
     return () => {
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
     }
-  }, [editMode, savedReport, draftReport, flags])
+  }, [editMode, savedReport, draftReport, flags, reanalyzing])
 
   const persistReviewState = async (nextFlags: Flag[], releasedAt?: string | null) => {
     const markdown = savedReport?.markdown
@@ -883,8 +947,10 @@ export default function EmployeeObligationsTab({
         <AdvisorActions className="flex flex-wrap items-center gap-2">
           {!readOnly && (editMode ? (
             <>
-              <Button size="sm" variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown}>Cancel</Button>
-              <Button size="sm" onClick={() => void saveEditedMarkdown()} disabled={savingMarkdown}>{savingMarkdown ? 'Saving...' : 'Save Final Version'}</Button>
+              <Button size="sm" variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown || reanalyzing}>Cancel</Button>
+              <Button size="sm" onClick={() => void updateAnalysisFromEdits()} disabled={savingMarkdown || reanalyzing} className="bg-slate-900 text-white hover:bg-slate-800">
+                {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+              </Button>
             </>
           ) : (
             <Button size="sm" variant="outline" onClick={startEditing}>Edit Output</Button>

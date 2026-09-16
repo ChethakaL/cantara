@@ -341,6 +341,7 @@ export default function LitigationSearchTab({
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
 
   // Portal documents state
@@ -471,10 +472,86 @@ export default function LitigationSearchTab({
       setTimeout(() => setSaved(false), 1800)
     } catch (err: any) {
       setSearchError(err.message || 'Save failed')
+      throw err
     } finally {
       setSaving(false)
     }
   }, [clientId, searchResult, docResult])
+
+  const handleCancelEdit = () => {
+    if (reanalyzing) return
+    setEditMode(false)
+    setSearchError('')
+  }
+
+  const handleReanalyzeFromEdits = async () => {
+    if (readOnly || (!searchResult && !docResult)) return
+    setReanalyzing(true)
+    setSearchError('')
+    try {
+      // Persist current edits first.
+      const saveRes = await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'litigationSearch',
+          data: {
+            searchResult,
+            docResult,
+            generatedAt: new Date().toISOString(),
+          },
+        }),
+      })
+      if (!saveRes.ok) throw new Error('Save failed')
+
+      const reanalyzeOne = async (existing: LitigationSearchResult) => {
+        const res = await fetch('/api/litigation-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reanalyzeFromEdits: true,
+            existingResult: existing,
+            provider,
+            modelId: resolveAgentModelId(provider),
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(data.error || (typeof data === 'string' ? data : null) || `Update analysis failed (${res.status})`)
+        }
+        const next = (data.result ?? data) as LitigationSearchResult
+        if (!next || !Array.isArray(next.findings)) {
+          throw new Error('Update analysis returned an empty result')
+        }
+        return next
+      }
+
+      const nextSearch = searchResult ? await reanalyzeOne(searchResult) : null
+      const nextDoc = docResult ? await reanalyzeOne(docResult) : null
+
+      if (nextSearch) setSearchResult(nextSearch)
+      if (nextDoc) setDocResult(nextDoc)
+      setEditMode(false)
+
+      await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'litigationSearch',
+          data: {
+            searchResult: nextSearch ?? searchResult,
+            docResult: nextDoc ?? docResult,
+            generatedAt: new Date().toISOString(),
+          },
+        }),
+      })
+      await persistLitigationRun(nextSearch ?? searchResult, nextDoc ?? docResult)
+    } catch (err: any) {
+      setSearchError(err.message || 'Failed to update analysis from edits')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
 
   // ── Search handler ─────────────────────────────────────────────────────────
 
@@ -704,15 +781,40 @@ export default function LitigationSearchTab({
                   <Plus className="w-3.5 h-3.5 text-slate-500" />
                   New Search
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditMode(!editMode)}
-                  className="gap-1.5 h-8 text-xs font-medium text-slate-700"
-                >
-                  {editMode ? <Eye className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
-                  {editMode ? 'Preview Output' : 'Edit Output'}
-                </Button>
+                {!editMode ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditMode(true)}
+                    disabled={reanalyzing}
+                    className="gap-1.5 h-8 text-xs font-medium text-slate-700"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Edit Output
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCancelEdit}
+                      disabled={reanalyzing}
+                      className="gap-1.5 h-8 text-xs font-medium text-slate-700"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => void handleReanalyzeFromEdits()}
+                      disabled={reanalyzing || saving}
+                      className="gap-1.5 h-8 text-xs font-medium bg-slate-900 text-white hover:bg-slate-800"
+                    >
+                      <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
+                      {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+                    </Button>
+                  </>
+                )}
                 <ExportReportButton
                   html={reportHtml}
                   fileName={`litigation-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}

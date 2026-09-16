@@ -21,6 +21,7 @@ import {
   Building2,
   Globe,
   FileText,
+  X,
 } from 'lucide-react'
 import { Card, Badge, cn, Button } from '@/components/ui'
 import { agentTabReadOnlyGate } from '@/hooks/useAgentTabReadOnly'
@@ -30,6 +31,7 @@ import {
   hasPricingTableData,
   normalizePricingReport,
 } from '@/lib/pricing-analysis/normalize-report'
+import { formatChartDollar, parsePriceForChart } from '@/lib/pricing-analysis/parse-price'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildPricingAnalysisReportHtml } from '@/lib/report-export/build-pricing-analysis-report'
@@ -665,7 +667,7 @@ export default function PricingAnalysisTab({
     <Card className="p-5">
       <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Manual Pricing Evidence</h3>
       <p className="text-xs text-slate-500 mb-4">
-        If AI misses prices, paste copied website pricing text here. Run AI again and it will parse this text into the tables.
+        If AI misses prices, paste copied website pricing text here. Click <strong>Update analysis from edits</strong> to parse this text into the tables and refresh charts/narrative.
       </p>
       <div className="space-y-4">
         <div>
@@ -720,16 +722,80 @@ export default function PricingAnalysisTab({
     return { ...report, priceMatrix }
   }, [])
 
-  const toggleEditMode = async () => {
-    if (editMode && result) {
-      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
-      await persistPricingAnalysisToServer(result, { silent: false })
+  const handleReanalyzeFromEdits = async () => {
+    if (!result || readOnly) return
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
+    setAnalyzing(true)
+    setError(null)
+    try {
+      // Persist table edits AND manual evidence text (evidence lives outside `result`).
+      await persistPricingAnalysisToServer(result, { silent: true })
+      const inputsRes = await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'competitorPricingInputs',
+          data: {
+            sellerWebsiteUrl: sellerWebsiteUrl.trim(),
+            sellerManualPricingText: sellerManualPricingText.trim(),
+            competitors: competitors.filter(c => c.name.trim() || c.websiteUrl.trim()),
+            updatedAt: new Date().toISOString(),
+          },
+        }),
+      })
+      if (!inputsRes.ok) throw new Error('Failed to save manual pricing evidence')
+
+      const res = await fetch('/api/pricing-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          reanalyzeFromEdits: true,
+          existingReport: result,
+          sellerWebsiteUrl: sellerWebsiteUrl.trim(),
+          sellerManualPricingText: sellerManualPricingText.trim(),
+          competitors: competitors.filter(c => c.name.trim() || c.websiteUrl.trim()),
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || `Update analysis failed (${res.status})`)
+      }
+      const data = normalizePricingReport(await res.json())
+      if (!data) throw new Error('Update analysis returned an invalid report. Please retry.')
+      setResult(data)
+      markSavedSnapshot(data)
       setEditMode(false)
-      return
+      setRerunComplete(true)
+      setTimeout(() => setRerunComplete(false), 3500)
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.pricingAnalysis,
+        fileName: `${clientName} — Pricing Analysis`,
+        report: data,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns({ selectNewest: true })
+      setToast({ message: 'Analysis updated from your edits', type: 'success' })
+    } catch (err: any) {
+      setError(err.message || 'Failed to update analysis from edits')
+      setToast({ message: err.message || 'Failed to update analysis from edits', type: 'error' })
+    } finally {
+      setAnalyzing(false)
     }
-    if (result) {
-      setResult(normalizeMatrixForEdit(result))
-    }
+  }
+
+  const handleCancelEdit = () => {
+    if (analyzing) return
+    setEditMode(false)
+    setError(null)
+  }
+
+  const startEditMode = () => {
+    if (result) setResult(normalizeMatrixForEdit(result))
     setEditMode(true)
   }
 
@@ -762,7 +828,7 @@ export default function PricingAnalysisTab({
             </p>
             {editMode && (
               <p className="text-[11px] text-amber-700/90 mt-1">
-                Changes auto-save while you edit. Click <span className="font-semibold">Editing</span> when done to save immediately.
+                Edit prices or paste evidence, then click <span className="font-semibold">Update analysis from edits</span> to refresh charts and narrative.
               </p>
             )}
           </div>
@@ -775,55 +841,58 @@ export default function PricingAnalysisTab({
               <span className="text-xs text-emerald-600 font-medium">All changes saved</span>
             )}
             {editMode && autoSaveStatus === 'error' && (
-              <span className="text-xs text-red-600 font-medium">Save failed — use Save</span>
+              <span className="text-xs text-red-600 font-medium">Save failed</span>
             )}
             {rerunComplete && (
               <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
                 Analysis updated
               </span>
             )}
-            {!readOnly && (
+            {!readOnly && !editMode && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={toggleEditMode}
-                className={cn(
-                  'h-8 text-xs cursor-pointer',
-                  editMode && 'bg-amber-50 text-amber-700 border-amber-200',
-                )}
+                onClick={startEditMode}
+                className="h-8 text-xs cursor-pointer"
               >
                 <Pencil className="w-3.5 h-3.5 mr-1" />
-                {editMode ? 'Editing' : 'Edit'}
+                Edit
               </Button>
             )}
             {!readOnly && editMode && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancelEdit}
+                  disabled={analyzing}
+                  className="h-8 text-xs cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5 mr-1" />
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => void handleReanalyzeFromEdits()}
+                  disabled={analyzing}
+                  className="h-8 text-xs bg-slate-900 text-white hover:bg-slate-800 cursor-pointer"
+                >
+                  <RotateCw className={cn('w-3.5 h-3.5 mr-1', analyzing && 'animate-spin')} />
+                  {analyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+                </Button>
+              </>
+            )}
+            {!readOnly && !editMode && (
               <Button
+                variant="outline"
                 size="sm"
                 onClick={handleAnalyze}
                 disabled={analyzing}
-                className="h-8 text-xs bg-slate-900 text-white hover:bg-slate-800 cursor-pointer"
+                className="h-8 text-xs cursor-pointer border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
               >
-                <RotateCw className={cn('w-3.5 h-3.5 mr-1', analyzing && 'animate-spin')} />
-                {analyzing ? 'Updating...' : 'Run AI Again'}
+                <RefreshCw className={cn('w-3.5 h-3.5 mr-1', analyzing && 'animate-spin')} />
+                {analyzing ? 'Re-running...' : 'Re-run full analysis'}
               </Button>
-            )}
-            {editMode && (
-              <div className="relative">
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="h-8 text-xs bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5 mr-1" />
-                  {saving ? 'Saving...' : 'Save'}
-                </Button>
-                {savedBadge && (
-                  <span className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                    Saved
-                  </span>
-                )}
-              </div>
             )}
             <ExportReportButton
               html={buildPricingAnalysisReportHtml(result, clientName)}
@@ -868,7 +937,7 @@ export default function PricingAnalysisTab({
             <p className="text-sm font-semibold text-amber-900">Pricing tables need to be regenerated</p>
             <p className="text-xs text-amber-700 mt-1">
               This saved report uses an older format or is missing table data. Click <strong>Edit</strong>, then{' '}
-              <strong>Run AI Again</strong> to rebuild the competitor matrix and summary.
+              <strong>Update analysis from edits</strong> (or <strong>Re-run full analysis</strong>) to rebuild the competitor matrix and summary.
             </p>
           </Card>
         )}
@@ -1145,13 +1214,17 @@ export default function PricingAnalysisTab({
                     <h4 className="text-xs font-bold uppercase text-slate-500 tracking-wide">{vertical} Price Comparison</h4>
                     <div className="space-y-4">
                       {verticalRows.map((row, idx) => {
-                        const parseVal = (val: string) => {
-                          const num = parseFloat(val.replace(/[^0-9.]/g, ''))
-                          return isNaN(num) ? 0 : num
-                        }
-                        const yourVal = parseVal(row.sellerPrice)
-                        const compVals = row.competitors.map(c => ({ name: c.name, val: parseVal(c.listedPrice) }))
-                        const maxVal = Math.max(yourVal, ...compVals.map(c => c.val), 1)
+                        const yourParsed = parsePriceForChart(row.sellerPrice)
+                        const yourVal = yourParsed ?? 0
+                        const compVals = row.competitors.map(c => ({
+                          name: c.name,
+                          val: parsePriceForChart(c.listedPrice),
+                        }))
+                        const maxVal = Math.max(
+                          yourVal,
+                          ...compVals.map(c => c.val ?? 0),
+                          1,
+                        )
 
                         return (
                           <div key={idx} className="space-y-2 border-b border-slate-100 pb-3 last:border-0 last:pb-0">
@@ -1165,7 +1238,9 @@ export default function PricingAnalysisTab({
                                   style={{ width: `${(yourVal / maxVal) * 100}%` }}
                                 />
                               </div>
-                              <div className="text-[10px] font-bold text-slate-700 w-12 text-right">${yourVal}</div>
+                              <div className="text-[10px] font-bold text-slate-700 w-14 text-right">
+                                {yourParsed != null ? formatChartDollar(yourParsed) : 'N/A'}
+                              </div>
                             </div>
                             {/* Competitors bars */}
                             {compVals.map((cv, ci) => (
@@ -1174,10 +1249,12 @@ export default function PricingAnalysisTab({
                                 <div className="flex-1 h-3.5 bg-slate-100 rounded-full overflow-hidden">
                                   <div
                                     className="h-full rounded-full bg-slate-400"
-                                    style={{ width: `${(cv.val / maxVal) * 100}%` }}
+                                    style={{ width: `${((cv.val ?? 0) / maxVal) * 100}%` }}
                                   />
                                 </div>
-                                <div className="text-[10px] text-slate-600 w-12 text-right">${cv.val || 'N/A'}</div>
+                                <div className="text-[10px] text-slate-600 w-14 text-right">
+                                  {cv.val != null ? formatChartDollar(cv.val) : 'N/A'}
+                                </div>
                               </div>
                             ))}
                           </div>

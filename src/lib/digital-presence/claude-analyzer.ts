@@ -204,15 +204,12 @@ export async function analyzeWithClaude(
 
   let parsed: any;
   try {
-    // Strip any accidental markdown code fences
-    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-    parsed = JSON.parse(cleaned);
+    parsed = parseDigitalPresenceJson(rawText);
   } catch (err) {
     console.error('[Claude Analyzer] Failed to parse JSON response:', rawText.slice(0, 500));
     throw new Error('Claude returned an unparseable response. Please retry.');
   }
 
-  // Inject the business name and timestamp
   const report: DigitalPresenceReport = {
     businessName: formData.businessName,
     generatedAt: new Date().toISOString(),
@@ -242,4 +239,209 @@ function scoreToTrafficLight(score: number): 'green' | 'amber' | 'red' {
   if (score >= 4) return 'green';
   if (score >= 3) return 'amber';
   return 'red';
+}
+
+function stripJsonFence(text: string) {
+  const t = text.trim();
+  const fence = /^```(?:json)?\s*([\s\S]*?)```$/im.exec(t);
+  if (fence) return fence[1].trim();
+  return t;
+}
+
+function parseDigitalPresenceJson(rawText: string): any {
+  const cleaned = stripJsonFence(rawText);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error('Claude returned an unparseable response. Please retry.');
+  }
+}
+
+function recalcOverall(channels: ChannelAssessment[]): {
+  overallScore: number;
+  overallTrafficLight: 'green' | 'amber' | 'red';
+} {
+  if (!channels.length) return { overallScore: 0, overallTrafficLight: 'red' };
+  const avg = channels.reduce((sum, ch) => sum + Number(ch.score || 0), 0) / channels.length;
+  const overallScore = Math.round(avg * 10) / 10;
+  return { overallScore, overallTrafficLight: scoreToTrafficLight(overallScore) };
+}
+
+/** Re-score analysis from advisor-edited metrics. Keeps edited keyMetrics; refreshes scores/narrative. */
+export async function reanalyzeDigitalPresenceFromEdits(
+  existingReport: DigitalPresenceReport,
+  options?: { provider?: AgentAiProvider; modelId?: string },
+): Promise<DigitalPresenceReport> {
+  const provider = options?.provider ?? 'openai';
+
+  const prompt = `You are a digital presence analyst for M&A due diligence.
+
+An advisor manually corrected channel metrics/summaries on an existing Digital Presence report.
+RE-SCORE and REWRITE the analysis to match those corrected values.
+
+## CRITICAL — advisor edits override prior analysis
+- keyMetrics are GROUND TRUTH. Score and summarise ONLY from those values (and any advisor-edited summary).
+- IGNORE prior currentScore, currentTrafficLight, currentFlags, prior summaries, and prior dataConfidence when they conflict with the edited metrics.
+- Do NOT keep a channel "Poor"/red/score 1–2 just because the original research had low confidence or said "limited public data".
+- Missing optional fields (e.g. "Page likes: Not found") must NOT drag a strong channel down when core metrics are strong.
+- When the advisor has filled substantive metric values (not mostly "Not found" / empty), set dataConfidence to "medium" or "high" and rewrite the summary accordingly — drop "best estimate / limited public data" language.
+- Flags must match the NEW score: celebrate strengths with positive flags; diligence warnings are fine but cannot be the only story when metrics are strong.
+
+## Recency / dates (CRITICAL — today's context is September 2026)
+- Parse any posting / activity dates in keyMetrics (e.g. "27th February 2024", "Feb 27 2024").
+- If last post / activity is older than ~6 months → treat as DORMANT: score ≤ 2 (red), and add a warning/critical flag that explicitly names the date and how stale it is (e.g. "Last post 27 February 2024 — over 2 years ago; channel appears dormant").
+- If last activity is 1–3 months ago → score ≤ 3 (amber) unless other metrics are exceptional; flag the gap.
+- Do NOT call a channel "strong" or "Good" when the last post is from 2024 (or any date clearly >6 months old). Large follower counts cannot override dormancy.
+- Example: Followers "1K" + Engagement "Good" + Recent posting "27th February 2024" → score 2 (red/Poor), summary must call out inactivity since Feb 2024, flags must warn about dormancy.
+
+## Social media scoring (Facebook / Instagram / TikTok / YouTube)
+- 5 (green): Large following (1k+ FB/IG, or clearly large e.g. "1 + million", "1M+"), recent activity (within ~1 month), strong/good engagement
+- 4 (green): Moderate-to-large following, decent engagement, posts within ~1 month
+- 3 (amber): Small following or irregular posts (1–3 month gap)
+- 2 (red): Very small following, rare posts, low engagement, OR dormant (>6 months) even with decent following
+- 1 (red): Long dormant, near-zero following, or essentially not found
+Example: Followers "1 + million" + Engagement "Good" + posting within the last month → score 5 (green), even if page likes are "Not found".
+
+## Other channels
+Use the same 1–5 scale as a normal digital-presence review (website, GBP, booking, reputation). Strong edited metrics → higher scores — but still apply recency rules when dates are present.
+
+Traffic lights: score 4–5 → green, 3 → amber, 1–2 → red.
+overallScore = average of channel scores (1 decimal).
+
+## Authoritative advisor-edited report
+${JSON.stringify({
+  businessName: existingReport.businessName,
+  channels: existingReport.channels.map((ch) => ({
+    channelType: ch.channelType,
+    channelLabel: ch.channelLabel,
+    url: ch.url,
+    summary: ch.summary,
+    keyMetrics: ch.keyMetrics,
+  })),
+  digitalAssetInventory: existingReport.digitalAssetInventory,
+}, null, 2)}
+
+Return ONLY JSON (no markdown):
+{
+  "overallScore": <number>,
+  "overallTrafficLight": "<green|amber|red>",
+  "executiveSummary": "<2–3 sentences reflecting edited metrics>",
+  "maReadinessNotes": "<1–2 sentences>",
+  "channels": [
+    {
+      "channelType": "<same channelType>",
+      "score": <1–5>,
+      "trafficLight": "<green|amber|red>",
+      "summary": "<updated from edited metrics>",
+      "dataConfidence": "<high|medium|low>",
+      "flags": [{ "severity": "<critical|warning|positive>", "message": "<specific>" }]
+    }
+  ],
+  "digitalAssetInventory": [
+    {
+      "channelType": "<channel type>",
+      "status": "<active|inactive|not_found|unverified>",
+      "score": <1–5 or null>,
+      "notes": "<brief>"
+    }
+  ]
+}
+
+Include EVERY channelType from the edited report. Do NOT return keyMetrics.`;
+
+  let rawText: string;
+  if (provider === 'openai') {
+    rawText = await createAgentMessage({
+      provider,
+      model: options?.modelId,
+      system: '',
+      content: prompt,
+      maxTokens: 4096,
+      temperature: 0,
+    });
+  } else {
+    const client = await requireAIClient();
+    const response = await client.messages.create({
+      model: resolveModel('claude-opus-4-5'),
+      max_tokens: 4096,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    rawText = response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('');
+  }
+
+  let parsed: any;
+  try {
+    parsed = parseDigitalPresenceJson(rawText);
+  } catch (err) {
+    console.error('[Claude Analyzer] Reanalyze parse failed:', rawText.slice(0, 500));
+    throw err instanceof Error ? err : new Error('Claude returned an unparseable response. Please retry.');
+  }
+
+  const aiByType = new Map<string, any>(
+    (Array.isArray(parsed.channels) ? parsed.channels : []).map((ch: any) => [ch.channelType, ch]),
+  );
+
+  const channels: ChannelAssessment[] = existingReport.channels.map((existing) => {
+    const ai = aiByType.get(existing.channelType);
+    const score = Math.min(5, Math.max(1, Math.round(Number(ai?.score ?? existing.score)))) as ChannelAssessment['score'];
+    const hasSubstantiveMetrics = (existing.keyMetrics ?? []).some((m) => {
+      const v = (m.value ?? '').trim().toLowerCase();
+      return v.length > 0 && v !== 'not found' && v !== 'n/a' && v !== '-';
+    });
+    return {
+      ...existing,
+      keyMetrics: existing.keyMetrics,
+      score,
+      // Always derive from score so AI cannot keep "Poor" while assigning a high score.
+      trafficLight: scoreToTrafficLight(score),
+      summary: typeof ai?.summary === 'string' && ai.summary.trim() ? ai.summary : existing.summary,
+      dataConfidence: (ai?.dataConfidence as ChannelAssessment['dataConfidence'])
+        ?? (hasSubstantiveMetrics && existing.dataConfidence === 'low' ? 'medium' : existing.dataConfidence),
+      notFound: hasSubstantiveMetrics ? false : existing.notFound,
+      flags: Array.isArray(ai?.flags) ? ai.flags : existing.flags,
+    };
+  });
+
+  const localOverall = recalcOverall(channels);
+
+  const inventory = (existingReport.digitalAssetInventory ?? []).map((item) => {
+    const aiInv = Array.isArray(parsed.digitalAssetInventory)
+      ? parsed.digitalAssetInventory.find((row: any) => row.channelType === item.channelType)
+      : null;
+    const matchedChannel = channels.find((ch) => ch.channelType === item.channelType);
+    return {
+      ...item,
+      status: (aiInv?.status as typeof item.status) ?? item.status,
+      score: aiInv?.score !== undefined
+        ? (aiInv.score === null ? null : Math.min(5, Math.max(1, Math.round(Number(aiInv.score)))))
+        : (matchedChannel?.score ?? item.score),
+      notes: typeof aiInv?.notes === 'string' && aiInv.notes.trim() ? aiInv.notes : item.notes,
+    };
+  });
+
+  return {
+    businessName: existingReport.businessName,
+    generatedAt: new Date().toISOString(),
+    overallScore: localOverall.overallScore,
+    overallTrafficLight: localOverall.overallTrafficLight,
+    executiveSummary:
+      typeof parsed.executiveSummary === 'string' && parsed.executiveSummary.trim()
+        ? parsed.executiveSummary
+        : existingReport.executiveSummary,
+    maReadinessNotes:
+      typeof parsed.maReadinessNotes === 'string' && parsed.maReadinessNotes.trim()
+        ? parsed.maReadinessNotes
+        : existingReport.maReadinessNotes,
+    channels,
+    digitalAssetInventory: inventory,
+  };
 }

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { searchPublicRecords, analyzeUploadedDocument } from '@/lib/litigation-search/search'
+import {
+  searchPublicRecords,
+  analyzeUploadedDocument,
+  reanalyzeLitigationFromEdits,
+  type LitigationSearchResult,
+} from '@/lib/litigation-search/search'
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
@@ -40,17 +45,41 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { businessName, ownerName, state, county, city, provider: rawProvider, modelId: requestedModelId } = body
-
-    if (!businessName || !state) {
-      return new Response('businessName and state are required', { status: 400 })
-    }
+    const {
+      businessName,
+      ownerName,
+      state,
+      county,
+      city,
+      provider: rawProvider,
+      modelId: requestedModelId,
+      reanalyzeFromEdits,
+      existingResult,
+    } = body ?? {}
 
     const provider = parseAnalyzeProvider(rawProvider)
     const modelId = resolveAnalyzeModelId(provider, requestedModelId)
     if (provider === 'openai') {
       const gate = await assertOpenAiConfiguredForAnalyze()
       if (gate) return gate
+    }
+
+    // Edit-aware path: refresh summary/riskLevel from advisor-edited findings.
+    if (reanalyzeFromEdits) {
+      if (!existingResult || typeof existingResult !== 'object' || !Array.isArray(existingResult.findings)) {
+        return NextResponse.json(
+          { error: 'reanalyzeFromEdits requires existingResult with findings array.' },
+          { status: 400 },
+        )
+      }
+      const result = await runWithAgentLlmContext({ provider, modelId }, () =>
+        reanalyzeLitigationFromEdits(existingResult as LitigationSearchResult),
+      )
+      return NextResponse.json({ result })
+    }
+
+    if (!businessName || !state) {
+      return new Response('businessName and state are required', { status: 400 })
     }
 
     const result = await runWithAgentLlmContext({ provider, modelId }, () =>

@@ -299,26 +299,59 @@ export default function InsuranceReviewTab({
     }
   }
 
-  const saveChanges = async () => {
+  /** Saves advisor edits (claim fields + keyFacts frozen), then asks AI to refresh the summary narrative from those edited facts. */
+  const updateAnalysisFromEdits = async () => {
     if (!draftSummary) return
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/insurance-review', {
+      const putRes = await fetch('/api/insurance-review', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId, summary: draftSummary }),
         cache: 'no-store',
       })
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(text || 'Failed to update insurance review')
+      if (!putRes.ok) {
+        const text = await putRes.text().catch(() => '')
+        throw new Error(text || 'Failed to save edits')
       }
-      const data = await res.json()
-      setSummary(data.summary)
+      const putData = await putRes.json()
+      const savedSummary = (putData.summary ?? draftSummary) as InsuranceSummary
+
+      const res = await fetch('/api/insurance-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          reanalyzeFromEdits: true,
+          existingSummary: savedSummary,
+          provider,
+          modelId: resolveAgentModelId(provider, 'opus'),
+        }),
+        cache: 'no-store',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || (typeof data === 'string' ? data : null) || `Update analysis failed (${res.status})`)
+      }
+      const nextSummary = data.summary as InsuranceSummary
+      if (!nextSummary?.summary) throw new Error('Update analysis returned an empty summary')
+
+      setSummary(nextSummary)
       setIsEditing(false)
+      setDraftSummary(null)
+
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.insuranceReview,
+        fileName: document?.fileName ?? `${clientName} — Insurance Review`,
+        report: { summary: nextSummary, document },
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider, 'opus'),
+      })
+      await reloadRuns({ selectNewest: true })
     } catch (err: any) {
-      setError(err?.message ?? 'Failed to save edits')
+      setError(err?.message ?? 'Failed to update analysis from edits')
     } finally {
       setSaving(false)
     }
@@ -687,8 +720,15 @@ export default function InsuranceReviewTab({
                   <Button size="sm" variant="outline" onClick={cancelEditing} disabled={saving} className="h-8 text-xs">
                     Cancel
                   </Button>
-                  <Button size="sm" onClick={saveChanges} disabled={saving} className="h-8 text-xs font-medium">
-                    {saving ? 'Saving…' : 'Save Changes'}
+                  <Button size="sm" onClick={() => void updateAnalysisFromEdits()} disabled={saving} className="h-8 text-xs font-medium bg-slate-900 text-white hover:bg-slate-800">
+                    {saving ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
+                        Updating analysis...
+                      </>
+                    ) : (
+                      'Update analysis from edits'
+                    )}
                   </Button>
                 </>
               ) : (

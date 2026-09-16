@@ -2,8 +2,13 @@ import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { assertS3Configured, s3BucketName, s3Client } from '@/lib/s3'
-import { analyzeSalesProcessTranscript, extractTranscriptText } from '@/lib/sales-review/analyze'
+import {
+  analyzeSalesProcessTranscript,
+  extractTranscriptText,
+  reanalyzeSalesProcessFromEdits,
+} from '@/lib/sales-review/analyze'
 import { normalizeSalesProcessResult } from '@/lib/sales-review/prompt'
+import type { SalesProcessReviewResult } from '@/lib/sales-review/types'
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
@@ -26,16 +31,18 @@ async function bodyToBuffer(body: unknown): Promise<Buffer> {
 
 export async function POST(req: NextRequest) {
   try {
-    assertS3Configured()
-
     let clientId: string
     let rawProvider: unknown
     let requestedModelId: unknown
+    let reanalyzeFromEdits = false
+    let existingResult: SalesProcessReviewResult | null = null
     try {
       const body = await req.json()
       clientId = String(body?.clientId || '').trim()
       rawProvider = body?.provider
       requestedModelId = body?.modelId
+      reanalyzeFromEdits = Boolean(body?.reanalyzeFromEdits)
+      existingResult = body?.existingResult ?? null
     } catch {
       return new Response('Invalid JSON body', { status: 400 })
     }
@@ -58,6 +65,44 @@ export async function POST(req: NextRequest) {
     if (!profile) {
       return new Response('Client not found', { status: 404 })
     }
+
+    // Edit-aware path: no transcript re-read — refresh summary/recs from edited findings/benchmarks.
+    if (reanalyzeFromEdits) {
+      if (!existingResult || typeof existingResult !== 'object') {
+        return NextResponse.json(
+          { error: 'reanalyzeFromEdits requires existingResult.' },
+          { status: 400 },
+        )
+      }
+      const normalizedExisting = normalizeSalesProcessResult(existingResult)
+      const result = await reanalyzeSalesProcessFromEdits(normalizedExisting, {
+        businessName: profile.businessName || 'Client',
+        provider,
+        modelId,
+      })
+
+      const document = await (prisma as any).clientDocument.findFirst({
+        where: { clientId, documentId: DOCUMENT_ID },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      })
+      if (document?.id) {
+        await (prisma as any).clientDocument.update({
+          where: { id: document.id },
+          data: {
+            aiDetectedType: 'sales_process_review',
+            aiReviewStatus: 'complete',
+            aiReviewSummary: JSON.stringify(result),
+            aiReviewFlags: [],
+            aiReviewedAt: new Date(),
+          },
+        })
+      }
+
+      return NextResponse.json({ result })
+    }
+
+    assertS3Configured()
 
     const document = await (prisma as any).clientDocument.findFirst({
       where: { clientId, documentId: DOCUMENT_ID },

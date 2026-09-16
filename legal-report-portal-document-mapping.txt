@@ -1,0 +1,198 @@
+Legal Reports page ↔ Client Portal mapping
+Updated: 2026-09-16
+Scope: only what the Legal Reports & Entity Search page requests (not other agents / catalogs)
+
+================================================================================
+1) WHAT THE LEGAL REPORTS PAGE REQUESTS
+================================================================================
+
+REQUIRED (Advisor Mode)
+- UCC Search Results
+  (UCC lien search reports, UCC-1 financing statements, continuation filings,
+   secured debt schedules)
+
+OPTIONAL
+- Secretary of State Filings
+  (articles / certificates of formation, corporate amendments, state registry records)
+- Certificates of Good Standing
+  (good standing / existence / tax compliance certificates)
+- Corporate Governance Documents
+  (operating agreements, bylaws, shareholder agreements, partnership agreements,
+   corporate resolutions)
+- Trademark & IP Registrations
+  (USPTO / state trademarks, brand copyrights, IP assignments)
+- Registered Agent Confirmations
+  (registered agent appointment, service of process, annual agent verification)
+
+NOTE: This page does NOT request Business Licenses.
+
+
+================================================================================
+2) WHAT IS ALREADY LINKED (portal → Legal page Import)
+================================================================================
+
+Legal slot                         Client portal document id(s)
+---------------------------------  ------------------------------------------
+Secretary of State Filings         articles_org
+                                   org_document_amendments
+                                   annual_reports
+
+Certificates of Good Standing      good_standing_certificate
+
+Corporate Governance Documents     operating_agreement_bylaws
+                                   shareholder_agreement
+
+Trademark & IP Registrations       intellectual_property
+
+These show under “Available in Client Portal” with an Import button when the
+client has uploaded files into those portal slots.
+
+
+================================================================================
+3) LINKED (including Trademark — wired 2026-09-16)
+================================================================================
+
+Legal slot                         Client portal document id          Portal label
+---------------------------------  --------------------------------  ---------------------------
+Trademark & IP Registrations       intellectual_property             Trademarks / IP Registrations
+
+(Also listed in section 2 with the other linked slots.)
+
+
+================================================================================
+4) NOT LINKABLE FROM CLIENT PORTAL (no matching portal slot)
+================================================================================
+
+Legal slot                         Why
+---------------------------------  ------------------------------------------------
+UCC Search Results                 No client-portal checklist item for UCC search.
+                                   Advisor uploads on the Legal page only.
+
+Registered Agent Confirmations     No dedicated portal slot for registered-agent
+                                   confirmations. Advisor uploads only (or may be
+                                   buried inside a SOS / good-standing PDF).
+
+
+================================================================================
+5) WHAT THE CLIENT PORTAL HAS (slots relevant to Legal)
+================================================================================
+
+These portal checklist ids exist and are the only ones that matter for this page:
+
+Linked today
+- articles_org ........................ Articles of Organization / Incorporation
+- org_document_amendments ............. Amendments to Organizational Documents
+- annual_reports ...................... Annual Reports
+- good_standing_certificate ........... Good Standing Certificate
+- operating_agreement_bylaws .......... Operating Agreement / Bylaws
+- shareholder_agreement ............... Shareholder's Agreement
+
+Exists and wired to Legal page
+- intellectual_property ............... Trademarks / IP Registrations
+
+Does not exist in portal (Legal-only uploads)
+- (no id) UCC Search Results
+- (no id) Registered Agent Confirmations
+
+
+================================================================================
+6) MISHELLE (Tails A Wagn) — WRONG FILLS, LINKING, AND WHAT STILL MISSING
+================================================================================
+
+A) What she uploaded that Legal Reports wants (by content)
+----------------------------------------------------------
+All of these were put under portal slot articles_org:
+
+CORRECT portal slot (SOS / Articles):
+- 74351100002.PDF
+- 46425550003.PDF
+- 464255500031.PDF
+- 464255500032.PDF
+- 464255500033.PDF
+- 464255500034.PDF
+  → These are the SOS / state filing style PDFs Legal wants under
+    “Secretary of State Filings”.
+
+WRONG portal slot (content matches a different Legal slot):
+- OpAgreementTAW2019.pdf
+  → This is an Operating Agreement. Legal wants it under
+    “Corporate Governance Documents”, portal slot should have been
+    operating_agreement_bylaws — she put it in articles_org instead.
+
+- TAWCertCopyEntityChangeRegAgenCertGoodStand2020.zip
+  → Filename indicates entity change + registered agent + good standing.
+    Legal wants that under “Certificates of Good Standing” and/or
+    “Registered Agent Confirmations”. Portal slot should have been
+    good_standing_certificate (reg agent has no portal slot) — she put
+    it in articles_org instead.
+
+She did NOT upload anything for:
+- UCC Search Results (no portal slot anyway)
+- Trademark & IP (portal has intellectual_property; she uploaded nothing there)
+- annual_reports / org_document_amendments as separate portal slots
+- shareholder_agreement (marked N/A)
+
+
+B) What she filled wrong (summary)
+----------------------------------
+- Operating Agreement → uploaded as Articles, not Operating Agreement / Bylaws
+- Good standing / reg-agent zip → uploaded as Articles, not Good Standing
+- UCC → never uploaded (and can’t from portal)
+- Trademark / IP → never uploaded
+
+
+C) After linking what the page can link today (Import under SOS Filings)
+-----------------------------------------------------------------------
+Portal Import only appears on slots whose portalIds match the upload slot.
+Her 8 files are all articles_org → they only show under SOS Filings Import.
+
+If advisor clicks Import on all 8 under SOS Filings:
+
+Legal slot                         After that Import
+---------------------------------  --------------------------------------------
+UCC Search Results                 Still missing (nothing to import)
+Secretary of State Filings         Filled — all 8 files land here
+Certificates of Good Standing      Still “Not provided”
+Corporate Governance Documents     Still “Not provided”
+Trademark & IP Registrations       Still “Not provided”
+Registered Agent Confirmations     Still “Not provided”
+
+So linking fixes SOS only. The OA + good-standing zip would sit under SOS
+with the other PDFs — they do NOT auto-move into Good Standing / Corporate /
+Registered Agent, because those Legal slots only offer Import for their own
+portal ids (which she left empty).
+
+
+D) What would NOT get fixed by linking (because of wrong / missing fills)
+------------------------------------------------------------------------
+Even after Importing everything available from portal:
+
+- Good Standing slot empty
+  Cause: she never used good_standing_certificate; the zip is under Articles,
+  so Legal Good Standing has no portal Import list.
+
+- Corporate Governance slot empty
+  Cause: she never used operating_agreement_bylaws; OpAgreement is under
+  Articles, so Legal Corporate has no portal Import list.
+
+- Registered Agent slot empty
+  Cause: no portal slot to link; zip is under Articles only. Advisor must
+  upload manually (or pull from the zip after downloading it).
+
+- Trademark & IP empty
+  Cause: she uploaded nothing to intellectual_property (and that portal id
+  isn’t wired on Legal yet anyway).
+
+- UCC empty
+  Cause: she uploaded nothing; portal has no UCC slot. Advisor must upload.
+
+
+E) How to fully fill what she already has (without new client uploads)
+----------------------------------------------------------------------
+Advisor options for the misfiled files:
+1. On Legal page: manually Upload OpAgreementTAW2019.pdf into Corporate
+   Governance, and the good-standing zip into Good Standing (and/or
+   Registered Agent), OR
+2. Re-file in Client Portal into the correct slots, then Import on Legal.
+
+UCC still needs a new advisor (or external) UCC search upload either way.

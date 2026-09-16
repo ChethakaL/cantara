@@ -53,9 +53,53 @@ type PdfReadability = {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { documents, provider: rawProvider, modelId: requestedModelId } = body;
+    const {
+      documents,
+      provider: rawProvider,
+      modelId: requestedModelId,
+      reanalyzeFromEdits,
+      existingReport,
+      clientId,
+      analysisId,
+      businessName,
+    } = body;
     const provider = parseAgentAiProvider(rawProvider);
     const modelId = String(requestedModelId || resolveAgentModelId(provider));
+
+    if (reanalyzeFromEdits) {
+      if (!existingReport || typeof existingReport !== "object") {
+        return NextResponse.json(
+          { error: "reanalyzeFromEdits requires existingReport." },
+          { status: 400 },
+        );
+      }
+      if (provider === "openai" && !(await hasOpenAiConfigured())) {
+        return NextResponse.json(
+          { error: "OpenAI API key is not configured. Add it in Admin Settings." },
+          { status: 400 },
+        );
+      }
+
+      const { reanalyzeLeaseReportFromEdits } = await import("@/lib/lease-analysis/reanalyze");
+      const { prisma } = await import("@/lib/prisma");
+      const result = await reanalyzeLeaseReportFromEdits(existingReport, {
+        businessName: businessName || "Client",
+        provider,
+        modelId,
+      });
+
+      if (analysisId) {
+        await prisma.leaseAnalysis.update({
+          where: { id: String(analysisId) },
+          data: {
+            report: result.raw,
+            parsed: result as any,
+          },
+        });
+      }
+
+      return NextResponse.json({ report: result });
+    }
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
         return new Response("No documents provided", { status: 400 });

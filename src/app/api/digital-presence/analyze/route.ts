@@ -1,7 +1,7 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { researchAllChannels } from '@/lib/digital-presence/claude-research';
-import { analyzeWithClaude } from '@/lib/digital-presence/claude-analyzer';
-import { AnalyzeRequestBody, ChannelType } from '@/lib/digital-presence/types';
+import { analyzeWithClaude, reanalyzeDigitalPresenceFromEdits } from '@/lib/digital-presence/claude-analyzer';
+import { AnalyzeRequestBody, ChannelType, DigitalPresenceReport } from '@/lib/digital-presence/types';
 import { findPlaceByText, getPlaceDetails } from '@/lib/competitor-analysis/google-places';
 import {
   assertOpenAiConfiguredForAnalyze,
@@ -25,28 +25,42 @@ const CHANNEL_LABELS: Record<ChannelType, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  let body: AnalyzeRequestBody;
+  let body: AnalyzeRequestBody & { modelId?: unknown };
   try {
     body = await req.json();
   } catch {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
-  const { formData, modelId: requestedModelId } = body as AnalyzeRequestBody & {
-    modelId?: unknown;
-  };
+  const { formData, modelId: requestedModelId, reanalyzeFromEdits, existingReport } = body;
   const provider = DIGITAL_PRESENCE_PROVIDER;
   const modelId = resolveAnalyzeModelId(provider, requestedModelId);
+
+  const gate = await assertOpenAiConfiguredForAnalyze();
+  if (gate) return gate;
+
+  // Edit-aware path: no web research — rewrite analysis from advisor-edited metrics.
+  if (reanalyzeFromEdits) {
+    if (!existingReport || typeof existingReport !== 'object' || !Array.isArray(existingReport.channels)) {
+      return NextResponse.json({ error: 'reanalyzeFromEdits requires existingReport with channels.' }, { status: 400 });
+    }
+    try {
+      const report = await reanalyzeDigitalPresenceFromEdits(existingReport as DigitalPresenceReport, {
+        provider,
+        modelId,
+      });
+      return NextResponse.json({ report });
+    } catch (err: any) {
+      console.error('[Digital Presence] Reanalyze error:', err);
+      return NextResponse.json({ error: err?.message ?? 'Reanalyze failed.' }, { status: 500 });
+    }
+  }
 
   if (!formData?.businessName?.trim()) {
     return new Response(JSON.stringify({ error: 'Business name is required.' }), { status: 400 });
   }
 
-  const gate = await assertOpenAiConfiguredForAnalyze();
-  if (gate) return gate;
-
-  // Kept for interface compatibility with researchAllChannels signature
-  const tavilyKey = process.env.TAVILY_API_KEY || "";
+  const tavilyKey = process.env.TAVILY_API_KEY || '';
 
   const hasAtLeastOneChannel =
     formData.websiteUrl ||
@@ -64,7 +78,7 @@ export async function POST(req: NextRequest) {
   if (!hasAtLeastOneChannel) {
     return new Response(
       JSON.stringify({ error: 'Please provide at least one digital channel to analyse.' }),
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -83,7 +97,6 @@ export async function POST(req: NextRequest) {
       try {
         console.log(`[Digital Presence] Starting for: ${formData.businessName}`);
 
-        // Count channels upfront so we can show accurate totals
         const channelCount = [
           formData.websiteUrl,
           formData.googleBusinessProfileUrl,
@@ -121,7 +134,6 @@ export async function POST(req: NextRequest) {
           { provider, modelId },
         );
 
-        // Google Places API verification: inject verified rating/review data
         const googleApiKey = process.env.GOOGLE_SERVICES_API;
         if (googleApiKey) {
           try {
@@ -144,8 +156,7 @@ export async function POST(req: NextRequest) {
                   placeDetails.openNow != null ? `Currently Open: ${placeDetails.openNow ? 'Yes' : 'No'}` : null,
                 ].filter(Boolean).join('\n');
 
-                // Find the google_business channel and inject verified data as the first result
-                const gbChannel = researchData.find(r => r.channelType === 'google_business');
+                const gbChannel = researchData.find((r) => r.channelType === 'google_business');
                 if (gbChannel) {
                   gbChannel.results.unshift({
                     title: `[VERIFIED] ${placeDetails.name} - Google Business Profile`,
@@ -153,7 +164,6 @@ export async function POST(req: NextRequest) {
                     content: verifiedContent,
                     score: 1.0,
                   });
-                  console.log(`[Digital Presence] Injected verified Google Places data: ${placeDetails.rating} stars, ${placeDetails.reviewCount} reviews`);
                 }
               }
             }
@@ -161,10 +171,6 @@ export async function POST(req: NextRequest) {
             console.warn('[Digital Presence] Google Places verification failed (non-fatal):', err);
           }
         }
-
-        // After research, count what was actually found
-        const foundCount = researchData.filter(r => r.results.length > 0).length;
-        console.log(`[Digital Presence] Research done. ${foundCount}/${researchData.length} channels with data.`);
 
         send({
           type: 'progress',
@@ -175,8 +181,6 @@ export async function POST(req: NextRequest) {
         });
 
         const report = await analyzeWithClaude(formData, researchData, { provider, modelId });
-        console.log(`[Digital Presence] Analysis done. Overall: ${report.overallScore}`);
-
         send({ type: 'complete', report });
         controller.close();
       } catch (err: any) {

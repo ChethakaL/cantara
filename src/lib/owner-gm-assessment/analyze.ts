@@ -309,6 +309,112 @@ export async function analyzeOwnerGmTranscript(args: {
   return assessment;
 }
 
+function parseReanalyzeJson(rawText: string): Record<string, unknown> {
+  const cleaned = stripJsonFence(rawText);
+  try {
+    return JSON.parse(cleaned) as Record<string, unknown>;
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  throw new Error("Owner & GM reanalyze returned unparseable JSON. Please retry.");
+}
+
+/**
+ * Re-score narrative from advisor-edited ratings / owner profiles / GM profile / senior team
+ * (no transcript re-upload). Ratings, owners[], gm, and seniorTeam[] are treated as ground truth
+ * and are NOT modified — only executiveSummary, flags, recommendations, and counselItems refresh.
+ */
+export async function reanalyzeOwnerGmFromEdits(
+  existingAssessment: OwnerGmAssessment,
+): Promise<OwnerGmAssessment> {
+  const authoritative = {
+    ownerDependencyRating: existingAssessment.ownerDependencyRating,
+    gmRetentionRisk: existingAssessment.gmRetentionRisk,
+    benchStrength: existingAssessment.benchStrength,
+    overallTransitionReadiness: existingAssessment.overallTransitionReadiness,
+    owners: existingAssessment.owners,
+    gm: existingAssessment.gm,
+    seniorTeam: existingAssessment.seniorTeam,
+  };
+
+  const prompt = `You are the Owner & GM Involvement Assessment Agent for Cantara, a business sale-readiness and M&A diligence platform.
+
+An advisor manually corrected the ratings, owner profiles, GM profile, and/or senior management bench on an existing Owner & GM Involvement Assessment report. REWRITE the executive summary, flags, recommendations, and counsel items to match those corrected values. Do NOT re-run the transcript — there is no transcript in this pass.
+
+## CRITICAL — advisor edits are ground truth
+- The AUTHORITATIVE JSON below (ratings, owners, gm, seniorTeam) is final and must NOT be changed, re-derived, or contradicted.
+- Base the executive summary, flags, recommendations, and counsel items STRICTLY on this authoritative data.
+- If a rating reads "High" risk/dependency, the summary and flags MUST reflect that risk — do not soften it.
+- If a rating reads "Low" risk/dependency or ratings improved, do not manufacture risk that isn't supported by the data.
+- Do not fabricate names, titles, or facts not present in the authoritative data below.
+
+## AUTHORITATIVE ADVISOR-EDITED DATA
+${JSON.stringify(authoritative, null, 2)}
+
+## Flags to Generate
+- **deal-risk**: Owner required to stay, no GM in place, GM unaware of sale, independence score <7, thin bench with no step-up
+- **negotiation**: Above-market comp (normalization), required transition period, external hire costs
+- **positive**: Strong GM independence, supportive GM, strong bench, clean owner exit
+- **informational**: Part-time GM, multiple owners, comp details for modeling
+
+Return ONLY valid JSON (no markdown, no code fences, no commentary before or after) with EXACTLY these keys:
+{
+  "executiveSummary": "<3-5 sentence summary of key findings, commercially useful for an M&A advisor>",
+  "flags": [
+    {
+      "id": "<unique-id>",
+      "section": "Owner" | "GM" | "Bench" | "General",
+      "severity": "deal-risk" | "negotiation" | "positive" | "informational",
+      "title": "<short title>",
+      "description": "<1-2 sentence detail>"
+    }
+  ],
+  "recommendations": ["<actionable next step for the advisory team>"],
+  "counselItems": ["<talking point to raise with the owner in follow-up conversations>"]
+}`;
+
+  const rawText = await createAgentMessage({
+    system: "",
+    content: prompt,
+    maxTokens: 3000,
+    temperature: 0,
+  });
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseReanalyzeJson(rawText);
+  } catch (err) {
+    console.error("[Owner & GM Assessment] Reanalyze parse failed:", rawText.slice(0, 500));
+    throw err instanceof Error ? err : new Error("Owner & GM reanalyze returned unparseable JSON. Please retry.");
+  }
+
+  return {
+    ...existingAssessment,
+    executiveSummary:
+      typeof parsed.executiveSummary === "string" && parsed.executiveSummary.trim()
+        ? parsed.executiveSummary
+        : existingAssessment.executiveSummary,
+    flags: Array.isArray(parsed.flags)
+      ? (parsed.flags as OwnerGmAssessment["flags"])
+      : existingAssessment.flags,
+    recommendations: Array.isArray(parsed.recommendations)
+      ? (parsed.recommendations as string[])
+      : existingAssessment.recommendations,
+    counselItems: Array.isArray(parsed.counselItems)
+      ? (parsed.counselItems as string[])
+      : existingAssessment.counselItems,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 export function serializeOwnerGmAssessment(assessment: OwnerGmAssessment): string {
   return JSON.stringify(assessment);
 }

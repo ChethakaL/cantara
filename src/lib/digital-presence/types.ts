@@ -90,7 +90,9 @@ export interface DigitalPresenceReport {
 }
 
 export interface AnalyzeRequestBody {
-  formData: DigitalAssetFormData;
+  formData?: DigitalAssetFormData;
+  reanalyzeFromEdits?: boolean;
+  existingReport?: DigitalPresenceReport;
 }
 
 export interface AnalyzeResponseBody {

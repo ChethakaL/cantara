@@ -164,6 +164,46 @@ export default function LeaseAnalysisTab({ clientId, clientName, documentStatuse
     )))
   }, [activeAnalysis])
 
+  const handleUpdateAnalysisFromEdits = useCallback(async (draftReport: LeaseReportData) => {
+    if (!activeAnalysis?.id) return
+
+    await updateLeaseAnalysis(activeAnalysis.id, {
+      report: draftReport.raw,
+      parsed: draftReport,
+    })
+
+    const res = await fetch('/api/lease-analysis/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reanalyzeFromEdits: true,
+        existingReport: draftReport,
+        clientId,
+        analysisId: activeAnalysis.id,
+        businessName: clientName,
+        provider,
+        modelId: lastModelId ?? undefined,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(data?.error || 'Failed to update analysis from edits')
+    }
+    const nextReport = (data.report ?? data) as LeaseReportData
+    if (!nextReport) throw new Error('Update analysis returned an empty report')
+
+    setActiveAnalysis((current) =>
+      current ? { ...current, report: nextReport.raw, parsed: nextReport } : current,
+    )
+    setAnalyses((current) =>
+      current.map((analysis) =>
+        analysis.id === activeAnalysis.id
+          ? { ...analysis, report: nextReport.raw, parsed: nextReport }
+          : analysis,
+      ),
+    )
+  }, [activeAnalysis, clientId, clientName, provider, lastModelId])
+
   useEffect(() => {
     loadAnalyses().then(data => {
       if (data.length > 0) setActiveAnalysis(current => current ?? data[0])
@@ -333,6 +373,7 @@ export default function LeaseAnalysisTab({ clientId, clientName, documentStatuse
             onNewAnalysis={beginNewAnalysis}
             onDelete={activeAnalysis ? () => setDeleteOpen(true) : undefined}
             onReportUpdated={!readOnly && activeAnalysis && status === 'idle' ? handleReportUpdated : undefined}
+            onUpdateAnalysisFromEdits={!readOnly && activeAnalysis && status === 'idle' ? handleUpdateAnalysisFromEdits : undefined}
             adminMode={!readOnly && Boolean(activeAnalysis && status === 'idle')}
             hideNewAnalysis
           />

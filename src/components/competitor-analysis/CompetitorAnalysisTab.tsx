@@ -1,7 +1,7 @@
 'use client';
 import type { AgentTabReadOnlyProps } from '@/types/agent-tab';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   AlertCircle,
   Download,
@@ -23,6 +23,8 @@ import {
   Save,
   Pencil,
   FileText,
+  RefreshCw,
+  X,
 } from 'lucide-react';
 import { Badge, Button, Card, Input, Modal, Textarea, cn } from '@/components/ui';
 import {
@@ -33,7 +35,13 @@ import {
   DiscoveredCompetitorItem,
   ManualCompetitorEntry,
   PlaceLocation,
+  SimilarityLevel,
 } from '@/lib/competitor-analysis/types';
+import {
+  applyCompetitorFactOverrides,
+  similarityLevelFromScore,
+  type CompetitorFactOverrides,
+} from '@/lib/competitor-analysis/fact-overrides';
 import type { CompetitorAnalysis as SavedCompetitorAnalysis } from '@/lib/store';
 import { deleteCompetitorAnalysis, getCompetitorAnalyses, saveCompetitorAnalysis, updateCompetitorAnalysis } from '@/lib/store';
 import TopCompetitorsForm from '@/components/competitor-analysis/TopCompetitorsForm';
@@ -868,11 +876,22 @@ function ComparisonTable({
   researchedCompetitors,
   onResearch,
   researchingPlaceId,
+  isEditing = false,
+  factOverrides,
+  onUpdateCompetitorFact,
+  disabled = false,
 }: {
   discoveredCompetitors: DiscoveredCompetitorItem[];
   researchedCompetitors: CompetitorReportItem[];
   onResearch: (competitor: DiscoveredCompetitorItem) => void;
   researchingPlaceId: string | null;
+  isEditing?: boolean;
+  factOverrides?: CompetitorFactOverrides;
+  onUpdateCompetitorFact?: (
+    key: string,
+    patch: { rating?: number | null; reviewCount?: number | null; similarityScore?: number; similarityLevel?: SimilarityLevel },
+  ) => void;
+  disabled?: boolean;
 }) {
   if (!discoveredCompetitors.length) return null;
   const PAGE_SIZE = 8;
@@ -887,7 +906,11 @@ function ComparisonTable({
     <Card className="overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Competitor Table</p>
-        <p className="text-sm text-slate-500 mt-1">All discovered nearby matches. The closest six are researched by default, and the rest can be researched on demand.</p>
+        <p className="text-sm text-slate-500 mt-1">
+          {isEditing
+            ? 'Edit rating, review count, and similarity for researched competitors. Chart and analysis update when you save.'
+            : 'All discovered nearby matches. The closest six are researched by default, and the rest can be researched on demand.'}
+        </p>
       </div>
       <div className="max-h-[720px] overflow-auto">
         <table className="w-full min-w-[980px] text-sm">
@@ -906,6 +929,11 @@ function ComparisonTable({
               const researched = researchedById.get(competitor.placeId ?? '');
               const absoluteIndex = startIndex + index;
               const rowPlaceId = competitor.placeId ?? `${competitor.name}-${absoluteIndex}`;
+              const factKey = researched ? (researched.placeId ?? researched.name) : '';
+              const override = factKey ? factOverrides?.competitors?.[factKey] : undefined;
+              const rating = override && 'rating' in override ? override.rating : (researched?.rating ?? competitor.rating);
+              const reviewCount = override && 'reviewCount' in override ? override.reviewCount : (researched?.reviewCount ?? competitor.reviewCount);
+              const similarityScore = override?.similarityScore ?? researched?.similarityScore;
               return (
               <tr key={competitor.placeId ?? `${competitor.name}-${absoluteIndex}`} className="align-top">
                 <td className="px-5 py-4">
@@ -921,15 +949,74 @@ function ComparisonTable({
                 </td>
                 <td className="px-4 py-4 text-slate-700">{formatDistance(competitor.distanceMiles)}</td>
                 <td className="px-4 py-4">
-                  {researched ? (
+                  {researched && isEditing && onUpdateCompetitorFact ? (
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={5}
+                        step={1}
+                        className="h-8 w-16 text-sm"
+                        value={similarityScore ?? ''}
+                        disabled={disabled}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          if (!Number.isFinite(n)) return;
+                          const score = Math.max(1, Math.min(5, Math.round(n)));
+                          onUpdateCompetitorFact(factKey, {
+                            similarityScore: score,
+                            similarityLevel: similarityLevelFromScore(score),
+                          });
+                        }}
+                      />
+                      <span className="text-xs text-slate-500">/5</span>
+                    </div>
+                  ) : researched ? (
                     <span className="text-sm text-slate-700">{researched.similarityScore}/5</span>
                   ) : (
                     <span className="text-xs text-slate-400">Pending research</span>
                   )}
                 </td>
                 <td className="px-4 py-4 text-slate-700">
-                  {competitor.rating ?? 'Not found'}
-                  <span className="block text-xs text-slate-400 mt-1">{formatNumber(competitor.reviewCount)} reviews</span>
+                  {researched && isEditing && onUpdateCompetitorFact ? (
+                    <div className="space-y-1.5">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={5}
+                        step={0.1}
+                        className="h-8 w-20 text-sm"
+                        value={rating ?? ''}
+                        disabled={disabled}
+                        onChange={(e) => {
+                          const raw = e.target.value.trim();
+                          onUpdateCompetitorFact(factKey, {
+                            rating: raw === '' ? null : Number(raw),
+                          });
+                        }}
+                      />
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        className="h-8 w-24 text-sm"
+                        value={reviewCount ?? ''}
+                        disabled={disabled}
+                        onChange={(e) => {
+                          const raw = e.target.value.trim();
+                          onUpdateCompetitorFact(factKey, {
+                            reviewCount: raw === '' ? null : Number(raw),
+                          });
+                        }}
+                        placeholder="Reviews"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      {rating ?? 'Not found'}
+                      <span className="block text-xs text-slate-400 mt-1">{formatNumber(reviewCount)} reviews</span>
+                    </>
+                  )}
                 </td>
                 <td className="px-5 py-4 text-slate-600 leading-relaxed">{researched?.similaritySummary ?? '-'}</td>
                 <td className="px-5 py-4">
@@ -939,7 +1026,7 @@ function ComparisonTable({
                     <Button
                       variant="outline"
                       onClick={() => onResearch(competitor)}
-                      disabled={researchingPlaceId === rowPlaceId}
+                      disabled={researchingPlaceId === rowPlaceId || isEditing}
                     >
                       {researchingPlaceId === rowPlaceId ? 'Researching…' : 'Research'}
                     </Button>
@@ -980,7 +1067,31 @@ function ComparisonTable({
   );
 }
 
-function CompetitorCard({ competitor, index }: { competitor: CompetitorReportItem; index: number }) {
+function CompetitorCard({
+  competitor,
+  index,
+  isEditing = false,
+  factOverride,
+  onUpdateFact,
+  disabled = false,
+}: {
+  competitor: CompetitorReportItem;
+  index: number;
+  isEditing?: boolean;
+  factOverride?: { rating?: number | null; reviewCount?: number | null; similarityScore?: number; similarityLevel?: SimilarityLevel };
+  onUpdateFact?: (patch: {
+    rating?: number | null;
+    reviewCount?: number | null;
+    similarityScore?: number;
+    similarityLevel?: SimilarityLevel;
+  }) => void;
+  disabled?: boolean;
+}) {
+  const rating = factOverride && 'rating' in factOverride ? factOverride.rating : competitor.rating;
+  const reviewCount = factOverride && 'reviewCount' in factOverride ? factOverride.reviewCount : competitor.reviewCount;
+  const similarityScore = factOverride?.similarityScore ?? competitor.similarityScore;
+  const similarityLevel = factOverride?.similarityLevel ?? competitor.similarityLevel;
+
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-start justify-between gap-4">
@@ -994,12 +1105,84 @@ function CompetitorCard({ competitor, index }: { competitor: CompetitorReportIte
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
             <span className="inline-flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {competitor.address}</span>
             <span className="inline-flex items-center gap-1.5"><Store className="w-4 h-4" /> {formatDistance(competitor.distanceMiles)}</span>
-            <span className="inline-flex items-center gap-1.5"><Star className="w-4 h-4" /> {competitor.rating ?? 'Not found'}</span>
+            {isEditing && onUpdateFact ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Star className="w-4 h-4" />
+                <Input
+                  type="number"
+                  min={0}
+                  max={5}
+                  step={0.1}
+                  className="h-8 w-16 text-sm"
+                  value={rating ?? ''}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    onUpdateFact({ rating: raw === '' ? null : Number(raw) });
+                  }}
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className="h-8 w-24 text-sm"
+                  value={reviewCount ?? ''}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    onUpdateFact({ reviewCount: raw === '' ? null : Number(raw) });
+                  }}
+                  placeholder="Reviews"
+                />
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5"><Star className="w-4 h-4" /> {rating ?? 'Not found'} · {formatNumber(reviewCount)} reviews</span>
+            )}
           </div>
         </div>
-        <Badge color={competitor.similarityLevel === 'high' ? 'red' : competitor.similarityLevel === 'medium' ? 'gold' : 'blue'}>
-          {competitor.similarityLevel} similarity
-        </Badge>
+        {isEditing && onUpdateFact ? (
+          <div className="flex flex-col items-end gap-1.5">
+            <select
+              className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
+              value={similarityLevel}
+              disabled={disabled}
+              onChange={(e) => {
+                const level = e.target.value as SimilarityLevel;
+                onUpdateFact({
+                  similarityLevel: level,
+                  similarityScore: level === 'high' ? Math.max(similarityScore, 4) : level === 'medium' ? 3 : Math.min(similarityScore, 2),
+                });
+              }}
+            >
+              <option value="high">high similarity</option>
+              <option value="medium">medium similarity</option>
+              <option value="low">low similarity</option>
+            </select>
+            <div className="flex items-center gap-1 text-xs text-slate-500">
+              Score
+              <Input
+                type="number"
+                min={1}
+                max={5}
+                step={1}
+                className="h-7 w-14 text-xs"
+                value={similarityScore}
+                disabled={disabled}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (!Number.isFinite(n)) return;
+                  const score = Math.max(1, Math.min(5, Math.round(n)));
+                  onUpdateFact({ similarityScore: score, similarityLevel: similarityLevelFromScore(score) });
+                }}
+              />
+              /5
+            </div>
+          </div>
+        ) : (
+          <Badge color={similarityLevel === 'high' ? 'red' : similarityLevel === 'medium' ? 'gold' : 'blue'}>
+            {similarityLevel} similarity
+          </Badge>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1078,7 +1261,6 @@ function ReportView({
   onResearch,
   researchingPlaceId,
   isEditingSummaries,
-  setIsEditingSummaries,
   draftExecutiveSummary,
   setDraftExecutiveSummary,
   draftMarketSummary,
@@ -1086,8 +1268,10 @@ function ReportView({
   draftPositioningSummary,
   setDraftPositioningSummary,
   savingSummaries,
-  handleSaveSummaries,
-  handleStartEditingSummaries,
+  serviceOverrides,
+  setServiceOverrides,
+  factOverrides,
+  setFactOverrides,
   readOnly = false,
 }: {
   report: CompetitorAnalysisReport;
@@ -1096,7 +1280,6 @@ function ReportView({
   onResearch: (competitor: DiscoveredCompetitorItem) => void;
   researchingPlaceId: string | null;
   isEditingSummaries: boolean;
-  setIsEditingSummaries: (v: boolean) => void;
   draftExecutiveSummary: string;
   setDraftExecutiveSummary: (v: string) => void;
   draftMarketSummary: string;
@@ -1104,31 +1287,17 @@ function ReportView({
   draftPositioningSummary: string;
   setDraftPositioningSummary: (v: string) => void;
   savingSummaries: boolean;
-  handleSaveSummaries: () => void;
-  handleStartEditingSummaries: () => void;
+  serviceOverrides: Record<string, Record<string, boolean>>;
+  setServiceOverrides: Dispatch<SetStateAction<Record<string, Record<string, boolean>>>>;
+  factOverrides: CompetitorFactOverrides;
+  setFactOverrides: Dispatch<SetStateAction<CompetitorFactOverrides>>;
   readOnly?: boolean;
 }) {
-  const [serviceEditMode, setServiceEditMode] = useState(false);
-  // Build initial service overrides from report data
-  const buildInitialOverrides = () => {
-    const overrides: Record<string, Record<string, boolean>> = {};
-    const serviceOrder = ['dog boarding', 'dog daycare', 'dog grooming', 'dog training', 'cat boarding'];
-    // subject
-    overrides['__subject__'] = {};
-    serviceOrder.forEach(service => {
-      overrides['__subject__'][service] = report.clientProfile.services.some(s => s.toLowerCase() === service);
-    });
-    // competitors
-    report.competitors.slice(0, 5).forEach((comp) => {
-      const key = comp.placeId ?? comp.name;
-      overrides[key] = {};
-      serviceOrder.forEach(service => {
-        overrides[key][service] = comp.services.some(s => s.toLowerCase() === service);
-      });
-    });
-    return overrides;
-  };
-  const [serviceOverrides, setServiceOverrides] = useState<Record<string, Record<string, boolean>>>(buildInitialOverrides);
+  const serviceEditMode = isEditingSummaries && !readOnly;
+  const displayReport = useMemo(
+    () => (serviceEditMode ? applyCompetitorFactOverrides(report, factOverrides) : report),
+    [report, factOverrides, serviceEditMode],
+  );
 
   function toggleServiceOverride(entityKey: string, service: string) {
     setServiceOverrides(prev => ({
@@ -1147,62 +1316,95 @@ function ReportView({
     return fallback;
   }
 
+  function updateClientFact(patch: { rating?: number | null; reviewCount?: number | null }) {
+    setFactOverrides((prev) => ({
+      ...prev,
+      client: { ...prev.client, ...patch },
+    }));
+  }
+
+  function updateCompetitorFact(
+    key: string,
+    patch: {
+      rating?: number | null;
+      reviewCount?: number | null;
+      similarityScore?: number;
+      similarityLevel?: SimilarityLevel;
+    },
+  ) {
+    setFactOverrides((prev) => ({
+      ...prev,
+      competitors: {
+        ...prev.competitors,
+        [key]: { ...prev.competitors?.[key], ...patch },
+      },
+    }));
+  }
+
   return (
     <div className="space-y-6">
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard
           label="Nearby Competitors"
-          value={String(report.marketStats.discoveredCompetitors)}
-          note={`${report.marketStats.analyzedCompetitors} reviewed in depth`}
+          value={String(displayReport.marketStats.discoveredCompetitors)}
+          note={`${displayReport.marketStats.analyzedCompetitors} reviewed in depth`}
         />
         <StatCard
           label="Average Rating"
-          value={report.marketStats.averageCompetitorRating?.toFixed(1) ?? 'N/A'}
+          value={displayReport.marketStats.averageCompetitorRating?.toFixed(1) ?? 'N/A'}
           note="Average public rating across nearby competitors"
         />
         <StatCard
           label="Closest Match"
-          value={report.marketStats.closestCompetitorDistanceMiles !== null ? `${report.marketStats.closestCompetitorDistanceMiles.toFixed(2)} mi` : 'N/A'}
-          note={report.marketStats.closestCompetitorName ?? 'No nearby competitor found'}
+          value={displayReport.marketStats.closestCompetitorDistanceMiles !== null ? `${displayReport.marketStats.closestCompetitorDistanceMiles.toFixed(2)} mi` : 'N/A'}
+          note={displayReport.marketStats.closestCompetitorName ?? 'No nearby competitor found'}
         />
         <StatCard
           label="Direct Substitutes"
-          value={String(report.marketStats.highSimilarityCount)}
+          value={String(displayReport.marketStats.highSimilarityCount)}
           note="High-similarity competitors in the radius"
         />
       </div>
 
-      <CompetitorCoverageMap report={report} />
+      <CompetitorCoverageMap report={displayReport} />
 
       <Card className="p-5 space-y-4">
         {isEditingSummaries ? (
           <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              Correct ratings, review counts, similarity, and service offerings below, then click{' '}
+              <span className="font-semibold text-slate-700">Update analysis from edits</span> to refresh
+              summaries, takeaways, recommendations, and the comparison chart.
+            </p>
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Executive Summary</label>
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Executive Summary (refreshed by AI)</label>
               <Textarea
                 className="w-full text-sm leading-6"
                 rows={5}
                 value={draftExecutiveSummary}
                 onChange={(e) => setDraftExecutiveSummary(e.target.value)}
+                disabled={savingSummaries}
               />
             </div>
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Market Summary</label>
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Market Summary (refreshed by AI)</label>
               <Textarea
                 className="w-full text-sm leading-6"
                 rows={5}
                 value={draftMarketSummary}
                 onChange={(e) => setDraftMarketSummary(e.target.value)}
+                disabled={savingSummaries}
               />
             </div>
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Positioning Summary</label>
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Positioning Summary (refreshed by AI)</label>
               <Textarea
                 className="w-full text-sm leading-6"
                 rows={5}
                 value={draftPositioningSummary}
                 onChange={(e) => setDraftPositioningSummary(e.target.value)}
+                disabled={savingSummaries}
               />
             </div>
           </div>
@@ -1227,7 +1429,7 @@ function ReportView({
       {/* Subject Business section removed — displayed in other sections */}
 
       {/* Google Review Comparison Chart */}
-      {report.competitors.length > 0 && (
+      {displayReport.competitors.length > 0 && (
         <Card className="p-5 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Google Review Comparison</p>
@@ -1246,83 +1448,149 @@ function ReportView({
               </span>
             </div>
           </div>
+          {serviceEditMode && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800">
+              Edit rating and review counts below — the bars update immediately. Click <strong>Update analysis from edits</strong> to save and refresh the narrative.
+            </div>
+          )}
           <div className="space-y-3">
             {/* Subject business */}
             <div className="flex items-center gap-3">
               <div className="w-36 text-xs font-medium text-slate-700 truncate flex items-center gap-1.5">
                 <Star className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                {report.clientProfile.name}
+                {displayReport.clientProfile.name}
               </div>
               <div className="flex-1 flex items-center gap-2">
                 <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden relative">
                   <div
                     className="h-full rounded-full"
                     style={{
-                      width: `${((report.clientProfile.rating ?? 0) / 5) * 100}%`,
+                      width: `${((displayReport.clientProfile.rating ?? 0) / 5) * 100}%`,
                       background: 'linear-gradient(90deg, #b8922a, #d4a843)',
                     }}
                   />
                 </div>
-                <span className="text-xs font-semibold text-slate-700 w-12 text-right tabular-nums">
-                  {report.clientProfile.rating?.toFixed(1) ?? 'N/A'}
-                </span>
-                <span className="text-xs text-slate-400 w-20 text-right tabular-nums">
-                  {formatNumber(report.clientProfile.reviewCount)} reviews
-                </span>
+                {serviceEditMode ? (
+                  <>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={5}
+                      step={0.1}
+                      className="h-8 w-16 text-xs"
+                      value={factOverrides.client?.rating ?? displayReport.clientProfile.rating ?? ''}
+                      disabled={savingSummaries}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        updateClientFact({ rating: raw === '' ? null : Number(raw) });
+                      }}
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="h-8 w-20 text-xs"
+                      value={factOverrides.client?.reviewCount ?? displayReport.clientProfile.reviewCount ?? ''}
+                      disabled={savingSummaries}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        updateClientFact({ reviewCount: raw === '' ? null : Number(raw) });
+                      }}
+                      title="Review count"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs font-semibold text-slate-700 w-12 text-right tabular-nums">
+                      {displayReport.clientProfile.rating?.toFixed(1) ?? 'N/A'}
+                    </span>
+                    <span className="text-xs text-slate-400 w-20 text-right tabular-nums">
+                      {formatNumber(displayReport.clientProfile.reviewCount)} reviews
+                    </span>
+                  </>
+                )}
               </div>
             </div>
             {/* Competitors */}
-            {report.competitors.map((comp, i) => (
-              <div key={comp.placeId ?? i} className="flex items-center gap-3">
-                <div className="w-36 text-xs text-slate-600 truncate flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 flex-shrink-0">{i + 1}</span>
-                  {comp.name}
-                </div>
-                <div className="flex-1 flex items-center gap-2">
-                  <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${((comp.rating ?? 0) / 5) * 100}%`,
-                        background: comp.rating !== null && comp.rating >= (report.clientProfile.rating ?? 0) ? '#f43f5e' : '#10b981',
-                      }}
-                    />
+            {displayReport.competitors.map((comp, i) => {
+              const key = comp.placeId ?? comp.name;
+              const override = factOverrides.competitors?.[key];
+              return (
+                <div key={comp.placeId ?? i} className="flex items-center gap-3">
+                  <div className="w-36 text-xs text-slate-600 truncate flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 flex-shrink-0">{i + 1}</span>
+                    {comp.name}
                   </div>
-                  <span className="text-xs font-semibold text-slate-700 w-12 text-right tabular-nums">
-                    {comp.rating?.toFixed(1) ?? 'N/A'}
-                  </span>
-                  <span className="text-xs text-slate-400 w-20 text-right tabular-nums">
-                    {formatNumber(comp.reviewCount)} reviews
-                  </span>
+                  <div className="flex-1 flex items-center gap-2">
+                    <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${((comp.rating ?? 0) / 5) * 100}%`,
+                          background: comp.rating !== null && comp.rating >= (displayReport.clientProfile.rating ?? 0) ? '#f43f5e' : '#10b981',
+                        }}
+                      />
+                    </div>
+                    {serviceEditMode ? (
+                      <>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={5}
+                          step={0.1}
+                          className="h-8 w-16 text-xs"
+                          value={override && 'rating' in override ? (override.rating ?? '') : (comp.rating ?? '')}
+                          disabled={savingSummaries}
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            updateCompetitorFact(key, { rating: raw === '' ? null : Number(raw) });
+                          }}
+                        />
+                        <Input
+                          type="number"
+                          min={0}
+                          step={1}
+                          className="h-8 w-20 text-xs"
+                          value={override && 'reviewCount' in override ? (override.reviewCount ?? '') : (comp.reviewCount ?? '')}
+                          disabled={savingSummaries}
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            updateCompetitorFact(key, { reviewCount: raw === '' ? null : Number(raw) });
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xs font-semibold text-slate-700 w-12 text-right tabular-nums">
+                          {comp.rating?.toFixed(1) ?? 'N/A'}
+                        </span>
+                        <span className="text-xs text-slate-400 w-20 text-right tabular-nums">
+                          {formatNumber(comp.reviewCount)} reviews
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       )}
 
       {/* Service Offerings Comparison */}
-      {report.competitors.length > 0 && (
+      {displayReport.competitors.length > 0 && (
         <Card className="overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Service Offerings Comparison</p>
-            {!readOnly && (
-            <button
-              onClick={() => setServiceEditMode(m => !m)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors',
-                serviceEditMode
-                  ? 'border-amber-300 bg-amber-50 text-amber-700'
-                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-              )}
-            >
-              {serviceEditMode ? '✓ Done' : '✎ Edit'}
-            </button>
+            {serviceEditMode && (
+              <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md">
+                Editing — click cells to toggle
+              </span>
             )}
           </div>
-          {serviceEditMode && !readOnly && (
+          {serviceEditMode && (
             <div className="px-5 py-2 bg-amber-50/50 border-b border-amber-100 text-xs text-amber-700">
-              Click any cell to toggle the checkmark on or off.
+              Click any cell to toggle the checkmark on or off. These edits feed <strong>Update analysis from edits</strong>.
             </div>
           )}
           <div className="overflow-x-auto">
@@ -1331,9 +1599,9 @@ function ReportView({
                 <tr>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 sticky left-0 bg-slate-50 z-10">Service</th>
                   <th className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600 min-w-[100px]">
-                    {report.clientProfile.name.length > 15 ? report.clientProfile.name.slice(0, 15) + '…' : report.clientProfile.name}
+                    {displayReport.clientProfile.name.length > 15 ? displayReport.clientProfile.name.slice(0, 15) + '…' : displayReport.clientProfile.name}
                   </th>
-                  {report.competitors.slice(0, 5).map((comp, i) => (
+                  {displayReport.competitors.slice(0, 5).map((comp, i) => (
                     <th key={comp.placeId ?? i} className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 min-w-[100px]">
                       {comp.name.length > 15 ? comp.name.slice(0, 15) + '…' : comp.name}
                     </th>
@@ -1351,12 +1619,12 @@ function ReportView({
                         className={cn("px-3 py-2.5 text-center", serviceEditMode && "cursor-pointer hover:bg-amber-50/50")}
                         onClick={serviceEditMode ? () => toggleServiceOverride('__subject__', service) : undefined}
                       >
-                        {getServiceCheck('__subject__', service, report.clientProfile.services.some(s => s.toLowerCase() === service))
+                        {getServiceCheck('__subject__', service, displayReport.clientProfile.services.some(s => s.toLowerCase() === service))
                           ? <span className="text-emerald-500 font-bold">&#10003;</span>
                           : <span className="text-slate-200">—</span>
                         }
                       </td>
-                      {report.competitors.slice(0, 5).map((comp, i) => {
+                      {displayReport.competitors.slice(0, 5).map((comp, i) => {
                         const compKey = comp.placeId ?? comp.name;
                         return (
                           <td
@@ -1381,13 +1649,17 @@ function ReportView({
       )}
 
       <ComparisonTable
-        discoveredCompetitors={report.discoveredCompetitors}
-        researchedCompetitors={report.competitors}
+        discoveredCompetitors={displayReport.discoveredCompetitors}
+        researchedCompetitors={displayReport.competitors}
         onResearch={onResearch}
         researchingPlaceId={researchingPlaceId}
+        isEditing={serviceEditMode}
+        factOverrides={factOverrides}
+        onUpdateCompetitorFact={updateCompetitorFact}
+        disabled={savingSummaries}
       />
 
-      {report.competitors.length > 0 && (
+      {displayReport.competitors.length > 0 && (
         <div className="space-y-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Competitor Profiles</p>
@@ -1396,9 +1668,20 @@ function ReportView({
               Similarity badges: red = high (direct substitute), gold = medium, blue = low.
             </p>
           </div>
-          {report.competitors.map((competitor, index) => (
-            <CompetitorCard key={competitor.placeId ?? `${competitor.name}-${index}`} competitor={competitor} index={index} />
-          ))}
+          {displayReport.competitors.map((competitor, index) => {
+            const key = competitor.placeId ?? competitor.name;
+            return (
+              <CompetitorCard
+                key={competitor.placeId ?? `${competitor.name}-${index}`}
+                competitor={competitor}
+                index={index}
+                isEditing={serviceEditMode}
+                factOverride={factOverrides.competitors?.[key]}
+                onUpdateFact={(patch) => updateCompetitorFact(key, patch)}
+                disabled={savingSummaries}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -1445,6 +1728,9 @@ export default function CompetitorAnalysisTab({
   const [draftExecutiveSummary, setDraftExecutiveSummary] = useState('');
   const [draftMarketSummary, setDraftMarketSummary] = useState('');
   const [draftPositioningSummary, setDraftPositioningSummary] = useState('');
+  const [serviceOverrides, setServiceOverrides] = useState<Record<string, Record<string, boolean>>>({});
+  const [factOverrides, setFactOverrides] = useState<CompetitorFactOverrides>({});
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [savingSummaries, setSavingSummaries] = useState(false);
 
   const updateCompetitor = (index: number, field: keyof ManualCompetitorEntry, value: string) => {
@@ -1573,32 +1859,61 @@ export default function CompetitorAnalysisTab({
     }
   };
 
-  const handleSaveSummaries = async () => {
+  const handleUpdateAnalysisFromEdits = async () => {
     if (!report || !savedAnalysis) return;
+    setReanalyzing(true);
     setSavingSummaries(true);
+    setError(null);
     try {
-      const nextReport: CompetitorAnalysisReport = {
+      const existingReport: CompetitorAnalysisReport = {
         ...report,
-        executiveSummary: draftExecutiveSummary,
-        marketSummary: draftMarketSummary,
-        positioningSummary: draftPositioningSummary,
+        executiveSummary: draftExecutiveSummary || report.executiveSummary,
+        marketSummary: draftMarketSummary || report.marketSummary,
+        positioningSummary: draftPositioningSummary || report.positioningSummary,
       };
 
-      const updated = await updateCompetitorAnalysis(savedAnalysis.id, {
-        report: JSON.stringify(nextReport),
-        parsed: nextReport,
+      const res = await fetch('/api/competitor-analysis/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reanalyzeFromEdits: true,
+          existingReport,
+          serviceOverrides,
+          factOverrides,
+          analysisId: savedAnalysis.id,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
       });
-
-      if (updated) {
-        setReport(nextReport);
-        setSavedAnalysis(updated);
-        setIsEditingSummaries(false);
-      } else {
-        throw new Error('Failed to update competitor analysis in database.');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || (typeof data === 'string' ? data : null) || `Update analysis failed (${res.status})`);
       }
+      const nextReport = (data.report ?? data) as CompetitorAnalysisReport;
+      if (!nextReport?.executiveSummary) throw new Error('Update analysis returned an empty report');
+
+      setReport(nextReport);
+      setSavedAnalysis((current) =>
+        current
+          ? { ...current, report: JSON.stringify(nextReport), parsed: nextReport }
+          : current,
+      );
+      setSavedAnalyses((current) =>
+        current.map((analysis) =>
+          analysis.id === savedAnalysis.id
+            ? { ...analysis, report: JSON.stringify(nextReport), parsed: nextReport }
+            : analysis,
+        ),
+      );
+      setIsEditingSummaries(false);
+      setFactOverrides({});
+      setToast({ message: 'Competitor analysis updated from edits', type: 'success' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save edits.');
+      const message = err instanceof Error ? err.message : 'Failed to update analysis from edits.';
+      setError(message);
+      setToast({ message, type: 'error' });
     } finally {
+      setReanalyzing(false);
       setSavingSummaries(false);
     }
   };
@@ -1608,6 +1923,38 @@ export default function CompetitorAnalysisTab({
     setDraftExecutiveSummary(report.executiveSummary || '');
     setDraftMarketSummary(report.marketSummary || '');
     setDraftPositioningSummary(report.positioningSummary || '');
+    // Seed service overrides from current report
+    const overrides: Record<string, Record<string, boolean>> = {};
+    const serviceOrder = ['dog boarding', 'dog daycare', 'dog grooming', 'dog training', 'cat boarding'];
+    overrides['__subject__'] = {};
+    serviceOrder.forEach((service) => {
+      overrides['__subject__'][service] = report.clientProfile.services.some((s) => s.toLowerCase() === service);
+    });
+    report.competitors.slice(0, 5).forEach((comp) => {
+      const key = comp.placeId ?? comp.name;
+      overrides[key] = {};
+      serviceOrder.forEach((service) => {
+        overrides[key][service] = comp.services.some((s) => s.toLowerCase() === service);
+      });
+    });
+    setServiceOverrides(overrides);
+    setFactOverrides({
+      client: {
+        rating: report.clientProfile.rating,
+        reviewCount: report.clientProfile.reviewCount,
+      },
+      competitors: Object.fromEntries(
+        report.competitors.map((comp) => [
+          comp.placeId ?? comp.name,
+          {
+            rating: comp.rating,
+            reviewCount: comp.reviewCount,
+            similarityScore: comp.similarityScore,
+            similarityLevel: comp.similarityLevel,
+          },
+        ]),
+      ),
+    });
     setIsEditingSummaries(true);
   };
 
@@ -1961,11 +2308,13 @@ export default function CompetitorAnalysisTab({
               {!readOnly && (
                 isEditingSummaries ? (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => setIsEditingSummaries(false)} disabled={savingSummaries} className="h-8 text-xs cursor-pointer">
+                    <Button size="sm" variant="outline" onClick={() => { setIsEditingSummaries(false); setFactOverrides({}); }} disabled={reanalyzing || savingSummaries} className="h-8 text-xs cursor-pointer">
+                      <X className="w-3.5 h-3.5 mr-1" />
                       Cancel
                     </Button>
-                    <Button size="sm" onClick={handleSaveSummaries} disabled={savingSummaries} className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">
-                      {savingSummaries ? 'Saving...' : 'Save Changes'}
+                    <Button size="sm" onClick={() => void handleUpdateAnalysisFromEdits()} disabled={reanalyzing || savingSummaries} className="h-8 text-xs bg-slate-900 hover:bg-slate-800 text-white cursor-pointer">
+                      <RefreshCw className={cn('w-3.5 h-3.5 mr-1', reanalyzing && 'animate-spin')} />
+                      {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
                     </Button>
                   </>
                 ) : (
@@ -2491,16 +2840,17 @@ export default function CompetitorAnalysisTab({
           onResearch={handleResearchCompetitor}
           researchingPlaceId={researchingPlaceId}
           isEditingSummaries={isEditingSummaries}
-          setIsEditingSummaries={setIsEditingSummaries}
           draftExecutiveSummary={draftExecutiveSummary}
           setDraftExecutiveSummary={setDraftExecutiveSummary}
           draftMarketSummary={draftMarketSummary}
           setDraftMarketSummary={setDraftMarketSummary}
           draftPositioningSummary={draftPositioningSummary}
           setDraftPositioningSummary={setDraftPositioningSummary}
-          savingSummaries={savingSummaries}
-          handleSaveSummaries={handleSaveSummaries}
-          handleStartEditingSummaries={handleStartEditingSummaries}
+          savingSummaries={savingSummaries || reanalyzing}
+          serviceOverrides={serviceOverrides}
+          setServiceOverrides={setServiceOverrides}
+          factOverrides={factOverrides}
+          setFactOverrides={setFactOverrides}
           readOnly={readOnly}
         />
       )}

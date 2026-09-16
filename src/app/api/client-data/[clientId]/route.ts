@@ -42,6 +42,36 @@ export async function PUT(req: NextRequest, { params }: { params: { clientId: st
   if (!client) return new Response('Not Found', { status: 404 })
 
   const existing = (client.sectionSubmissions as Record<string, any>) ?? {}
+
+  // Software & Vendors: remember deleted names so Material Contracts sync won't re-add them,
+  // and clear tombstones when the advisor manually re-adds the same vendor.
+  if (section === 'vendorDirectory' && Array.isArray(data)) {
+    const normalize = (value: unknown) =>
+      String(value ?? '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+    const prevItems: any[] = Array.isArray(existing.vendorDirectory) ? existing.vendorDirectory : []
+    const prevKeys = new Set(
+      prevItems.map((v) => normalize(v?.name) || normalize(v?.vendor)).filter(Boolean),
+    )
+    const nextKeys = new Set(
+      data.map((v: any) => normalize(v?.name) || normalize(v?.vendor)).filter(Boolean),
+    )
+    const removed = new Set(
+      (Array.isArray(existing.vendorDirectoryRemoved) ? existing.vendorDirectoryRemoved : [])
+        .map((n: unknown) => normalize(n))
+        .filter(Boolean),
+    )
+    for (const key of Array.from(prevKeys)) {
+      if (!nextKeys.has(key)) removed.add(key)
+    }
+    for (const key of Array.from(nextKeys)) {
+      removed.delete(key)
+    }
+    existing.vendorDirectoryRemoved = Array.from(removed)
+  }
+
   existing[section] = data
 
   // Re-sync structured sections to agentFormResponses

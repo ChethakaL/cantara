@@ -1,15 +1,21 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { hasAIConfigured } from "@/lib/ai-client"
-import { buildCompetitorAnalysisReport } from '@/lib/competitor-analysis/claude-analyzer';
+import {
+  applyCompetitorServiceOverrides,
+  buildCompetitorAnalysisReport,
+  reanalyzeCompetitorAnalysisFromEdits,
+} from '@/lib/competitor-analysis/claude-analyzer';
+import { applyCompetitorFactOverrides } from '@/lib/competitor-analysis/fact-overrides';
 import { findNearbyCompetitors, lookupSpecifiedCompetitors, inferPetBusinessCategory, lookupSubjectBusiness } from '@/lib/competitor-analysis/google-places';
 import { researchWebsite } from '@/lib/competitor-analysis/website-research';
-import { CompetitorAnalysisFormData } from '@/lib/competitor-analysis/types';
+import type { CompetitorAnalysisFormData, CompetitorAnalysisReport } from '@/lib/competitor-analysis/types';
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
   resolveAnalyzeModelId,
 } from '@/lib/agent-analyze-provider';
 import { hasOpenAiConfigured } from '@/lib/openai-client';
+import { prisma } from '@/lib/prisma';
 
 export const maxDuration = 180;
 const DEFAULT_PET_CATEGORY = 'pet resort';
@@ -25,20 +31,55 @@ function isGenericPetCategory(category: string | undefined): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  let formData: CompetitorAnalysisFormData;
-  let rawProvider: unknown;
-  let requestedModelId: unknown;
+  let body: any;
   try {
-    const body = await req.json();
-    formData = body?.formData;
-    rawProvider = body?.provider;
-    requestedModelId = body?.modelId;
+    body = await req.json();
   } catch {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
+  const rawProvider = body?.provider;
+  const requestedModelId = body?.modelId;
   const provider = parseAnalyzeProvider(rawProvider);
   const modelId = resolveAnalyzeModelId(provider, requestedModelId);
+
+  // Edit-aware path: refresh narratives from advisor-edited services / competitor facts.
+  if (body?.reanalyzeFromEdits) {
+    if (!body.existingReport || typeof body.existingReport !== 'object') {
+      return NextResponse.json(
+        { error: 'reanalyzeFromEdits requires existingReport.' },
+        { status: 400 },
+      );
+    }
+    if (provider === 'openai') {
+      const gate = await assertOpenAiConfiguredForAnalyze();
+      if (gate) return gate;
+    }
+
+    let existing = body.existingReport as CompetitorAnalysisReport;
+    if (body.serviceOverrides && typeof body.serviceOverrides === 'object') {
+      existing = applyCompetitorServiceOverrides(existing, body.serviceOverrides);
+    }
+    if (body.factOverrides && typeof body.factOverrides === 'object') {
+      existing = applyCompetitorFactOverrides(existing, body.factOverrides);
+    }
+
+    const report = await reanalyzeCompetitorAnalysisFromEdits(existing, { provider, modelId });
+
+    if (body.analysisId) {
+      await prisma.competitorAnalysis.update({
+        where: { id: String(body.analysisId) },
+        data: {
+          report: JSON.stringify(report),
+          parsed: report as any,
+        },
+      });
+    }
+
+    return NextResponse.json({ report });
+  }
+
+  let formData: CompetitorAnalysisFormData = body?.formData;
 
   if (!formData?.businessName?.trim() || !formData?.businessAddress?.trim()) {
     return new Response(

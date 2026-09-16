@@ -17,7 +17,6 @@ import {
   Plus,
   RefreshCw,
   RotateCw,
-  Save,
   Trash2,
   Upload,
   X,
@@ -352,6 +351,7 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
   const [running, setRunning] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
@@ -571,29 +571,65 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
     }
   }
 
-  const saveEditedResult = async () => {
-    if (!draft || !result) return
-    const next = parseDraft(draft, result.generatedAt || new Date().toISOString())
-    setSaving(true)
+  /** Persist advisor-edited findings/benchmarks, then refresh summary + recommendations from those facts. */
+  const updateAnalysisFromEdits = async () => {
+    if (!draft || !result || readOnly) return
+    const edited = parseDraft(draft, result.generatedAt || new Date().toISOString())
+    setReanalyzing(true)
     setError(null)
     try {
-      const res = await fetch('/api/sales-review/analyze', {
+      const saveRes = await fetch('/api/sales-review/analyze', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, result: next }),
+        body: JSON.stringify({ clientId, result: edited }),
       })
-      if (!res.ok) throw new Error(await readFriendlyError(res, 'Failed to save sales process review.'))
-      const saved = await res.json()
-      setResult(saved)
+      if (!saveRes.ok) {
+        throw new Error(await readFriendlyError(saveRes, 'Failed to save sales process edits.'))
+      }
+      const saved = (await saveRes.json()) as SalesProcessReviewResult
+
+      const res = await fetch('/api/sales-review/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          reanalyzeFromEdits: true,
+          existingResult: saved,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(
+          data?.error ||
+            (typeof data === 'string' ? data : null) ||
+            (await readFriendlyError(res, 'Failed to update analysis from edits.')),
+        )
+      }
+      const nextResult = (data.result ?? data) as SalesProcessReviewResult
+      if (!nextResult?.summary) throw new Error('Update analysis returned an empty result')
+
+      setResult(nextResult)
       setDraft(null)
       setSavedBadge(true)
-      showToast('Sales process review saved', 'success')
+      showToast('Sales process analysis updated from edits', 'success')
       setTimeout(() => setSavedBadge(false), 2000)
+
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.salesProcessReview,
+        fileName: `${clientName} — Sales Process Review`,
+        report: nextResult,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns({ selectNewest: true })
     } catch (err: any) {
-      setError(err?.message ?? 'Failed to save sales process review')
-      showToast(err?.message ?? 'Failed to save sales process review', 'error')
+      setError(err?.message ?? 'Failed to update analysis from edits')
+      showToast(err?.message ?? 'Failed to update analysis from edits', 'error')
     } finally {
-      setSaving(false)
+      setReanalyzing(false)
     }
   }
 
@@ -630,35 +666,39 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={reanalyzing}
                 onClick={() => {
                   if (editMode) setDraft(null)
                   else setDraft(makeDraft(result))
                 }}
                 className={cn('h-8 text-xs cursor-pointer', editMode && 'bg-amber-50 text-amber-700 border-amber-300')}
               >
-                <Pencil className="w-3.5 h-3.5 mr-1" />
-                {editMode ? 'Cancel Edit' : 'Edit Output'}
+                {editMode ? (
+                  <>
+                    <X className="w-3.5 h-3.5 mr-1" />
+                    Cancel
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="w-3.5 h-3.5 mr-1" />
+                    Edit Output
+                  </>
+                )}
               </Button>
             )}
             {!readOnly && editMode && (
-              <div className="relative">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => void saveEditedResult()}
-                  disabled={saving}
-                  className="h-8 text-xs cursor-pointer bg-amber-600 hover:bg-amber-700 text-white"
-                >
-                  <Save className="w-3.5 h-3.5 mr-1" />
-                  {saving ? 'Saving...' : 'Save'}
-                </Button>
-                {savedBadge && (
-                  <span className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                    Saved
-                  </span>
-                )}
-              </div>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void updateAnalysisFromEdits()}
+                disabled={reanalyzing}
+                className="h-8 text-xs cursor-pointer bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5 mr-1', reanalyzing && 'animate-spin')} />
+                {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+              </Button>
             )}
+            {savedBadge && <span className="text-xs font-semibold text-emerald-600 animate-pulse">Updated</span>}
             <ExportReportButton
               html={buildSalesReviewReportHtml(result, clientName)}
               fileName={`sales-process-review-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
@@ -668,7 +708,7 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
               type="button"
               variant="outline"
               size="sm"
-              disabled={running}
+              disabled={running || reanalyzing}
               onClick={() => void runAnalysis()}
               className="h-8 text-xs cursor-pointer"
             >
@@ -705,7 +745,7 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
           <AgentRunToolbar
             provider={provider}
             onProviderChange={setProvider}
-            disabled={running || uploading || saving}
+            disabled={running || uploading || saving || reanalyzing}
             historyItems={historyItems}
             activeId={activeId}
             onSelectRun={selectRun}
@@ -889,33 +929,39 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
         {/* Edit Form */}
         {result && editMode && draft && (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
               <h4 className="text-sm font-semibold text-slate-800">Edit Sales Process Review</h4>
-              <p className="text-xs text-slate-400">Modify the AI analysis output directly</p>
+              <p className="text-xs text-slate-400 text-right">
+                Edit findings and benchmarks, then click <span className="font-semibold text-slate-600">Update analysis from edits</span> to refresh summary and recommendations.
+              </p>
             </div>
-            <Textarea
-              label="Summary"
-              rows={6}
-              value={draft.summary}
-              onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
-            />
             <Textarea
               label="Key Findings (one per line)"
               rows={7}
               value={draft.keyFindings}
               onChange={(event) => setDraft({ ...draft, keyFindings: event.target.value })}
+              disabled={reanalyzing}
             />
             <Textarea
               label="Benchmark Comparisons (metric | actual | benchmark | status)"
               rows={6}
               value={draft.benchmarkComparisons}
               onChange={(event) => setDraft({ ...draft, benchmarkComparisons: event.target.value })}
+              disabled={reanalyzing}
             />
             <Textarea
-              label="Recommendations (one per line)"
+              label="Summary (refreshed by AI from your findings/benchmarks)"
+              rows={6}
+              value={draft.summary}
+              onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
+              disabled={reanalyzing}
+            />
+            <Textarea
+              label="Recommendations (refreshed by AI from your findings/benchmarks)"
               rows={7}
               value={draft.recommendations}
               onChange={(event) => setDraft({ ...draft, recommendations: event.target.value })}
+              disabled={reanalyzing}
             />
           </div>
         )}

@@ -123,3 +123,83 @@ export async function analyzeSalesProcessTranscript(args: {
   const parsed = parseJsonFromClaude(text)
   return normalizeSalesProcessResult(parsed)
 }
+
+/** Refresh summary + recommendations from advisor-edited findings/benchmarks (no transcript re-read). */
+export async function reanalyzeSalesProcessFromEdits(
+  existingResult: SalesProcessReviewResult,
+  options?: { businessName?: string; provider?: AgentAiProvider; modelId?: string },
+): Promise<SalesProcessReviewResult> {
+  const provider = options?.provider ?? 'bedrock'
+  const authoritative = {
+    businessName: options?.businessName || 'Client',
+    keyFindings: existingResult.keyFindings,
+    benchmarkComparisons: existingResult.benchmarkComparisons,
+  }
+
+  const prompt = `You are an expert sales operations consultant for pet resorts / boarding / daycare businesses.
+
+An advisor manually corrected key findings and/or benchmark comparisons on an existing Sales Process Review.
+REWRITE only the executive summary and recommendations to match those edited facts. Do NOT invent new metrics.
+
+## CRITICAL
+- keyFindings and benchmarkComparisons below are GROUND TRUTH — do not change, drop, or contradict them.
+- If a benchmark status is "below", recommendations must address that gap.
+- If findings describe strong process discipline, do not invent weakness that isn't supported.
+- summary: 2-4 short paragraphs in plain language reflecting the edited findings/benchmarks.
+- recommendations: 5-10 specific, actionable items grounded in the edited data.
+
+## AUTHORITATIVE ADVISOR-EDITED DATA
+${JSON.stringify(authoritative, null, 2)}
+
+Return ONLY valid JSON:
+{
+  "summary": "<string>",
+  "recommendations": ["<string>", ...]
+}`
+
+  let text: string
+  if (provider === 'openai') {
+    text = await createAgentMessage({
+      provider,
+      model: options?.modelId,
+      system: '',
+      content: prompt,
+      maxTokens: 4096,
+      temperature: 0,
+    })
+  } else {
+    const client = await requireAIClient()
+    const result = await client.messages.create({
+      model: resolveModel('claude-sonnet-4-20250514'),
+      max_tokens: 4096,
+      temperature: 0,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    })
+    text = result.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+  }
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = parseJsonFromClaude(text) as Record<string, unknown>
+  } catch (err) {
+    console.error('[Sales Process Review] Reanalyze parse failed:', text.slice(0, 500))
+    throw err instanceof Error ? err : new Error('Sales process reanalyze returned unparseable JSON. Please retry.')
+  }
+
+  return normalizeSalesProcessResult({
+    ...existingResult,
+    summary:
+      typeof parsed.summary === 'string' && parsed.summary.trim()
+        ? parsed.summary
+        : existingResult.summary,
+    recommendations: Array.isArray(parsed.recommendations)
+      ? parsed.recommendations
+      : existingResult.recommendations,
+    keyFindings: existingResult.keyFindings,
+    benchmarkComparisons: existingResult.benchmarkComparisons,
+    generatedAt: new Date().toISOString(),
+  })
+}

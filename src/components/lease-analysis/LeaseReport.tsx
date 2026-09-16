@@ -1,7 +1,7 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { FileText, AlertTriangle, Folder, Pencil, Save, X } from 'lucide-react'
-import { Card, Badge, Button } from '@/components/ui'
+import { FileText, AlertTriangle, Folder, Pencil, RefreshCw, X } from 'lucide-react'
+import { Card, Badge, Button, cn } from '@/components/ui'
 import { LeaseReport as ILeaseReport } from '../../lib/lease-analysis/types'
 import { SnapshotTable } from './report-sections/SnapshotTable'
 import { DetailedFindings } from './report-sections/DetailedFindings'
@@ -19,6 +19,7 @@ interface Props {
   onNewAnalysis: () => void
   onDelete?: () => void
   onReportUpdated?: (report: ILeaseReport) => Promise<void>
+  onUpdateAnalysisFromEdits?: (report: ILeaseReport) => Promise<void>
   adminMode?: boolean
   hideNewAnalysis?: boolean
 }
@@ -37,13 +38,14 @@ export function LeaseReport({
   onNewAnalysis,
   onDelete,
   onReportUpdated,
+  onUpdateAnalysisFromEdits,
   adminMode = false,
   hideNewAnalysis = false,
 }: Props) {
   const [activeTab, setActiveTab] = useState('summary')
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<ILeaseReport | null>(null)
-  const [savingEdits, setSavingEdits] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const visibleReport = editMode && draftReport ? draftReport : report
   const summaryHtml = useMemo(() => buildLeaseSummaryHtml(visibleReport, clientName), [visibleReport, clientName])
   const buyerHtml = useMemo(() => buildLeaseBuyerReportHtml(visibleReport, clientName), [visibleReport, clientName])
@@ -64,7 +66,7 @@ export function LeaseReport({
     }
   }
 
-  const canEdit = adminMode && Boolean(onReportUpdated)
+  const canEdit = adminMode && Boolean(onReportUpdated || onUpdateAnalysisFromEdits)
 
   const startEdit = () => {
     setActiveTab('flags')
@@ -73,31 +75,38 @@ export function LeaseReport({
   }
 
   const cancelEdit = () => {
+    if (reanalyzing) return
     setDraftReport(null)
     setEditMode(false)
   }
 
-  const saveEdits = async () => {
-    if (!draftReport || !onReportUpdated) return
-    setSavingEdits(true)
+  const updateAnalysisFromEdits = async () => {
+    if (!draftReport) return
+    const handler = onUpdateAnalysisFromEdits || onReportUpdated
+    if (!handler) return
+    setReanalyzing(true)
     try {
-      await onReportUpdated(draftReport)
+      await handler(draftReport)
       setDraftReport(null)
       setEditMode(false)
     } finally {
-      setSavingEdits(false)
+      setReanalyzing(false)
     }
   }
 
   return (
     <Card className="overflow-hidden border-slate-200/60 shadow-sm">
-      {/* Report header */}
       <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap bg-slate-50/30">
         <div>
           <h4 className="font-semibold text-slate-800">Lease Analysis Report</h4>
           <p className="text-xs text-slate-400 mt-0.5">
             {fileName} · Generated {new Date(report.generatedAt).toLocaleString()}
           </p>
+          {editMode && (
+            <p className="text-xs text-slate-500 mt-2">
+              Edit flags, then click <span className="font-semibold text-slate-700">Update analysis from edits</span> to refresh the transaction checklist.
+            </p>
+          )}
         </div>
         
         <div className="flex items-center gap-3 flex-wrap justify-end">
@@ -110,13 +119,13 @@ export function LeaseReport({
           {canEdit && (
             editMode ? (
               <>
-                <Button size="sm" variant="outline" onClick={cancelEdit} disabled={savingEdits}>
+                <Button size="sm" variant="outline" onClick={cancelEdit} disabled={reanalyzing}>
                   <X className="w-3.5 h-3.5" />
                   Cancel
                 </Button>
-                <Button size="sm" onClick={saveEdits} disabled={savingEdits}>
-                  <Save className="w-3.5 h-3.5" />
-                  {savingEdits ? 'Saving...' : 'Save Output'}
+                <Button size="sm" onClick={() => void updateAnalysisFromEdits()} disabled={reanalyzing} className="bg-slate-900 text-white hover:bg-slate-800">
+                  <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
+                  {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
                 </Button>
               </>
             ) : (
@@ -154,7 +163,6 @@ export function LeaseReport({
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-slate-100 overflow-x-auto bg-white">
         {REPORT_TABS.map(tab => {
           const Icon = tab.icon
@@ -179,7 +187,6 @@ export function LeaseReport({
         })}
       </div>
 
-      {/* Section content */}
       <div className="p-6 min-h-[400px]">
         {activeTab === 'summary' && <SnapshotTable rows={visibleReport.snapshotTable} />}
         {activeTab === 'findings' && <DetailedFindings findings={visibleReport.detailedFindings} raw={visibleReport.raw} rentSchedule={visibleReport.rentSchedule} />}

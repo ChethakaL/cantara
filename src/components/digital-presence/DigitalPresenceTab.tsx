@@ -459,6 +459,51 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     handleNewAnalysis();
   }
 
+  async function handleReanalyzeFromEdits(editedReport: DigitalPresenceReport) {
+    setError(null);
+    try {
+      const res = await fetch('/api/digital-presence/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reanalyzeFromEdits: true,
+          existingReport: editedReport,
+          provider: DIGITAL_PRESENCE_PROVIDER,
+          modelId: resolveAgentModelId(DIGITAL_PRESENCE_PROVIDER),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Update analysis failed (${res.status})`);
+      }
+      const nextReport = data.report as DigitalPresenceReport;
+      if (!nextReport?.channels) throw new Error('Update analysis returned an empty report');
+
+      setReport(nextReport);
+      setManualOverrides([]);
+      setStatus('complete');
+      await persistReport(nextReport, {
+        aiProvider: DIGITAL_PRESENCE_PROVIDER,
+        aiModel: resolveAgentModelId(DIGITAL_PRESENCE_PROVIDER),
+      });
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.digitalPresence,
+        fileName: `${nextReport.businessName} — Digital Presence`,
+        report: nextReport,
+        aiProvider: DIGITAL_PRESENCE_PROVIDER,
+        aiModel: resolveAgentModelId(DIGITAL_PRESENCE_PROVIDER),
+      });
+      await reloadRuns({ selectNewest: true });
+      showToast('Analysis updated from your edits', 'success');
+    } catch (err: any) {
+      const message = err?.message || 'Failed to update analysis from edits';
+      setError(message);
+      showToast(message, 'error');
+      throw err;
+    }
+  }
+
   async function handleDeleteReport() {
     setIsDeleting(true);
     try {
@@ -725,6 +770,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
           report={report}
           onReset={handleReset}
           onRerun={handleRerun}
+          onReanalyzeFromEdits={handleReanalyzeFromEdits}
           onEdit={handleEdit}
           onSaveEdits={handleSaveReportEdits}
           readOnly={readOnly}

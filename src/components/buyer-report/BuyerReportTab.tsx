@@ -50,6 +50,7 @@ interface AgentSourceItem {
   required: boolean
   ready: boolean
   note: string
+  changed?: boolean
 }
 
 interface Props {
@@ -243,7 +244,11 @@ function AgentSourceRow({
     <div
       className={cn(
         'rounded-xl border p-4 transition-all shadow-2xs',
-        source.ready ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200/80 bg-white',
+        source.changed
+          ? 'border-amber-300 bg-amber-50/50'
+          : source.ready
+            ? 'border-emerald-200 bg-emerald-50/40'
+            : 'border-slate-200/80 bg-white',
       )}
     >
       <div className="flex items-start justify-between gap-4">
@@ -252,10 +257,14 @@ function AgentSourceRow({
             <div
               className={cn(
                 'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
-                source.ready ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400',
+                source.changed
+                  ? 'bg-amber-100 text-amber-700'
+                  : source.ready
+                    ? 'bg-emerald-50 text-emerald-600'
+                    : 'bg-slate-100 text-slate-400',
               )}
             >
-              <FileText className="w-4.5 h-4.5" />
+              {source.changed ? <AlertTriangle className="w-4.5 h-4.5" /> : <FileText className="w-4.5 h-4.5" />}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
@@ -269,7 +278,11 @@ function AgentSourceRow({
                     Optional
                   </span>
                 )}
-                {source.ready ? (
+                {source.changed ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300">
+                    <AlertTriangle className="w-3 h-3" /> Edited — regenerate
+                  </span>
+                ) : source.ready ? (
                   <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
                     <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Ready
                   </span>
@@ -283,7 +296,9 @@ function AgentSourceRow({
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">{source.note}</p>
 
               <p className="text-[11px] text-slate-400 mt-1.5">
-                {source.ready
+                {source.changed
+                  ? 'This source was edited after the buyer report was generated. Regenerate to pull in the latest output.'
+                  : source.ready
                   ? 'Output generated and ready to be compiled into the buyer report.'
                   : source.required
                   ? 'Not generated yet (required — must be submitted in the roadmap agent before generating).'
@@ -324,6 +339,7 @@ export default function BuyerReportTab({
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [roadmapReady, setRoadmapReady] = useState(false)
+  const [sourcesChanged, setSourcesChanged] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
@@ -396,6 +412,7 @@ export default function BuyerReportTab({
       }
       setRoadmapReady(Boolean(data.roadmapReady))
       setSources(data.sources || [])
+      setSourcesChanged(Boolean(data.sourcesChanged))
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load buyer report.')
     } finally {
@@ -450,6 +467,7 @@ export default function BuyerReportTab({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to generate buyer report.')
       setReport(data.report)
+      setSourcesChanged(false)
       await saveAgentAnalysisRunClient({
         clientId,
         agentKey: AGENT_RUN_KEYS.buyerReport,
@@ -462,6 +480,7 @@ export default function BuyerReportTab({
       })
       setComposingNew(false)
       await reloadRuns({ selectNewest: true })
+      await loadFromApi()
       showToast('Buyer report generated successfully', 'success')
     } catch (err: any) {
       setError(err?.message ?? 'Failed to generate buyer report.')
@@ -499,6 +518,10 @@ export default function BuyerReportTab({
   const optionalSources = useMemo(() => sources.filter((s) => !s.required), [sources])
   const optionalReadyCount = useMemo(() => optionalSources.filter((s) => s.ready).length, [optionalSources])
   const totalReadyCount = useMemo(() => sources.filter((s) => s.ready).length, [sources])
+  const changedSourceNames = useMemo(
+    () => sources.filter((s) => s.changed).map((s) => s.name),
+    [sources],
+  )
 
   if (loading || loadingRuns) {
     return (
@@ -539,10 +562,13 @@ export default function BuyerReportTab({
               size="sm"
               disabled={generating || !roadmapReady}
               onClick={generate}
-              className="h-8 text-xs cursor-pointer"
+              className={cn(
+                'h-8 text-xs cursor-pointer',
+                sourcesChanged && 'border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100',
+              )}
             >
               <RefreshCw className={cn('w-3.5 h-3.5 mr-1', generating && 'animate-spin')} />
-              Regenerate
+              {sourcesChanged ? 'Regenerate (sources edited)' : 'Regenerate'}
             </Button>
             {!readOnly && (
               <Button
@@ -569,6 +595,38 @@ export default function BuyerReportTab({
             )}
           </AdvisorActions>
         </div>
+
+        {sourcesChanged && !readOnly && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-amber-950">Source agents were edited</p>
+                <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                  One or more source outputs changed after this buyer report was generated
+                  {changedSourceNames.length > 0 ? (
+                    <>
+                      {' '}
+                      (<span className="font-medium">{changedSourceNames.slice(0, 4).join(', ')}</span>
+                      {changedSourceNames.length > 4 ? ` +${changedSourceNames.length - 4} more` : ''})
+                    </>
+                  ) : null}
+                  . Regenerate to include the latest edits.
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={generating || !roadmapReady}
+              onClick={generate}
+              className="h-8 text-xs shrink-0 bg-amber-700 hover:bg-amber-800 text-white"
+            >
+              <RefreshCw className={cn('w-3.5 h-3.5 mr-1', generating && 'animate-spin')} />
+              Regenerate buyer report
+            </Button>
+          </div>
+        )}
 
         {!readOnly && (
           <AgentRunToolbar
@@ -631,13 +689,23 @@ export default function BuyerReportTab({
                     key={src.key}
                     className={cn(
                       'flex items-center justify-between p-2.5 rounded-lg border text-xs',
-                      src.ready ? 'bg-white border-emerald-200' : 'bg-slate-100/70 border-slate-200',
+                      src.changed
+                        ? 'bg-amber-50 border-amber-300'
+                        : src.ready
+                          ? 'bg-white border-emerald-200'
+                          : 'bg-slate-100/70 border-slate-200',
                     )}
                   >
                     <div className="min-w-0 flex-1 pr-2">
                       <p className="font-medium text-slate-800 truncate">{src.name}</p>
-                      <p className="text-[10px] text-slate-500">
-                        {src.ready ? 'Synthesized' : src.required ? 'Required missing' : 'Not generated'}
+                      <p className={cn('text-[10px]', src.changed ? 'text-amber-800 font-medium' : 'text-slate-500')}>
+                        {src.changed
+                          ? 'Edited — regenerate'
+                          : src.ready
+                            ? 'Synthesized'
+                            : src.required
+                              ? 'Required missing'
+                              : 'Not generated'}
                       </p>
                     </div>
                     <button
@@ -729,6 +797,38 @@ export default function BuyerReportTab({
           activeModel={composingNew ? null : activeRun?.aiModel}
           activeVersion={composingNew ? null : activeRun?.version}
         />
+      )}
+
+      {sourcesChanged && !readOnly && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-950">Source agents were edited</p>
+              <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                One or more source outputs changed after this buyer report was generated
+                {changedSourceNames.length > 0 ? (
+                  <>
+                    {' '}
+                    (<span className="font-medium">{changedSourceNames.slice(0, 4).join(', ')}</span>
+                    {changedSourceNames.length > 4 ? ` +${changedSourceNames.length - 4} more` : ''})
+                  </>
+                ) : null}
+                . Regenerate to include the latest edits.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            disabled={generating || !roadmapReady}
+            onClick={generate}
+            className="h-8 text-xs shrink-0 bg-amber-700 hover:bg-amber-800 text-white"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5 mr-1', generating && 'animate-spin')} />
+            Regenerate buyer report
+          </Button>
+        </div>
       )}
 
       {/* Main Setup Workspace Card */}

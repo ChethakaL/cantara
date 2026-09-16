@@ -1,10 +1,14 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { CONTRACT_ANALYSIS_SYSTEM_PROMPT } from "@/lib/contract-analysis/prompt";
+import { reanalyzeContractReportFromEdits } from "@/lib/contract-analysis/reanalyze";
+import { syncContractVendorsToDirectory } from "@/lib/contract-analysis/merge-vendors";
+import type { ContractReport } from "@/lib/contract-analysis/types";
 import { requireAIClient, resolveModel } from "@/lib/ai-client";
 import { parseAgentAiProvider } from "@/lib/agent-model-provider";
 import { resolveAgentModelId } from "@/lib/agent-model-provider.server";
 import { completeText } from "@/lib/llm-completion";
 import { hasOpenAiConfigured } from "@/lib/openai-client";
+import { prisma } from "@/lib/prisma";
 import { createRequire } from "module";
 
 export const maxDuration = 300;
@@ -30,9 +34,60 @@ async function extractPdfText(base64: string) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { documents, provider: rawProvider, modelId: requestedModelId } = body;
+    const {
+      documents,
+      provider: rawProvider,
+      modelId: requestedModelId,
+      reanalyzeFromEdits,
+      existingReport,
+      clientId,
+      analysisId,
+      businessName,
+    } = body;
     const provider = parseAgentAiProvider(rawProvider);
     const modelId = String(requestedModelId || resolveAgentModelId(provider));
+
+    // Edit-aware path: refresh checklist / recommended actions from edited findings (no PDF re-read).
+    if (reanalyzeFromEdits) {
+      if (!existingReport || typeof existingReport !== "object") {
+        return NextResponse.json(
+          { error: "reanalyzeFromEdits requires existingReport." },
+          { status: 400 },
+        );
+      }
+      if (provider === "openai" && !(await hasOpenAiConfigured())) {
+        return NextResponse.json(
+          { error: "OpenAI API key is not configured. Add it in Admin Settings." },
+          { status: 400 },
+        );
+      }
+
+      const result = await reanalyzeContractReportFromEdits(existingReport as ContractReport, {
+        businessName: businessName || "Client",
+        provider,
+        modelId,
+      });
+
+      if (analysisId) {
+        await prisma.contractAnalysis.update({
+          where: { id: String(analysisId) },
+          data: {
+            report: result.raw,
+            parsed: result as any,
+          },
+        });
+      }
+
+      if (clientId && result.contractRiskCards?.length) {
+        try {
+          await syncContractVendorsToDirectory(String(clientId), result);
+        } catch (e) {
+          console.error("Failed to sync vendor directory after contract reanalyze:", e);
+        }
+      }
+
+      return NextResponse.json({ report: result });
+    }
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
       return new Response("No documents provided", { status: 400 });

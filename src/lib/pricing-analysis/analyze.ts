@@ -179,6 +179,8 @@ For each service found (Boarding, Daycare Full Day, Daycare Half Day, Grooming b
 - Provide 3-5 actionable recommendations with specific price change suggestions where evidence supports it
 - If seller pricing evidence is present in sellerPricingResearch.priceEvidence or pricePoints, do not say seller pricing is unavailable
 - If admin-provided manualPricingText exists for the seller or a competitor, treat it as high-priority pricing evidence. Parse services, prices, and durations from that text.
+- NEVER concatenate a price range into one number (wrong: "$22 to $32" → 2232 or "$48-$55" → 4855). For ranges, set listedPrice as "$22–$32" and normalizedNumeric to the midpoint (e.g. 27).
+- NEVER glue a package total with its day count (wrong: "$390 / 10 days" → 39010). listedPrice stays "$390/10-day"; normalizedNumeric = total/days.
 
 Return ONLY valid JSON matching this exact structure (no markdown, no code fences):
 {
@@ -257,4 +259,99 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
     normalized,
     args.sellerPricingResearch?.manualPricingText,
   )
+}
+
+/** Re-score narrative/summary from advisor-edited matrix + manual evidence (no website re-scrape). */
+export async function reanalyzePricingFromEdits(
+  existingReport: PricingAnalysisReport,
+  options?: {
+    sellerManualPricingText?: string | null
+    competitorManualEvidence?: Array<{ name: string; manualPricingText?: string | null }>
+  },
+): Promise<PricingAnalysisReport> {
+  const systemPrompt = `You are the Competitive Pricing Analysis Agent for Cantara (pet business M&A).
+
+The user message includes:
+1) AUTHORITATIVE advisor-edited priceMatrix (table cells)
+2) OPTIONAL manualPricingEvidence text the advisor pasted/edited (seller + per competitor)
+
+Rules:
+- If manualPricingEvidence is present for a seller/competitor, treat that text as HIGH-PRIORITY ground truth and UPDATE the matching priceMatrix cells to match it (parse services and prices from the text).
+- Otherwise treat priceMatrix listed prices as ground truth.
+- Fix any glued range bugs (e.g. 2232 must become midpoint of 22–32; 39010 is a $390 10-day package not $39010).
+- For explicit ranges like "$48 - $11" or "$48–$55": listedPrice keeps the range string; normalizedNumeric = midpoint. NEVER concatenate into 4811 / 4855.
+- Recompute sellerNormalized / normalized / *Numeric, pricingSummary, flags, executiveSummary, recommendations, totalEstimatedUplift.
+- generatedAt = new ISO timestamp.
+
+Return ONLY valid JSON with EXACTLY these top-level keys (no markdown):
+{
+  "generatedAt": "<ISO>",
+  "businessName": "<string>",
+  "radiusMiles": <number>,
+  "sellerWebsiteUrl": "<string|null>",
+  "competitors": [{"name":"<name>","websiteUrl":"<url>"}],
+  "competitorsAnalyzed": <number>,
+  "priceMatrix": [ ... same shape, updated from evidence/edits ... ],
+  "pricingSummary": [ ... ],
+  "flags": [ ... ],
+  "executiveSummary": "<string>",
+  "totalEstimatedUplift": "<string>",
+  "recommendations": ["<string>", ...]
+}
+
+Normalization rules:
+- Full day -> as-is; Half day -> x2; Hourly -> x8; Package N-day -> total/N
+- NEVER concatenate range endpoints into one number; use midpoint for normalizedNumeric
+- NEVER glue package total with day count into one number`
+
+  const rawText = await createAgentMessage({
+    system: systemPrompt,
+    content: `AUTHORITATIVE ADVISOR-EDITED REPORT:\n${JSON.stringify({
+      businessName: existingReport.businessName,
+      radiusMiles: existingReport.radiusMiles,
+      sellerWebsiteUrl: existingReport.sellerWebsiteUrl,
+      competitors: existingReport.competitors,
+      competitorsAnalyzed: existingReport.competitorsAnalyzed,
+      priceMatrix: existingReport.priceMatrix,
+      pricingSummary: existingReport.pricingSummary,
+      flags: existingReport.flags,
+      executiveSummary: existingReport.executiveSummary,
+      totalEstimatedUplift: existingReport.totalEstimatedUplift,
+      recommendations: existingReport.recommendations,
+    }, null, 2)}\n\nMANUAL PRICING EVIDENCE (high priority when present):\n${JSON.stringify({
+      sellerManualPricingText: options?.sellerManualPricingText ?? '',
+      competitors: (options?.competitorManualEvidence ?? []).map((c) => ({
+        name: c.name,
+        manualPricingText: c.manualPricingText ?? '',
+      })),
+    }, null, 2)}\n\nReturn the refreshed pricing analysis JSON.`,
+    maxTokens: 9000,
+    temperature: 0,
+  })
+
+  const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
+  let parsed: unknown
+  try {
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    parsed = JSON.parse(start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned)
+  } catch {
+    throw new Error('AI returned unparseable pricing JSON on reanalyze. Please retry.')
+  }
+
+  const normalized = normalizePricingReport(parsed)
+  if (!normalized) {
+    throw new Error('AI returned an invalid pricing report on reanalyze. Please retry.')
+  }
+
+  // Keep competitor roster from edits if AI drops them; prefer AI-fixed matrix.
+  return {
+    ...normalized,
+    competitors: normalized.competitors?.length ? normalized.competitors : existingReport.competitors,
+    competitorsAnalyzed: normalized.competitorsAnalyzed || existingReport.competitorsAnalyzed,
+    radiusMiles: normalized.radiusMiles || existingReport.radiusMiles,
+    sellerWebsiteUrl: normalized.sellerWebsiteUrl ?? existingReport.sellerWebsiteUrl,
+    businessName: normalized.businessName || existingReport.businessName,
+    generatedAt: new Date().toISOString(),
+  }
 }

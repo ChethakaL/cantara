@@ -9,6 +9,11 @@ import {
 import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 import { gatherCompletedAgentOutputs, listRoadmapAgentSources } from '@/lib/completed-agent-outputs'
 import {
+  applySourceChangeFlags,
+  collectRoadmapSourceFingerprints,
+  hasChangedSources,
+} from '@/lib/source-freshness'
+import {
   CHECKLIST_SUBMISSION_KEY,
   ROADMAP_SUBMISSION_KEY,
   createChecklistItem,
@@ -18,7 +23,7 @@ import {
   type SaleReadinessChecklistItem,
   type SaleReadinessRoadmapStage,
 } from '@/lib/sale-readiness-checklist'
-import { getClientWorkstreamAgents } from '@/lib/workstream-agents'
+import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -35,6 +40,7 @@ type RoadmapReport = {
   stage: SaleReadinessRoadmapStage
   checklist?: SaleReadinessChecklistItem[]
   sourceAgents?: string[]
+  sourceFingerprints?: Record<string, string>
 }
 
 function inferStage(report: Record<string, any> | null): SaleReadinessRoadmapStage {
@@ -56,6 +62,9 @@ function withChecklist(report: Record<string, any> | null, checklistItems: SaleR
     stage,
     checklist: checklistItems ?? (Array.isArray(report?.checklist) ? report.checklist : []),
     sourceAgents: sourceAgents ?? (Array.isArray(report?.sourceAgents) ? report.sourceAgents : []),
+    sourceFingerprints: report?.sourceFingerprints && typeof report.sourceFingerprints === 'object'
+      ? report.sourceFingerprints
+      : undefined,
   }
 }
 
@@ -93,14 +102,28 @@ export async function GET(req: NextRequest) {
     propertyOwnership: propertyOwnership(submissions),
     sectionSubmissions: submissions,
   })
-  const sources = await listRoadmapAgentSources(clientId, assignedAgents)
+  const sourcesRaw = await listRoadmapAgentSources(clientId, assignedAgents)
+  const fingerprints = await collectRoadmapSourceFingerprints(
+    clientId,
+    sourcesRaw.map((s) => s.key),
+    submissions,
+  )
+  const report = withChecklist(stored, checklistItems)
+  const sources = applySourceChangeFlags(
+    sourcesRaw,
+    fingerprints,
+    report?.sourceFingerprints,
+    report?.updatedAt ?? report?.generatedAt,
+  )
   const readyCount = sources.filter(source => source.ready).length
+  const sourcesChanged = Boolean(report?.stage === 'checklist' || report?.stage === 'report') && hasChangedSources(sources)
 
   return NextResponse.json({
-    report: withChecklist(stored, checklistItems),
+    report,
     sources,
     readyCount,
     canGenerateChecklist: readyCount >= 1,
+    sourcesChanged,
     workstream: client.workstream ?? null,
   })
 }
@@ -137,6 +160,11 @@ export async function POST(req: NextRequest) {
 
   const clientName = client.businessName
   const sourceAgents = agentData.map(agent => agent.agentName)
+  const sourceFingerprints = await collectRoadmapSourceFingerprints(
+    clientId,
+    agentData.map((a) => a.agentId),
+    submissions,
+  )
   const existingReport = readRoadmapSubmission(submissions)
   const existingChecklist = readChecklistSubmission(submissions)
   const submittedItems = Array.isArray(body.checklist)
@@ -164,6 +192,7 @@ export async function POST(req: NextRequest) {
       stage: 'checklist',
       checklist: checklistItems,
       sourceAgents,
+      sourceFingerprints,
     }, checklistItems)
     return NextResponse.json({ report })
   }
@@ -191,6 +220,7 @@ export async function POST(req: NextRequest) {
     stage: 'report',
     checklist: existingItems,
     sourceAgents,
+    sourceFingerprints,
   }, existingItems)
   return NextResponse.json({ report })
 }

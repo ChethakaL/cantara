@@ -137,6 +137,51 @@ export default function ContractAnalysisTab({
     )))
   }, [activeAnalysis])
 
+  const handleUpdateAnalysisFromEdits = useCallback(async (draftReport: ContractReportData) => {
+    if (!activeAnalysis?.id) return
+
+    // Persist advisor edits first (also triggers vendor sync on PATCH).
+    await updateContractAnalysis(activeAnalysis.id, {
+      report: draftReport.raw,
+      parsed: draftReport,
+    })
+
+    const res = await fetch('/api/contract-analysis/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reanalyzeFromEdits: true,
+        existingReport: draftReport,
+        clientId,
+        analysisId: activeAnalysis.id,
+        businessName: clientName,
+        provider,
+        modelId: lastModelId ?? undefined,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(data?.error || 'Failed to update analysis from edits')
+    }
+    const nextReport = (data.report ?? data) as ContractReportData
+    if (!nextReport?.detailedFindings) {
+      throw new Error('Update analysis returned an empty report')
+    }
+
+    setActiveAnalysis((current) =>
+      current
+        ? { ...current, report: nextReport.raw, parsed: nextReport }
+        : current,
+    )
+    setAnalyses((current) =>
+      current.map((analysis) =>
+        analysis.id === activeAnalysis.id
+          ? { ...analysis, report: nextReport.raw, parsed: nextReport }
+          : analysis,
+      ),
+    )
+  }, [activeAnalysis, clientId, clientName, provider, lastModelId])
+
   useEffect(() => {
     loadAnalyses().then((data) => {
       if (data.length > 0) setActiveAnalysis(current => current ?? data[0])
@@ -164,11 +209,11 @@ export default function ContractAnalysisTab({
     }
   }, [status, streamedReport, clientId, rawMarkdown, uploads, loadAnalyses, clearAll, provider, lastModelId])
 
+  // Prefer structured `parsed` (preserves advisor edits) over re-parsing stale raw markdown.
   const displayReport = (status === 'streaming' || status === 'complete') && streamedReport
     ? streamedReport
-    : activeAnalysis?.report
-      ? parseReport(activeAnalysis.report)
-      : activeAnalysis?.parsed
+    : (activeAnalysis?.parsed as ContractReportData | undefined)
+      ?? (activeAnalysis?.report ? parseReport(activeAnalysis.report) : undefined)
 
   const displayFileName = status === 'streaming' || status === 'complete'
     ? uploads.map((doc) => doc.name).join(', ')
@@ -326,6 +371,7 @@ export default function ContractAnalysisTab({
             onDelete={!readOnly && activeAnalysis ? () => setDeleteOpen(true) : undefined}
             adminMode={!readOnly}
             onReportUpdated={!readOnly ? handleReportUpdated : undefined}
+            onUpdateAnalysisFromEdits={!readOnly ? handleUpdateAnalysisFromEdits : undefined}
             hideNewAnalysis
           />
         )}

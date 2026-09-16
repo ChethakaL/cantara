@@ -677,6 +677,8 @@ export function TtmAnalysisTab({
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null)
   const [loadingAnalyses, setLoadingAnalyses] = useState(true)
   const [running, setRunning] = useState(false)
+  const [runPhase, setRunPhase] = useState<string | null>(null)
+  const [runSourceKind, setRunSourceKind] = useState<'excel' | 'pdf' | 'mixed' | null>(null)
   const [composingNew, setComposingNew] = useState(false)
   const [uploadedDocsMap, setUploadedDocsMap] = useState<Record<string, ClientUploadedDoc[]>>({})
   const [loadingDocs, setLoadingDocs] = useState(false)
@@ -764,8 +766,8 @@ export function TtmAnalysisTab({
 
   const readyToRun = coreWorkbooksReady && requiredReadiness.every((item) => item.uploaded || item.notAvailable)
 
-  const loadAnalyses = useCallback(async () => {
-    setLoadingAnalyses(true)
+  const loadAnalyses = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoadingAnalyses(true)
     try {
       const res = await fetch(`/api/ttm-agent/reports?clientId=${clientId}`)
       await logWs2Response('WS2-1 load analyses', res)
@@ -775,7 +777,7 @@ export function TtmAnalysisTab({
       setActiveAnalysisId((current) => current ?? data[0]?.id ?? null)
       return data
     } finally {
-      setLoadingAnalyses(false)
+      if (!opts?.silent) setLoadingAnalyses(false)
     }
   }, [clientId])
 
@@ -789,7 +791,7 @@ export function TtmAnalysisTab({
   useEffect(() => {
     if (!running && !baselineBuildState.running) return
     const interval = setInterval(() => {
-      loadAnalyses().catch(() => {})
+      loadAnalyses({ silent: true }).catch(() => {})
     }, 5000)
     return () => clearInterval(interval)
   }, [baselineBuildState.running, loadAnalyses, running])
@@ -809,6 +811,9 @@ export function TtmAnalysisTab({
     setRunning(true)
     setError(null)
     setWizardStep(1)
+    setRunPhase('Preparing valuation documents…')
+    setRunSourceKind(null)
+    const phaseTimers: ReturnType<typeof setTimeout>[] = []
     try {
       const preparedDocuments: any[] = []
       // 1. Required documents must succeed
@@ -841,6 +846,42 @@ export function TtmAnalysisTab({
         documentIds: preparedDocuments.map((doc) => doc.documentId),
       })
 
+      const monthlyDocs = preparedDocuments.filter(
+        (doc) => doc.documentId === 'monthly_pl_excel' || doc.documentId === 'monthly_bs_excel',
+      )
+      const isExcelDoc = (doc: any) => {
+        const mime = String(doc?.mimeType || '').toLowerCase()
+        const name = String(doc?.fileName || '').toLowerCase()
+        return mime.includes('sheet') || mime.includes('excel') || name.endsWith('.xlsx') || name.endsWith('.xls')
+      }
+      const isPdfDoc = (doc: any) => {
+        const mime = String(doc?.mimeType || '').toLowerCase()
+        const name = String(doc?.fileName || '').toLowerCase()
+        return mime.includes('pdf') || name.endsWith('.pdf')
+      }
+      const excelCount = monthlyDocs.filter(isExcelDoc).length
+      const pdfCount = monthlyDocs.filter(isPdfDoc).length
+      const sourceKind: 'excel' | 'pdf' | 'mixed' =
+        excelCount > 0 && pdfCount === 0 ? 'excel' : pdfCount > 0 && excelCount === 0 ? 'pdf' : 'mixed'
+      setRunSourceKind(sourceKind)
+
+      if (sourceKind === 'excel') {
+        setRunPhase('Parsing Excel workbooks…')
+        phaseTimers.push(setTimeout(() => setRunPhase('Extracting financials with AI…'), 4_000))
+        phaseTimers.push(setTimeout(() => setRunPhase('Building financial model & quality checks…'), 20_000))
+        phaseTimers.push(setTimeout(() => setRunPhase('Still working — Excel analysis can take a couple of minutes…'), 90_000))
+      } else if (sourceKind === 'pdf') {
+        setRunPhase('Merging monthly PDFs…')
+        phaseTimers.push(setTimeout(() => setRunPhase('Sending merged statements to AI…'), 6_000))
+        phaseTimers.push(setTimeout(() => setRunPhase('AI extracting monthly ledgers…'), 20_000))
+        phaseTimers.push(setTimeout(() => setRunPhase('Building financial model & quality checks…'), 75_000))
+        phaseTimers.push(setTimeout(() => setRunPhase('Still working — large PDF packs can take several minutes…'), 180_000))
+      } else {
+        setRunPhase('Processing monthly statements…')
+        phaseTimers.push(setTimeout(() => setRunPhase('Sending statements to AI…'), 6_000))
+        phaseTimers.push(setTimeout(() => setRunPhase('Building financial model & quality checks…'), 40_000))
+      }
+
       const res = await fetch('/api/ttm-agent/orchestrate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -859,6 +900,7 @@ export function TtmAnalysisTab({
         throw new Error(text || 'Failed to run WS2-1 agent')
       }
 
+      setRunPhase('Saving analysis results…')
       const created = (await res.json()) as TtmAnalysisView
       logWs2ClientEvent('WS2-1 created analysis', {
         id: created.id,
@@ -874,6 +916,9 @@ export function TtmAnalysisTab({
       logWs2Error('WS2-1 run', runError, { clientId, adminName })
       setError(runError instanceof Error ? runError.message : 'Failed to run WS2-1 agent')
     } finally {
+      for (const timer of phaseTimers) clearTimeout(timer)
+      setRunPhase(null)
+      setRunSourceKind(null)
       setRunning(false)
     }
   }
@@ -1245,8 +1290,8 @@ export function TtmAnalysisTab({
         </div>
       )}
 
-      {/* Loading */}
-      {loadingAnalyses && !activeAnalysis && (
+      {/* Loading (initial only — never while a run is in progress) */}
+      {loadingAnalyses && !activeAnalysis && !composingNew && !running && (
         <Card className="p-8">
           <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1255,8 +1300,58 @@ export function TtmAnalysisTab({
         </Card>
       )}
 
+      {/* Stable run progress — shown for new runs and re-runs so polling can't flicker the form */}
+      {running && (
+        <Card className="border-amber-200 bg-gradient-to-b from-amber-50 to-white p-8 shadow-2xs">
+          <div className="mx-auto flex max-w-lg flex-col items-center text-center">
+            <div className="relative mb-5 flex h-14 w-14 items-center justify-center">
+              <span className="absolute inset-0 rounded-full border-2 border-amber-200" />
+              <span className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-amber-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-amber-600" />
+            </div>
+            <p className="text-base font-semibold text-slate-800">Running valuation analysis</p>
+            <p className="mt-2 text-sm text-slate-600">{runPhase || 'Analyzing financial data…'}</p>
+            <ol className="mt-5 w-full space-y-2 text-left text-xs text-slate-500">
+              {(runSourceKind === 'pdf'
+                ? [
+                    'Prepare source documents',
+                    'Merge monthly PDFs when needed',
+                    'Send statements to AI',
+                    'Build model & quality checks',
+                  ]
+                : runSourceKind === 'excel'
+                  ? [
+                      'Prepare source documents',
+                      'Parse Excel workbooks',
+                      'Extract financials with AI',
+                      'Build model & quality checks',
+                    ]
+                  : [
+                      'Prepare source documents',
+                      'Process monthly statements',
+                      'Send statements to AI',
+                      'Build model & quality checks',
+                    ]
+              ).map((label) => (
+                <li key={label} className="flex items-center gap-2 rounded-md bg-white/70 px-3 py-2 border border-amber-100">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                  {label}
+                </li>
+              ))}
+            </ol>
+            <p className="mt-4 text-xs text-slate-400">
+              {runSourceKind === 'pdf'
+                ? 'Please keep this tab open. Large PDF packs can take several minutes.'
+                : runSourceKind === 'excel'
+                  ? 'Please keep this tab open. Excel valuation usually finishes in a couple of minutes.'
+                  : 'Please keep this tab open while analysis completes.'}
+            </p>
+          </div>
+        </Card>
+      )}
+
       {/* No analysis yet, or composing a new run */}
-      {(!activeAnalysis || composingNew) && !loadingAnalyses && (
+      {(!activeAnalysis || composingNew) && !loadingAnalyses && !running && (
         <Card className="p-6 border-slate-200 shadow-2xs">
           <div className="space-y-6">
             <div className="flex items-start justify-between gap-4 pb-3 border-b border-slate-100">
@@ -1326,22 +1421,20 @@ export function TtmAnalysisTab({
         </Card>
       )}
 
-      {/* Running progress */}
-      {activeAnalysis && !composingNew && (running || baselineBuildState.running) && (
+      {/* Running progress (post-create re-run / baseline build — new runs use the panel above) */}
+      {activeAnalysis && !composingNew && !running && baselineBuildState.running && (
         <Card className="border-amber-200 bg-amber-50/70 p-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
               <div>
-                <p className="text-sm font-semibold text-slate-800">{running ? 'Analyzing financial data...' : 'Building workbook & report...'}</p>
-                <p className="mt-1 text-sm text-slate-600">{running ? 'Building financial model.' : (baselineBuildState.step ?? 'Running downstream WS2 report agents...')}</p>
+                <p className="text-sm font-semibold text-slate-800">Building workbook & report...</p>
+                <p className="mt-1 text-sm text-slate-600">{baselineBuildState.step ?? 'Running downstream WS2 report agents...'}</p>
               </div>
             </div>
-            {baselineBuildState.running && (
-              <Button variant="outline" size="sm" onClick={() => setBaselineBuildState({ analysisId: null, running: false, step: null, error: null })}>
-                Cancel
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={() => setBaselineBuildState({ analysisId: null, running: false, step: null, error: null })}>
+              Cancel
+            </Button>
           </div>
         </Card>
       )}

@@ -1,7 +1,7 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { FileText, AlertTriangle, Folder, Pencil, Save, X } from 'lucide-react'
-import { Card, Badge, Button } from '@/components/ui'
+import { FileText, AlertTriangle, Folder, Pencil, RefreshCw, X } from 'lucide-react'
+import { Card, Badge, Button, cn } from '@/components/ui'
 import { ContractReport as IContractReport } from '../../lib/contract-analysis/types'
 import { SnapshotTable } from './report-sections/SnapshotTable'
 import { DetailedFindings } from './report-sections/DetailedFindings'
@@ -18,6 +18,8 @@ interface Props {
   onNewAnalysis: () => void
   onDelete?: () => void
   onReportUpdated?: (report: IContractReport) => Promise<void>
+  /** Persist edits then AI-refresh checklist / recommended actions + sync Software & Vendors. */
+  onUpdateAnalysisFromEdits?: (report: IContractReport) => Promise<void>
   adminMode?: boolean
   hideNewAnalysis?: boolean
 }
@@ -29,11 +31,21 @@ const REPORT_TABS = [
   { key: 'documents', label: 'Documents', icon: Folder },
 ]
 
-export function ContractReport({ report, fileName, clientName, onNewAnalysis, onDelete, onReportUpdated, adminMode = false, hideNewAnalysis = false }: Props) {
+export function ContractReport({
+  report,
+  fileName,
+  clientName,
+  onNewAnalysis,
+  onDelete,
+  onReportUpdated,
+  onUpdateAnalysisFromEdits,
+  adminMode = false,
+  hideNewAnalysis = false,
+}: Props) {
   const [activeTab, setActiveTab] = useState('snapshot')
   const [editMode, setEditMode] = useState(false)
   const [draftReport, setDraftReport] = useState<IContractReport | null>(null)
-  const [savingEdits, setSavingEdits] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const visibleReport = editMode && draftReport ? draftReport : report
   const summaryHtml = useMemo(() => buildContractSummaryHtml(visibleReport, clientName), [visibleReport, clientName])
   const addendumHtml = useMemo(() => buildContractAddendumHtml(visibleReport, clientName), [visibleReport, clientName])
@@ -57,37 +69,44 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
     }
   }
 
-  const canEdit = adminMode && Boolean(onReportUpdated)
+  const canEdit = adminMode && Boolean(onReportUpdated || onUpdateAnalysisFromEdits)
   const startEdit = () => {
     setActiveTab('findings')
     setDraftReport(structuredClone(report))
     setEditMode(true)
   }
   const cancelEdit = () => {
+    if (reanalyzing) return
     setDraftReport(null)
     setEditMode(false)
   }
-  const saveEdits = async () => {
-    if (!draftReport || !onReportUpdated) return
-    setSavingEdits(true)
+  const updateAnalysisFromEdits = async () => {
+    if (!draftReport) return
+    const handler = onUpdateAnalysisFromEdits || onReportUpdated
+    if (!handler) return
+    setReanalyzing(true)
     try {
-      await onReportUpdated(draftReport)
+      await handler(draftReport)
       setDraftReport(null)
       setEditMode(false)
     } finally {
-      setSavingEdits(false)
+      setReanalyzing(false)
     }
   }
 
   return (
     <Card className="overflow-hidden border-slate-200/60 shadow-sm">
-      {/* Report header */}
       <div className="p-5 border-b border-slate-100 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 bg-slate-50/30">
         <div className="min-w-0">
           <h4 className="font-semibold text-slate-800">Material Contracts Report</h4>
           <p className="text-xs text-slate-400 mt-0.5 break-words">
             {fileName} · Generated {new Date(report.generatedAt).toLocaleString()}
           </p>
+          {editMode && (
+            <p className="text-xs text-slate-500 mt-2">
+              Edit findings, then click <span className="font-semibold text-slate-700">Update analysis from edits</span> to refresh recommended actions / checklist and sync Software &amp; Vendors (no duplicates; deleted vendors stay removed).
+            </p>
+          )}
         </div>
 
         <div className="flex w-full xl:w-auto flex-col gap-3">
@@ -100,11 +119,12 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
           {canEdit && (
             editMode ? (
               <>
-                <Button size="sm" variant="outline" onClick={cancelEdit} disabled={savingEdits}>
+                <Button size="sm" variant="outline" onClick={cancelEdit} disabled={reanalyzing}>
                   <X className="w-3.5 h-3.5" /> Cancel
                 </Button>
-                <Button size="sm" onClick={saveEdits} disabled={savingEdits}>
-                  <Save className="w-3.5 h-3.5" /> {savingEdits ? 'Saving...' : 'Save Output'}
+                <Button size="sm" onClick={() => void updateAnalysisFromEdits()} disabled={reanalyzing} className="bg-slate-900 text-white hover:bg-slate-800">
+                  <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
+                  {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
                 </Button>
               </>
             ) : (
@@ -134,7 +154,6 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-slate-100 overflow-x-auto bg-white">
         {REPORT_TABS.map(tab => {
           const Icon = tab.icon
@@ -159,7 +178,6 @@ export function ContractReport({ report, fileName, clientName, onNewAnalysis, on
         })}
       </div>
 
-      {/* Section content */}
       <div className="p-4 sm:p-6 min-h-[400px]">
         {activeTab === 'snapshot' && <SnapshotTable rows={visibleReport.snapshotTable} />}
         {activeTab === 'findings' && (

@@ -68,6 +68,15 @@ import {
   type ExtractedAddbacks,
   type ValuationResult,
 } from "@/lib/ttm-agent/llm-extraction";
+import {
+  extractMonthlyStatementsFromMergedPdfs,
+  mergePdfBuffers,
+  parsedWorkbookFromPdfLedger,
+  resolveMonthlySlot,
+  type ClientDocumentLike,
+  type ResolvedMonthlySlot,
+} from "@/lib/ttm-agent/pdf-monthly-statements";
+import { isGotenbergHealthy, mergePdfsWithGotenberg } from "@/lib/gotenberg";
 
 const WS2_BASELINE_SOURCE_AGENT_IDS = [
   "ws2_3_rev_vertical_v1",
@@ -305,39 +314,50 @@ async function loadOptionalDocument(clientId: string, documentId: string) {
   return null;
 }
 
-async function loadLatestInputDocuments(clientId: string) {
-  const rows = await (prisma as any).clientDocument.findMany({
-    where: {
-      clientId,
-      documentId: { in: [...TTM_REQUIRED_DOCUMENT_IDS] },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+async function loadMonthlySlotDocuments(clientId: string, documentId: TtmRequiredDocumentId) {
+  const rows = (await (prisma as any).clientDocument.findMany({
+    where: { clientId, documentId },
+    orderBy: { createdAt: "asc" },
+  })) as ClientDocumentLike[];
+  return rows;
+}
 
-  const latestByDocumentId = new Map<string, any>();
-  for (const row of rows) {
-    if (row.documentId && !latestByDocumentId.has(row.documentId)) {
-      latestByDocumentId.set(row.documentId, row);
-    }
-  }
+/**
+ * Prefer Excel when present (unchanged GL path). Fall back to all PDFs for a slot.
+ * Never mixes Excel+PDF in one slot — Excel wins exclusively.
+ */
+async function loadResolvedMonthlySlots(clientId: string): Promise<{
+  pl: ResolvedMonthlySlot;
+  bs: ResolvedMonthlySlot;
+  inputSnapshot: InputDocumentSnapshot[];
+}> {
+  const [plRows, bsRows] = await Promise.all([
+    loadMonthlySlotDocuments(clientId, "monthly_pl_excel"),
+    loadMonthlySlotDocuments(clientId, "monthly_bs_excel"),
+  ]);
 
-  for (const documentId of TTM_REQUIRED_DOCUMENT_IDS) {
-    if (latestByDocumentId.has(documentId)) continue;
-    for (const lookupId of multiYearDocumentLookupIds(documentId)) {
-      const aliasRow = rows.find((row: any) => row.documentId === lookupId);
-      if (aliasRow) {
-        latestByDocumentId.set(documentId, aliasRow);
-        break;
-      }
-    }
-  }
-
-  const missing = TTM_REQUIRED_DOCUMENT_IDS.filter((documentId) => !latestByDocumentId.has(documentId));
-  if (missing.length) {
+  if (!plRows.length || !bsRows.length) {
+    const missing = [
+      !plRows.length ? "monthly_pl_excel" : null,
+      !bsRows.length ? "monthly_bs_excel" : null,
+    ].filter(Boolean);
     throw new TtmOrchestratorError(`Missing required valuation documents: ${missing.join(", ")}`);
   }
 
-  return TTM_REQUIRED_DOCUMENT_IDS.map((documentId) => latestByDocumentId.get(documentId));
+  const pl = resolveMonthlySlot("monthly_pl_excel", plRows);
+  const bs = resolveMonthlySlot("monthly_bs_excel", bsRows);
+
+  const snapshotRows = [...pl.sources, ...bs.sources];
+  const inputSnapshot: InputDocumentSnapshot[] = snapshotRows.map((document) => ({
+    documentId: document.documentId || "unknown",
+    fileName: document.fileName,
+    mimeType: document.mimeType,
+    size: document.size,
+    localPath: document.localPath,
+    createdAt: document.createdAt.toISOString(),
+  }));
+
+  return { pl, bs, inputSnapshot };
 }
 
 function buildPreparedDocumentMap(preparedDocuments: PreparedDocumentInput[]) {
@@ -501,15 +521,9 @@ export async function runTtmAgent(args: {
   aiModel?: string;
 }) {
   console.log(`[TTM] ▶ Starting WS2-1 agent for client=${args.clientId} triggered by ${args.triggeredByName ?? "system"}`);
-  const inputDocuments = await loadLatestInputDocuments(args.clientId);
-  const inputSnapshot: InputDocumentSnapshot[] = inputDocuments.map((document: any) => ({
-    documentId: document.documentId,
-    fileName: document.fileName,
-    mimeType: document.mimeType,
-    size: document.size,
-    localPath: document.localPath,
-    createdAt: document.createdAt.toISOString(),
-  }));
+  const resolvedSlots = await loadResolvedMonthlySlots(args.clientId);
+  const inputDocuments = [resolvedSlots.pl.primary, resolvedSlots.bs.primary];
+  const inputSnapshot = resolvedSlots.inputSnapshot;
 
   const previous = await (prisma as any).ttmAnalysis.findFirst({
     where: { clientId: args.clientId },
@@ -538,18 +552,100 @@ export async function runTtmAgent(args: {
     const preparedMonthlyPl = ensurePreparedDocument(preparedMap, "monthly_pl_excel", monthlyPlDocument);
     const preparedMonthlyBs = ensurePreparedDocument(preparedMap, "monthly_bs_excel", monthlyBsDocument);
 
-    const monthlyPlBuffer = await safeReadDocumentBuffer(monthlyPlDocument.localPath);
-    const monthlyBsBuffer = await safeReadDocumentBuffer(monthlyBsDocument.localPath);
+    const useExcelPath = resolvedSlots.pl.kind === "excel" && resolvedSlots.bs.kind === "excel";
 
-    const monthlyPl = monthlyPlBuffer
-      ? parseMonthlyWorkbook(monthlyPlBuffer, "monthly_pl_excel")
-      : parseMonthlyWorkbookFromPrepared(preparedMonthlyPl, "monthly_pl_excel");
-    console.log(`[TTM] Parsed monthly P&L: format=${monthlyPl.format}, ${monthlyPl.rows.length} rows, ${monthlyPl.monthKeys.length} months, source=${monthlyPlBuffer ? "xlsx-direct" : "prepared-csv"}`);
+    let monthlyPlBuffer: Buffer | null = null;
+    let monthlyBsBuffer: Buffer | null = null;
+    let monthlyPl;
+    let monthlyBs;
+    let pdfLlmExtraction: ExtractedFinancials | null = null;
 
-    const monthlyBs = monthlyBsBuffer
-      ? parseMonthlyWorkbook(monthlyBsBuffer, "monthly_bs_excel")
-      : parseMonthlyWorkbookFromPrepared(preparedMonthlyBs, "monthly_bs_excel");
-    console.log(`[TTM] Parsed monthly BS: format=${monthlyBs.format}, ${monthlyBs.rows.length} rows, ${monthlyBs.monthKeys.length} months, source=${monthlyBsBuffer ? "xlsx-direct" : "prepared-csv"}`);
+    if (useExcelPath) {
+      // ── Excel / GL path (unchanged) ──────────────────────────────────────
+      monthlyPlBuffer = await safeReadDocumentBuffer(monthlyPlDocument.localPath);
+      monthlyBsBuffer = await safeReadDocumentBuffer(monthlyBsDocument.localPath);
+
+      monthlyPl = monthlyPlBuffer
+        ? parseMonthlyWorkbook(monthlyPlBuffer, "monthly_pl_excel")
+        : parseMonthlyWorkbookFromPrepared(preparedMonthlyPl, "monthly_pl_excel");
+      console.log(`[TTM] Parsed monthly P&L: format=${monthlyPl.format}, ${monthlyPl.rows.length} rows, ${monthlyPl.monthKeys.length} months, source=${monthlyPlBuffer ? "xlsx-direct" : "prepared-csv"}`);
+
+      monthlyBs = monthlyBsBuffer
+        ? parseMonthlyWorkbook(monthlyBsBuffer, "monthly_bs_excel")
+        : parseMonthlyWorkbookFromPrepared(preparedMonthlyBs, "monthly_bs_excel");
+      console.log(`[TTM] Parsed monthly BS: format=${monthlyBs.format}, ${monthlyBs.rows.length} rows, ${monthlyBs.monthKeys.length} months, source=${monthlyBsBuffer ? "xlsx-direct" : "prepared-csv"}`);
+    } else {
+      // ── PDF path (additive): merge → native attach → structured extract ──
+      if (resolvedSlots.pl.kind !== "pdf" || resolvedSlots.bs.kind !== "pdf") {
+        throw new TtmOrchestratorError(
+          `Unsupported monthly statement mix (P&L=${resolvedSlots.pl.kind}, BS=${resolvedSlots.bs.kind}). Upload Excel for both, or PDF for both.`,
+          400,
+        );
+      }
+
+      console.log(
+        `[TTM] PDF monthly path: merging ${resolvedSlots.pl.sources.length} P&L + ${resolvedSlots.bs.sources.length} BS PDFs`,
+      );
+
+      const plBuffers: Buffer[] = [];
+      for (const doc of resolvedSlots.pl.sources) {
+        const buffer = await safeReadDocumentBuffer(doc.localPath);
+        if (!buffer) {
+          throw new TtmOrchestratorError(`Could not read P&L PDF from storage: ${doc.fileName}`, 400);
+        }
+        plBuffers.push(buffer);
+      }
+      const bsBuffers: Buffer[] = [];
+      for (const doc of resolvedSlots.bs.sources) {
+        const buffer = await safeReadDocumentBuffer(doc.localPath);
+        if (!buffer) {
+          throw new TtmOrchestratorError(`Could not read BS PDF from storage: ${doc.fileName}`, 400);
+        }
+        bsBuffers.push(buffer);
+      }
+
+      const plFiles = resolvedSlots.pl.sources.map((doc, index) => ({
+        fileName: doc.fileName,
+        buffer: plBuffers[index],
+      }));
+      const bsFiles = resolvedSlots.bs.sources.map((doc, index) => ({
+        fileName: doc.fileName,
+        buffer: bsBuffers[index],
+      }));
+
+      let mergedPl: Buffer;
+      let mergedBs: Buffer;
+      const gotenbergUp = await isGotenbergHealthy();
+      if (gotenbergUp) {
+        console.log("[TTM] Merging monthly PDFs via Gotenberg");
+        mergedPl = await mergePdfsWithGotenberg(plFiles, { outputFileName: "monthly_pl_merged" });
+        mergedBs = await mergePdfsWithGotenberg(bsFiles, { outputFileName: "monthly_bs_merged" });
+      } else {
+        console.warn("[TTM] Gotenberg unavailable — falling back to pdf-lib merge");
+        mergedPl = await mergePdfBuffers(plBuffers);
+        mergedBs = await mergePdfBuffers(bsBuffers);
+      }
+      console.log(
+        `[TTM] Merged PDFs: P&L ${mergedPl.length} bytes (${plBuffers.length} files), BS ${mergedBs.length} bytes (${bsBuffers.length} files), via=${gotenbergUp ? "gotenberg" : "pdf-lib"}`,
+      );
+
+      const pdfExtraction = await extractMonthlyStatementsFromMergedPdfs({
+        plFileName: `monthly_pl_merged_${resolvedSlots.pl.sources.length}.pdf`,
+        plPdfBase64: mergedPl.toString("base64"),
+        bsFileName: `monthly_bs_merged_${resolvedSlots.bs.sources.length}.pdf`,
+        bsPdfBase64: mergedBs.toString("base64"),
+      });
+
+      monthlyPl = parsedWorkbookFromPdfLedger("monthly_pl_excel", pdfExtraction.monthlyPl);
+      monthlyBs = parsedWorkbookFromPdfLedger("monthly_bs_excel", pdfExtraction.monthlyBs);
+      pdfLlmExtraction = pdfExtraction.financials;
+      console.log(
+        `[TTM] Parsed monthly P&L from PDFs: ${monthlyPl.rows.length} rows, ${monthlyPl.monthKeys.length} months`,
+      );
+      console.log(
+        `[TTM] Parsed monthly BS from PDFs: ${monthlyBs.rows.length} rows, ${monthlyBs.monthKeys.length} months`,
+      );
+    }
 
     // Optional: Accountant Statements
     const accountantDocRecord = await loadOptionalDocument(args.clientId, "accountant_statements");
@@ -661,15 +757,25 @@ export async function runTtmAgent(args: {
     let llmSucceeded = false;
     const llmFlags: Array<{ section: string; severity: string; title: string; description: string; payload: Record<string, unknown> }> = [];
     try {
-      const plText = monthlyPlBuffer ? excelToText(monthlyPlBuffer) : null;
-      const bsText = monthlyBsBuffer ? excelToText(monthlyBsBuffer) : null;
-
-      if (plText) {
-        console.log(`[TTM] Running LLM financial extraction (PRIMARY path)...`);
-        llmExtraction = await extractFinancialsWithLLM(plText, bsText);
+      if (pdfLlmExtraction) {
+        llmExtraction = pdfLlmExtraction;
         llmSucceeded = true;
-        console.log(`[TTM] LLM extraction complete (PRIMARY): ${llmExtraction.periods.length} periods, ${llmExtraction.glMapping.length} GL mappings, ${llmExtraction.notes.length} notes`);
+        console.log(
+          `[TTM] Using PDF-native LLM extraction (PRIMARY): ${llmExtraction.periods.length} periods, ${llmExtraction.glMapping.length} GL mappings, ${llmExtraction.notes.length} notes`,
+        );
+      } else {
+        const plText = monthlyPlBuffer ? excelToText(monthlyPlBuffer) : null;
+        const bsText = monthlyBsBuffer ? excelToText(monthlyBsBuffer) : null;
 
+        if (plText) {
+          console.log(`[TTM] Running LLM financial extraction (PRIMARY path)...`);
+          llmExtraction = await extractFinancialsWithLLM(plText, bsText);
+          llmSucceeded = true;
+          console.log(`[TTM] LLM extraction complete (PRIMARY): ${llmExtraction.periods.length} periods, ${llmExtraction.glMapping.length} GL mappings, ${llmExtraction.notes.length} notes`);
+        }
+      }
+
+      if (llmExtraction) {
         // Generate HITL flags from LLM extraction
         // Section A flags: GL mappings where Claude's confidence < 0.8
         const plMonthCoverage = formatMonthCoverageForFlags(
@@ -690,7 +796,7 @@ export async function runTtmAgent(args: {
                 confidence: mapping.confidence,
                 sourceDocumentId: "monthly_pl_excel",
                 sourceDocument: plMonthCoverage ? `${plFileName} · ${plMonthCoverage}` : plFileName,
-                sourceDocumentLabel: "Monthly P&L Excel",
+                sourceDocumentLabel: useExcelPath ? "Monthly P&L Excel" : "Monthly P&L PDFs",
                 sourceFileName: plFileName,
                 sourceDocumentRecordId: monthlyPlDocument.id,
                 sourceMonthCoverage: plMonthCoverage,

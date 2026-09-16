@@ -126,9 +126,10 @@ export default function OrgChartReviewTab({
   const [result, setResult] = useState<OrgChartAnalysis | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [editMode, setEditMode] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [savedBadge, setSavedBadge] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const preEditSnapshotRef = useRef<OrgChartAnalysis | null>(null)
 
   const { provider, setProvider } = useAgentAiProvider()
   const {
@@ -380,23 +381,75 @@ export default function OrgChartReviewTab({
     }
   }
 
-  // ── Save handler ──────────────────────────────────────────────────────────
-  const handleSave = async () => {
-    if (!result) return
-    setSaving(true)
+  // ── Edit mode entry / cancel ─────────────────────────────────────────────
+  const handleStartEdit = () => {
+    if (readOnly || !result) return
+    preEditSnapshotRef.current = result
+    setEditMode(true)
+    setError(null)
+  }
+
+  const handleCancelEdit = () => {
+    if (reanalyzing) return
+    if (preEditSnapshotRef.current) setResult(preEditSnapshotRef.current)
+    setEditMode(false)
+    setError(null)
+  }
+
+  // ── Update analysis from edits: persist edited roles/headcount, then ask AI
+  // to refresh summary/keyPersonDependencies/roleGaps/transitionReadiness/recommendations. ──
+  const handleReanalyzeFromEdits = async () => {
+    if (!result || readOnly) return
+    setReanalyzing(true)
+    setError(null)
     try {
-      const res = await fetch(`/api/client-data/${clientId}`, {
+      const saveRes = await fetch(`/api/client-data/${clientId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ section: 'orgChart', data: result }),
       })
-      if (!res.ok) throw new Error('Save failed')
+      if (!saveRes.ok) throw new Error('Save failed')
+
+      const res = await fetch('/api/org-chart/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reanalyzeFromEdits: true,
+          existingReport: result,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.error || (typeof data === 'string' ? data : null) || `Update analysis failed (${res.status})`)
+      }
+      const nextReport = (data.report ?? data) as OrgChartAnalysis
+      if (!nextReport?.roles) throw new Error('Update analysis returned an empty report')
+
+      setResult(nextReport)
+      setEditMode(false)
+
+      await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: 'orgChart', data: nextReport }),
+      })
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.orgChartReview,
+        fileName: activeFile?.name || `${clientName} — Org Chart Review`,
+        report: nextReport,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns({ selectNewest: true })
       setSavedBadge(true)
       setTimeout(() => setSavedBadge(false), 2000)
     } catch (err: any) {
-      setError(err.message || 'Save failed')
+      setError(err.message || 'Failed to update analysis from edits')
     } finally {
-      setSaving(false)
+      setReanalyzing(false)
     }
   }
 
@@ -526,35 +579,36 @@ export default function OrgChartReviewTab({
                 <span>+ New Analysis</span>
               </button>
             )}
-            <button
-              onClick={() => setEditMode(e => !e)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border',
-                editMode
-                  ? 'bg-amber-50 text-amber-700 border-amber-300'
-                  : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'
-              )}
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              {editMode ? 'Editing' : 'Edit'}
-            </button>
-            {editMode && (
-              <div className="relative">
+            {!editMode ? (
+              <button
+                onClick={handleStartEdit}
+                disabled={reanalyzing}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border bg-white text-slate-600 hover:bg-slate-50 border-slate-200 disabled:opacity-60"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
+              </button>
+            ) : (
+              <>
                 <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition-all"
+                  onClick={handleCancelEdit}
+                  disabled={reanalyzing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-60"
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  {saving ? 'Saving...' : 'Save'}
+                  <X className="w-3.5 h-3.5" />
+                  Cancel
                 </button>
-                {savedBadge && (
-                  <span className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                    Saved
-                  </span>
-                )}
-              </div>
+                <button
+                  onClick={() => void handleReanalyzeFromEdits()}
+                  disabled={reanalyzing}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 shadow-sm transition-all disabled:opacity-60"
+                >
+                  <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
+                  {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+                </button>
+              </>
             )}
+            {savedBadge && <span className="text-xs font-semibold text-emerald-600 animate-pulse">Updated</span>}
             <ExportReportButton
               html={buildOrgChartReportHtml(result, clientName)}
               fileName={`org-chart-report-${clientName.replace(/\s+/g, '-').toLowerCase()}`}

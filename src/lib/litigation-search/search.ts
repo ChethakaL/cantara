@@ -267,3 +267,70 @@ Return ONLY valid JSON:
   const parsed = JSON.parse(cleaned)
   return { ...parsed, generatedAt: new Date().toISOString() }
 }
+
+/** Refresh summary + riskLevel from advisor-edited findings (no web re-search / no re-upload). */
+export async function reanalyzeLitigationFromEdits(
+  existingResult: LitigationSearchResult,
+): Promise<LitigationSearchResult> {
+  const authoritative = {
+    findings: existingResult.findings ?? [],
+    searchesPerformed: existingResult.searchesPerformed ?? [],
+    previousRiskLevel: existingResult.riskLevel,
+    previousSummary: existingResult.summary,
+  }
+
+  const prompt = `You are a litigation and lien search analyst for an M&A advisory firm.
+
+An advisor manually corrected the findings on an existing Litigation & Lien Search report.
+REWRITE the overall summary and riskLevel to match those edited findings. Do NOT invent new findings.
+
+## CRITICAL
+- The findings array below is GROUND TRUTH. Do not add, remove, or rewrite finding titles/descriptions/types/severities.
+- If findings is empty, riskLevel must be "clear" (or "low" only if searchesPerformed shows a partial/limited search).
+- If any finding has severity "high", riskLevel must be "high".
+- If the worst finding severity is "medium", riskLevel must be "medium".
+- If findings exist but are only "low"/"clear", riskLevel should be "low".
+- Summary must accurately reflect the edited findings (2-4 sentences). Mention court/lien/judgment specifics when present.
+
+## AUTHORITATIVE ADVISOR-EDITED DATA
+${JSON.stringify(authoritative, null, 2)}
+
+Return ONLY valid JSON:
+{
+  "summary": "2-4 sentence summary reflecting the edited findings",
+  "riskLevel": "high|medium|low|clear"
+}`
+
+  const rawText = await createAgentMessage({
+    system: 'You are a litigation and lien search analyst for an M&A advisory firm. Return only valid JSON.',
+    content: prompt,
+    maxTokens: 1200,
+    temperature: 0,
+  })
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(extractJsonObject(rawText)) as Record<string, unknown>
+  } catch (err) {
+    console.error('[Litigation Search] Reanalyze parse failed:', rawText.slice(0, 500))
+    throw err instanceof Error ? err : new Error('Litigation reanalyze returned unparseable JSON. Please retry.')
+  }
+
+  const riskLevel = (['high', 'medium', 'low', 'clear'] as const).includes(
+    parsed.riskLevel as LitigationSearchResult['riskLevel'],
+  )
+    ? (parsed.riskLevel as LitigationSearchResult['riskLevel'])
+    : existingResult.riskLevel
+
+  return {
+    ...existingResult,
+    findings: existingResult.findings ?? [],
+    searchesPerformed: existingResult.searchesPerformed ?? [],
+    summary:
+      typeof parsed.summary === 'string' && parsed.summary.trim()
+        ? parsed.summary
+        : existingResult.summary,
+    riskLevel,
+    generatedAt: new Date().toISOString(),
+  }
+}

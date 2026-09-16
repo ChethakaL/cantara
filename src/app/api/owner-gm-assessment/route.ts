@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   analyzeOwnerGmTranscript,
+  reanalyzeOwnerGmFromEdits,
   serializeOwnerGmAssessment,
   parseStoredOwnerGmAssessment,
 } from "@/lib/owner-gm-assessment/analyze";
+import type { OwnerGmAssessment } from "@/lib/owner-gm-assessment/types";
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
@@ -52,10 +54,19 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, fileName, base64, mediaType, provider: rawProvider, modelId: requestedModelId } = await req.json();
+    const {
+      clientId,
+      fileName,
+      base64,
+      mediaType,
+      provider: rawProvider,
+      modelId: requestedModelId,
+      reanalyzeFromEdits,
+      assessment: existingAssessment,
+    } = await req.json();
 
-    if (!clientId || !base64) {
-      return new Response("Missing clientId or file data", { status: 400 });
+    if (!clientId) {
+      return new Response("Missing clientId", { status: 400 });
     }
 
     const provider = parseAnalyzeProvider(rawProvider);
@@ -65,13 +76,32 @@ export async function POST(req: NextRequest) {
       if (gate) return gate;
     }
 
-    const assessment = await runWithAgentLlmContext({ provider, modelId }, () =>
-      analyzeOwnerGmTranscript({
-        fileName: fileName || "transcript",
-        base64,
-        mediaType: mediaType || "text/plain",
-      }),
-    );
+    let assessment: OwnerGmAssessment;
+
+    if (reanalyzeFromEdits) {
+      // Edit-aware path: no transcript re-upload — refresh narrative from advisor-edited data.
+      if (
+        !existingAssessment ||
+        typeof existingAssessment !== "object" ||
+        !Array.isArray(existingAssessment.owners)
+      ) {
+        return new Response("reanalyzeFromEdits requires an assessment with owners.", { status: 400 });
+      }
+      assessment = await runWithAgentLlmContext({ provider, modelId }, () =>
+        reanalyzeOwnerGmFromEdits(existingAssessment as OwnerGmAssessment),
+      );
+    } else {
+      if (!base64) {
+        return new Response("Missing clientId or file data", { status: 400 });
+      }
+      assessment = await runWithAgentLlmContext({ provider, modelId }, () =>
+        analyzeOwnerGmTranscript({
+          fileName: fileName || "transcript",
+          base64,
+          mediaType: mediaType || "text/plain",
+        }),
+      );
+    }
 
     // Store in client sectionSubmissions
     const client = await (prisma as any).clientProfile.findUnique({

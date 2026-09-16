@@ -12,6 +12,9 @@ import {
   WebsiteResearchData,
 } from './types';
 
+export { applyCompetitorFactOverrides } from './fact-overrides';
+export type { CompetitorFactOverrides, CompetitorEntityFactOverride } from './fact-overrides';
+
 interface ClaudeOverlayResponse {
   executiveSummary?: string;
   marketSummary?: string;
@@ -621,5 +624,151 @@ export async function buildSingleCompetitorReport(args: {
       ? overlay.gaps
       : (args.competitor.websiteUrl ? [] : ['No public website listed']),
     websiteConfidence: overlay?.websiteConfidence ?? args.competitorWebsiteResearch?.confidence ?? 'low',
+  };
+}
+
+const SERVICE_ORDER = ['dog boarding', 'dog daycare', 'dog grooming', 'dog training', 'cat boarding'];
+
+/** Apply advisor service-matrix toggles onto subject + competitor `services` arrays. */
+export function applyCompetitorServiceOverrides(
+  report: CompetitorAnalysisReport,
+  overrides: Record<string, Record<string, boolean>>,
+): CompetitorAnalysisReport {
+  const applyServices = (key: string, current: string[]): string[] => {
+    const row = overrides[key];
+    if (!row) return current;
+    return SERVICE_ORDER.filter((service) => {
+      if (row[service] === true) return true;
+      if (row[service] === false) return false;
+      return current.some((s) => s.toLowerCase() === service);
+    }).map((service) => {
+      const existing = current.find((s) => s.toLowerCase() === service);
+      if (existing) return existing;
+      return service
+        .split(' ')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+    });
+  };
+
+  return {
+    ...report,
+    clientProfile: {
+      ...report.clientProfile,
+      services: applyServices('__subject__', report.clientProfile.services ?? []),
+    },
+    competitors: report.competitors.map((comp) => ({
+      ...comp,
+      services: applyServices(comp.placeId ?? comp.name, comp.services ?? []),
+    })),
+  };
+}
+
+/**
+ * Refresh narrative summaries / takeaways / recommendations from advisor-edited
+ * competitor facts + service matrix (no Google Places re-fetch).
+ */
+export async function reanalyzeCompetitorAnalysisFromEdits(
+  existing: CompetitorAnalysisReport,
+  options?: { provider?: AgentAiProvider; modelId?: string },
+): Promise<CompetitorAnalysisReport> {
+  const provider = options?.provider ?? getActiveAgentProvider();
+  const authoritative = {
+    businessName: existing.businessName,
+    businessAddress: existing.businessAddress,
+    businessCategory: existing.businessCategory,
+    radiusMiles: existing.radiusMiles,
+    marketStats: existing.marketStats,
+    clientProfile: {
+      name: existing.clientProfile.name,
+      rating: existing.clientProfile.rating,
+      reviewCount: existing.clientProfile.reviewCount,
+      services: existing.clientProfile.services,
+      serviceSummary: existing.clientProfile.serviceSummary,
+      reputationSummary: existing.clientProfile.reputationSummary,
+      hoursSummary: existing.clientProfile.hoursSummary,
+      pricingSummary: existing.clientProfile.pricingSummary,
+    },
+    competitors: existing.competitors.map((c) => ({
+      name: c.name,
+      distanceMiles: c.distanceMiles,
+      rating: c.rating,
+      reviewCount: c.reviewCount,
+      similarityLevel: c.similarityLevel,
+      similarityScore: c.similarityScore,
+      services: c.services,
+      strengths: c.strengths,
+      gaps: c.gaps,
+      similaritySummary: c.similaritySummary,
+      serviceComparison: c.serviceComparison,
+      reputationComparison: c.reputationComparison,
+    })),
+  };
+
+  const prompt = `You are the Competitor Analysis Agent for Cantara (pet hospitality / boarding / daycare M&A).
+
+An advisor manually corrected competitor facts and/or the service-offerings matrix on an existing Competitor Analysis report.
+REWRITE only the narrative fields below so they match those edited facts. Do NOT invent new competitors or change ratings/distances/services.
+
+## AUTHORITATIVE ADVISOR-EDITED DATA
+${JSON.stringify(authoritative, null, 2)}
+
+Return ONLY valid JSON:
+{
+  "executiveSummary": "<2-4 sentences>",
+  "marketSummary": "<2-4 sentences>",
+  "positioningSummary": "<2-4 sentences>",
+  "keyTakeaways": ["<string>", "..."],
+  "recommendations": ["<string>", "..."]
+}`;
+
+  let rawText: string;
+  if (provider === 'openai') {
+    rawText = await createAgentMessage({
+      provider,
+      model: options?.modelId,
+      system: '',
+      content: prompt,
+      maxTokens: 2048,
+      temperature: 0,
+    });
+  } else {
+    rawText = await requestOverlay({
+      prompt,
+      maxTokens: 2048,
+      provider,
+      modelId: options?.modelId,
+    });
+  }
+
+  let parsed: ClaudeOverlayResponse;
+  try {
+    parsed = parseClaudeJson(rawText);
+  } catch (err) {
+    console.error('[Competitor Analysis] Reanalyze parse failed:', rawText.slice(0, 500));
+    throw err instanceof Error ? err : new Error('Competitor reanalyze returned unparseable JSON. Please retry.');
+  }
+
+  return {
+    ...existing,
+    executiveSummary:
+      typeof parsed.executiveSummary === 'string' && parsed.executiveSummary.trim()
+        ? parsed.executiveSummary.trim()
+        : existing.executiveSummary,
+    marketSummary:
+      typeof parsed.marketSummary === 'string' && parsed.marketSummary.trim()
+        ? parsed.marketSummary.trim()
+        : existing.marketSummary,
+    positioningSummary:
+      typeof parsed.positioningSummary === 'string' && parsed.positioningSummary.trim()
+        ? parsed.positioningSummary.trim()
+        : existing.positioningSummary,
+    keyTakeaways: Array.isArray(parsed.keyTakeaways) && parsed.keyTakeaways.length
+      ? parsed.keyTakeaways.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+      : existing.keyTakeaways,
+    recommendations: Array.isArray(parsed.recommendations) && parsed.recommendations.length
+      ? parsed.recommendations.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+      : existing.recommendations,
+    generatedAt: new Date().toISOString(),
   };
 }
