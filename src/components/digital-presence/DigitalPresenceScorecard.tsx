@@ -18,6 +18,7 @@ import {
   BarChart3,
   Package,
   Pencil,
+  Check,
   X,
   RefreshCw,
 } from 'lucide-react';

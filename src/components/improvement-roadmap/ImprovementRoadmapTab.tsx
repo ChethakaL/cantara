@@ -143,7 +143,7 @@ function ChecklistApprovalPanel({
     const n = name.trim().toLowerCase()
     if (changedNameSet.has(n)) return true
     // Match "Digital Presence" vs "Digital Presence Agent"
-    for (const changed of changedNameSet) {
+    for (const changed of Array.from(changedNameSet)) {
       if (n.includes(changed) || changed.includes(n.replace(/\s+agent$/, ''))) return true
     }
     return false

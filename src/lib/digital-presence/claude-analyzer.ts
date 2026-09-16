@@ -7,6 +7,8 @@ import {
   DigitalPresenceReport,
   ChannelAssessment,
   ChannelType,
+  AssetInventoryItem,
+  ChannelScore,
 } from './types';
 
 const CHANNEL_LABELS: Record<ChannelType, string> = {
@@ -413,17 +415,19 @@ Include EVERY channelType from the edited report. Do NOT return keyMetrics.`;
 
   const localOverall = recalcOverall(channels);
 
-  const inventory = (existingReport.digitalAssetInventory ?? []).map((item) => {
+  const inventory: AssetInventoryItem[] = (existingReport.digitalAssetInventory ?? []).map((item) => {
     const aiInv = Array.isArray(parsed.digitalAssetInventory)
       ? parsed.digitalAssetInventory.find((row: any) => row.channelType === item.channelType)
       : null;
     const matchedChannel = channels.find((ch) => ch.channelType === item.channelType);
+    const nextScore =
+      aiInv?.score !== undefined
+        ? (aiInv.score === null ? null : Math.min(5, Math.max(1, Math.round(Number(aiInv.score)))))
+        : (matchedChannel?.score ?? item.score);
     return {
       ...item,
       status: (aiInv?.status as typeof item.status) ?? item.status,
-      score: aiInv?.score !== undefined
-        ? (aiInv.score === null ? null : Math.min(5, Math.max(1, Math.round(Number(aiInv.score)))))
-        : (matchedChannel?.score ?? item.score),
+      score: nextScore === null ? null : (nextScore as ChannelScore),
       notes: typeof aiInv?.notes === 'string' && aiInv.notes.trim() ? aiInv.notes : item.notes,
     };
   });

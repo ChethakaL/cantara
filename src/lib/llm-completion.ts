@@ -124,12 +124,21 @@ export async function completeText(args: StreamTextArgs): Promise<string> {
 }
 
 async function extractPdfBase64Text(base64: string): Promise<string> {
-  const parser = new PDFParse({ data: Buffer.from(base64, "base64") });
+  let parser: {
+    getText: () => Promise<{ text?: string }>;
+    destroy: () => Promise<void>;
+  } | null = null;
   try {
+    parser = new PDFParse({ data: Buffer.from(base64, "base64") });
     const result = await parser.getText();
     return result.text?.trim() ?? "";
+  } catch (error) {
+    // pdf-parse can throw SyntaxError (e.g. Unterminated string in JSON) on bad PDFs.
+    // Never fail the whole agent run — continue with empty extract.
+    console.warn("[llm-completion] PDF text extraction failed:", error instanceof Error ? error.message : error);
+    return "";
   } finally {
-    await parser.destroy().catch(() => undefined);
+    await parser?.destroy().catch(() => undefined);
   }
 }
 
