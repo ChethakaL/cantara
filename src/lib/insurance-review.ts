@@ -119,3 +119,87 @@ export async function summarizeInsuranceClaimPdf(args: {
     modelId: args.modelId,
   });
 }
+
+/**
+ * Re-write the plain-English summary narrative from advisor-edited claim/policy fields and key facts
+ * (no document re-analysis). Claim fields and keyFacts are treated as ground truth and are frozen —
+ * only the `summary` narrative is regenerated so it stays aligned with the edited facts.
+ */
+export async function reanalyzeInsuranceReviewFromEdits(args: {
+  existingSummary: InsuranceReviewResult;
+  provider?: AgentAiProvider;
+  modelId?: string;
+}): Promise<InsuranceReviewResult> {
+  const provider = args.provider ?? getActiveAgentProvider();
+  const modelId = args.modelId ?? getActiveAgentModelId();
+  const ex = args.existingSummary;
+
+  const authoritative = {
+    claimType: ex.claimType,
+    incidentDate: ex.incidentDate,
+    withinLast12Months: ex.withinLast12Months,
+    incidentCause: ex.incidentCause,
+    amountClaimed: ex.amountClaimed,
+    amountRequested: ex.amountRequested,
+    status: ex.status,
+    keyFacts: ex.keyFacts,
+  };
+
+  const prompt = `You are the Insurance Review Agent for a business sale-readiness and M&A diligence portal.
+
+An advisor manually corrected the claim/policy fields and key facts on an existing Insurance Review summary. REWRITE only the plain-English summary narrative to align with those corrected values. Do not invent new facts beyond what is listed below.
+
+## AUTHORITATIVE ADVISOR-EDITED DATA (ground truth — do not contradict)
+${JSON.stringify(authoritative, null, 2)}
+
+Rules:
+- The summary must be commercially useful for an advisor evaluating business insurance adequacy and liability risk.
+- Accurately reflect claimType, status, incidentDate/withinLast12Months, incidentCause, amountClaimed/amountRequested, and keyFacts.
+- 2-4 sentences, plain English, no markdown.
+- If status is "active_no_claims", make clear there are no adverse claims driving the assessment.
+- If withinLast12Months is false and there IS a claim, the summary must reflect that the incident is older than 12 months.
+- Use "None" or "Unknown" language consistent with fields left as such.
+
+Return ONLY valid JSON: { "summary": "<new summary>" }`;
+
+  let rawText: string;
+  if (provider === 'openai') {
+    rawText = await createAgentMessage({
+      provider,
+      model: modelId,
+      system: '',
+      content: prompt,
+      maxTokens: 600,
+      temperature: 0,
+    });
+  } else {
+    const client = await requireAIClient();
+    const response = await client.messages.create({
+      model: resolveModel('claude-opus-4-5'),
+      max_tokens: 600,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    rawText = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => ('text' in block ? block.text : ''))
+      .join('')
+      .trim();
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    parsed = JSON.parse(start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned) as Record<string, unknown>;
+  } catch (err) {
+    console.error('[Insurance Review] Reanalyze parse failed:', rawText.slice(0, 500));
+    throw err instanceof Error ? err : new Error('Insurance reanalyze returned unparseable JSON. Please retry.');
+  }
+
+  return {
+    ...ex,
+    summary: typeof parsed.summary === 'string' && parsed.summary.trim() ? parsed.summary : ex.summary,
+  };
+}

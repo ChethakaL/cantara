@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   Circle,
@@ -54,6 +55,7 @@ type RoadmapAgentSource = {
   required: false
   ready: boolean
   note: string
+  changed?: boolean
 }
 
 function StatusBadge({ text }: { text: string }) {
@@ -112,6 +114,7 @@ function ChecklistApprovalPanel({
   clientName,
   items,
   sourceAgents = [],
+  changedSourceNames = [],
   disabled = false,
   onUpdated,
   onEditingChange,
@@ -120,6 +123,7 @@ function ChecklistApprovalPanel({
   clientName: string
   items: SaleReadinessChecklistItem[]
   sourceAgents?: string[]
+  changedSourceNames?: string[]
   disabled?: boolean
   onUpdated: (items: SaleReadinessChecklistItem[]) => void
   onEditingChange?: (editing: boolean) => void
@@ -130,6 +134,20 @@ function ChecklistApprovalPanel({
   const [saveError, setSaveError] = useState<string | null>(null)
   const rows = editing ? draft : items
   const approvedCount = rows.filter(item => item.advisorApproved).length
+  const changedNameSet = useMemo(() => {
+    const set = new Set(changedSourceNames.map((n) => n.trim().toLowerCase()))
+    return set
+  }, [changedSourceNames])
+
+  const isSourceChanged = (name: string) => {
+    const n = name.trim().toLowerCase()
+    if (changedNameSet.has(n)) return true
+    // Match "Digital Presence" vs "Digital Presence Agent"
+    for (const changed of Array.from(changedNameSet)) {
+      if (n.includes(changed) || changed.includes(n.replace(/\s+agent$/, ''))) return true
+    }
+    return false
+  }
 
   const setEditingMode = (next: boolean) => {
     setEditing(next)
@@ -293,11 +311,25 @@ function ChecklistApprovalPanel({
         <div className="border-b border-slate-100 bg-white px-4 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Using completed agent outputs</p>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {sourceAgents.map(name => (
-              <span key={name} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                {name}
-              </span>
-            ))}
+            {sourceAgents.map(name => {
+              const changed = isSourceChanged(name)
+              return (
+                <span
+                  key={name}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]',
+                    changed
+                      ? 'border-amber-300 bg-amber-50 text-amber-900 font-medium'
+                      : 'border-slate-200 bg-slate-50 text-slate-600',
+                  )}
+                  title={changed ? 'Edited after this roadmap was generated — regenerate to include latest' : undefined}
+                >
+                  {changed && <AlertTriangle className="w-3 h-3 shrink-0" />}
+                  {name}
+                  {changed ? ' · Edited' : ''}
+                </span>
+              )
+            })}
           </div>
         </div>
       )}
@@ -656,6 +688,7 @@ export default function ImprovementRoadmapTab({
   const [report, setReport] = useState<RoadmapReport | null>(null)
   const [sources, setSources] = useState<RoadmapAgentSource[]>([])
   const [canGenerateChecklist, setCanGenerateChecklist] = useState(false)
+  const [sourcesChanged, setSourcesChanged] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [generating, setGenerating] = useState<'checklist' | 'report' | null>(null)
@@ -680,6 +713,10 @@ export default function ImprovementRoadmapTab({
   const hasChecklist = Boolean(report)
   const hasFullReport = stage === 'report' && Boolean(report?.markdown?.trim())
   const readyCount = sources.filter(source => source.ready).length
+  const changedSourceNames = useMemo(
+    () => sources.filter((s) => s.changed).map((s) => s.name),
+    [sources],
+  )
 
   const loadFromApi = useCallback(async () => {
     setError(null)
@@ -690,6 +727,7 @@ export default function ImprovementRoadmapTab({
       setReport(data.report)
       setSources(Array.isArray(data.sources) ? data.sources : [])
       setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
+      setSourcesChanged(Boolean(data.sourcesChanged))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load roadmap.')
     }
@@ -712,6 +750,7 @@ export default function ImprovementRoadmapTab({
         if (!activeRun?.report) setReport(data.report)
         setSources(Array.isArray(data.sources) ? data.sources : [])
         setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
+        setSourcesChanged(Boolean(data.sourcesChanged))
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load roadmap.')
       } finally {
@@ -771,7 +810,9 @@ export default function ImprovementRoadmapTab({
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to generate roadmap.')
         setReport(data.report)
+        setSourcesChanged(false)
         await persistRun(data.report)
+        await loadFromApi()
         return
       }
       const res = await fetch('/api/improvement-roadmap', {
@@ -782,7 +823,9 @@ export default function ImprovementRoadmapTab({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Failed to generate ${nextStage === 'checklist' ? 'checklist' : 'roadmap'}.`)
       setReport(data.report)
+      setSourcesChanged(false)
       await persistRun(data.report)
+      await loadFromApi()
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to generate ${nextStage === 'checklist' ? 'checklist' : 'roadmap'}.`)
     } finally {
@@ -956,7 +999,11 @@ export default function ImprovementRoadmapTab({
                       key={source.key}
                       className={cn(
                         'rounded-xl border p-4 transition-all shadow-2xs',
-                        source.ready ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200/80 bg-white',
+                        source.changed
+                          ? 'border-amber-300 bg-amber-50/50'
+                          : source.ready
+                            ? 'border-emerald-200 bg-emerald-50/40'
+                            : 'border-slate-200/80 bg-white',
                       )}
                     >
                       <div className="flex items-start justify-between gap-4">
@@ -965,10 +1012,14 @@ export default function ImprovementRoadmapTab({
                             <div
                               className={cn(
                                 'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
-                                source.ready ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400',
+                                source.changed
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : source.ready
+                                    ? 'bg-emerald-50 text-emerald-600'
+                                    : 'bg-slate-100 text-slate-400',
                               )}
                             >
-                              <FileText className="w-4 h-4" />
+                              {source.changed ? <AlertTriangle className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
@@ -976,7 +1027,11 @@ export default function ImprovementRoadmapTab({
                                 <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
                                   Optional
                                 </span>
-                                {source.ready ? (
+                                {source.changed ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300">
+                                    <AlertTriangle className="w-3 h-3" /> Edited — regenerate
+                                  </span>
+                                ) : source.ready ? (
                                   <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
                                     <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Ready
                                   </span>
@@ -988,9 +1043,11 @@ export default function ImprovementRoadmapTab({
                               </div>
                               <p className="text-xs text-slate-500 mt-1 leading-relaxed">{source.note}</p>
                               <p className="text-[11px] text-slate-400 mt-1.5">
-                                {source.ready
-                                  ? 'Agent report complete. Will be included when generating the checklist.'
-                                  : 'Not generated yet — optional. Checklist can still run without this agent.'}
+                                {source.changed
+                                  ? 'This source was edited after the roadmap was generated. Regenerate the checklist to pull in the latest output.'
+                                  : source.ready
+                                    ? 'Agent report complete. Will be included when generating the checklist.'
+                                    : 'Not generated yet — optional. Checklist can still run without this agent.'}
                               </p>
                             </div>
                           </div>
@@ -1087,9 +1144,14 @@ export default function ImprovementRoadmapTab({
               variant="primary"
               onClick={() => void generate('report')}
               disabled={generating !== null || approvedCount === 0 || editingChecklist}
+              className={cn(sourcesChanged && 'bg-amber-700 hover:bg-amber-800 border-amber-700')}
             >
               <RefreshCw className={cn('w-3.5 h-3.5', generating === 'report' && 'animate-spin')} />
-              {generating === 'report' ? 'Generating...' : 'Re-run Roadmap'}
+              {generating === 'report'
+                ? 'Generating...'
+                : sourcesChanged
+                  ? 'Re-run Roadmap (sources edited)'
+                  : 'Re-run Roadmap'}
             </Button>
           )}
           <Button
@@ -1097,15 +1159,55 @@ export default function ImprovementRoadmapTab({
             variant="outline"
             onClick={() => void generate('checklist')}
             disabled={generating !== null || editingChecklist || !canGenerateChecklist}
+            className={cn(sourcesChanged && 'border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100')}
           >
             <RefreshCw className={cn('w-3.5 h-3.5', generating === 'checklist' && 'animate-spin')} />
-            {hasChecklist ? 'Regenerate Checklist' : 'Generate Checklist'}
+            {generating === 'checklist'
+              ? 'Generating...'
+              : sourcesChanged
+                ? 'Regenerate Checklist (sources edited)'
+                : hasChecklist
+                  ? 'Regenerate Checklist'
+                  : 'Generate Checklist'}
           </Button>
           {hasFullReport && (
             <ExportReportButton html={html} fileName={`${clientName} - Sales Readiness Roadmap.pdf`} label="Export PDF" />
           )}
         </div>
       </div>
+
+      {sourcesChanged && !readOnly && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-950">Source agents were edited</p>
+              <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                One or more diligence outputs changed after this roadmap was generated
+                {changedSourceNames.length > 0 ? (
+                  <>
+                    {' '}
+                    (<span className="font-medium">{changedSourceNames.slice(0, 4).join(', ')}</span>
+                    {changedSourceNames.length > 4 ? ` +${changedSourceNames.length - 4} more` : ''})
+                  </>
+                ) : null}
+                . Regenerate the checklist
+                {hasFullReport ? ' (then re-run the roadmap)' : ''} to include the latest edits.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            disabled={generating !== null || editingChecklist || !canGenerateChecklist}
+            onClick={() => void generate('checklist')}
+            className="h-8 text-xs shrink-0 bg-amber-700 hover:bg-amber-800 text-white"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5 mr-1', generating === 'checklist' && 'animate-spin')} />
+            Regenerate checklist
+          </Button>
+        </div>
+      )}
 
       {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
@@ -1154,6 +1256,7 @@ export default function ImprovementRoadmapTab({
             clientName={clientName}
             items={checklistItems}
             sourceAgents={report?.sourceAgents ?? []}
+            changedSourceNames={changedSourceNames}
             disabled={generating !== null}
             onUpdated={(items) => setReport(current => current ? { ...current, checklist: items } : current)}
             onEditingChange={setEditingChecklist}

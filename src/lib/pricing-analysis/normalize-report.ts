@@ -4,9 +4,33 @@ import type {
   PricingFlag,
   PricingSummaryRow,
 } from './types'
+import { parsePriceForChart, unglueSuspiciousPrice } from './parse-price'
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? value : []
+}
+
+function sanitizeMoneyString(value: string): string {
+  const t = String(value ?? '').trim()
+  if (!t) return ''
+  // If the whole string is a glued integer, replace with repaired dollar amount.
+  const onlyInt = t.match(/^\$?\s*(\d{4,6})\s*$/)
+  if (onlyInt) {
+    const raw = Number(onlyInt[1])
+    const fixed = unglueSuspiciousPrice(raw)
+    if (fixed !== raw) return `$${Number.isInteger(fixed) ? fixed : fixed.toFixed(2)}`
+  }
+  return t
+}
+
+function sanitizeNumeric(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Number.isInteger(value) ? unglueSuspiciousPrice(value) : value
+  }
+  if (typeof value === 'string') {
+    return parsePriceForChart(value)
+  }
+  return null
 }
 
 function migrateLegacyReport(raw: Record<string, unknown>): PricingAnalysisReport {
@@ -58,28 +82,24 @@ function normalizeNewReport(raw: Record<string, unknown>): PricingAnalysisReport
   const priceMatrix = asArray<Record<string, unknown>>(raw.priceMatrix).map(row => ({
     service: String(row.service ?? ''),
     basis: String(row.basis ?? ''),
-    sellerPrice: String(row.sellerPrice ?? ''),
-    sellerNormalized: String(row.sellerNormalized ?? ''),
-    sellerNormalizedNumeric:
-      typeof row.sellerNormalizedNumeric === 'number' ? row.sellerNormalizedNumeric : null,
+    sellerPrice: sanitizeMoneyString(String(row.sellerPrice ?? '')),
+    sellerNormalized: sanitizeMoneyString(String(row.sellerNormalized ?? '')),
+    sellerNormalizedNumeric: sanitizeNumeric(row.sellerNormalizedNumeric ?? row.sellerNormalized ?? row.sellerPrice),
     competitors: asArray<Record<string, unknown>>(row.competitors).map(comp => ({
       name: String(comp.name ?? ''),
-      listedPrice: String(comp.listedPrice ?? ''),
-      normalized: String(comp.normalized ?? ''),
-      normalizedNumeric:
-        typeof comp.normalizedNumeric === 'number' ? comp.normalizedNumeric : null,
+      listedPrice: sanitizeMoneyString(String(comp.listedPrice ?? '')),
+      normalized: sanitizeMoneyString(String(comp.normalized ?? '')),
+      normalizedNumeric: sanitizeNumeric(comp.normalizedNumeric ?? comp.normalized ?? comp.listedPrice),
       normalizationNote: String(comp.normalizationNote ?? ''),
     })),
   }))
 
   const pricingSummary = asArray<Record<string, unknown>>(raw.pricingSummary).map(row => ({
     service: String(row.service ?? ''),
-    sellerPrice: String(row.sellerPrice ?? ''),
-    sellerPriceNumeric:
-      typeof row.sellerPriceNumeric === 'number' ? row.sellerPriceNumeric : null,
-    competitorAvg: String(row.competitorAvg ?? ''),
-    competitorAvgNumeric:
-      typeof row.competitorAvgNumeric === 'number' ? row.competitorAvgNumeric : null,
+    sellerPrice: sanitizeMoneyString(String(row.sellerPrice ?? '')),
+    sellerPriceNumeric: sanitizeNumeric(row.sellerPriceNumeric ?? row.sellerPrice),
+    competitorAvg: sanitizeMoneyString(String(row.competitorAvg ?? '')),
+    competitorAvgNumeric: sanitizeNumeric(row.competitorAvgNumeric ?? row.competitorAvg),
     variance: String(row.variance ?? ''),
     variancePercent: typeof row.variancePercent === 'number' ? row.variancePercent : null,
     status: (row.status as PricingSummaryRow['status']) ?? 'unknown',

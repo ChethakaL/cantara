@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { analyzeOrgChart } from '@/lib/org-chart/analyze'
+import { analyzeOrgChart, reanalyzeOrgChartFromEdits } from '@/lib/org-chart/analyze'
+import type { OrgChartAnalysis } from '@/lib/org-chart/analyze'
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
@@ -10,6 +11,33 @@ export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
   try {
+    const contentType = req.headers.get('content-type') || ''
+
+    // Edit-aware path: JSON body, no document re-analysis.
+    if (contentType.includes('application/json')) {
+      const body = await req.json()
+      const { reanalyzeFromEdits, existingReport, provider: rawProvider, modelId: requestedModelId } = body ?? {}
+      if (!reanalyzeFromEdits) {
+        return NextResponse.json({ error: 'JSON body requires reanalyzeFromEdits: true' }, { status: 400 })
+      }
+      if (!existingReport || typeof existingReport !== 'object' || !Array.isArray(existingReport.roles)) {
+        return NextResponse.json({ error: 'reanalyzeFromEdits requires existingReport with roles.' }, { status: 400 })
+      }
+
+      const provider = parseAnalyzeProvider(rawProvider)
+      const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+      if (provider === 'openai') {
+        const gate = await assertOpenAiConfiguredForAnalyze()
+        if (gate) return gate
+      }
+
+      const report = await reanalyzeOrgChartFromEdits(existingReport as OrgChartAnalysis, {
+        provider,
+        modelId,
+      })
+      return NextResponse.json({ report })
+    }
+
     const formData = await req.formData()
     const file = formData.get('file') as File
     if (!file) return new Response('No file provided', { status: 400 })

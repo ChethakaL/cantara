@@ -122,16 +122,41 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── PATCH: Save geocoded map data ────────────────────────────────────────────
+// ── PATCH: Save geocoded map data (+ optional Bedrock insight refresh on edit) ─
 
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const clientId = String(body.clientId || '')
-    const mapData = body.mapData
+    let mapData = body.mapData
+    const reanalyzeFromEdits = Boolean(body.reanalyzeFromEdits)
+    const statsSnapshot = body.statsSnapshot
+    const clientName = typeof body.clientName === 'string' ? body.clientName : undefined
 
     if (!clientId || !mapData) {
       return new Response('clientId and mapData required', { status: 400 })
+    }
+
+    // Edit-only AI path: refresh insights/narrative from advisor-overridden stats via Bedrock (no UI provider choice).
+    if (reanalyzeFromEdits) {
+      if (!statsSnapshot || typeof statsSnapshot !== 'object') {
+        return NextResponse.json(
+          { error: 'reanalyzeFromEdits requires statsSnapshot.' },
+          { status: 400 },
+        )
+      }
+      const { reanalyzeLocationMapInsightsFromEdits } = await import('@/lib/client-location-map/reanalyze')
+      const refreshed = await reanalyzeLocationMapInsightsFromEdits({
+        ...statsSnapshot,
+        facilityAddress: mapData.facilityAddress,
+        clientName,
+      })
+      mapData = {
+        ...mapData,
+        insights: refreshed.insights,
+        narrativeSummary: refreshed.narrativeSummary,
+        insightsUpdatedAt: new Date().toISOString(),
+      }
     }
 
     const client = await prisma.clientProfile.findUnique({
@@ -157,10 +182,11 @@ export async function PATCH(req: NextRequest) {
       },
     })
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, mapData })
   } catch (error) {
     console.error('[client-location-map] PATCH error:', error)
-    return new Response('Internal Server Error', { status: 500 })
+    const message = error instanceof Error ? error.message : 'Internal Server Error'
+    return new Response(message, { status: 500 })
   }
 }
 

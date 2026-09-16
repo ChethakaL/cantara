@@ -39,7 +39,30 @@ export async function POST(req: NextRequest) {
       employmentTypeBreakdown,
       provider: rawProvider,
       modelId: requestedModelId,
+      reanalyzeFromEdits,
+      existingReport,
+      clientId,
+      reportId,
     } = body
+
+    if (reanalyzeFromEdits) {
+      if (!existingReport || typeof existingReport !== 'object') {
+        return NextResponse.json(
+          { error: 'reanalyzeFromEdits requires existingReport.' },
+          { status: 400 },
+        )
+      }
+      const provider = parseAnalyzeProvider(rawProvider)
+      const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+      const { reanalyzeEmployeeObligationsFromEdits } = await import('@/lib/ws1-6/reanalyze')
+
+      const nextReport = await reanalyzeEmployeeObligationsFromEdits(existingReport, {
+        provider,
+        modelId,
+      })
+
+      return NextResponse.json({ report: nextReport })
+    }
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
       return new Response('No documents provided', { status: 400 })

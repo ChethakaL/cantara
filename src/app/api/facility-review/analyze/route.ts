@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { analyzeFacilityImages } from '@/lib/facility-review/analyze'
+import { analyzeFacilityImages, reanalyzeFacilityReviewFromEdits } from '@/lib/facility-review/analyze'
+import type { FacilityReviewReport } from '@/lib/facility-review/types'
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
@@ -14,6 +15,33 @@ const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 
 export async function POST(req: NextRequest) {
   try {
+    const contentType = req.headers.get('content-type') || ''
+
+    // Edit-aware path: JSON body, no image re-analysis.
+    if (contentType.includes('application/json')) {
+      const body = await req.json()
+      const { reanalyzeFromEdits, existingReport, provider: rawProvider, modelId: requestedModelId } = body ?? {}
+      if (!reanalyzeFromEdits) {
+        return NextResponse.json({ error: 'JSON body requires reanalyzeFromEdits: true' }, { status: 400 })
+      }
+      if (!existingReport || typeof existingReport !== 'object' || !Array.isArray(existingReport.zones)) {
+        return NextResponse.json({ error: 'reanalyzeFromEdits requires existingReport with zones.' }, { status: 400 })
+      }
+
+      const provider = parseAnalyzeProvider(rawProvider)
+      const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+      if (provider === 'openai') {
+        const gate = await assertOpenAiConfiguredForAnalyze()
+        if (gate) return gate
+      }
+
+      const report = await reanalyzeFacilityReviewFromEdits(existingReport as FacilityReviewReport, {
+        provider,
+        modelId,
+      })
+      return NextResponse.json({ report })
+    }
+
     const formData = await req.formData()
     const businessName = String(formData.get('businessName') || '').trim()
     const location = String(formData.get('location') || '').trim()

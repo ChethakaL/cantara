@@ -21,8 +21,8 @@ function normalizeDocumentSlotId(documentId: string): string {
 }
 
 const DOCUMENT_UPLOAD_RULES: Record<string, UploadRuleKind> = {
-  monthly_pl_excel: 'excel',
-  monthly_bs_excel: 'excel',
+  monthly_pl_excel: 'pdf_or_excel',
+  monthly_bs_excel: 'pdf_or_excel',
   accountant_statements: 'pdf_or_excel',
   shareholder_remuneration_36m: 'spreadsheet',
   personal_expenses_36m: 'spreadsheet',
@@ -81,8 +81,8 @@ const DOCUMENT_UPLOAD_RULES: Record<string, UploadRuleKind> = {
 }
 
 export const SINGLE_FILE_DOCUMENT_IDS = new Set([
-  'monthly_pl_excel',
-  'monthly_bs_excel',
+  // monthly_pl_excel / monthly_bs_excel intentionally multi-file so PDF packs
+  // (and Excel) can coexist; valuation prefers Excel when both are present.
   'employee_list',
   'occupancy_review',
   'client_addresses',

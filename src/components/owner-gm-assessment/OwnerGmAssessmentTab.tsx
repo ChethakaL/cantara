@@ -120,6 +120,7 @@ export default function OwnerGmAssessmentTab({
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [startingNew, setStartingNew] = useState(false)
@@ -220,6 +221,64 @@ export default function OwnerGmAssessmentTab({
 
   const updateAssessment = (updates: Partial<OwnerGmAssessment>) => {
     setAssessment(current => current ? { ...current, ...updates } : current)
+  }
+
+  // ── Cancel edit mode (edits already autosaved as draft; just close edit mode) ──
+  const handleCancelEdit = () => {
+    if (reanalyzing) return
+    setEditMode(false)
+    setError(null)
+  }
+
+  // ── Update analysis from edits: persist edited ratings/owners/gm/team, then ask AI
+  // to refresh executiveSummary/flags/recommendations/counselItems from that data. ──
+  const handleReanalyzeFromEdits = async () => {
+    if (!assessment || readOnly) return
+    setReanalyzing(true)
+    setError(null)
+    try {
+      // Ensure the latest edits are persisted before asking the model to reanalyze.
+      await persistAssessment(assessment, { silent: true })
+
+      const res = await fetch('/api/owner-gm-assessment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          reanalyzeFromEdits: true,
+          assessment,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || `Update analysis failed (${res.status})`)
+      }
+      const data = await res.json()
+      const nextAssessment = data.assessment as OwnerGmAssessment
+      if (!nextAssessment?.owners) throw new Error('Update analysis returned an empty assessment')
+
+      setAssessment(nextAssessment)
+      lastSavedSnapshotRef.current = JSON.stringify(nextAssessment)
+      setEditMode(false)
+
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.ownerGmAssessment,
+        fileName: fileName || `${clientName} — Owner & GM Assessment`,
+        report: nextAssessment,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns({ selectNewest: true })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update analysis from edits')
+    } finally {
+      setReanalyzing(false)
+    }
   }
 
   const handleStageFile = (file: File) => {
@@ -377,22 +436,35 @@ export default function OwnerGmAssessmentTab({
                 <span>+ New Assessment</span>
               </button>
             )}
-            <button
-              onClick={() => {
-                if (editMode && assessment) void persistAssessment(assessment)
-                setEditMode(!editMode)
-              }}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border',
-                editMode
-                  ? 'bg-amber-50 text-amber-700 border-amber-300'
-                  : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'
-              )}
-              disabled={saving}
-            >
-              {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-              <span>{saving ? 'Saving...' : editMode ? 'Done Editing' : 'Edit Output'}</span>
-            </button>
+            {!editMode ? (
+              <button
+                onClick={() => setEditMode(true)}
+                disabled={saving || reanalyzing}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border bg-white text-slate-600 hover:bg-slate-50 border-slate-200 disabled:opacity-60"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edit Output</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleCancelEdit}
+                  disabled={reanalyzing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-60"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Cancel</span>
+                </button>
+                <button
+                  onClick={() => void handleReanalyzeFromEdits()}
+                  disabled={reanalyzing || saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-60"
+                >
+                  <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
+                  <span>{reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}</span>
+                </button>
+              </>
+            )}
             {saved && <span className="text-xs font-semibold text-emerald-600 animate-pulse">Saved</span>}
             <ExportReportButton
               html={buildOwnerGmReportHtml(assessment, clientName)}
@@ -437,6 +509,16 @@ export default function OwnerGmAssessmentTab({
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
+        </div>
+      )}
+
+      {/* Edit mode banner */}
+      {showReport && editMode && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3">
+          <Pencil className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-700 leading-relaxed">
+            Edit mode active. Change ratings, owner profiles, GM profile, or the senior management bench, then click <strong>Update analysis from edits</strong> to save and refresh the executive summary, flags, recommendations, and counsel items.
+          </p>
         </div>
       )}
 

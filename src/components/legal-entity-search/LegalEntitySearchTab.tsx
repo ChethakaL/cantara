@@ -136,6 +136,7 @@ const OPTIONAL_CATEGORIES: CategoryDef[] = [
     description:
       'USPTO trademark registration certificates, state trademark filings, brand copyrights, and intellectual property assignments.',
     icon: Award,
+    portalIds: ['intellectual_property'],
   },
   {
     id: 'registered_agent_confirmations',
@@ -153,6 +154,7 @@ const ALL_PORTAL_IDS = [
   'good_standing_certificate',
   'operating_agreement_bylaws',
   'shareholder_agreement',
+  'intellectual_property',
 ]
 
 // ── Legal Document Row Component ───────────────────────────────────────────

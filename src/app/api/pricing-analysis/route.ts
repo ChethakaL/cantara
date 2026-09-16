@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { analyzePricing } from '@/lib/pricing-analysis/analyze'
+import { analyzePricing, reanalyzePricingFromEdits } from '@/lib/pricing-analysis/analyze'
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
   resolveAnalyzeModelId,
 } from '@/lib/agent-analyze-provider'
 import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
-import type { CompetitorPricingInput } from '@/lib/pricing-analysis/types'
+import type { CompetitorPricingInput, PricingAnalysisReport } from '@/lib/pricing-analysis/types'
 import { normalizePricingReport } from '@/lib/pricing-analysis/normalize-report'
 import { researchWebsite } from '@/lib/competitor-analysis/website-research'
 
@@ -76,7 +76,17 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { clientId, sellerWebsiteUrl, sellerManualPricingText, competitors, provider: rawProvider, modelId: requestedModelId } = await req.json()
+    const body = await req.json()
+    const {
+      clientId,
+      sellerWebsiteUrl,
+      sellerManualPricingText,
+      competitors,
+      provider: rawProvider,
+      modelId: requestedModelId,
+      reanalyzeFromEdits,
+      existingReport,
+    } = body ?? {}
 
     if (!clientId) {
       return new Response('Missing required field: clientId', { status: 400 })
@@ -87,6 +97,62 @@ export async function POST(req: NextRequest) {
     if (provider === 'openai') {
       const gate = await assertOpenAiConfiguredForAnalyze()
       if (gate) return gate
+    }
+
+    // Edit-aware path: no website re-scrape — refresh from advisor-edited matrix + manual evidence.
+    if (reanalyzeFromEdits) {
+      const base =
+        normalizePricingReport(existingReport) ??
+        null
+      if (!base || !Array.isArray(base.priceMatrix)) {
+        return NextResponse.json(
+          { error: 'reanalyzeFromEdits requires existingReport with priceMatrix.' },
+          { status: 400 },
+        )
+      }
+
+      const manualSellerEvidence = String(sellerManualPricingText ?? '').trim()
+      const competitorManualEvidence = ((competitors ?? []) as any[])
+        .map((c: any) => ({
+          name: String(c?.name ?? '').trim(),
+          websiteUrl: String(c?.websiteUrl ?? '').trim(),
+          manualPricingText: String(c?.manualPricingText ?? '').trim(),
+        }))
+        .filter((c: { name: string }) => Boolean(c.name))
+
+      const report = await runWithAgentLlmContext({ provider, modelId }, () =>
+        reanalyzePricingFromEdits(base as PricingAnalysisReport, {
+          sellerManualPricingText: manualSellerEvidence,
+          competitorManualEvidence,
+        }),
+      )
+
+      const clientProfile = await (prisma as any).clientProfile.findUnique({
+        where: { id: clientId },
+        select: { sectionSubmissions: true },
+      })
+      if (!clientProfile) return new Response('Client not found', { status: 404 })
+      const existing = (clientProfile.sectionSubmissions as Record<string, any>) ?? {}
+      existing.pricingAnalysis = report
+      // Persist manual evidence edits alongside the refreshed report so they don't revert.
+      existing.competitorPricingInputs = {
+        ...(existing.competitorPricingInputs ?? {}),
+        sellerWebsiteUrl:
+          String(sellerWebsiteUrl || existing.competitorPricingInputs?.sellerWebsiteUrl || '').trim()
+          || existing.competitorPricingInputs?.sellerWebsiteUrl
+          || '',
+        sellerManualPricingText: manualSellerEvidence || existing.competitorPricingInputs?.sellerManualPricingText || '',
+        competitors: competitorManualEvidence.length
+          ? competitorManualEvidence
+          : existing.competitorPricingInputs?.competitors ?? [],
+        updatedAt: new Date().toISOString(),
+      }
+      await (prisma as any).clientProfile.update({
+        where: { id: clientId },
+        data: { sectionSubmissions: existing },
+      })
+
+      return NextResponse.json(report)
     }
 
     const clientProfile = await (prisma as any).clientProfile.findUnique({

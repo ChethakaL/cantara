@@ -9,6 +9,7 @@ import {
   Camera,
   CheckCircle2,
   FileText,
+  FolderOpen,
   Loader2,
   Pencil,
   Plus,
@@ -371,6 +372,7 @@ export default function FacilityReviewTab({
   const [meetingNotesFile, setMeetingNotesFile] = useState<File | null>(null)
   const [extractingNotes, setExtractingNotes] = useState(false)
   const [advisorImages, setAdvisorImages] = useState<File[]>([])
+  const [supportingDocuments, setSupportingDocuments] = useState<File[]>([])
   const [reportRunMode, setReportRunMode] = useState<'standard' | 'advisor' | null>(null)
   const [intakeQuestions, setIntakeQuestions] = useState<FacilityIntakeQuestion[]>([])
   const [intakeResponses, setIntakeResponses] = useState<Record<string, string>>({})
@@ -383,6 +385,7 @@ export default function FacilityReviewTab({
   const [report, setReport] = useState<FacilityReviewReport | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -752,33 +755,76 @@ export default function FacilityReviewTab({
     } catch (err: any) {
       setError(err.message || 'Save failed')
       showToast(err.message || 'Save failed', 'error')
+      throw err
     } finally {
       setSaving(false)
     }
   }
 
+  const handleCancelEdit = () => {
+    if (reanalyzing) return
+    setEditMode(false)
+    setError(null)
+  }
+
+  const handleReanalyzeFromEdits = async () => {
+    if (!report || readOnly) return
+    setReanalyzing(true)
+    setError(null)
+    try {
+      await save()
+      const res = await fetch('/api/facility-review/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reanalyzeFromEdits: true,
+          existingReport: report,
+          provider,
+          modelId: resolveAgentModelId(provider),
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.error || (typeof data === 'string' ? data : null) || `Update analysis failed (${res.status})`)
+      }
+      const nextReport = (data.report ?? data) as FacilityReviewReport
+      if (!nextReport?.zones) throw new Error('Update analysis returned an empty report')
+
+      setReport(nextReport)
+      setEditMode(false)
+      lastSavedSnapshotRef.current = JSON.stringify(nextReport)
+      await persistFacilityRun(nextReport, reportRunMode ?? 'standard')
+      showToast('Analysis updated from your edits', 'success')
+    } catch (err: any) {
+      const message = err?.message || 'Failed to update analysis from edits'
+      setError(message)
+      showToast(message, 'error')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
+
   useEffect(() => {
-    if (!editMode || !report) return
+    if (!editMode || !report || reanalyzing) return
     const snapshot = JSON.stringify(report)
     if (snapshot === lastSavedSnapshotRef.current) return
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
     autoSaveTimeoutRef.current = setTimeout(() => {
-      void save()
+      void save().catch(() => {})
     }, 800)
     return () => {
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
     }
-  }, [editMode, report])
+  }, [editMode, report, reanalyzing])
 
   const updateReport = (updates: Partial<FacilityReviewReport>) => {
     setReport(current => current ? { ...current, ...updates } : current)
   }
 
-  const updateZone = (index: number, updates: Partial<FacilityReviewReport['zones'][number]>) => {
+  const updateZoneByName = (zoneName: string, updates: Partial<FacilityReviewReport['zones'][number]>) => {
     setReport(current => {
       if (!current) return current
-      const zones = [...current.zones]
-      zones[index] = { ...zones[index], ...updates }
+      const zones = current.zones.map((z) => (z.zone === zoneName ? { ...z, ...updates } : z))
       return { ...current, zones }
     })
   }
@@ -807,7 +853,10 @@ export default function FacilityReviewTab({
       form.append('location', location)
       form.append('meetingNotes', meetingNotes)
       if (meetingNotesFile) form.append('meetingNotesFile', meetingNotesFile)
+      form.append('provider', provider)
+      form.append('modelId', resolveAgentModelId(provider))
       advisorImages.forEach(file => form.append('images', file))
+      supportingDocuments.forEach(file => form.append('supportingDocuments', file))
       const res = await fetch('/api/facility-review/advisor-analyze', { method: 'POST', body: form })
       if (!res.ok) throw new Error(await res.text())
       const nextReport = await res.json() as FacilityReviewReport
@@ -856,6 +905,28 @@ export default function FacilityReviewTab({
     multiple: true,
     maxFiles: 20,
     maxSize: 5 * 1024 * 1024,
+  })
+
+  const onSupportingDocsDrop = useCallback((accepted: File[]) => {
+    setSupportingDocuments((current) => {
+      const byKey = new Map(current.map((f) => [`${f.name}-${f.size}`, f]))
+      for (const file of accepted) byKey.set(`${file.name}-${file.size}`, file)
+      return Array.from(byKey.values()).slice(0, 8)
+    })
+    setError(null)
+  }, [])
+
+  const {
+    getRootProps: getSupportingDocsRootProps,
+    getInputProps: getSupportingDocsInputProps,
+    isDragActive: supportingDocsDragActive,
+  } = useDropzone({
+    onDrop: onSupportingDocsDrop,
+    accept: ACCEPTED_MEETING_NOTES_TYPES,
+    multiple: true,
+    maxFiles: 8,
+    maxSize: 15 * 1024 * 1024,
+    disabled: readOnly,
   })
 
   const extractMeetingNotesFile = useCallback(async (file: File) => {
@@ -986,24 +1057,39 @@ export default function FacilityReviewTab({
           </div>
 
           {!readOnly && (
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  if (editMode) void save()
-                  setEditMode(!editMode)
-                }}
-                disabled={saving}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer',
-                  editMode
-                    ? 'bg-amber-50 text-amber-700 border-amber-300'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50',
-                )}
-              >
-                {editMode ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                {editMode ? 'Done Editing' : 'Edit Output'}
-              </button>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+              {!editMode ? (
+                <button
+                  type="button"
+                  onClick={() => setEditMode(true)}
+                  disabled={saving || reanalyzing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-60"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Edit Output
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    disabled={reanalyzing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleReanalyzeFromEdits()}
+                    disabled={reanalyzing || saving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <RotateCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
+                    {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+                  </button>
+                </>
+              )}
               <ExportReportButton
                 html={buildFacilityReviewReportHtml(report)}
                 fileName={`facility-review-${(report.businessName || clientName).replace(/\s+/g, '-').toLowerCase()}`}
@@ -1038,7 +1124,7 @@ export default function FacilityReviewTab({
           <AgentRunToolbar
             provider={provider}
             onProviderChange={setProvider}
-            disabled={analyzing || saving}
+            disabled={analyzing || saving || reanalyzing}
             historyItems={historyItems}
             activeId={activeId}
             onSelectRun={selectRun}
@@ -1053,7 +1139,7 @@ export default function FacilityReviewTab({
           <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3">
             <Pencil className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-amber-700 leading-relaxed">
-              Edit mode active. Click any zone score, narrative, or improvement row to edit in-place. Changes are auto-saved.
+              Edit mode active. Type zone notes (condition observations), then click <strong>Update analysis from edits</strong> — AI will re-score zones from your notes and refresh the overall narrative / buyer risk.
             </p>
           </div>
         )}
@@ -1121,13 +1207,14 @@ export default function FacilityReviewTab({
 
                 {editMode ? (
                   <textarea
-                    value={zone.narrative}
-                    onChange={e => updateZone(index, { narrative: e.target.value })}
+                    value={zone.narrative || zone.commentary || ''}
+                    onChange={e => updateZoneByName(zone.zone, { narrative: e.target.value, commentary: e.target.value })}
                     rows={3}
+                    placeholder="Type advisor notes for this zone…"
                     className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-amber-300"
                   />
                 ) : (
-                  <p className="text-xs text-slate-600 leading-relaxed">{zone.narrative}</p>
+                  <p className="text-xs text-slate-600 leading-relaxed">{zone.narrative || zone.commentary}</p>
                 )}
 
                 {zone.strengths?.length > 0 && (
@@ -1453,7 +1540,7 @@ export default function FacilityReviewTab({
             </div>
             <p className="text-slate-600 leading-relaxed">
               {runMode === 'advisor'
-                ? "The AI agent synthesizes the advisor's physical walkthrough notes, interview observations, and on-site visit photos into an executive physical condition scorecard with CapEx recommendations."
+                ? "The AI agent synthesizes the advisor's physical walkthrough notes, interview observations, supporting documents, and on-site visit photos into an executive physical condition scorecard with CapEx recommendations."
                 : 'The AI agent reviews physical condition across 6 operational zones (Exterior, Reception, Boarding/Daycare, Grooming, Outdoor, and Staff/Operations), estimating deferred maintenance, rating curb appeal, and prioritizing capital improvements.'}
             </p>
           </div>
@@ -1622,6 +1709,71 @@ export default function FacilityReviewTab({
               )}
             </div>
 
+            {/* Card 2b: Additional Supporting Documents */}
+            <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3.5">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-violet-50 border border-violet-100 text-violet-600 flex items-center justify-center shrink-0">
+                    <FolderOpen className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900 truncate">Additional Supporting Documents</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                        {supportingDocuments.length} staged
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      Optional CapEx lists, inspection reports, maintenance logs, permits — sent to AI as context
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                {...getSupportingDocsRootProps()}
+                className={cn(
+                  'rounded-lg border border-dashed p-4 text-center transition-colors',
+                  readOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer',
+                  supportingDocsDragActive ? 'bg-violet-50 border-violet-300' : 'border-slate-200 hover:bg-slate-50',
+                )}
+              >
+                <input {...getSupportingDocsInputProps()} />
+                <Upload className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                <p className="text-xs font-semibold text-slate-700">Drop supporting documents here, or click to browse</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  PDF preferred (sent as the real file to AI). TXT attached as text document. DOCX converted to text document. Up to 8 files, 15MB each.
+                </p>
+              </div>
+
+              {supportingDocuments.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  {supportingDocuments.map((file, index) => (
+                    <div
+                      key={`${file.name}-${file.size}-${index}`}
+                      className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-violet-600 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium text-slate-800">{file.name}</p>
+                        <p className="text-[10px] text-slate-400">{(file.size / 1024 / 1024).toFixed(2)} MB — attached as AI document file</p>
+                      </div>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => setSupportingDocuments((current) => current.filter((_, i) => i !== index))}
+                          className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
+                          title="Remove supporting document"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Card 3: Visit Photos */}
             <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3.5">
               <div className="flex items-center justify-between gap-4">
@@ -1696,8 +1848,8 @@ export default function FacilityReviewTab({
                   <span className="text-xs text-emerald-700 font-medium inline-flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     {meetingNotesFile && !meetingNotes.trim()
-                      ? `Meeting notes file staged with ${advisorImages.length} photo(s). Ready for advisor review.`
-                      : `Meeting notes and ${advisorImages.length} photo(s) staged. Ready for advisor review.`}
+                      ? `Meeting notes file staged with ${advisorImages.length} photo(s)${supportingDocuments.length ? ` and ${supportingDocuments.length} supporting doc(s)` : ''}. Ready for advisor review.`
+                      : `Meeting notes and ${advisorImages.length} photo(s)${supportingDocuments.length ? ` + ${supportingDocuments.length} supporting doc(s)` : ''} staged. Ready for advisor review.`}
                   </span>
                 ) : (
                   <span className="text-xs text-amber-700 font-medium inline-flex items-center gap-1.5">

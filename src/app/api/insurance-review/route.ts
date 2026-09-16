@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   parseStoredInsuranceReview,
+  reanalyzeInsuranceReviewFromEdits,
   serializeInsuranceReview,
   summarizeInsuranceDocuments,
   type InsuranceDocumentInput,
 } from "@/lib/insurance-review";
+import type { InsuranceReviewResult } from "@/lib/insurance-review-shared";
 import { assertS3Configured, s3BucketName, s3Client } from "@/lib/s3";
 import {
   assertOpenAiConfiguredForAnalyze,
@@ -86,8 +88,13 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    assertS3Configured();
-    const { clientId, provider: rawProvider, modelId: requestedModelId } = await req.json();
+    const {
+      clientId,
+      provider: rawProvider,
+      modelId: requestedModelId,
+      reanalyzeFromEdits,
+      existingSummary,
+    } = await req.json();
 
     if (!clientId) {
       return new Response("Missing clientId", { status: 400 });
@@ -101,6 +108,50 @@ export async function POST(req: NextRequest) {
       const gate = await assertOpenAiConfiguredForAnalyze();
       if (gate) return gate;
     }
+
+    // Edit-aware path: no document re-analysis — rewrite the narrative summary from
+    // advisor-edited claim/policy fields and key facts (frozen as ground truth).
+    if (reanalyzeFromEdits) {
+      if (!existingSummary || typeof existingSummary !== "object" || typeof existingSummary.summary !== "string") {
+        return NextResponse.json(
+          { error: "reanalyzeFromEdits requires existingSummary with a summary field." },
+          { status: 400 },
+        );
+      }
+
+      const refreshed = await reanalyzeInsuranceReviewFromEdits({
+        existingSummary: existingSummary as InsuranceReviewResult,
+        provider,
+        modelId,
+      });
+
+      const docsToUpdate = await (prisma as any).clientDocument.findMany({
+        where: {
+          clientId,
+          documentId: { in: ["insurance_policies", "insurance_claims_12m"] },
+        },
+        select: { id: true },
+      });
+
+      for (const doc of docsToUpdate) {
+        await (prisma as any).clientDocument.update({
+          where: { id: doc.id },
+          data: {
+            aiDetectedType: refreshed.claimType || "unknown",
+            aiReviewStatus: refreshed.status || "complete",
+            aiReviewSummary: serializeInsuranceReview(refreshed),
+            aiReviewFlags: refreshed.withinLast12Months === false
+              ? [`Claim is older than 12 months${refreshed.incidentDate && refreshed.incidentDate !== "Unknown" ? ` (incident date: ${refreshed.incidentDate})` : ""}.`]
+              : [],
+            aiReviewedAt: new Date(),
+          },
+        });
+      }
+
+      return NextResponse.json({ summary: refreshed });
+    }
+
+    assertS3Configured();
 
     const documents = await (prisma as any).clientDocument.findMany({
       where: {

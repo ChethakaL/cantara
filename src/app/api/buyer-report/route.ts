@@ -8,6 +8,11 @@ import {
 } from '@/lib/agent-analyze-provider'
 import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 import { createAgentMessage } from '@/lib/llm-completion'
+import {
+  applySourceChangeFlags,
+  collectBuyerSourceFingerprints,
+  hasChangedSources,
+} from '@/lib/source-freshness'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -29,9 +34,12 @@ export async function GET(req: NextRequest) {
   const roadmap = readRoadmapSubmission(submissions)
   const roadmapReady = Boolean(roadmap?.stage === 'report' && roadmap.markdown?.trim())
 
-  const sources = await checkAgentSources(clientId, workstream, submissions)
+  const fingerprints = await collectBuyerSourceFingerprints(clientId, workstream, submissions)
+  const rawSources = await checkAgentSources(clientId, workstream, submissions)
+  const sources = applySourceChangeFlags(rawSources, fingerprints, report?.sourceFingerprints, report?.generatedAt)
+  const sourcesChanged = Boolean(report) && hasChangedSources(sources)
 
-  return NextResponse.json({ report, roadmapReady, sources })
+  return NextResponse.json({ report, roadmapReady, sources, sourcesChanged })
 }
 
 export async function DELETE(req: NextRequest) {
@@ -202,12 +210,15 @@ ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`)
     }),
   )
 
+  const fingerprints = await collectBuyerSourceFingerprints(clientId, workstream, submissions)
+
   const report = {
     workstream,
     workstreamLabel: wsLabel,
     clientName,
     generatedAt: new Date().toISOString(),
     markdown,
+    sourceFingerprints: fingerprints,
   }
 
   const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>

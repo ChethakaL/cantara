@@ -29,15 +29,15 @@ export interface AgentDocumentSelection {
 export const VALUATION_DOCS: DocumentDef[] = [
   {
     id: 'monthly_pl_excel',
-    name: 'Monthly P&L Excel',
-    description: '36-month monthly P&L in Excel format with all GL codes visible.',
+    name: 'Monthly P&L',
+    description: '36-month monthly P&L as Excel (preferred, with GL codes) or monthly PDFs.',
     type: 'required',
     workstreams: ['ws1', 'ws2', 'both', 'ma'],
   },
   {
     id: 'monthly_bs_excel',
-    name: 'Monthly Balance Sheet Excel',
-    description: '36-month monthly balance sheet in Excel format with all GL codes visible.',
+    name: 'Monthly Balance Sheet',
+    description: '36-month monthly balance sheet as Excel (preferred, with GL codes) or monthly PDFs.',
     type: 'required',
     workstreams: ['ws1', 'ws2', 'both', 'ma'],
   },
