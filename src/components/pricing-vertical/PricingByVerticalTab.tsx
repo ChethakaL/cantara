@@ -209,6 +209,9 @@ const PRICING_DOCUMENT_SLOTS: PricingDocumentSlot[] = [
 function PricingSlotRow({
   slot,
   docs,
+  selectedIds,
+  onToggleSelect,
+  onSelectAll,
   onUpload,
   onDelete,
   uploading,
@@ -216,6 +219,9 @@ function PricingSlotRow({
 }: {
   slot: PricingDocumentSlot
   docs: Array<{ id: string; fileName: string; documentId: string; uploadedAt?: string }>
+  selectedIds: Set<string>
+  onToggleSelect: (docId: string) => void
+  onSelectAll: (docIds: string[], selected: boolean) => void
   onUpload: (documentId: string, files: FileList | null) => Promise<void>
   onDelete: (docId: string) => Promise<void>
   uploading: boolean
@@ -223,6 +229,8 @@ function PricingSlotRow({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const hasFiles = docs.length > 0
+  const selectedInSlot = docs.filter((d) => selectedIds.has(d.id)).length
+  const allSelected = hasFiles && selectedInSlot === docs.length
 
   return (
     <div
@@ -272,49 +280,90 @@ function PricingSlotRow({
                     Not provided
                   </span>
                 )}
+                {hasFiles && (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                    {selectedInSlot} of {docs.length} selected for AI
+                  </span>
+                )}
               </div>
 
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">{slot.note}</p>
 
+              {hasFiles && !readOnly && (
+                <div className="mt-2 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onSelectAll(docs.map((d) => d.id), !allSelected)}
+                    className="text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 underline-offset-2 hover:underline cursor-pointer"
+                  >
+                    {allSelected ? 'Deselect all' : 'Select all'}
+                  </button>
+                  <span className="text-[11px] text-slate-400">
+                    Checked files are sent to the AI as native PDF / Excel attachments.
+                  </span>
+                </div>
+              )}
+
               {/* Uploaded files display */}
               {hasFiles ? (
-                <div className="flex flex-wrap gap-2 mt-2.5">
-                  {docs.map(doc => (
-                    <div
-                      key={doc.id}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-emerald-200 text-emerald-900 shadow-2xs hover:bg-emerald-50 transition-colors"
-                    >
-                      <a
-                        href={`/api/client-documents/download?id=${encodeURIComponent(doc.id)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 hover:underline"
-                        title="Click to view file"
+                <div className="flex flex-col gap-1.5 mt-2.5">
+                  {docs.map(doc => {
+                    const checked = selectedIds.has(doc.id)
+                    return (
+                      <label
+                        key={doc.id}
+                        className={cn(
+                          'inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium border shadow-2xs transition-colors cursor-pointer',
+                          checked
+                            ? 'bg-white border-indigo-300 text-slate-800'
+                            : 'bg-slate-50 border-slate-200 text-slate-500',
+                        )}
                       >
-                        {slot.isSpreadsheet ? (
-                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        ) : (
-                          <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        {!readOnly && (
+                          <input
+                            type="checkbox"
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            checked={checked}
+                            onChange={() => onToggleSelect(doc.id)}
+                          />
                         )}
-                        <span className="truncate max-w-[240px]">{doc.fileName}</span>
-                        {doc.uploadedAt && (
-                          <span className="text-[10px] text-slate-400 font-normal">
-                            &middot; {new Date(doc.uploadedAt).toLocaleDateString()}
-                          </span>
-                        )}
-                      </a>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => void onDelete(doc.id)}
-                          className="ml-1 text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors cursor-pointer"
-                          title="Remove file"
+                        <a
+                          href={`/api/client-documents/download?id=${encodeURIComponent(doc.id)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 hover:underline min-w-0"
+                          title="Click to view file"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                          {slot.isSpreadsheet || /\.(xlsx|xls|csv)$/i.test(doc.fileName) ? (
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          ) : (
+                            <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          )}
+                          <span className="truncate max-w-[280px]">{doc.fileName}</span>
+                          {doc.uploadedAt && (
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              &middot; {new Date(doc.uploadedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </a>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              void onDelete(doc.id)
+                            }}
+                            className="ml-auto text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors cursor-pointer"
+                            title="Remove file"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </label>
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="text-xs text-slate-400 mt-1.5">
@@ -367,6 +416,7 @@ export default function PricingByVerticalTab({
     documentId: string
     uploadedAt?: string
   }>>([])
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -418,11 +468,44 @@ export default function PricingByVerticalTab({
           }))
         }),
       )
-      setUploadedDocs(results.flat())
+      const flat = results.flat()
+      setUploadedDocs(flat)
+      setSelectedDocumentIds((prev) => {
+        const available = new Set(flat.map((d) => d.id))
+        if (prev.length === 0) {
+          const preferred = flat.filter((d) =>
+            /price|history|increase|schedule|xlsx|xls/i.test(d.fileName),
+          )
+          const pick = preferred.length ? preferred : flat
+          return pick.slice(0, 12).map((d) => d.id)
+        }
+        const kept = prev.filter((id) => available.has(id))
+        const newcomers = flat.filter((d) => !prev.includes(d.id)).map((d) => d.id)
+        return Array.from(new Set([...kept, ...newcomers])).slice(0, 12)
+      })
     } catch {
       /* ignore */
     }
   }, [clientId])
+
+  const selectedDocumentIdSet = useMemo(() => new Set(selectedDocumentIds), [selectedDocumentIds])
+
+  const toggleDocumentSelect = useCallback((docId: string) => {
+    setSelectedDocumentIds((prev) =>
+      prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId],
+    )
+  }, [])
+
+  const selectDocumentsBulk = useCallback((docIds: string[], selected: boolean) => {
+    setSelectedDocumentIds((prev) => {
+      const next = new Set(prev)
+      for (const id of docIds) {
+        if (selected) next.add(id)
+        else next.delete(id)
+      }
+      return Array.from(next)
+    })
+  }, [])
 
   const loadWebsiteUrl = useCallback(async () => {
     try {
@@ -590,6 +673,7 @@ export default function PricingByVerticalTab({
         body: JSON.stringify({ clientId, recordId: docId }),
       })
       if (!res.ok) throw new Error('Failed to delete document')
+      setSelectedDocumentIds((prev) => prev.filter((id) => id !== docId))
       await loadUploadedPricingDocs()
       showToast('Document removed', 'success')
     } catch (err: any) {
@@ -610,27 +694,28 @@ export default function PricingByVerticalTab({
           websiteUrl: websiteUrl.trim() || undefined,
           reanalyzeFromEdits: true,
           existingReport: result,
+          selectedDocumentIds,
           provider,
           modelId: resolveAgentModelId(provider),
         }),
       })
       if (!res.ok) {
         const text = await res.text()
-        throw new Error(text || `Re-run failed (${res.status})`)
+        throw new Error(text || `Update from edits failed (${res.status})`)
       }
       const data: PricingVerticalReport = await res.json()
       setResult(data)
       setEditMode(false)
       setReanalyzeNotice(
-        'Analysis re-run complete. Your latest grid and timeline edits were applied, summaries refreshed, and the report is saved. You are back in view mode—click Edit anytime to change values again.',
+        'Analysis updated from your edits. Grid, timeline, and summaries were reconciled and saved. You are back in view mode—click Edit anytime to change values again.',
       )
       window.setTimeout(() => setReanalyzeNotice(null), 9000)
       void persistPricingVerticalToServer(data, { silent: true })
       await persistPricingVerticalRun(data)
-      showToast('Analysis re-run completed successfully', 'success')
+      showToast('Analysis updated from your edits', 'success')
     } catch (err: any) {
-      setError(err.message || 'Re-run failed')
-      showToast(err.message || 'Re-run failed', 'error')
+      setError(err.message || 'Update from edits failed')
+      showToast(err.message || 'Update from edits failed', 'error')
     } finally {
       setAnalyzing(false)
     }
@@ -656,6 +741,10 @@ export default function PricingByVerticalTab({
   }
 
   const handleAnalyze = async () => {
+    if (uploadedDocs.length > 0 && selectedDocumentIds.length === 0) {
+      showToast('Select at least one document to send to the AI', 'error')
+      return
+    }
     setAnalyzing(true)
     setError(null)
     try {
@@ -665,6 +754,7 @@ export default function PricingByVerticalTab({
         body: JSON.stringify({
           clientId,
           websiteUrl: websiteUrl.trim() || undefined,
+          selectedDocumentIds,
           provider,
           modelId: resolveAgentModelId(provider),
         }),
@@ -859,17 +949,32 @@ export default function PricingByVerticalTab({
               fileName={`pricing-vertical-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
               label="Export PDF"
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={analyzing}
-              onClick={() => void handleReanalyze()}
-              className="h-8 text-xs cursor-pointer"
-            >
-              <RefreshCw className={cn('w-3.5 h-3.5 mr-1', analyzing && 'animate-spin')} />
-              Re-run
-            </Button>
+            {!readOnly && editMode && (
+              <Button
+                type="button"
+                size="sm"
+                disabled={analyzing}
+                onClick={() => void handleReanalyze()}
+                className="h-8 text-xs cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5 mr-1', analyzing && 'animate-spin')} />
+                {analyzing ? 'Updating...' : 'Update analysis from edits'}
+              </Button>
+            )}
+            {!readOnly && !editMode && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={analyzing}
+                onClick={() => void handleReanalyze()}
+                className="h-8 text-xs cursor-pointer"
+                title="Reconcile summaries with your edited grid/timeline (and any selected docs)"
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5 mr-1', analyzing && 'animate-spin')} />
+                {analyzing ? 'Updating...' : 'Update from edits'}
+              </Button>
+            )}
             {!readOnly && (
               <Button
                 type="button"
@@ -908,6 +1013,20 @@ export default function PricingByVerticalTab({
             activeModel={activeRun?.aiModel}
             activeVersion={activeRun?.version}
           />
+        )}
+
+        {editMode && (
+          <div className="flex items-start gap-3 text-sm text-amber-950 bg-amber-50 border border-amber-200 px-4 py-3 rounded-lg">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-600 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-900">Editing report</p>
+              <p className="text-amber-900/90 mt-0.5 leading-relaxed">
+                Change grid cells, price-change timeline, or narrative, then click{' '}
+                <strong>Update analysis from edits</strong> so summaries, flags, and structured history stay consistent
+                (e.g. a stated ~10% yearly increase must also appear in the grid / timeline).
+              </p>
+            </div>
+          </div>
         )}
 
         {reanalyzeNotice && (
@@ -1529,7 +1648,8 @@ export default function PricingByVerticalTab({
             </button>
           </div>
           <p className="text-xs text-slate-500">
-            Review documents uploaded by the client or upload files directly. Both documents are required for comprehensive pricing by vertical analysis.
+            Review documents uploaded by the client or upload files directly. Check the files you want sent to the AI
+            (native PDF / Excel). Prefer the price-history spreadsheet and increase notes over unreadable image scans.
           </p>
         </div>
 
@@ -1540,6 +1660,9 @@ export default function PricingByVerticalTab({
               key={slot.key}
               slot={slot}
               docs={uploadedDocs.filter(d => d.documentId === slot.documentId)}
+              selectedIds={selectedDocumentIdSet}
+              onToggleSelect={toggleDocumentSelect}
+              onSelectAll={selectDocumentsBulk}
               onUpload={handleUploadDoc}
               onDelete={handleDeleteDoc}
               uploading={uploadingSlot === slot.documentId}
@@ -1562,14 +1685,16 @@ export default function PricingByVerticalTab({
               <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>
-                  All 2 required documents ready{websiteUrl ? ' &bull; Website linked' : ''}. You can start the analysis.
+                  All 2 required document slots ready{websiteUrl ? ' • Website linked' : ''}.{' '}
+                  {selectedDocumentIds.length} file{selectedDocumentIds.length === 1 ? '' : 's'} selected for AI.
                 </span>
               </div>
             ) : satisfiedCount > 0 || websiteUrl ? (
               <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>
-                  {satisfiedCount} of 2 documents ready{websiteUrl ? ' &bull; Website linked' : ''}. Ready to build pricing grid.
+                  {satisfiedCount} of 2 document slots ready{websiteUrl ? ' • Website linked' : ''}.{' '}
+                  {selectedDocumentIds.length} selected for AI.
                 </span>
               </div>
             ) : (

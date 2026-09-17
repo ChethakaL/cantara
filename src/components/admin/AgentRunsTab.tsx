@@ -523,7 +523,7 @@ export default function AgentRunsTab({
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
           { key: 'all', count: counts.all, label: 'All Agents', icon: Bot, color: 'text-slate-800' },
-          { key: 'needs_assignee', count: counts.needs_assignee, label: 'Needs Assignee', icon: User, color: 'text-amber-700' },
+          { key: 'needs_assignee', count: counts.needs_assignee, label: 'Needs Attention', icon: User, color: 'text-amber-700' },
           { key: 'changes_requested', count: counts.changes_requested, label: 'Changes Req.', icon: AlertCircle, color: 'text-rose-600' },
           { key: 'needs_craig', count: counts.needs_craig, label: 'Needs Craig', icon: Sparkles, color: 'text-blue-700' },
           { key: 'approved', count: counts.approved, label: 'Final Approved', icon: CheckCircle2, color: 'text-emerald-700' },

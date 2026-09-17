@@ -767,6 +767,16 @@ export default function FacilityReviewTab({
     setError(null)
   }
 
+  const handleSaveEditsOnly = async () => {
+    if (!report || readOnly) return
+    try {
+      await save()
+      setEditMode(false)
+    } catch {
+      /* save() already surfaces error */
+    }
+  }
+
   const handleReanalyzeFromEdits = async () => {
     if (!report || readOnly) return
     setReanalyzing(true)
@@ -1073,11 +1083,20 @@ export default function FacilityReviewTab({
                   <button
                     type="button"
                     onClick={handleCancelEdit}
-                    disabled={reanalyzing}
+                    disabled={reanalyzing || saving}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-60"
                   >
                     <X className="w-3.5 h-3.5" />
                     Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveEditsOnly()}
+                    disabled={reanalyzing || saving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {saving ? 'Saving...' : 'Save'}
                   </button>
                   <button
                     type="button"

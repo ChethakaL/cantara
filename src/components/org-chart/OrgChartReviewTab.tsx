@@ -396,6 +396,29 @@ export default function OrgChartReviewTab({
     setError(null)
   }
 
+  // ── Save edits only (no AI) ───────────────────────────────────────────────
+  const handleSaveEditsOnly = async () => {
+    if (!result || readOnly) return
+    setReanalyzing(true)
+    setError(null)
+    try {
+      const saveRes = await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: 'orgChart', data: result }),
+      })
+      if (!saveRes.ok) throw new Error('Save failed')
+      preEditSnapshotRef.current = result
+      setEditMode(false)
+      setSavedBadge(true)
+      setTimeout(() => setSavedBadge(false), 2000)
+    } catch (err: any) {
+      setError(err?.message || 'Save failed')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
+
   // ── Update analysis from edits: persist edited roles/headcount, then ask AI
   // to refresh summary/keyPersonDependencies/roleGaps/transitionReadiness/recommendations. ──
   const handleReanalyzeFromEdits = async () => {
@@ -597,6 +620,14 @@ export default function OrgChartReviewTab({
                 >
                   <X className="w-3.5 h-3.5" />
                   Cancel
+                </button>
+                <button
+                  onClick={() => void handleSaveEditsOnly()}
+                  disabled={reanalyzing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors disabled:opacity-60"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save
                 </button>
                 <button
                   onClick={() => void handleReanalyzeFromEdits()}

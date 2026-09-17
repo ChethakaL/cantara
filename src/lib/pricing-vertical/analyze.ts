@@ -1,10 +1,183 @@
 import type { PricingVerticalReport } from './types'
 import type { ServicePricingRow } from './types'
 import type { WebsiteResearchData } from '@/lib/competitor-analysis/types'
+import type { PricingNativeDocument } from '@/lib/pricing-vertical/document-evidence'
 import { safeParseModelJson } from '@/lib/pricing-vertical/parse-model-json'
 import { mergeVerticalSummariesForRerun, normalizeVerticalSummary } from '@/lib/pricing-vertical/normalize-vertical-summaries'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
+import { requireAIClient, resolveModel } from '@/lib/ai-client'
+import { getActiveAgentModelId, getActiveAgentProvider } from '@/lib/agent-llm-context'
 import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
+
+/**
+ * On update-from-edits, take the model's reconciled grid/timeline when present.
+ * Do not prefer a "richer" prior grid — that blocked intentional freezes / removed increases.
+ */
+function takeReconciledStructure(
+  previous: PricingVerticalReport,
+  incoming: Partial<PricingVerticalReport> | Record<string, unknown>,
+): { pricingPeriods: string[]; pricingGrid: ServicePricingRow[]; priceChanges: PricingVerticalReport['priceChanges'] } {
+  const prevPeriods = previous.pricingPeriods ?? []
+  const nextPeriods =
+    Array.isArray(incoming.pricingPeriods) && (incoming.pricingPeriods as string[]).length > 0
+      ? (incoming.pricingPeriods as string[])
+      : prevPeriods
+  const nextGrid =
+    Array.isArray(incoming.pricingGrid) && (incoming.pricingGrid as ServicePricingRow[]).length > 0
+      ? (incoming.pricingGrid as ServicePricingRow[])
+      : previous.pricingGrid
+  // Empty priceChanges[] is valid (advisor removed all events).
+  const nextChanges = Array.isArray(incoming.priceChanges)
+    ? (incoming.priceChanges as PricingVerticalReport['priceChanges'])
+    : previous.priceChanges
+
+  return {
+    pricingPeriods: nextPeriods,
+    pricingGrid: nextGrid,
+    priceChanges: nextChanges,
+  }
+}
+
+function buildNativeContentBlocks(nativeDocuments: PricingNativeDocument[]): any[] {
+  const blocks: any[] = []
+  for (const doc of nativeDocuments) {
+    const mime = (doc.mimeType || '').toLowerCase()
+    const lower = doc.fileName.toLowerCase()
+
+    if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(lower)) {
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mime.startsWith('image/') ? mime : 'image/png',
+          data: doc.base64,
+        },
+      })
+      continue
+    }
+
+    // PDFs + spreadsheets + other files: send as native document blocks (Claude / Bedrock).
+    const mediaType =
+      mime === 'application/pdf' || lower.endsWith('.pdf')
+        ? 'application/pdf'
+        : mime || 'application/octet-stream'
+
+    blocks.push({
+      type: 'document',
+      title: doc.fileName,
+      source: {
+        type: 'base64',
+        media_type: mediaType.includes('spreadsheet') || mediaType.includes('excel') || /\.(xlsx|xls)$/i.test(lower)
+          ? mime || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : mediaType,
+        data: doc.base64,
+      },
+    })
+  }
+  return blocks
+}
+
+function spreadsheetTextAppendix(nativeDocuments: PricingNativeDocument[]): string {
+  const parts = nativeDocuments
+    .filter((d) => d.spreadsheetText?.trim())
+    .map((d) => `=== SPREADSHEET TEXT EXTRACT: ${d.fileName} ===\n${d.spreadsheetText}`)
+  if (!parts.length) return ''
+  return `\n\nSPREADSHEET CELL TEXT (full extract — use this together with any native spreadsheet attachment):\n${parts.join('\n\n')}`
+}
+
+async function invokePricingModel(args: {
+  system: string
+  textPrompt: string
+  nativeDocuments: PricingNativeDocument[]
+  legacyFile?: { fileName?: string; base64?: string; mediaType?: string }
+  maxTokens: number
+}): Promise<string> {
+  const provider = getActiveAgentProvider()
+  const modelId = getActiveAgentModelId()
+  const nativeBlocks = buildNativeContentBlocks(args.nativeDocuments)
+
+  if (args.legacyFile?.base64 && args.legacyFile.mediaType) {
+    const mime = args.legacyFile.mediaType
+    if (mime === 'application/pdf') {
+      nativeBlocks.push({
+        type: 'document',
+        title: args.legacyFile.fileName,
+        source: { type: 'base64', media_type: 'application/pdf', data: args.legacyFile.base64 },
+      })
+    } else if (mime.startsWith('image/')) {
+      nativeBlocks.push({
+        type: 'image',
+        source: { type: 'base64', media_type: mime, data: args.legacyFile.base64 },
+      })
+    }
+  }
+
+  if (provider === 'openai') {
+    const content: AgentMessageBlock[] = [
+      ...nativeBlocks.map((block) => {
+        if (block.type === 'document') {
+          return {
+            type: 'document' as const,
+            title: block.title,
+            source: block.source,
+          }
+        }
+        if (block.type === 'image') {
+          return {
+            type: 'image' as const,
+            source: { media_type: block.source?.media_type, data: block.source?.data },
+          }
+        }
+        return { type: 'text' as const, text: '' }
+      }),
+      { type: 'text', text: args.textPrompt },
+    ]
+    return createAgentMessage({
+      provider,
+      model: modelId,
+      system: args.system,
+      content: content.filter((b) => b.type !== 'text' || b.text.trim()),
+      maxTokens: args.maxTokens,
+      temperature: 0,
+    })
+  }
+
+  // Bedrock / Anthropic: send native document + image blocks (same pattern as org-chart / insurance).
+  const client = await requireAIClient()
+  const model = resolveModel(modelId || 'claude-sonnet-4-20250514')
+
+  const runOnce = async (blocks: any[]) => {
+    const response = await client.messages.create({
+      model,
+      max_tokens: args.maxTokens,
+      temperature: 0,
+      system: args.system,
+      messages: [{ role: 'user', content: [...blocks, { type: 'text', text: args.textPrompt }] }],
+    })
+    return response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => ('text' in b ? b.text : ''))
+      .join('')
+  }
+
+  try {
+    return await runOnce(nativeBlocks)
+  } catch (error) {
+    // Some Bedrock deployments reject non-PDF document media types (xlsx). Retry PDF/images only;
+    // spreadsheet cell text is already in the prompt via spreadsheetTextAppendix.
+    const pdfOrImageOnly = nativeBlocks.filter((block) => {
+      if (block.type === 'image') return true
+      const media = String(block.source?.media_type || '').toLowerCase()
+      return media === 'application/pdf'
+    })
+    if (pdfOrImageOnly.length === nativeBlocks.length) throw error
+    console.warn(
+      '[pricing-vertical] Native attachment call failed; retrying with PDF/images only:',
+      error instanceof Error ? error.message : error,
+    )
+    return await runOnce(pdfOrImageOnly)
+  }
+}
 
 export async function analyzePricingByVertical(args: {
   fileName?: string
@@ -19,47 +192,38 @@ export async function analyzePricingByVertical(args: {
     pricingPeriods?: string[]
     structuredPricingRows?: ServicePricingRow[]
   } | null
-  /** When set, model must copy these structures verbatim and only refresh summaries/flags/narrative. */
+  /** Advisor-selected PDFs / xlsx / images sent natively to the model. */
+  nativeDocuments?: PricingNativeDocument[]
+  /** When set, reanalyze from advisor edits (full consistency pass). */
   existingReport?: PricingVerticalReport | null
 }): Promise<PricingVerticalReport> {
   const isRerun = Boolean(args.existingReport)
+  const nativeDocuments = args.nativeDocuments ?? []
 
   const fullSystemPrompt = `You are the Pricing by Vertical Analysis Agent for Cantara, an M&A advisory platform for pet businesses.
 
 You will receive:
 1. Current public website pricing evidence, when available
-2. Optional seller pricing history document, when uploaded
-3. Uploaded valuation / pricing / revenue document evidence from the client document library, when available
-4. Revenue by vertical data from the WS2-3 derived report (JSON)
+2. Advisor-selected pricing / revenue documents attached as native files (PDF, Excel/xlsx, images) and/or text extracts
+3. Revenue by vertical data from the WS2-3 derived report (JSON) — internal context only
+
+CRITICAL — grid and timeline must match the narrative:
+- If documents state periodic / yearly price increases (e.g. ~10% annual or spring increases), you MUST encode them in BOTH:
+  (a) priceChanges[] timeline rows with percentChange, and
+  (b) historical cells on pricingGrid (not only Current).
+- Do NOT write about increases in executiveSummary / overallTrend while leaving historical grid columns blank and priceChanges empty.
+- Prefer dated period labels from the spreadsheet (e.g. May 2024, Nov 2024, May 2025, Nov 2025, Current) when the file uses them.
+- For Excel/xlsx attachments: read every relevant sheet (rack rates, historical pricing, price change analysis). Use the spreadsheet text extract when provided.
+- Image-only / unreadable scans may stay blank for those files — still use any readable PDF/xlsx fully.
 
 Your task:
 - Primary objective: document pricing increase history over the past 24 months and comment on frequency and magnitude of increases.
 - Identify current prices for every service found in website evidence and/or uploaded documents. Use pet resort services such as Boarding, Daycare, Grooming, Training, Cat Boarding, Membership, Retail, Wellness, and Other.
-- Build an editable 24-month price grid with time columns (default 6-month spacing labels such as "6mo ago", "12mo ago", etc. — advisors may relabel). Current prices must be filled from website evidence where available. Historical period cells should be filled from uploaded document-library evidence or the optional uploaded file only when explicitly supported by dates/effective periods. Leave unknown cells blank.
-- Do NOT emphasize or summarize revenue mix or "revenue share by vertical" in executiveSummary, overallTrend, recommendations, or flags. WS2-3 revenue JSON is for internal context only (e.g. which verticals matter operationally); never output revenue percentages or share-of-revenue commentary.
-- Extract every price change event from the evidence over the past 24 months:
-  - date (ISO format or best approximation)
-  - service vertical (Boarding, Daycare, Grooming, Training, Cat Boarding, etc.)
-  - previous price and new price
-  - dollar change and percent change
-  - any relevant notes
-- For each service vertical:
-  - Count number of price changes in the last 24 months
-  - Calculate average change percentage per increase
-  - Calculate total cumulative change percentage over 24 months
-  - Determine the date of the last price change
-  - Classify trend: "increasing" if net positive changes, "stable" if no changes, "decreasing" if net negative, "unknown" if unclear
-  - Set "revenueShare" to empty string "" for every vertical (field is legacy; do not populate)
-  - Write a specific recommendation (e.g. "Increase boarding rate by $3/night to $48/night effective Q3 2026")
-- Generate flags (pricing-only; no revenue-share language):
-  - severity "critical" for a core service vertical in the pricing grid with material current pricing but no price increase in 12+ months
-  - severity "warning" for verticals below inflation (<3% annual increase)
-  - severity "warning" for sudden changes above 15% in one interval
-  - severity "positive" for verticals with healthy pricing momentum
-  - severity "informational" for general observations
-- Write a concise executive summary (3-5 sentences)
-- Describe the overall pricing trend
-- Provide 3-6 actionable recommendations with specific dollar amounts
+- Build an editable multi-period price grid. Fill historical period cells whenever documents support them.
+- Do NOT emphasize or summarize revenue mix or "revenue share by vertical" in executiveSummary, overallTrend, recommendations, or flags. WS2-3 revenue JSON is for internal context only; never output revenue percentages or share-of-revenue commentary.
+- Extract every price change event from the evidence over the past 24 months.
+- For each service vertical: count changes, avg/total change %, last change date, trend, empty revenueShare, specific recommendation.
+- Generate pricing-only flags; write executiveSummary, overallTrend, and 3–6 recommendations.
 
 Return ONLY valid JSON matching this exact structure (no markdown, no code fences):
 {
@@ -71,7 +235,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
     "evidenceCount": <number>,
     "notes": "<brief source notes>"
   },
-  "pricingPeriods": ["Current", "<6mo ago>", "<12mo ago>", "<18mo ago>", "<24mo ago>"],
+  "pricingPeriods": ["Current", "<older period labels from evidence>"],
   "pricingGrid": [
     {
       "id": "<stable-slug>",
@@ -80,13 +244,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
       "source": "<website|document|manual|ai_inferred>",
       "sourceUrl": "<source url if any>",
       "confidence": "<high|medium|low>",
-      "prices": {
-        "Current": "<current price>",
-        "<6mo ago>": "",
-        "<12mo ago>": "",
-        "<18mo ago>": "",
-        "<24mo ago>": ""
-      }
+      "prices": { "Current": "<price>", "<period>": "<price or empty>" }
     }
   ],
   "priceChanges": [
@@ -128,31 +286,21 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
 
   const rerunSystemPrompt = `You are the Pricing by Vertical Analysis Agent for Cantara (M&A advisory for pet businesses).
 
-The user message includes AUTHORITATIVE advisor-edited JSON: pricingPeriods, pricingGrid, and priceChanges. Treat that JSON as the only source of truth for prices and timeline rows. You also receive website pricing evidence, document-library excerpts, and internal WS2-3 context (do not output revenue percentages or revenue-mix commentary).
+An advisor edited an existing Pricing by Vertical report. You receive:
+1. The FULL advisor-edited report JSON (ground truth for what they changed)
+2. Optional re-attached native pricing documents (PDF / xlsx / images) and text extracts
+3. Website + WS2-3 internal context (do not output revenue-mix commentary)
 
-Recompute from that grid + timeline + evidence:
-- verticalSummaries (one per major vertical in the grid; set revenueShare to "" always)
-- executiveSummary (3–5 sentences, pricing history focus only)
-- overallTrend
-- recommendations (3–6 actionable strings)
-- flags (pricing-only; no revenue-share language)
-- currentPricingSource (reflect website evidence when relevant)
-- generatedAt (new ISO-8601 timestamp)
-- businessName
+Consistency rules:
+- Honor advisor edits to pricingGrid cells, priceChanges rows, overallTrend, executiveSummary, verticalSummaries, and recommendations.
+- If narrative / overallTrend / notes claim price increases (e.g. ~10% yearly) but the grid historical cells or priceChanges timeline are empty or contradict that claim, UPDATE pricingGrid historical cells AND priceChanges so the structured data matches the claim (infer prior-period prices from Current when the % increase is stated).
+- If the advisor says increases were frozen, skipped, or reduced for a vertical/period, UPDATE the grid and REMOVE or revise matching priceChanges rows — do not keep prior richer history that contradicts the correction.
+- When filling blank history from a stated %, prefer richer grids; when the advisor explicitly corrects history downward, the correction wins.
+- Set revenueShare to "" always.
+- Refresh flags and recommendations to match the final grid + timeline.
+- Return the FULL report JSON (same schema as a fresh analysis), not a partial object.
 
-Return ONLY valid JSON (no markdown, no code fences) with EXACTLY these top-level keys and no others:
-{
-  "generatedAt": "<ISO timestamp>",
-  "businessName": "<string>",
-  "currentPricingSource": { "websiteUrl": "<string|null>", "confidence": "<high|medium|low>", "evidenceCount": <number>, "notes": "<string>" },
-  "verticalSummaries": [ ... ],
-  "executiveSummary": "<string>",
-  "overallTrend": "<string>",
-  "recommendations": [ "<string>", ... ],
-  "flags": [ { "id": "<string>", "severity": "<critical|warning|positive|informational>", "title": "<string>", "description": "<string>" } ]
-}
-
-Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
+Return ONLY valid JSON (no markdown, no code fences).`
 
   const revenueContext = `INTERNAL CONTEXT — revenue by vertical (WS2-3 JSON). Use only to infer which service lines are operationally core. Do not restate percentages, revenue mix, or revenue share in any output field or narrative.\n${JSON.stringify(args.revenueByVertical, null, 2)}`
   const websiteContext = args.websiteResearch
@@ -166,48 +314,30 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
       }, null, 2)}`
     : 'CURRENT WEBSITE PRICING EVIDENCE:\nNo website pricing evidence available.'
   const documentEvidenceContext = args.documentEvidence?.text
-    ? `UPLOADED VALUATION / PRICING DOCUMENT EVIDENCE:\nSources: ${JSON.stringify(args.documentEvidence.sources)}\nStructured pricing rows parsed deterministically: ${JSON.stringify(args.documentEvidence.structuredPricingRows ?? [])}\n\n${args.documentEvidence.text}`
-    : 'UPLOADED VALUATION / PRICING DOCUMENT EVIDENCE:\nNo uploaded document-library pricing evidence available.'
+    ? `UPLOADED VALUATION / PRICING DOCUMENT TEXT EVIDENCE:\nSources: ${JSON.stringify(args.documentEvidence.sources)}\nStructured pricing rows parsed deterministically: ${JSON.stringify(args.documentEvidence.structuredPricingRows ?? [])}\n\n${args.documentEvidence.text}`
+    : 'UPLOADED VALUATION / PRICING DOCUMENT TEXT EVIDENCE:\nNo text extracts available (rely on native file attachments when present).'
+
+  const nativeList =
+    nativeDocuments.length > 0
+      ? `NATIVE FILES ATTACHED (${nativeDocuments.length}):\n${nativeDocuments.map((d, i) => `${i + 1}. ${d.fileName} (${d.mimeType})`).join('\n')}`
+      : 'NATIVE FILES ATTACHED: none'
 
   const existingBlock = args.existingReport
-    ? `\n\nAUTHORITATIVE ADVISOR-EDITED DATA (source of truth — do not echo back in your reply):\n${JSON.stringify({
-        pricingPeriods: args.existingReport.pricingPeriods,
-        pricingGrid: args.existingReport.pricingGrid,
-        priceChanges: args.existingReport.priceChanges,
-      })}`
+    ? `\n\nAUTHORITATIVE ADVISOR-EDITED REPORT (source of truth — reconcile grid/timeline with narrative):\n${JSON.stringify(args.existingReport)}`
     : ''
 
-  const content: AgentMessageBlock[] = []
+  const textPrompt = `${websiteContext}\n\n${documentEvidenceContext}\n\n${revenueContext}\n\n${nativeList}${spreadsheetTextAppendix(nativeDocuments)}\n\nBusiness name: ${args.businessName}\nOptional single pricing history file: ${args.fileName ?? 'none'}${existingBlock}\n\n${
+    isRerun
+      ? 'Return the FULL pricing-by-vertical JSON report, keeping advisor edits and ensuring grid + priceChanges reflect any stated increases.'
+      : 'Return the pricing-by-vertical analysis as JSON. Fill historical grid cells and priceChanges whenever documents support them; do not invent unsupported prices.'
+  }`
 
-  if (args.base64 && args.mediaType) {
-    if (args.mediaType === 'application/pdf') {
-      content.push({
-        type: 'document',
-        title: args.fileName,
-        source: { type: 'base64', media_type: 'application/pdf', data: args.base64 },
-      })
-    } else if (args.mediaType.startsWith('image/')) {
-      content.push({
-        type: 'image',
-        source: { media_type: args.mediaType, data: args.base64 },
-      })
-    }
-  }
-
-  content.push({
-    type: 'text',
-    text: `${websiteContext}\n\n${documentEvidenceContext}\n\n${revenueContext}\n\nBusiness name: ${args.businessName}\nOptional pricing history file: ${args.fileName ?? 'none uploaded'}${existingBlock}\n\n${
-      isRerun
-        ? 'Return ONLY the partial JSON object described in your system instructions (no grid, no priceChanges array in your output).'
-        : 'Return the pricing-by-vertical analysis as JSON. Keep recommendations grounded in evidence; do not invent historical prices.'
-    }`,
-  })
-
-  const rawText = await createAgentMessage({
+  const rawText = await invokePricingModel({
     system: isRerun ? rerunSystemPrompt : fullSystemPrompt,
-    content,
-    maxTokens: isRerun ? 8192 : 12000,
-    temperature: 0,
+    textPrompt,
+    nativeDocuments,
+    legacyFile: { fileName: args.fileName, base64: args.base64, mediaType: args.mediaType },
+    maxTokens: isRerun ? 12000 : 14000,
   })
 
   const cleaned = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
@@ -223,6 +353,7 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
 
   if (args.existingReport) {
     const ex = args.existingReport
+    const structure = takeReconciledStructure(ex, parsed)
     const merged: PricingVerticalReport = {
       ...ex,
       generatedAt:
@@ -236,6 +367,9 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
       currentPricingSource:
         (parsed.currentPricingSource as PricingVerticalReport['currentPricingSource']) ??
         ex.currentPricingSource,
+      pricingPeriods: structure.pricingPeriods,
+      pricingGrid: structure.pricingGrid,
+      priceChanges: structure.priceChanges,
       verticalSummaries:
         Array.isArray(parsed.verticalSummaries) && parsed.verticalSummaries.length > 0
           ? mergeVerticalSummariesForRerun(ex.verticalSummaries, parsed.verticalSummaries)
@@ -247,9 +381,6 @@ Do NOT include pricingPeriods, pricingGrid, or priceChanges in your response.`
         ? (parsed.recommendations as string[])
         : ex.recommendations,
       flags: Array.isArray(parsed.flags) ? (parsed.flags as PricingVerticalReport['flags']) : ex.flags,
-      pricingPeriods: ex.pricingPeriods,
-      pricingGrid: ex.pricingGrid,
-      priceChanges: ex.priceChanges,
     }
     return stripRevenueShare(merged)
   }

@@ -948,6 +948,9 @@ export default function EmployeeObligationsTab({
           {!readOnly && (editMode ? (
             <>
               <Button size="sm" variant="outline" onClick={() => { setEditMode(false); setDraftReport(null) }} disabled={savingMarkdown || reanalyzing}>Cancel</Button>
+              <Button size="sm" variant="outline" onClick={() => void saveEditedMarkdown({ closeAfterSave: true })} disabled={savingMarkdown || reanalyzing} className="border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100">
+                {savingMarkdown ? 'Saving...' : 'Save'}
+              </Button>
               <Button size="sm" onClick={() => void updateAnalysisFromEdits()} disabled={savingMarkdown || reanalyzing} className="bg-slate-900 text-white hover:bg-slate-800">
                 {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
               </Button>

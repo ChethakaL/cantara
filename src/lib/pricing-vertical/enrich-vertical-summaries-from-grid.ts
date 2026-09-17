@@ -103,10 +103,21 @@ function parseDateMs(d: string): number {
   return Number.isFinite(t) ? t : 0
 }
 
+/** Prefer oldest→newest so Current-first grids still compute change correctly. */
+function chronologicalPeriods(periods: string[]): string[] {
+  if (periods.length < 2) return periods
+  const first = periods[0]?.trim().toLowerCase() ?? ''
+  if (first === 'current' || first === 'now' || first.startsWith('current ')) {
+    return [...periods].reverse()
+  }
+  return periods
+}
+
 function gridRowPercentChanges(rows: ServicePricingRow[], periods: string[]): number[] {
-  if (periods.length < 2) return []
-  const first = periods[0]!
-  const last = periods[periods.length - 1]!
+  const ordered = chronologicalPeriods(periods)
+  if (ordered.length < 2) return []
+  const first = ordered[0]!
+  const last = ordered[ordered.length - 1]!
   const out: number[] = []
   for (const row of rows) {
     const a = parseMoneyValue(row.prices?.[first] ?? '')

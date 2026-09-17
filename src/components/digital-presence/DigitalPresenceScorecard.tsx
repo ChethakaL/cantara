@@ -21,6 +21,7 @@ import {
   Check,
   X,
   RefreshCw,
+  Save,
 } from 'lucide-react';
 import { DigitalPresenceReport, ChannelAssessment, ChannelType, TrafficLight, KeyMetric } from '@/lib/digital-presence/types';
 import { Badge, Card, cn } from '@/components/ui';
@@ -75,6 +76,62 @@ function TrafficLightBadge({ light }: { light: TrafficLight }) {
       {cfg.label}
     </span>
   );
+}
+
+function EditableTrafficLight({
+  light,
+  editing,
+  onChange,
+}: {
+  light: TrafficLight;
+  editing: boolean;
+  onChange: (next: TrafficLight) => void;
+}) {
+  if (!editing) return <TrafficLightBadge light={light} />;
+
+  return (
+    <select
+      value={light}
+      onChange={(e) => onChange(e.target.value as TrafficLight)}
+      className="text-xs font-semibold rounded-full border border-amber-300 bg-white px-2.5 py-1 text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
+      aria-label="Channel rating"
+    >
+      <option value="green">Good</option>
+      <option value="amber">Fair</option>
+      <option value="red">Poor</option>
+    </select>
+  );
+}
+
+/** V12: hide engagement (FB/IG/TikTok) and Facebook page likes from the scorecard UI. */
+function isHiddenDigitalPresenceMetric(channelType: ChannelType, label: string): boolean {
+  const l = label.toLowerCase().trim();
+  if (
+    (channelType === 'facebook' || channelType === 'instagram' || channelType === 'tiktok') &&
+    /\bengagement\b/.test(l)
+  ) {
+    return true;
+  }
+  // Hide Facebook page likes (label may be "Likes" or "Page likes") — keep Recommend %.
+  if (channelType === 'facebook' && /\blikes?\b/.test(l) && !/\brecommend/.test(l)) {
+    return true;
+  }
+  return false;
+}
+
+/** Display-only label aliases so advisors can rename without re-running analysis. */
+function displayMetricLabel(channelType: ChannelType, label: string): string {
+  const l = label.toLowerCase().trim();
+  if (channelType === 'facebook' && (l === 'recommend %' || l === 'recommend%' || l === 'recommend')) {
+    return 'People Recommend %';
+  }
+  return label;
+}
+
+function scoreForTrafficLight(light: TrafficLight, previous: ChannelAssessment['score']): ChannelAssessment['score'] {
+  if (light === 'green') return previous >= 4 ? previous : 4;
+  if (light === 'amber') return 3;
+  return previous <= 2 ? previous : 2;
 }
 
 function FlagIcon({ severity }: { severity: 'critical' | 'warning' | 'positive' }) {
@@ -134,11 +191,27 @@ function EditableSummaryText({ value, editing, onSave }: { value: string; editin
   );
 }
 
-function ChannelCard({ channel, editMode, onMetricUpdate }: { channel: ChannelAssessment; editMode: boolean; onMetricUpdate: (channelType: ChannelType, metricIndex: number, value: string) => void }) {
+function ChannelCard({
+  channel,
+  editMode,
+  onMetricUpdate,
+  onTrafficLightUpdate,
+}: {
+  channel: ChannelAssessment;
+  editMode: boolean;
+  onMetricUpdate: (channelType: ChannelType, metricIndex: number, value: string) => void;
+  onTrafficLightUpdate: (channelType: ChannelType, light: TrafficLight) => void;
+}) {
   const iconStyle = CHANNEL_COLORS[channel.channelType] ?? 'text-slate-500 bg-slate-100';
   const criticalFlags = channel.flags.filter(f => f.severity === 'critical');
   const warningFlags = channel.flags.filter(f => f.severity === 'warning');
   const positiveFlags = channel.flags.filter(f => f.severity === 'positive');
+  // V12: hide engagement (FB/IG/TikTok) + Facebook page likes from UI only (data remains in JSON).
+  const visibleMetrics = channel.keyMetrics
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => !isHiddenDigitalPresenceMetric(channel.channelType, m.label));
+  // Previously rendered all keyMetrics:
+  // {channel.keyMetrics.map((m, i) => (<EditableMetric key={i} metric={m} ... />))}
 
   return (
     <Card className="p-4 space-y-3">
@@ -164,7 +237,11 @@ function ChannelCard({ channel, editMode, onMetricUpdate }: { channel: ChannelAs
             )}
           </div>
         </div>
-        <TrafficLightBadge light={channel.trafficLight} />
+        <EditableTrafficLight
+          light={channel.trafficLight}
+          editing={editMode}
+          onChange={(next) => onTrafficLightUpdate(channel.channelType, next)}
+        />
       </div>
 
       {/* Confidence notice */}
@@ -183,21 +260,21 @@ function ChannelCard({ channel, editMode, onMetricUpdate }: { channel: ChannelAs
       )}
 
       {/* Summary */}
-      {channel.summary && (
+      {(channel.summary || editMode) && (
         <EditableSummaryText
-          value={channel.summary}
+          value={channel.summary || ''}
           editing={editMode}
           onSave={(v) => onMetricUpdate(channel.channelType, -1, v)}
         />
       )}
 
       {/* Key Metrics */}
-      {channel.keyMetrics.length > 0 && (
+      {visibleMetrics.length > 0 && (
         <div className="grid grid-cols-2 gap-1.5">
-          {channel.keyMetrics.map((m, i) => (
+          {visibleMetrics.map(({ m, i }) => (
             <EditableMetric
-              key={i}
-              metric={m}
+              key={`${m.label}-${i}`}
+              metric={{ ...m, label: displayMetricLabel(channel.channelType, m.label) }}
               editing={editMode}
               onSave={(value) => onMetricUpdate(channel.channelType, i, value)}
             />
@@ -249,6 +326,8 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
   const [excludedAssets, setExcludedAssets] = useState<Set<number>>(new Set());
   const [savedBadge, setSavedBadge] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  // Kept for optional AI reanalyze path (commented out in UI — V12 Save-only).
   const [reanalyzing, setReanalyzing] = useState(false);
 
   useEffect(() => {
@@ -259,6 +338,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
   const criticalCount = currentReport.channels.reduce((acc, ch) => acc + ch.flags.filter(f => f.severity === 'critical').length, 0);
   const greenCount = currentReport.channels.filter(ch => ch.trafficLight === 'green').length;
   const redCount = currentReport.channels.filter(ch => ch.trafficLight === 'red').length;
+  const busy = saving || reanalyzing;
 
   function handleMetricUpdate(channelType: ChannelType, metricIndex: number, value: string) {
     if (readOnly) return;
@@ -281,7 +361,44 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
     onEdit?.(channelType, metricIndex, value);
   }
 
+  function handleTrafficLightUpdate(channelType: ChannelType, light: TrafficLight) {
+    if (readOnly) return;
+    setEditedReport((prev) => ({
+      ...prev,
+      channels: prev.channels.map((ch) => {
+        if (ch.channelType !== channelType) return ch;
+        return {
+          ...ch,
+          trafficLight: light,
+          score: scoreForTrafficLight(light, ch.score),
+        };
+      }),
+    }));
+  }
+
+  function handleExecutiveSummaryUpdate(value: string) {
+    if (readOnly) return;
+    setEditedReport((prev) => ({ ...prev, executiveSummary: value }));
+  }
+
+  async function handleSaveOnly() {
+    if (readOnly || !onSaveEdits) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSaveEdits(editedReport);
+      setEditMode(false);
+      setSavedBadge(true);
+      setTimeout(() => setSavedBadge(false), 2000);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save edits');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleReanalyzeFromEdits() {
+    // V12: AI reanalyze kept for future use; UI currently Save-only.
     if (readOnly || !onReanalyzeFromEdits) return;
     setReanalyzing(true);
     setSaveError(null);
@@ -299,7 +416,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
   }
 
   function handleCancelEdit() {
-    if (readOnly || reanalyzing) return;
+    if (readOnly || busy) return;
     setEditedReport(report);
     setEditMode(false);
     setSaveError(null);
@@ -339,21 +456,32 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
           <button
             type="button"
             onClick={handleCancelEdit}
-            disabled={reanalyzing}
+            disabled={busy}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-60"
           >
             <X className="w-3.5 h-3.5" />
             Cancel
           </button>
+          {onSaveEdits && (
+            <button
+              type="button"
+              onClick={() => void handleSaveOnly()}
+              disabled={busy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-xs font-medium text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer disabled:opacity-60"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {saving ? 'Saving...' : savedBadge && !reanalyzing ? 'Saved' : 'Save'}
+            </button>
+          )}
           {onReanalyzeFromEdits && (
             <button
               type="button"
               onClick={() => void handleReanalyzeFromEdits()}
-              disabled={reanalyzing}
+              disabled={busy}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-900 bg-slate-900 text-xs font-medium text-white hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-60"
             >
               <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
-              {reanalyzing ? 'Updating analysis...' : savedBadge ? 'Updated' : 'Update analysis from edits'}
+              {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
             </button>
           )}
         </>
@@ -361,7 +489,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
       <button
         type="button"
         onClick={onRerun}
-        disabled={reanalyzing}
+        disabled={busy}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer disabled:opacity-60"
       >
         <RefreshCw className="w-3.5 h-3.5" />
@@ -379,9 +507,9 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
               Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
             </span>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-              Overall Score: {currentReport.overallScore}/100
-            </span>
+            {/* <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+              Overall Score: {currentReport.overallScore}/5
+            </span> */}
             {saveError && (
               <span className="text-xs font-medium text-rose-600">{saveError}</span>
             )}
@@ -429,7 +557,9 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3">
           <Pencil className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-700 leading-relaxed">
-            Edit mode is active. Change metrics or summaries, then click <strong>Update analysis from edits</strong> to save and refresh scores and narrative.
+            Edit mode is active. Change Good/Fair/Poor tags, metrics, or summaries, then click <strong>Save</strong> to
+            persist without AI, or <strong>Update analysis from edits</strong> to refresh scores/narrative from your edits.
+            Use <strong>Re-run Analysis</strong> only for a fresh web research pass.
           </p>
         </div>
       )}
@@ -458,7 +588,15 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
             <BarChart3 className="w-4 h-4 text-slate-400" />
             <p className="text-xs font-semibold text-slate-600 uppercase tracking-widest">Executive Summary</p>
           </div>
-          <p className="text-sm text-slate-700 leading-relaxed">{currentReport.executiveSummary}</p>
+          {editMode ? (
+            <EditableSummaryText
+              value={currentReport.executiveSummary}
+              editing
+              onSave={handleExecutiveSummaryUpdate}
+            />
+          ) : (
+            <p className="text-sm text-slate-700 leading-relaxed">{currentReport.executiveSummary}</p>
+          )}
         </div>
 
         {/* M&A Notes */}
@@ -495,6 +633,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
               channel={channel}
               editMode={editMode}
               onMetricUpdate={handleMetricUpdate}
+              onTrafficLightUpdate={handleTrafficLightUpdate}
             />
           ))}
         </div>

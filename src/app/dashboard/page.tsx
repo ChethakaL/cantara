@@ -206,7 +206,7 @@ const TOUR_STEPS = [
   {
     step: 8,
     title: "Assigning Document Owners",
-    desc: "Use the dropdown select box next to each item to assign the task to yourself ('Me') or an invited team member.",
+    desc: "Use the dropdown select box next to each item to assign the task to yourself (shown by name) or an invited team member.",
   },
   {
     step: 9,
@@ -234,6 +234,12 @@ const TOUR_STEPS = [
     desc: "You’ve reached the end of the portal tour. You can now explore your dashboard, and this introduction will not appear again.",
   },
 ]
+
+/** Display label for the portal owner option (value stays `me` for stored assignments). */
+function ownerAssignLabel(name?: string | null) {
+  const trimmed = (name || '').trim()
+  return trimmed || 'Me'
+}
 
 const getTourTargetId = (step: number) => {
   switch (step) {
@@ -986,6 +992,7 @@ export default function ClientDashboard() {
                   requirements={visibleRequirements}
                   teamMembers={client.teamMembers}
                   isTeamMemberSession={isTeamMemberSession}
+                  ownerName={client.name}
                   onRequirementUpdated={(updated) => {
                     setRequirements(prev => prev.map(item => item.id === updated.id ? updated : item))
                   }}
@@ -1693,6 +1700,11 @@ function AssignTab({
   onSubViewChange?: (v: 'yesno' | 'assign' | 'assigned') => void
   tourStep?: number | null
 }) {
+  const ownerLabel = ownerAssignLabel(client.name)
+  const assignOptions = [
+    { value: 'me', label: ownerLabel },
+    ...teamMembers.map(m => ({ value: m.name, label: m.name })),
+  ]
   const [subView, setSubView] = useState<'yesno' | 'assign' | 'assigned'>('yesno')
 
   useEffect(() => {
@@ -1728,7 +1740,8 @@ function AssignTab({
   const myAssignedDocs = assignedDocs.filter(doc => isAssignedToMe(doc.id))
   const otherAssignedDocs = assignedDocs.filter(doc => !isAssignedToMe(doc.id))
   const otherDocsByAssignee = otherAssignedDocs.reduce<Array<{ assignee: string; documents: typeof otherAssignedDocs }>>((groups, doc) => {
-    const assignee = getStatus(doc.id).assignedTo || 'Unassigned'
+    const rawAssignee = getStatus(doc.id).assignedTo || 'Unassigned'
+    const assignee = rawAssignee.toLowerCase() === 'me' ? ownerLabel : rawAssignee
     const existingGroup = groups.find(group => group.assignee.toLowerCase() === assignee.toLowerCase())
     if (existingGroup) {
       existingGroup.documents.push(doc)
@@ -1886,10 +1899,7 @@ function AssignTab({
                 <div className="divide-y divide-amber-100/80">
                   {valuationDocs.map((doc, index) => {
                     const s = getStatus(doc.id)
-                    const options = [
-                      { value: 'me', label: 'Me' },
-                      ...teamMembers.map(m => ({ value: m.name, label: m.name })),
-                    ]
+                    const options = assignOptions
                     return (
                       <div key={doc.id} className="px-5 py-4 bg-white/60 flex items-center gap-4">
                         <div className="flex-1 min-w-0">
@@ -1948,10 +1958,7 @@ function AssignTab({
                   .filter(doc => doc.type === 'required' || getStatus(doc.id).hasDoc === true)
                   .map(doc => {
                 const s = getStatus(doc.id)
-                const options = [
-                  { value: 'me', label: 'Me' },
-                  ...teamMembers.map(m => ({ value: m.name, label: m.name })),
-                ]
+                const options = assignOptions
                 return (
                   <div key={doc.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4">
                     <div className="flex-1 min-w-0">
@@ -2018,10 +2025,7 @@ function AssignTab({
                         const assignedTo = formAssignments[formKey] ?? (formKey === 'competitor_analysis' ? formAssignments.pricing_analysis : '') ?? ''
                         const formNotApplicable = isRequiredInfoFormNotApplicable(client.sectionSubmissions, formKey)
                         const showFormNa = canMarkRequiredInfoFormNotApplicable(formKey)
-                        const options = [
-                          { value: 'me', label: 'Me' },
-                          ...teamMembers.map(m => ({ value: m.name, label: m.name })),
-                        ]
+                        const options = assignOptions
                         return (
                           <div key={formKey} className="px-5 py-4 flex items-center gap-4">
                             <div className="flex-1 min-w-0">
@@ -2098,7 +2102,7 @@ function AssignTab({
             Track the documents assigned to you and the upload progress for documents assigned to other team members.
           </div>
           <AssignedDocumentStatusList
-            title="Assigned to me"
+            title={`Assigned to ${ownerLabel}`}
             emptyMessage="No documents are assigned to you yet."
             documents={myAssignedDocs}
             getStatus={getStatus}
@@ -2986,7 +2990,7 @@ function AgentInformationTab({
                   }}
                 >
                   <option value="">— Assign to —</option>
-                  <option value="me">Me</option>
+                  <option value="me">{ownerAssignLabel(client.name)}</option>
                   {client.teamMembers.map(m => (
                     <option key={m.name} value={m.name}>{m.name}</option>
                   ))}
@@ -3114,12 +3118,12 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   const filterOptions = [
     { value: 'all', label: 'All Assignments' },
     { value: 'none', label: 'Unassigned' },
-    { value: 'me', label: 'Me' },
+    { value: 'me', label: ownerAssignLabel(clientName) },
     ...(teamMembers ?? []).map(m => ({ value: m.name, label: m.name })),
   ]
 
   const assignOptions = [
-    { value: 'me', label: 'Me' },
+    { value: 'me', label: ownerAssignLabel(clientName) },
     ...(teamMembers ?? []).map(m => ({ value: m.name, label: m.name })),
   ]
 
@@ -3649,13 +3653,16 @@ function RequirementsClientTab({
   requirements,
   teamMembers,
   isTeamMemberSession,
+  ownerName,
   onRequirementUpdated,
 }: {
   requirements: AdditionalRequirement[]
   teamMembers: Client['teamMembers']
   isTeamMemberSession: boolean
+  ownerName: string
   onRequirementUpdated: (requirement: AdditionalRequirement) => void
 }) {
+  const ownerLabel = ownerAssignLabel(ownerName)
   const [drafts, setDrafts] = useState<Record<string, { response: string; fileName: string | null; fileUrl: string | null; uploading: boolean; saving: boolean }>>({})
   const [assigningRequirementId, setAssigningRequirementId] = useState<string | null>(null)
 
@@ -3748,7 +3755,7 @@ function RequirementsClientTab({
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Who should handle this?</p>
                       <p className="mt-1 text-xs text-amber-700">
-                        Default is <span className="font-semibold">Me</span>. Assign to a team member only if they should answer or upload.
+                        Default is <span className="font-semibold">{ownerLabel}</span>. Assign to a team member only if they should answer or upload.
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -3760,7 +3767,7 @@ function RequirementsClientTab({
                         disabled={assigningRequirementId === req.id}
                         className="w-full min-w-[220px] rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100 sm:w-auto"
                       >
-                        <option value="">Me</option>
+                        <option value="">{ownerLabel}</option>
                         {teamMembers.map(member => (
                           <option key={member.id} value={member.name}>
                             {member.name}

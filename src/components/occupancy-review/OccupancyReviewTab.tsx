@@ -1035,6 +1035,38 @@ export default function OccupancyReviewTab({
             setReport(data.report)
             showToast('Occupancy review report updated', 'success')
           }}
+          onUpdateAnalysisFromEdits={readOnly ? undefined : async (markdown) => {
+            const existingReport = { ...report, markdown }
+            const res = await fetch('/api/occupancy-review', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                reanalyzeFromEdits: true,
+                existingReport,
+                clientId,
+                clientName,
+                provider,
+                modelId: resolveAgentModelId(provider),
+              }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+              throw new Error(data?.error || (typeof data === 'string' ? data : 'Failed to update analysis from edits'))
+            }
+            if (!data.report?.markdown) throw new Error('Update analysis returned an empty report')
+            setReport(data.report)
+            await saveAgentAnalysisRunClient({
+              clientId,
+              agentKey: AGENT_RUN_KEYS.occupancyReview,
+              fileName: `${clientName} — Occupancy Review`,
+              report: data.report,
+              markdown: data.report.markdown,
+              aiProvider: provider,
+              aiModel: resolveAgentModelId(provider),
+            })
+            await reloadRuns({ selectNewest: true })
+            showToast('Occupancy analysis updated from edits', 'success')
+          }}
         />
 
         {/* Delete Confirmation Modal */}

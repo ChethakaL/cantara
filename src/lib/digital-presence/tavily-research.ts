@@ -157,8 +157,9 @@ export async function researchAllChannels(
       label: 'Facebook',
       run: async () => {
         const queries = [
-          `"${businessName}" Facebook followers posts engagement${ctx}`,
-          `site:facebook.com "${handle}"`,
+          `"${businessName}" Facebook followers posts${ctx}`,
+          `"${businessName}" Facebook "recommend" OR "% recommend" reviews${ctx}`,
+          `site:facebook.com "${handle}" recommend`,
         ];
         const all: TavilySearchResult[] = [];
         for (const q of queries) all.push(...await tavilySearch(q, apiKey));
@@ -176,7 +177,7 @@ export async function researchAllChannels(
       label: 'Instagram',
       run: async () => {
         const queries = [
-          `"${businessName}" Instagram followers posts engagement${ctx}`,
+          `"${businessName}" Instagram followers posts${ctx}`,
           `site:instagram.com "${handle}"`,
         ];
         const all: TavilySearchResult[] = [];
@@ -195,8 +196,9 @@ export async function researchAllChannels(
       label: 'TikTok',
       run: async () => {
         const queries = [
-          `"${businessName}" TikTok followers videos engagement${ctx}`,
-          `site:tiktok.com "@${handle}"`,
+          `"${businessName}" TikTok followers videos likes${ctx}`,
+          `site:tiktok.com "@${handle}" likes followers`,
+          `"@${handle}" TikTok total likes OR hearts`,
         ];
         const all: TavilySearchResult[] = [];
         for (const q of queries) all.push(...await tavilySearch(q, apiKey));

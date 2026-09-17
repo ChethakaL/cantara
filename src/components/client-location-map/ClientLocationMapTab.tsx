@@ -834,6 +834,22 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     setError(null)
   }
 
+  /** Persist map edits only (no AI insight refresh). */
+  const saveEditsOnly = async () => {
+    if (!mapData) return
+    setReanalyzing(true)
+    setError(null)
+    try {
+      await persistMapData(mapData)
+      preEditSnapshotRef.current = null
+      setEditMode(false)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save edits')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
+
   /** Persist advisor-edited overrides, then secretly refresh insights via Bedrock. */
   const updateAnalysisFromEdits = async () => {
     if (!mapData) return
@@ -1059,15 +1075,27 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                     {editMode ? 'Cancel' : 'Edit'}
                   </Button>
                   {editMode && (
-                    <Button
-                      size="sm"
-                      onClick={() => void updateAnalysisFromEdits()}
-                      disabled={reanalyzing}
-                      className="gap-1.5 h-8 font-medium bg-slate-900 text-white hover:bg-slate-800"
-                    >
-                      <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
-                      {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void saveEditsOnly()}
+                        disabled={reanalyzing}
+                        className="gap-1.5 h-8 font-medium border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        Save
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => void updateAnalysisFromEdits()}
+                        disabled={reanalyzing}
+                        className="gap-1.5 h-8 font-medium bg-slate-900 text-white hover:bg-slate-800"
+                      >
+                        <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
+                        {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+                      </Button>
+                    </>
                   )}
                   <ExportReportButton
                     prepareHtml={prepareExportHtml}
@@ -1274,7 +1302,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
               </div>
               {editMode && !readOnly && (
                 <p className="mt-3 text-xs text-slate-500">
-                  Edit radius % / service counts above, then click <span className="font-semibold text-slate-700">Update analysis from edits</span> to refresh insights so they match your numbers.
+                  Edit radius % / service counts above, then click <span className="font-semibold text-slate-700">Save</span> to keep your numbers, or <span className="font-semibold text-slate-700">Update analysis from edits</span> to refresh insights so they match.
                 </p>
               )}
               {stats.insights.length > 0 && (
