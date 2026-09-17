@@ -36,6 +36,7 @@ import { ExportReportButton } from '@/components/report-export/ExportReportButto
 import { AdvisorActions } from '@/components/client-portal/AgentClientPortalFrame'
 import { buildPricingVerticalReportHtml } from '@/lib/report-export/build-pricing-vertical-report'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
+import { normalizePricingVerticalReport } from '@/lib/pricing-vertical/normalize-report'
 import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
 import { AgentRunToolbar } from '@/components/admin/AgentRunToolbar'
 import { resolveAgentModelId } from '@/lib/agent-model-provider'
@@ -550,18 +551,23 @@ export default function PricingByVerticalTab({
     ? (result?.verticalSummaries ?? [])
     : (enrichedResult?.verticalSummaries ?? result?.verticalSummaries ?? [])
 
+  const applyLoadedReport = useCallback((payload: PricingVerticalReport | Record<string, unknown>) => {
+    const normalized = normalizePricingVerticalReport(payload)
+    setResult({
+      ...normalized,
+      verticalSummaries: (normalized.verticalSummaries ?? []).map((v) => ({
+        ...v,
+        revenueShare: '',
+      })),
+    })
+  }, [])
+
   useEffect(() => {
     if (loadingRuns) return
     if (activeRun?.report) {
       const payload = activeRun.report as PricingVerticalReport
       if (payload?.executiveSummary) {
-        setResult({
-          ...payload,
-          verticalSummaries: (payload.verticalSummaries ?? []).map((v: VerticalPricingSummary) => ({
-            ...v,
-            revenueShare: '',
-          })),
-        })
+        applyLoadedReport(payload)
       }
       return
     }
@@ -571,19 +577,13 @@ export default function PricingByVerticalTab({
         if (res.ok) {
           const data = await res.json()
           if (data && data.executiveSummary) {
-            setResult({
-              ...data,
-              verticalSummaries: (data.verticalSummaries ?? []).map((v: VerticalPricingSummary) => ({
-                ...v,
-                revenueShare: '',
-              })),
-            })
+            applyLoadedReport(data)
           }
         }
       } catch { /* ignore */ }
     }
     loadSaved()
-  }, [clientId, activeRun, loadingRuns])
+  }, [clientId, activeRun, loadingRuns, applyLoadedReport])
 
   function selectRun(run: AgentRunHistoryItem) {
     setActiveId(run.id)
@@ -591,13 +591,7 @@ export default function PricingByVerticalTab({
     const full = runs.find((item) => item.id === run.id)
     const payload = (full?.report ?? null) as PricingVerticalReport | null
     if (payload?.executiveSummary) {
-      setResult({
-        ...payload,
-        verticalSummaries: (payload.verticalSummaries ?? []).map((v) => ({
-          ...v,
-          revenueShare: '',
-        })),
-      })
+      applyLoadedReport(payload)
     }
   }
 
@@ -704,14 +698,15 @@ export default function PricingByVerticalTab({
         throw new Error(text || `Update from edits failed (${res.status})`)
       }
       const data: PricingVerticalReport = await res.json()
-      setResult(data)
+      applyLoadedReport(data)
       setEditMode(false)
       setReanalyzeNotice(
         'Analysis updated from your edits. Grid, timeline, and summaries were reconciled and saved. You are back in view mode—click Edit anytime to change values again.',
       )
       window.setTimeout(() => setReanalyzeNotice(null), 9000)
-      void persistPricingVerticalToServer(data, { silent: true })
-      await persistPricingVerticalRun(data)
+      const normalized = normalizePricingVerticalReport(data)
+      void persistPricingVerticalToServer(normalized, { silent: true })
+      await persistPricingVerticalRun(normalized)
       showToast('Analysis updated from your edits', 'success')
     } catch (err: any) {
       setError(err.message || 'Update from edits failed')
@@ -764,9 +759,10 @@ export default function PricingByVerticalTab({
         throw new Error(text || `Analysis failed (${res.status})`)
       }
       const data: PricingVerticalReport = await res.json()
-      setResult(data)
+      const normalized = normalizePricingVerticalReport(data)
+      applyLoadedReport(normalized)
       setComposingNew(false)
-      await persistPricingVerticalRun(data)
+      await persistPricingVerticalRun(normalized)
       showToast('Pricing grid built successfully', 'success')
     } catch (err: any) {
       setError(err.message || 'Analysis failed')
@@ -1186,7 +1182,7 @@ export default function PricingByVerticalTab({
           <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
             <Clock className="w-4 h-4 text-slate-400" />
             <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              Price Change Timeline ({result.priceChanges.length})
+              Price Change Timeline ({(result.priceChanges ?? []).length})
             </h3>
           </div>
           <div className="overflow-x-auto">
@@ -1202,32 +1198,41 @@ export default function PricingByVerticalTab({
                 </tr>
               </thead>
               <tbody>
-                {result.priceChanges.map((change, i) => (
+                {(result.priceChanges ?? []).map((change, i) => {
+                  const dollarChange =
+                    typeof change.dollarChange === 'number' && Number.isFinite(change.dollarChange)
+                      ? change.dollarChange
+                      : null
+                  const percentChange =
+                    typeof change.percentChange === 'number' && Number.isFinite(change.percentChange)
+                      ? change.percentChange
+                      : null
+                  return (
                   <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
                     <td className="px-4 py-2.5">
                       <EditableCell
-                        value={change.date}
+                        value={change.date ?? ''}
                         onChange={v => updatePriceChange(i, 'date', v)}
                         editMode={editMode}
                       />
                     </td>
                     <td className="px-4 py-2.5 font-medium">
                       <EditableCell
-                        value={change.serviceVertical}
+                        value={change.serviceVertical ?? ''}
                         onChange={v => updatePriceChange(i, 'serviceVertical', v)}
                         editMode={editMode}
                       />
                     </td>
                     <td className="px-4 py-2.5">
                       <EditableCell
-                        value={change.previousPrice}
+                        value={change.previousPrice ?? ''}
                         onChange={v => updatePriceChange(i, 'previousPrice', v)}
                         editMode={editMode}
                       />
                     </td>
                     <td className="px-4 py-2.5">
                       <EditableCell
-                        value={change.newPrice}
+                        value={change.newPrice ?? ''}
                         onChange={v => updatePriceChange(i, 'newPrice', v)}
                         editMode={editMode}
                       />
@@ -1236,7 +1241,7 @@ export default function PricingByVerticalTab({
                       {editMode ? (
                         <input
                           type="text"
-                          value={change.dollarChange !== null ? String(change.dollarChange) : ''}
+                          value={dollarChange !== null ? String(dollarChange) : ''}
                           onChange={e => {
                             const val = e.target.value
                             updatePriceChange(i, 'dollarChange', val === '' ? null : parseFloat(val) || 0)
@@ -1246,11 +1251,11 @@ export default function PricingByVerticalTab({
                       ) : (
                         <span className={cn(
                           'font-medium',
-                          change.dollarChange !== null && change.dollarChange > 0 && 'text-emerald-600',
-                          change.dollarChange !== null && change.dollarChange < 0 && 'text-red-600',
+                          dollarChange !== null && dollarChange > 0 && 'text-emerald-600',
+                          dollarChange !== null && dollarChange < 0 && 'text-red-600',
                         )}>
-                          {change.dollarChange !== null
-                            ? `${change.dollarChange >= 0 ? '+' : ''}$${Math.abs(change.dollarChange).toFixed(2)}`
+                          {dollarChange !== null
+                            ? `${dollarChange >= 0 ? '+' : ''}$${Math.abs(dollarChange).toFixed(2)}`
                             : 'N/A'}
                         </span>
                       )}
@@ -1259,7 +1264,7 @@ export default function PricingByVerticalTab({
                       {editMode ? (
                         <input
                           type="text"
-                          value={change.percentChange !== null ? String(change.percentChange) : ''}
+                          value={percentChange !== null ? String(percentChange) : ''}
                           onChange={e => {
                             const val = e.target.value
                             updatePriceChange(i, 'percentChange', val === '' ? null : parseFloat(val) || 0)
@@ -1269,18 +1274,19 @@ export default function PricingByVerticalTab({
                       ) : (
                         <span className={cn(
                           'font-medium',
-                          change.percentChange !== null && change.percentChange > 0 && 'text-emerald-600',
-                          change.percentChange !== null && change.percentChange < 0 && 'text-red-600',
+                          percentChange !== null && percentChange > 0 && 'text-emerald-600',
+                          percentChange !== null && percentChange < 0 && 'text-red-600',
                         )}>
-                          {change.percentChange !== null
-                            ? `${change.percentChange >= 0 ? '+' : ''}${change.percentChange.toFixed(1)}%`
+                          {percentChange !== null
+                            ? `${percentChange >= 0 ? '+' : ''}${percentChange.toFixed(1)}%`
                             : 'N/A'}
                         </span>
                       )}
                     </td>
                   </tr>
-                ))}
-                {result.priceChanges.length === 0 && (
+                  )
+                })}
+                {(result.priceChanges ?? []).length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-6 text-center text-slate-400 text-sm">
                       No price changes found in the document.

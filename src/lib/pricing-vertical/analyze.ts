@@ -5,6 +5,10 @@ import type { PricingNativeDocument } from '@/lib/pricing-vertical/document-evid
 import { safeParseModelJson } from '@/lib/pricing-vertical/parse-model-json'
 import { mergeVerticalSummariesForRerun, normalizeVerticalSummary } from '@/lib/pricing-vertical/normalize-vertical-summaries'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
+import {
+  normalizePriceChangeEvent,
+  normalizePricingVerticalReport,
+} from '@/lib/pricing-vertical/normalize-report'
 import { requireAIClient, resolveModel } from '@/lib/ai-client'
 import { getActiveAgentModelId, getActiveAgentProvider } from '@/lib/agent-llm-context'
 import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
@@ -28,8 +32,8 @@ function takeReconciledStructure(
       : previous.pricingGrid
   // Empty priceChanges[] is valid (advisor removed all events).
   const nextChanges = Array.isArray(incoming.priceChanges)
-    ? (incoming.priceChanges as PricingVerticalReport['priceChanges'])
-    : previous.priceChanges
+    ? (incoming.priceChanges as unknown[]).map(normalizePriceChangeEvent)
+    : (previous.priceChanges ?? []).map(normalizePriceChangeEvent)
 
   return {
     pricingPeriods: nextPeriods,
@@ -250,11 +254,11 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
   "priceChanges": [
     {
       "date": "<date>",
-      "serviceVertical": "<vertical>",
-      "previousPrice": "<price>",
+      "serviceVertical": "<vertical — use serviceVertical, NOT vertical>",
+      "previousPrice": "<price — use previousPrice, NOT priorPrice>",
       "newPrice": "<price>",
       "dollarChange": <number|null>,
-      "percentChange": <number|null>,
+      "percentChange": <number|null — use percentChange, NOT changePercent>,
       "notes": "<notes>"
     }
   ],
@@ -344,12 +348,14 @@ Return ONLY valid JSON (no markdown, no code fences).`
   const parsed = safeParseModelJson(cleaned) as Record<string, unknown>
 
   const stripRevenueShare = (r: PricingVerticalReport): PricingVerticalReport =>
-    enrichVerticalSummariesInReport({
-      ...r,
-      verticalSummaries: (r.verticalSummaries ?? []).map((v) =>
-        normalizeVerticalSummary(v as unknown as Record<string, unknown>, v),
-      ),
-    })
+    enrichVerticalSummariesInReport(
+      normalizePricingVerticalReport({
+        ...r,
+        verticalSummaries: (r.verticalSummaries ?? []).map((v) =>
+          normalizeVerticalSummary(v as unknown as Record<string, unknown>, v),
+        ),
+      }),
+    )
 
   if (args.existingReport) {
     const ex = args.existingReport
