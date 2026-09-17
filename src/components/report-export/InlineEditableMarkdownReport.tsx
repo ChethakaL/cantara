@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
+import { Check, Pencil, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button, Card, cn } from '@/components/ui'
@@ -151,16 +151,20 @@ export default function InlineEditableMarkdownReport({
   report,
   markdownComponents,
   onSave,
+  onUpdateAnalysisFromEdits,
   readOnly = false,
 }: {
   report: MarkdownReport
   markdownComponents: Record<string, React.ComponentType<any>>
   onSave: (markdown: string) => Promise<void>
+  /** Optional: persist edits then refresh AI narrative from those edits. */
+  onUpdateAnalysisFromEdits?: (markdown: string) => Promise<void>
   readOnly?: boolean
 }) {
   const [editMode, setEditMode] = useState(false)
   const [blocks, setBlocks] = useState<MarkdownBlock[]>(() => parseMarkdownBlocks(report.markdown))
   const [saving, setSaving] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -177,7 +181,7 @@ export default function InlineEditableMarkdownReport({
   const draftMarkdown = useMemo(() => serializeMarkdownBlocks(blocks), [blocks])
 
   useEffect(() => {
-    if (!effectiveEditMode || draftMarkdown === lastSavedRef.current) return
+    if (!effectiveEditMode || reanalyzing || draftMarkdown === lastSavedRef.current) return
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(async () => {
       try {
@@ -193,7 +197,7 @@ export default function InlineEditableMarkdownReport({
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     }
-  }, [draftMarkdown, effectiveEditMode, onSave])
+  }, [draftMarkdown, effectiveEditMode, onSave, reanalyzing])
 
   useEffect(() => {
     const flush = () => {
@@ -223,6 +227,8 @@ export default function InlineEditableMarkdownReport({
     setBlocks(current => current.map((block, blockIndex) => (blockIndex === index ? next : block)))
   }
 
+  const busy = saving || reanalyzing
+
   const handleSave = async () => {
     setSaving(true)
     setError(null)
@@ -238,7 +244,25 @@ export default function InlineEditableMarkdownReport({
     }
   }
 
+  const handleUpdateAnalysisFromEdits = async () => {
+    if (!onUpdateAnalysisFromEdits) return
+    setReanalyzing(true)
+    setError(null)
+    try {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+      await onUpdateAnalysisFromEdits(draftMarkdown)
+      lastSavedRef.current = draftMarkdown
+      setEditMode(false)
+      setAutoSaveStatus('idle')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update analysis from edits.')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
+
   const cancelEditing = () => {
+    if (busy) return
     setBlocks(parseMarkdownBlocks(report.markdown))
     setEditMode(false)
     setAutoSaveStatus('idle')
@@ -252,10 +276,10 @@ export default function InlineEditableMarkdownReport({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
             Last updated {lastSavedLabel}
           </p>
-          {editMode && autoSaveStatus === 'saving' && (
+          {editMode && autoSaveStatus === 'saving' && !reanalyzing && (
             <span className="text-[10px] font-medium text-slate-400 animate-pulse">Saving...</span>
           )}
-          {editMode && autoSaveStatus === 'saved' && (
+          {editMode && autoSaveStatus === 'saved' && !reanalyzing && (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-500">
               <Check className="h-3 w-3" /> Saved
             </span>
@@ -264,12 +288,32 @@ export default function InlineEditableMarkdownReport({
         <div className="flex items-center gap-2">
           {!readOnly && (effectiveEditMode ? (
             <>
-              <Button size="sm" variant="outline" onClick={cancelEditing} disabled={saving}>
+              <Button size="sm" variant="outline" onClick={cancelEditing} disabled={busy}>
                 <X className="h-3.5 w-3.5" /> Cancel
               </Button>
-              <Button size="sm" onClick={() => void handleSave()} disabled={saving}>
-                <Save className="h-3.5 w-3.5" /> {saving ? 'Saving…' : 'Save Final Version'}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleSave()}
+                disabled={busy}
+                className={onUpdateAnalysisFromEdits
+                  ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                  : undefined}
+              >
+                <Save className="h-3.5 w-3.5" />
+                {saving ? 'Saving…' : onUpdateAnalysisFromEdits ? 'Save' : 'Save Final Version'}
               </Button>
+              {onUpdateAnalysisFromEdits && (
+                <Button
+                  size="sm"
+                  onClick={() => void handleUpdateAnalysisFromEdits()}
+                  disabled={busy}
+                  className="bg-slate-900 text-white hover:bg-slate-800"
+                >
+                  <RefreshCw className={cn('h-3.5 w-3.5', reanalyzing && 'animate-spin')} />
+                  {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+                </Button>
+              )}
             </>
           ) : (
             <Button size="sm" variant="outline" onClick={() => setEditMode(true)}>

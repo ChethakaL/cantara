@@ -17,6 +17,7 @@ import {
   Plus,
   RefreshCw,
   RotateCw,
+  Save,
   Trash2,
   Upload,
   X,
@@ -572,6 +573,43 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
   }
 
   /** Persist advisor-edited findings/benchmarks, then refresh summary + recommendations from those facts. */
+  const saveEditsOnly = async () => {
+    if (!draft || !result || readOnly) return
+    const edited = parseDraft(draft, result.generatedAt || new Date().toISOString())
+    setReanalyzing(true)
+    setError(null)
+    try {
+      const saveRes = await fetch('/api/sales-review/analyze', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, result: edited }),
+      })
+      if (!saveRes.ok) {
+        throw new Error(await readFriendlyError(saveRes, 'Failed to save sales process edits.'))
+      }
+      const saved = (await saveRes.json()) as SalesProcessReviewResult
+      setResult(saved)
+      setDraft(null)
+      setSavedBadge(true)
+      showToast('Sales process edits saved', 'success')
+      setTimeout(() => setSavedBadge(false), 2000)
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.salesProcessReview,
+        fileName: `${clientName} — Sales Process Review`,
+        report: saved,
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider),
+      })
+      await reloadRuns({ selectNewest: true })
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save edits')
+      showToast(err?.message || 'Failed to save edits', 'error')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
+
   const updateAnalysisFromEdits = async () => {
     if (!draft || !result || readOnly) return
     const edited = parseDraft(draft, result.generatedAt || new Date().toISOString())
@@ -687,16 +725,29 @@ export default function SalesProcessReviewTab({ clientId, clientName, readOnly =
               </Button>
             )}
             {!readOnly && editMode && (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void updateAnalysisFromEdits()}
-                disabled={reanalyzing}
-                className="h-8 text-xs cursor-pointer bg-slate-900 hover:bg-slate-800 text-white"
-              >
-                <RefreshCw className={cn('w-3.5 h-3.5 mr-1', reanalyzing && 'animate-spin')} />
-                {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void saveEditsOnly()}
+                  disabled={reanalyzing}
+                  className="h-8 text-xs cursor-pointer border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                >
+                  <Save className="w-3.5 h-3.5 mr-1" />
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void updateAnalysisFromEdits()}
+                  disabled={reanalyzing}
+                  className="h-8 text-xs cursor-pointer bg-slate-900 hover:bg-slate-800 text-white"
+                >
+                  <RefreshCw className={cn('w-3.5 h-3.5 mr-1', reanalyzing && 'animate-spin')} />
+                  {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
+                </Button>
+              </>
             )}
             {savedBadge && <span className="text-xs font-semibold text-emerald-600 animate-pulse">Updated</span>}
             <ExportReportButton

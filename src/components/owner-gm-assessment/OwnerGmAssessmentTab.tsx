@@ -230,6 +230,17 @@ export default function OwnerGmAssessmentTab({
     setError(null)
   }
 
+  // ── Save edits only (no AI) ───────────────────────────────────────────────
+  const handleSaveEditsOnly = async () => {
+    if (!assessment || readOnly) return
+    try {
+      await persistAssessment(assessment, { silent: false })
+      setEditMode(false)
+    } catch {
+      /* persistAssessment surfaces errors */
+    }
+  }
+
   // ── Update analysis from edits: persist edited ratings/owners/gm/team, then ask AI
   // to refresh executiveSummary/flags/recommendations/counselItems from that data. ──
   const handleReanalyzeFromEdits = async () => {
@@ -449,11 +460,19 @@ export default function OwnerGmAssessmentTab({
               <>
                 <button
                   onClick={handleCancelEdit}
-                  disabled={reanalyzing}
+                  disabled={reanalyzing || saving}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-60"
                 >
                   <X className="w-3.5 h-3.5" />
                   <span>Cancel</span>
+                </button>
+                <button
+                  onClick={() => void handleSaveEditsOnly()}
+                  disabled={reanalyzing || saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors disabled:opacity-60"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{saving ? 'Saving...' : 'Save'}</span>
                 </button>
                 <button
                   onClick={() => void handleReanalyzeFromEdits()}

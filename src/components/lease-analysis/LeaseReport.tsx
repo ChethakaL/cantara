@@ -1,6 +1,6 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { FileText, AlertTriangle, Folder, Pencil, RefreshCw, X } from 'lucide-react'
+import { FileText, AlertTriangle, Folder, Pencil, RefreshCw, Save, X } from 'lucide-react'
 import { Card, Badge, Button, cn } from '@/components/ui'
 import { LeaseReport as ILeaseReport } from '../../lib/lease-analysis/types'
 import { SnapshotTable } from './report-sections/SnapshotTable'
@@ -80,6 +80,8 @@ export function LeaseReport({
     setEditMode(false)
   }
 
+  const [saving, setSaving] = useState(false)
+
   const updateAnalysisFromEdits = async () => {
     if (!draftReport) return
     const handler = onUpdateAnalysisFromEdits || onReportUpdated
@@ -91,6 +93,18 @@ export function LeaseReport({
       setEditMode(false)
     } finally {
       setReanalyzing(false)
+    }
+  }
+
+  const saveEditsOnly = async () => {
+    if (!draftReport || !onReportUpdated) return
+    setSaving(true)
+    try {
+      await onReportUpdated(draftReport)
+      setDraftReport(null)
+      setEditMode(false)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -119,11 +133,17 @@ export function LeaseReport({
           {canEdit && (
             editMode ? (
               <>
-                <Button size="sm" variant="outline" onClick={cancelEdit} disabled={reanalyzing}>
+                <Button size="sm" variant="outline" onClick={cancelEdit} disabled={reanalyzing || saving}>
                   <X className="w-3.5 h-3.5" />
                   Cancel
                 </Button>
-                <Button size="sm" onClick={() => void updateAnalysisFromEdits()} disabled={reanalyzing} className="bg-slate-900 text-white hover:bg-slate-800">
+                {onReportUpdated && (
+                  <Button size="sm" variant="outline" onClick={() => void saveEditsOnly()} disabled={reanalyzing || saving} className="border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100">
+                    <Save className="w-3.5 h-3.5" />
+                    {saving ? 'Saving...' : 'Save'}
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => void updateAnalysisFromEdits()} disabled={reanalyzing || saving} className="bg-slate-900 text-white hover:bg-slate-800">
                   <RefreshCw className={cn('w-3.5 h-3.5', reanalyzing && 'animate-spin')} />
                   {reanalyzing ? 'Updating analysis...' : 'Update analysis from edits'}
                 </Button>

@@ -1859,6 +1859,48 @@ export default function CompetitorAnalysisTab({
     }
   };
 
+  const handleSaveEditsOnly = async () => {
+    if (!report || !savedAnalysis) return;
+    setSavingSummaries(true);
+    setError(null);
+    try {
+      const nextReport: CompetitorAnalysisReport = {
+        ...report,
+        executiveSummary: draftExecutiveSummary || report.executiveSummary,
+        marketSummary: draftMarketSummary || report.marketSummary,
+        positioningSummary: draftPositioningSummary || report.positioningSummary,
+      };
+      const res = await fetch(`/api/competitor-analysis/reports?id=${encodeURIComponent(savedAnalysis.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          report: JSON.stringify(nextReport),
+          parsed: nextReport,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => 'Save failed'));
+      const updated = await res.json();
+      setReport(nextReport);
+      setSavedAnalysis({ ...savedAnalysis, report: JSON.stringify(nextReport), parsed: nextReport, ...(updated?.id ? updated : {}) });
+      setSavedAnalyses((current) =>
+        current.map((analysis) =>
+          analysis.id === savedAnalysis.id
+            ? { ...analysis, report: JSON.stringify(nextReport), parsed: nextReport }
+            : analysis,
+        ),
+      );
+      setIsEditingSummaries(false);
+      setFactOverrides({});
+      setToast({ message: 'Competitor analysis edits saved', type: 'success' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save edits.';
+      setError(message);
+      setToast({ message, type: 'error' });
+    } finally {
+      setSavingSummaries(false);
+    }
+  };
+
   const handleUpdateAnalysisFromEdits = async () => {
     if (!report || !savedAnalysis) return;
     setReanalyzing(true);
@@ -2311,6 +2353,10 @@ export default function CompetitorAnalysisTab({
                     <Button size="sm" variant="outline" onClick={() => { setIsEditingSummaries(false); setFactOverrides({}); }} disabled={reanalyzing || savingSummaries} className="h-8 text-xs cursor-pointer">
                       <X className="w-3.5 h-3.5 mr-1" />
                       Cancel
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void handleSaveEditsOnly()} disabled={reanalyzing || savingSummaries} className="h-8 text-xs cursor-pointer border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100">
+                      <Save className="w-3.5 h-3.5 mr-1" />
+                      {savingSummaries && !reanalyzing ? 'Saving...' : 'Save'}
                     </Button>
                     <Button size="sm" onClick={() => void handleUpdateAnalysisFromEdits()} disabled={reanalyzing || savingSummaries} className="h-8 text-xs bg-slate-900 hover:bg-slate-800 text-white cursor-pointer">
                       <RefreshCw className={cn('w-3.5 h-3.5 mr-1', reanalyzing && 'animate-spin')} />

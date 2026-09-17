@@ -84,12 +84,14 @@ export async function researchAllChannels(
   // Facebook
   if (formData.facebookHandle) {
     const url = normaliseHandle(formData.facebookHandle, 'facebook')
+    const handle = formData.facebookHandle.replace(/^@/, '')
     tasks.push({
       channelType: 'facebook',
       label: 'Facebook',
       queries: [
-        `"${businessName}" Facebook page followers likes posts engagement`,
-        `site:facebook.com "${formData.facebookHandle.replace(/^@/, '')}"`,
+        `"${businessName}" Facebook page followers posts`,
+        `"${businessName}" Facebook recommended by customers OR "people recommend" OR "% recommend" reviews`,
+        `site:facebook.com "${handle}" recommend reviews`,
       ],
       inputUrl: url,
     })
@@ -102,22 +104,24 @@ export async function researchAllChannels(
       channelType: 'instagram',
       label: 'Instagram',
       queries: [
-        `"${businessName}" Instagram followers posts engagement`,
+        `"${businessName}" Instagram followers posts`,
         `site:instagram.com "${formData.instagramHandle.replace(/^@/, '')}"`,
       ],
       inputUrl: url,
     })
   }
 
-  // TikTok
+  // TikTok — best-effort likes via OpenAI web search (often unavailable)
   if (formData.tiktokHandle) {
     const url = normaliseHandle(formData.tiktokHandle, 'tiktok')
+    const handle = formData.tiktokHandle.replace(/^@/, '')
     tasks.push({
       channelType: 'tiktok',
       label: 'TikTok',
       queries: [
-        `"${businessName}" TikTok followers videos`,
-        `site:tiktok.com "@${formData.tiktokHandle.replace(/^@/, '')}"`,
+        `"${businessName}" TikTok followers videos likes`,
+        `site:tiktok.com "@${handle}" likes followers`,
+        `"@${handle}" TikTok total likes OR "hearts" OR "likes"`,
       ],
       inputUrl: url,
     })

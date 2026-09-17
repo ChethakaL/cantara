@@ -10,6 +10,7 @@ import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client, s3BucketName, buildPresignedFileUrl } from '@/lib/s3'
+import { computeOccupancyMetrics, syncOccupancyReportFromMarkdown } from '@/lib/occupancy-review/metrics'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,42 +22,6 @@ async function streamToBuffer(stream: any): Promise<Buffer> {
   return Buffer.concat(chunks)
 }
 
-function computeOccupancyMetrics(
-  monthlyData: Array<{month: string; boardingDogs: number; daycareDogs: number}>,
-  capacityModel: { totalDailyCapacity?: number; boardingRuns?: number; daycareSpots?: number }
-) {
-  const totalCapacity = capacityModel.totalDailyCapacity ??
-    ((capacityModel.boardingRuns ?? 0) + (capacityModel.daycareSpots ?? 0))
-
-  const monthlyTotals = monthlyData.map(m => {
-    const total = m.boardingDogs + m.daycareDogs
-    return {
-      month: m.month,
-      boardingDogs: m.boardingDogs,
-      daycareDogs: m.daycareDogs,
-      total,
-      utilization: totalCapacity > 0 ? +(total / totalCapacity * 100).toFixed(1) : 0,
-      boardingMix: total > 0 ? +(m.boardingDogs / total * 100).toFixed(1) : 0,
-      daycareMix: total > 0 ? +(m.daycareDogs / total * 100).toFixed(1) : 0,
-    }
-  })
-
-  const sorted = [...monthlyTotals].sort((a, b) => b.utilization - a.utilization)
-  const peakMonths = sorted.slice(0, 3).map(m => m.month)
-  const troughMonths = sorted.slice(-3).reverse().map(m => m.month)
-  const avgUtilization = monthlyTotals.length > 0
-    ? +(monthlyTotals.reduce((s, m) => s + m.utilization, 0) / monthlyTotals.length).toFixed(1)
-    : 0
-  const resolvedDaycareSpots = capacityModel.daycareSpots ??
-    (capacityModel.totalDailyCapacity && capacityModel.boardingRuns
-      ? capacityModel.totalDailyCapacity - capacityModel.boardingRuns
-      : 0)
-  const daycareDisplacementPct = totalCapacity > 0
-    ? +(resolvedDaycareSpots / totalCapacity * 100).toFixed(1)
-    : 0
-
-  return { monthlyTotals, peakMonths, troughMonths, avgUtilization, daycareDisplacementPct, totalCapacity }
-}
 export const maxDuration = 120
 
 export async function GET(req: NextRequest) {
@@ -98,6 +63,74 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const contentType = req.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const body = await req.json().catch(() => ({}))
+      const {
+        reanalyzeFromEdits,
+        existingReport,
+        clientId,
+        clientName,
+        provider: rawProvider,
+        modelId: requestedModelId,
+      } = body ?? {}
+
+      if (!reanalyzeFromEdits) {
+        return NextResponse.json(
+          { error: 'JSON body requires reanalyzeFromEdits: true' },
+          { status: 400 },
+        )
+      }
+      if (!clientId || !existingReport || typeof existingReport !== 'object') {
+        return NextResponse.json(
+          { error: 'reanalyzeFromEdits requires clientId and existingReport.' },
+          { status: 400 },
+        )
+      }
+
+      const provider = parseAnalyzeProvider(rawProvider)
+      const modelId = resolveAnalyzeModelId(provider, requestedModelId)
+      if (provider === 'openai') {
+        const gate = await assertOpenAiConfiguredForAnalyze()
+        if (gate) return gate
+      }
+
+      const client = await prisma.clientProfile.findUnique({
+        where: { id: String(clientId) },
+        select: { businessName: true, sectionSubmissions: true },
+      })
+      if (!client) return new Response('Client not found', { status: 404 })
+
+      const { reanalyzeOccupancyReviewFromEdits } = await import('@/lib/occupancy-review/reanalyze')
+      const seeded = syncOccupancyReportFromMarkdown({
+        ...existingReport,
+        clientName:
+          existingReport.clientName ||
+          clientName ||
+          client.businessName ||
+          'Client',
+      })
+      const report = await runWithAgentLlmContext({ provider, modelId }, () =>
+        reanalyzeOccupancyReviewFromEdits(seeded, { provider, modelId }),
+      )
+
+      const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object'
+        ? client.sectionSubmissions
+        : {}) as Record<string, any>
+
+      await prisma.clientProfile.update({
+        where: { id: String(clientId) },
+        data: {
+          sectionSubmissions: {
+            ...current,
+            occupancyReview: report as any,
+          },
+        },
+      })
+
+      return NextResponse.json({ report })
+    }
+
     const formData = await req.formData()
     const clientId = formData.get('clientId') as string
     const clientName = formData.get('clientName') as string
@@ -363,18 +396,18 @@ export async function PATCH(req: NextRequest) {
     return new Response('Generate the occupancy review before editing.', { status: 404 })
   }
 
-  const report = {
+  const report = syncOccupancyReportFromMarkdown({
     ...existing,
     markdown,
     updatedAt: new Date().toISOString(),
-  }
+  })
 
   await prisma.clientProfile.update({
     where: { id: clientId },
     data: {
       sectionSubmissions: {
         ...current,
-        occupancyReview: report,
+        occupancyReview: report as any,
       },
     },
   })

@@ -10,7 +10,10 @@ import { runWithAgentLlmContext } from '@/lib/agent-llm-context'
 import type { PricingVerticalReport } from '@/lib/pricing-vertical/types'
 import type { ServicePricingRow } from '@/lib/pricing-vertical/types'
 import { researchWebsite } from '@/lib/competitor-analysis/website-research'
-import { collectPricingDocumentEvidence } from '@/lib/pricing-vertical/document-evidence'
+import {
+  collectPricingDocumentEvidence,
+  loadNativePricingDocuments,
+} from '@/lib/pricing-vertical/document-evidence'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
 
 export const runtime = 'nodejs'
@@ -74,6 +77,7 @@ export async function POST(req: NextRequest) {
       websiteUrl: websiteUrlOverride,
       reanalyzeFromEdits,
       existingReport,
+      selectedDocumentIds,
       provider: rawProvider,
       modelId: requestedModelId,
     } = await req.json()
@@ -91,6 +95,10 @@ export async function POST(req: NextRequest) {
     if (reanalyzeFromEdits && (!existingReport || typeof existingReport !== 'object')) {
       return new Response('reanalyzeFromEdits requires existingReport object', { status: 400 })
     }
+
+    const selectedIds = Array.isArray(selectedDocumentIds)
+      ? selectedDocumentIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+      : []
 
     const clientProfile = await (prisma as any).clientProfile.findUnique({
       where: { id: clientId },
@@ -144,7 +152,12 @@ export async function POST(req: NextRequest) {
           businessCategory: clientProfile.businessCategory || 'pet resort',
         })
       : null
-    const documentEvidence = await collectPricingDocumentEvidence(clientId)
+    const documentEvidence = await collectPricingDocumentEvidence(clientId, {
+      selectedRecordIds: selectedIds.length ? selectedIds : undefined,
+    })
+    const nativeDocuments = selectedIds.length
+      ? await loadNativePricingDocuments(clientId, selectedIds)
+      : []
 
     const provider = parseAnalyzeProvider(rawProvider)
     const modelId = resolveAnalyzeModelId(provider, requestedModelId)
@@ -162,16 +175,40 @@ export async function POST(req: NextRequest) {
         businessName: clientProfile.businessName,
         websiteResearch,
         documentEvidence,
+        nativeDocuments,
         existingReport: reanalyzeFromEdits ? (existingReport as PricingVerticalReport) : null,
       }),
     )
+    // Only merge deterministic structured rows on a fresh run when they add historical fill.
+    // Never wipe a richer AI grid (common when xlsx history was read natively).
     const report = reanalyzeFromEdits
       ? analyzedReport
-      : mergeStructuredDocumentPrices(
-          analyzedReport,
-          documentEvidence.structuredPricingRows ?? [],
-          documentEvidence.pricingPeriods,
-        )
+      : (() => {
+          const merged = mergeStructuredDocumentPrices(
+            analyzedReport,
+            documentEvidence.structuredPricingRows ?? [],
+            documentEvidence.pricingPeriods,
+          )
+          const aiHist = (analyzedReport.pricingGrid ?? []).reduce((n, row) => {
+            return (
+              n +
+              Object.entries(row.prices ?? {}).filter(
+                ([period, value]) =>
+                  !/^current$/i.test(period) && /\d/.test(String(value ?? '')),
+              ).length
+            )
+          }, 0)
+          const mergedHist = (merged.pricingGrid ?? []).reduce((n, row) => {
+            return (
+              n +
+              Object.entries(row.prices ?? {}).filter(
+                ([period, value]) =>
+                  !/^current$/i.test(period) && /\d/.test(String(value ?? '')),
+              ).length
+            )
+          }, 0)
+          return mergedHist >= aiHist ? merged : analyzedReport
+        })()
 
     // Store result in sectionSubmissions.pricingVertical
     const existing = (clientProfile.sectionSubmissions as Record<string, any>) ?? {}

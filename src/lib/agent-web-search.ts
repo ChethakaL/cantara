@@ -62,7 +62,7 @@ After searching, return a JSON array of findings:
   }
 ]
 
-IMPORTANT: Report exact numbers as found on the source websites. Do not estimate or round. If a Google Business Profile shows 4.3 stars with 287 reviews, report exactly "4.3 stars" and "287 reviews". Return ONLY the JSON array.`;
+IMPORTANT: Report exact numbers as found on the source websites. Do not estimate or round. If a Google Business Profile shows 4.3 stars with 287 reviews, report exactly "4.3 stars" and "287 reviews". For TikTok, explicitly look for total profile likes/hearts when available. For Facebook, look for "% recommend" / people who recommend the business when available. Return ONLY the JSON array.`;
 }
 
 async function claudeWebSearch(args: {

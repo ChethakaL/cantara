@@ -872,6 +872,16 @@ export default function PricingAnalysisTab({
                   Cancel
                 </Button>
                 <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleSave()}
+                  disabled={analyzing}
+                  className="h-8 text-xs cursor-pointer border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                >
+                  <Save className="w-3.5 h-3.5 mr-1" />
+                  {savedBadge ? 'Saved' : 'Save'}
+                </Button>
+                <Button
                   size="sm"
                   onClick={() => void handleReanalyzeFromEdits()}
                   disabled={analyzing}

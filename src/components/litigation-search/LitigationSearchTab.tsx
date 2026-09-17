@@ -7,7 +7,7 @@ import { Card, Badge, Button, cn } from '@/components/ui'
 import {
   Search, Upload, FileText, AlertTriangle, Shield, ShieldAlert, ShieldCheck,
   ChevronDown, ChevronUp, ExternalLink, Calendar, Loader2, X, FileUp,
-  CheckCircle, CheckCircle2, AlertCircle, Plus, RefreshCw, Scale, Play, Edit3, Eye,
+  CheckCircle, CheckCircle2, AlertCircle, Plus, RefreshCw, Scale, Play, Edit3, Eye, Save,
 } from 'lucide-react'
 import type { LitigationSearchResult } from '@/lib/litigation-search/search'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
@@ -484,6 +484,35 @@ export default function LitigationSearchTab({
     setSearchError('')
   }
 
+  const handleSaveEditsOnly = async () => {
+    if (readOnly || (!searchResult && !docResult)) return
+    setSaving(true)
+    setSearchError('')
+    try {
+      const saveRes = await fetch(`/api/client-data/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'litigationSearch',
+          data: {
+            searchResult,
+            docResult,
+            generatedAt: new Date().toISOString(),
+          },
+        }),
+      })
+      if (!saveRes.ok) throw new Error('Save failed')
+      await persistLitigationRun(searchResult, docResult)
+      setEditMode(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err: any) {
+      setSearchError(err?.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleReanalyzeFromEdits = async () => {
     if (readOnly || (!searchResult && !docResult)) return
     setReanalyzing(true)
@@ -798,11 +827,21 @@ export default function LitigationSearchTab({
                       variant="outline"
                       size="sm"
                       onClick={handleCancelEdit}
-                      disabled={reanalyzing}
+                      disabled={reanalyzing || saving}
                       className="gap-1.5 h-8 text-xs font-medium text-slate-700"
                     >
                       <X className="w-3.5 h-3.5" />
                       Cancel
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleSaveEditsOnly()}
+                      disabled={reanalyzing || saving}
+                      className="gap-1.5 h-8 text-xs font-medium border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {saving ? 'Saving...' : 'Save'}
                     </Button>
                     <Button
                       size="sm"

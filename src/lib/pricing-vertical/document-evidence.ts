@@ -219,7 +219,106 @@ function extractStructuredPricingRows(text: string, fileName: string): ServicePr
   })
 }
 
-export async function collectPricingDocumentEvidence(clientId: string) {
+export type PricingNativeDocument = {
+  id: string
+  fileName: string
+  mimeType: string
+  base64: string
+  /** Full spreadsheet/CSV text when available — Claude may also receive the native file. */
+  spreadsheetText?: string
+}
+
+function resolveMimeType(fileName: string, mimeType?: string | null) {
+  const lower = fileName.toLowerCase()
+  const mime = (mimeType || '').toLowerCase()
+  if (mime && mime !== 'application/octet-stream') return mime
+  if (lower.endsWith('.pdf')) return 'application/pdf'
+  if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  if (lower.endsWith('.xls')) return 'application/vnd.ms-excel'
+  if (lower.endsWith('.csv')) return 'text/csv'
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  return mime || 'application/octet-stream'
+}
+
+const MAX_NATIVE_DOCS = 12
+const MAX_NATIVE_BYTES = 25 * 1024 * 1024
+
+/**
+ * Load advisor-selected client documents as native base64 attachments for Claude.
+ * Spreadsheets also get a full text extract so the model still has cell values if
+ * the provider cannot natively open xlsx.
+ */
+export async function loadNativePricingDocuments(
+  clientId: string,
+  selectedRecordIds: string[],
+): Promise<PricingNativeDocument[]> {
+  const ids = Array.from(new Set(selectedRecordIds.filter(Boolean))).slice(0, MAX_NATIVE_DOCS)
+  if (!ids.length) return []
+
+  const docs = (await (prisma as any).clientDocument.findMany({
+    where: { clientId, id: { in: ids } },
+    select: {
+      id: true,
+      fileName: true,
+      mimeType: true,
+      localPath: true,
+      storageBucket: true,
+    },
+  })) as Array<{
+    id: string
+    fileName: string
+    mimeType: string
+    localPath: string
+    storageBucket: string | null
+  }>
+
+  const byId = new Map(docs.map((d) => [d.id, d]))
+  const out: PricingNativeDocument[] = []
+
+  for (const id of ids) {
+    const doc = byId.get(id)
+    if (!doc?.localPath) continue
+    try {
+      const buffer = await fetchDocumentBuffer(doc)
+      if (!buffer.length || buffer.length > MAX_NATIVE_BYTES) {
+        console.warn('[pricing-vertical] Skipping oversized/empty native doc:', doc.fileName, buffer.length)
+        continue
+      }
+      const mimeType = resolveMimeType(doc.fileName, doc.mimeType)
+      const lower = doc.fileName.toLowerCase()
+      const isSheet =
+        mimeType.includes('spreadsheet') ||
+        mimeType.includes('excel') ||
+        mimeType === 'text/csv' ||
+        /\.(xlsx|xls|csv)$/i.test(lower)
+
+      let spreadsheetText: string | undefined
+      if (isSheet) {
+        spreadsheetText = (await documentToText(doc, buffer)).slice(0, 120_000)
+      }
+
+      out.push({
+        id: doc.id,
+        fileName: doc.fileName,
+        mimeType,
+        base64: buffer.toString('base64'),
+        spreadsheetText,
+      })
+    } catch (error) {
+      console.warn('[pricing-vertical] Native document load failed:', doc.fileName, error)
+    }
+  }
+
+  return out
+}
+
+export async function collectPricingDocumentEvidence(
+  clientId: string,
+  options?: { selectedRecordIds?: string[] },
+) {
   const docs = await (prisma as any).clientDocument.findMany({
     where: { clientId },
     orderBy: { createdAt: 'desc' },
@@ -244,10 +343,21 @@ export async function collectPricingDocumentEvidence(clientId: string) {
     createdAt: Date
   }>
 
+  const selectedIds = options?.selectedRecordIds?.filter(Boolean) ?? []
+  const selectedIdSet = selectedIds.length ? new Set(selectedIds) : null
+
   const selected: typeof docs = []
-  for (const doc of docs.filter(isPricingLikeDocument)) {
-    selected.push(doc)
-    if (selected.length >= MAX_DOCS) break
+  if (selectedIdSet) {
+    for (const doc of docs) {
+      if (!selectedIdSet.has(doc.id)) continue
+      selected.push(doc)
+      if (selected.length >= MAX_DOCS) break
+    }
+  } else {
+    for (const doc of docs.filter(isPricingLikeDocument)) {
+      selected.push(doc)
+      if (selected.length >= MAX_DOCS) break
+    }
   }
 
   const evidenceParts: string[] = []
@@ -259,7 +369,10 @@ export async function collectPricingDocumentEvidence(clientId: string) {
       const buffer = await fetchDocumentBuffer(doc)
       const rawText = await documentToText(doc, buffer)
       structuredPricingRows.push(...extractStructuredPricingRows(rawText, doc.fileName))
-      const compressed = compressPricingText(rawText)
+      // When advisor picks specific files, keep fuller extracts (less aggressive compression).
+      const compressed = selectedIdSet
+        ? rawText.replace(/\u0000/g, '').slice(0, MAX_CHARS_PER_DOC * 2)
+        : compressPricingText(rawText)
       if (!compressed.trim()) continue
       sources.push({ documentId: doc.documentId, fileName: doc.fileName, extractedChars: compressed.length })
       evidenceParts.push(`=== DOCUMENT: ${doc.fileName} (${doc.documentId ?? 'unclassified'}) ===\n${compressed}`)
@@ -270,7 +383,7 @@ export async function collectPricingDocumentEvidence(clientId: string) {
 
   return {
     sources,
-    text: evidenceParts.join('\n\n').slice(0, MAX_TOTAL_CHARS),
+    text: evidenceParts.join('\n\n').slice(0, selectedIdSet ? MAX_TOTAL_CHARS * 2 : MAX_TOTAL_CHARS),
     pricingPeriods: HISTORICAL_PERIODS,
     structuredPricingRows,
   }

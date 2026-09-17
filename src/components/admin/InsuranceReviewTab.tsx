@@ -17,6 +17,7 @@ import {
   Clock,
   DollarSign,
   Calendar,
+  Save,
 } from 'lucide-react'
 import { Badge, Button, Card, cn } from '@/components/ui'
 import { getAdminEmail, type DocumentStatus } from '@/lib/store'
@@ -296,6 +297,43 @@ export default function InsuranceReviewTab({
       setError(err?.message ?? 'Failed to reset insurance review.')
     } finally {
       if (mountedRef.current) setDeleting(false)
+    }
+  }
+
+  /** Persist advisor edits only (no AI refresh). */
+  const saveEditsOnly = async () => {
+    if (!draftSummary) return
+    setSaving(true)
+    setError(null)
+    try {
+      const putRes = await fetch('/api/insurance-review', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, summary: draftSummary }),
+        cache: 'no-store',
+      })
+      if (!putRes.ok) {
+        const text = await putRes.text().catch(() => '')
+        throw new Error(text || 'Failed to save edits')
+      }
+      const putData = await putRes.json()
+      const savedSummary = (putData.summary ?? draftSummary) as InsuranceSummary
+      setSummary(savedSummary)
+      setIsEditing(false)
+      setDraftSummary(null)
+      await saveAgentAnalysisRunClient({
+        clientId,
+        agentKey: AGENT_RUN_KEYS.insuranceReview,
+        fileName: document?.fileName ?? `${clientName} — Insurance Review`,
+        report: { summary: savedSummary, document },
+        aiProvider: provider,
+        aiModel: resolveAgentModelId(provider, 'opus'),
+      })
+      await reloadRuns({ selectNewest: true })
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to save edits')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -719,6 +757,10 @@ export default function InsuranceReviewTab({
                 <>
                   <Button size="sm" variant="outline" onClick={cancelEditing} disabled={saving} className="h-8 text-xs">
                     Cancel
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void saveEditsOnly()} disabled={saving} className="h-8 text-xs border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100">
+                    <Save className="w-3.5 h-3.5 mr-1" />
+                    {saving ? 'Saving...' : 'Save'}
                   </Button>
                   <Button size="sm" onClick={() => void updateAnalysisFromEdits()} disabled={saving} className="h-8 text-xs font-medium bg-slate-900 text-white hover:bg-slate-800">
                     {saving ? (

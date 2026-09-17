@@ -92,6 +92,22 @@ Analyse each channel based on the research data and produce a structured JSON re
 - 2: Very small following, rare posts, low engagement
 - 1: Dormant (6+ months), near-zero following, or not found
 
+**MANDATORY Facebook keyMetrics** (when Facebook channel is researched):
+- "Followers": page/follower count when found
+- "Recommend %": percentage of people that recommend the business — use label **"People Recommend %"**. Value format like "96% recommend (74 reviews)". If not found, use "Not found"
+- Do NOT include "Engagement", "Likes", or "Page likes" as keyMetrics (advisors do not want those fields)
+
+**MANDATORY TikTok keyMetrics** (when TikTok channel is researched):
+- "Followers": follower count when found
+- "Likes": total profile likes / hearts when found via web search (best-effort; often missing). If not found, use "Not found"
+- "Videos": video/post count when found. If not found, use "Not found"
+- "Recent Posting Activity": last post / posting cadence when found (e.g. "Last video 2 weeks ago"). If not found, use "Not found"
+- Do NOT include "Engagement" as a keyMetric
+
+**Instagram keyMetrics**: include Followers, posting activity / recent posts; do NOT include "Engagement" as a keyMetric
+
+**Facebook / Instagram / TikTok**: still include Recent Posting Activity (or equivalent last-post metric) whenever research finds dates — do not drop activity metrics just because engagement is omitted.
+
 **Booking Platform (1–5)**
 - 5: Active, publicly bookable, prominent in web results
 - 4: Active with minor friction
