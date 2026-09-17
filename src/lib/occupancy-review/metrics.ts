@@ -150,7 +150,7 @@ export function syncOccupancyReportFromMarkdown<T extends {
   markdown: string
   capacityModel?: OccupancyCapacityModel
   monthlyData?: OccupancyMonthlyEntry[]
-  computed?: ReturnType<typeof computeOccupancyMetrics> | null
+  computed?: unknown
 }>(report: T): T {
   const parsed = parseMonthlyDataFromMarkdown(report.markdown)
   if (!parsed.length) return report
