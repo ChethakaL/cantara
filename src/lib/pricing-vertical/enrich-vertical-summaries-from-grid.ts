@@ -5,6 +5,7 @@ import type {
   VerticalPricingSummary,
 } from './types'
 import { parseMoneyValue } from './pricing-trend-chart'
+import { normalizePriceChangeEvent } from './normalize-report'
 
 function norm(s: string | undefined | null): string {
   return String(s ?? '').trim().toLowerCase()
@@ -203,7 +204,7 @@ function enrichOneVertical(
  */
 export function enrichVerticalSummariesInReport(report: PricingVerticalReport): PricingVerticalReport {
   const grid = report.pricingGrid ?? []
-  const changes = report.priceChanges ?? []
+  const changes = (report.priceChanges ?? []).map(normalizePriceChangeEvent)
   const periods = report.pricingPeriods?.length ? report.pricingPeriods : ['Current']
 
   let summaries = [...(report.verticalSummaries ?? [])]
@@ -233,5 +234,5 @@ export function enrichVerticalSummariesInReport(report: PricingVerticalReport): 
   }
 
   const verticalSummaries = summaries.map((vs) => enrichOneVertical(vs, grid, changes, periods))
-  return { ...report, verticalSummaries }
+  return { ...report, priceChanges: changes, verticalSummaries }
 }

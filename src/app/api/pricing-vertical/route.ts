@@ -15,6 +15,7 @@ import {
   loadNativePricingDocuments,
 } from '@/lib/pricing-vertical/document-evidence'
 import { enrichVerticalSummariesInReport } from '@/lib/pricing-vertical/enrich-vertical-summaries-from-grid'
+import { normalizePricingVerticalReport } from '@/lib/pricing-vertical/normalize-report'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -60,7 +61,9 @@ export async function GET(req: NextRequest) {
 
     const data = (client?.sectionSubmissions as Record<string, any>) ?? {}
     const raw = data.pricingVertical as PricingVerticalReport | null | undefined
-    return NextResponse.json(raw ? enrichVerticalSummariesInReport(raw) : null)
+    return NextResponse.json(
+      raw ? enrichVerticalSummariesInReport(normalizePricingVerticalReport(raw)) : null,
+    )
   } catch (error) {
     console.error('[pricing-vertical] GET error:', error)
     return new Response('Internal Server Error', { status: 500 })
@@ -210,16 +213,18 @@ export async function POST(req: NextRequest) {
           return mergedHist >= aiHist ? merged : analyzedReport
         })()
 
+    const normalizedReport = normalizePricingVerticalReport(report)
+
     // Store result in sectionSubmissions.pricingVertical
     const existing = (clientProfile.sectionSubmissions as Record<string, any>) ?? {}
-    existing.pricingVertical = report
+    existing.pricingVertical = normalizedReport
 
     await (prisma as any).clientProfile.update({
       where: { id: clientId },
       data: { sectionSubmissions: existing },
     })
 
-    return NextResponse.json(report)
+    return NextResponse.json(normalizedReport)
   } catch (error) {
     console.error('[pricing-vertical] POST error:', error)
     return new Response('Internal Server Error', { status: 500 })

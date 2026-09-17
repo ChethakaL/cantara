@@ -4,6 +4,7 @@ import {
   type ReportConfig,
 } from './generate-report-html'
 import type { PricingVerticalReport } from '@/lib/pricing-vertical/types'
+import { normalizePricingVerticalReport } from '@/lib/pricing-vertical/normalize-report'
 
 function trendLabel(trend: string): string {
   switch (trend) {
@@ -34,9 +35,10 @@ function fmtPct(n: number | null | undefined, digits = 1): string {
 }
 
 export function buildPricingVerticalReportHtml(
-  report: PricingVerticalReport,
+  reportInput: PricingVerticalReport,
   clientName: string,
 ): string {
+  const report = normalizePricingVerticalReport(reportInput)
   const noChangeCount = report.verticalSummaries.filter(v => Number(v.priceChanges24Mo) === 0).length
   const totalChanges = report.priceChanges.length
   const finiteAvg = (v: { avgChangePercent?: number | null }) =>
@@ -74,8 +76,12 @@ export function buildPricingVerticalReportHtml(
       c.serviceVertical,
       c.previousPrice,
       c.newPrice,
-      c.dollarChange !== null ? (c.dollarChange >= 0 ? `+$${c.dollarChange.toFixed(2)}` : `-$${Math.abs(c.dollarChange).toFixed(2)}`) : 'N/A',
-      c.percentChange !== null ? `${c.percentChange >= 0 ? '+' : ''}${c.percentChange.toFixed(1)}%` : 'N/A',
+      typeof c.dollarChange === 'number' && Number.isFinite(c.dollarChange)
+        ? (c.dollarChange >= 0 ? `+$${c.dollarChange.toFixed(2)}` : `-$${Math.abs(c.dollarChange).toFixed(2)}`)
+        : 'N/A',
+      typeof c.percentChange === 'number' && Number.isFinite(c.percentChange)
+        ? `${c.percentChange >= 0 ? '+' : ''}${c.percentChange.toFixed(1)}%`
+        : 'N/A',
       c.notes,
     ]),
   )
