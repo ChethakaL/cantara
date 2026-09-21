@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getPlacesApiKey } from '@/lib/secure-settings';
 
 const GOOGLE_STATIC_MAPS_URL = 'https://maps.googleapis.com/maps/api/staticmap';
 export const dynamic = 'force-dynamic';
@@ -41,9 +42,9 @@ function buildCirclePath(center: { lat: number; lng: number }, radiusMiles: numb
 }
 
 export async function GET(req: NextRequest) {
-  const apiKey = process.env.GOOGLE_SERVICES_API;
+  const apiKey = await getPlacesApiKey();
   if (!apiKey) {
-    return new Response('Map service is not configured.', { status: 500 });
+    return new Response('Google Places API key is not set. Add it in Admin Settings.', { status: 500 });
   }
 
   try {

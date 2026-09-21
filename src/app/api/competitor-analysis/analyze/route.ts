@@ -16,6 +16,7 @@ import {
 } from '@/lib/agent-analyze-provider';
 import { hasOpenAiConfigured } from '@/lib/openai-client';
 import { prisma } from '@/lib/prisma';
+import { getPlacesApiKey } from '@/lib/secure-settings';
 
 export const maxDuration = 180;
 const DEFAULT_PET_CATEGORY = 'pet resort';
@@ -93,11 +94,17 @@ export async function POST(req: NextRequest) {
     businessCategory: isGenericPetCategory(formData.businessCategory) ? DEFAULT_PET_CATEGORY : formData.businessCategory.trim(),
   };
 
-  const googleApiKey = process.env.GOOGLE_SERVICES_API;
+  const googleApiKey = await getPlacesApiKey();
   const aiConfigured =
     provider === 'openai' ? await hasOpenAiConfigured() : await hasAIConfigured();
 
-  if (!googleApiKey || !aiConfigured) {
+  if (!googleApiKey) {
+    return new Response(
+      JSON.stringify({ error: 'Google Places API key is not set. Add it in Admin Settings.' }),
+      { status: 500 }
+    );
+  }
+  if (!aiConfigured) {
     return new Response(
       JSON.stringify({ error: 'Competitor analysis is not configured correctly.' }),
       { status: 500 }

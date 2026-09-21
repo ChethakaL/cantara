@@ -7,6 +7,7 @@ import {
   assertOpenAiConfiguredForAnalyze,
   resolveAnalyzeModelId,
 } from '@/lib/agent-analyze-provider';
+import { getPlacesApiKey } from '@/lib/secure-settings';
 
 export const maxDuration = 180;
 
@@ -134,7 +135,14 @@ export async function POST(req: NextRequest) {
           { provider, modelId },
         );
 
-        const googleApiKey = process.env.GOOGLE_SERVICES_API;
+        const googleApiKey = await getPlacesApiKey();
+        if (!googleApiKey) {
+          send({
+            type: 'progress',
+            phase: 'research',
+            message: 'Google Places API key is not set (Admin Settings) — skipping Places verification.',
+          });
+        }
         if (googleApiKey) {
           try {
             const searchQuery = (formData as any).businessAddress
