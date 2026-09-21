@@ -29,6 +29,10 @@ export const DOCUMENT_REFERENCE_TEMPLATES: Partial<Record<string, { label: strin
     label: 'Download sample template (CSV) — please replace with 24 months of your data',
     path: '/PawPartner_hyline_hotel_everson_wa_occupancy_alls_export_20260722_100237.csv',
   },
+  client_addresses: {
+    label: 'Download Cantara Customer Address List template (Excel)',
+    path: '/Cantara%20Customer%20Address%20List.xlsx',
+  },
 }
 
 export const DOCUMENT_ASSIGN_HELP: Partial<Record<string, string>> = {
@@ -37,7 +41,8 @@ export const DOCUMENT_ASSIGN_HELP: Partial<Record<string, string>> = {
   leases: 'Include the base lease and every amendment, addendum, or rider.',
   real_estate_appraisal: 'Upload one current appraisal document for the real estate owned by the business.',
   material_contracts: 'Vendor, supplier, software, and service agreements exceeding $5,000/year or longer than 12 months. If there is no formal agreement, upload a spreadsheet with the agreement details.',
-  client_addresses: 'A spreadsheet or CSV with client names, street addresses, and service types (boarding, daycare, grooming, etc.) to map customer geographic reach.',
+  client_addresses:
+    'Download the Cantara Customer Address List template and fill it in, or upload your own CSV/Excel with customer names, street addresses (city/state/zip/country), and optional service types (boarding, daycare, grooming). If service type is missing, we default to Both / Multiple.',
 }
 
 export function isClientPortalDocument(doc: { id: string }): boolean {
