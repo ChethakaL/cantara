@@ -236,8 +236,16 @@ function LocationMapDocumentSection({
                   )}
                 </div>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Spreadsheet or CSV containing client/customer names, street addresses, and service types (boarding, daycare, grooming, etc.) to map customer geographic reach.
+                  Prefer the Cantara Customer Address List template (or upload your own CSV/Excel with street, city, state/zip, country). Service type is optional — missing values default to Both / Multiple.
                 </p>
+                <a
+                  href="/Cantara%20Customer%20Address%20List.xlsx"
+                  download="Cantara Customer Address List.xlsx"
+                  className="inline-flex items-center gap-1.5 mt-2 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  Download Cantara Customer Address List template
+                </a>
 
                 {/* Uploaded file link display */}
                 {hasDoc && (
