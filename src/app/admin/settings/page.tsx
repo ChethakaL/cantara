@@ -51,6 +51,11 @@ export default function AdminSettingsPage() {
   const [openAiMessage, setOpenAiMessage] = useState<string | null>(null)
   const [openAiError, setOpenAiError] = useState<string | null>(null)
   const [openAiSaving, setOpenAiSaving] = useState(false)
+  const [placesStatus, setPlacesStatus] = useState<KeyStatus | null>(null)
+  const [placesApiKey, setPlacesApiKey] = useState('')
+  const [placesMessage, setPlacesMessage] = useState<string | null>(null)
+  const [placesError, setPlacesError] = useState<string | null>(null)
+  const [placesSaving, setPlacesSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -89,6 +94,11 @@ export default function AdminSettingsPage() {
       const openAiRes = await fetch('/api/admin/settings/openai-key', { cache: 'no-store' })
       if (openAiRes.ok) {
         setOpenAiStatus(await openAiRes.json())
+      }
+
+      const placesRes = await fetch('/api/admin/settings/places-key', { cache: 'no-store' })
+      if (placesRes.ok) {
+        setPlacesStatus(await placesRes.json())
       }
 
       // Load Monday Settings
@@ -288,6 +298,27 @@ export default function AdminSettingsPage() {
     }
   }
 
+  const savePlacesKey = async () => {
+    setPlacesSaving(true)
+    setPlacesError(null)
+    setPlacesMessage(null)
+    try {
+      const res = await fetch('/api/admin/settings/places-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: placesApiKey }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setPlacesStatus(await res.json())
+      setPlacesApiKey('')
+      setPlacesMessage('Google Places API key saved.')
+    } catch (err) {
+      setPlacesError(err instanceof Error ? err.message : 'Failed to save Places API key')
+    } finally {
+      setPlacesSaving(false)
+    }
+  }
+
   const saveMondaySettings = async () => {
     setSaving(true)
     setMondayStatusMessage(null)
@@ -433,6 +464,52 @@ export default function AdminSettingsPage() {
             <Button onClick={() => void saveOpenAiKey()} disabled={openAiSaving || !openAiApiKey.trim()}>
               {openAiSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {openAiSaving ? 'Saving...' : 'Save OpenAI Key'}
+            </Button>
+          </div>
+        </section>
+
+        {/* Google Places API Section */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <KeyRound className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Google Places / Maps credential</h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Used by Competitor Analysis, Digital Presence, and the Client Location Map for geocoding and
+                place lookups. Agents read this key from the database only &mdash; not from .env &mdash; so it
+                must be saved here before those features will work.
+              </p>
+              {loading ? (
+                <div className="mt-2 flex items-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                </div>
+              ) : placesStatus?.configured ? (
+                <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700">
+                  <ShieldCheck className="h-4 w-4" />
+                  {placesStatus.maskedKey} <span className="text-emerald-500">({placesStatus.source})</span>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-amber-700">No Google Places API key configured. Agents will report it as not set.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <Input
+              label="New Google Places API key"
+              type="password"
+              autoComplete="off"
+              placeholder="AIza..."
+              value={placesApiKey}
+              onChange={e => setPlacesApiKey(e.target.value)}
+            />
+            {placesError && <p className="text-sm text-rose-600">{placesError}</p>}
+            {placesMessage && <p className="text-sm text-emerald-700">{placesMessage}</p>}
+            <Button onClick={() => void savePlacesKey()} disabled={placesSaving || !placesApiKey.trim()}>
+              {placesSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              {placesSaving ? 'Saving...' : 'Save Places API Key'}
             </Button>
           </div>
         </section>

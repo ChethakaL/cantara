@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 const ANTHROPIC_SECRET_KEY = "anthropic_api_key";
 const OPENAI_SECRET_KEY = "openai_api_key";
+const GOOGLE_PLACES_SECRET_KEY = "google_places_api_key";
 const UNIPILE_MAIL_ACCOUNT_ID_KEY = "unipile_mail_account_id";
 const COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY = "composio_mail_connected_account_id";
 const COMPOSIO_MONDAY_CONNECTED_ACCOUNT_ID_KEY = "composio_monday_connected_account_id";
@@ -97,6 +98,40 @@ export async function getOpenAiApiKey() {
     console.error("[secure-settings] Failed to load stored OpenAI API key; falling back to env.", error);
   }
   return process.env.OPENAI_API_KEY || "";
+}
+
+export async function getStoredPlacesApiKey() {
+  const secret = await (prisma as any).appSecret.findUnique({
+    where: { key: GOOGLE_PLACES_SECRET_KEY },
+  });
+  if (!secret?.value) return null;
+  return decryptSecret(secret.value);
+}
+
+export async function saveStoredPlacesApiKey(apiKey: string) {
+  const trimmed = apiKey.trim();
+  if (!trimmed) throw new Error("Google Places API key is required");
+  await (prisma as any).appSecret.upsert({
+    where: { key: GOOGLE_PLACES_SECRET_KEY },
+    update: { value: encryptSecret(trimmed) },
+    create: { key: GOOGLE_PLACES_SECRET_KEY, value: encryptSecret(trimmed) },
+  });
+  return maskSecret(trimmed);
+}
+
+/**
+ * Places/Maps API key must come from the database only. Agents that rely on
+ * this key should NOT fall back to process.env - if it's not configured in
+ * the Admin Settings page, callers should surface a clear
+ * "Google Places API key is not set" message instead of silently reading .env.
+ */
+export async function getPlacesApiKey(): Promise<string | null> {
+  try {
+    return await getStoredPlacesApiKey();
+  } catch (error) {
+    console.error("[secure-settings] Failed to load stored Google Places API key.", error);
+    return null;
+  }
 }
 
 export async function hasStoredUnipileMailAccountId() {

@@ -10,6 +10,7 @@ import {
   resolveAnalyzeModelId,
 } from '@/lib/agent-analyze-provider';
 import { hasOpenAiConfigured } from '@/lib/openai-client';
+import { getPlacesApiKey } from '@/lib/secure-settings';
 
 type CompetitorResearchRequest = {
   formData: CompetitorAnalysisFormData;
@@ -33,12 +34,15 @@ export async function POST(req: NextRequest) {
       if (gate) return gate;
     }
 
-    const googleApiKey = process.env.GOOGLE_SERVICES_API;
+    const googleApiKey = await getPlacesApiKey();
 
     const aiConfigured =
       provider === 'openai' ? await hasOpenAiConfigured() : await hasAIConfigured();
 
-    if (!googleApiKey || !aiConfigured) {
+    if (!googleApiKey) {
+      return new Response('Google Places API key is not set. Add it in Admin Settings.', { status: 500 });
+    }
+    if (!aiConfigured) {
       return new Response('Competitor analysis is not configured correctly.', { status: 500 });
     }
 

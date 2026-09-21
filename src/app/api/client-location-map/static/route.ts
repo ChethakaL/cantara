@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getPlacesApiKey } from '@/lib/secure-settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,9 +51,12 @@ export async function GET(req: NextRequest) {
     ? client.sectionSubmissions
     : {}) as Record<string, any>
   const mapData = submissions.clientLocationMap
-  const apiKey = process.env.GOOGLE_SERVICES_API
+  const apiKey = await getPlacesApiKey()
 
-  if (!mapData?.facilityLat || !mapData?.facilityLng || !apiKey) {
+  if (!apiKey) {
+    return new Response('Google Places API key is not set. Add it in Admin Settings.', { status: 500 })
+  }
+  if (!mapData?.facilityLat || !mapData?.facilityLng) {
     return new Response('Map data is unavailable', { status: 404 })
   }
 
