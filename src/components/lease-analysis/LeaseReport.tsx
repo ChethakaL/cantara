@@ -208,7 +208,7 @@ export function LeaseReport({
       </div>
 
       <div className="p-6 min-h-[400px]">
-        {activeTab === 'summary' && <SnapshotTable rows={visibleReport.snapshotTable} />}
+        {activeTab === 'summary' && <SnapshotTable rows={visibleReport.snapshotTable} executiveSummary={visibleReport.executiveSummary} editMode={editMode} onExecutiveSummaryChange={value => setDraftReport(current => current ? { ...current, executiveSummary: value } : current)} />}
         {activeTab === 'findings' && <DetailedFindings findings={visibleReport.detailedFindings} raw={visibleReport.raw} rentSchedule={visibleReport.rentSchedule} />}
         {activeTab === 'flags' && (
           <FlagAnalysis

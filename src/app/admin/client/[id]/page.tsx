@@ -639,7 +639,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
   return (
     <div className="min-h-screen" style={{ background: 'hsl(220,18%,96%)' }}>
-      <AdminNav name={adminName} />
+      <AdminNav name={adminName} hideClientChat={activeTab === 'ttm'} />
 
       {/* Subheader */}
       <div style={{ background: '#0d1829', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>

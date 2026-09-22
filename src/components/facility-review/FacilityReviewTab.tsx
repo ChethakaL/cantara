@@ -32,6 +32,13 @@ import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 
+function NarrativeBullets({ text }: { text?: string | string[] }) {
+  const normalized = Array.isArray(text) ? text.join('\n') : (text || '')
+  const items = normalized.split(/\n+/).map(item => item.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean)
+  if (!items.length) return null
+  return <ul className="list-disc pl-4 space-y-1.5 text-xs leading-relaxed text-slate-600 marker:text-slate-400">{items.map((item, index) => <li key={index}>{item}</li>)}</ul>
+}
+
 const ACCEPTED_TYPES = {
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
@@ -85,8 +92,8 @@ const PHOTO_SECTIONS = [
   {
     key: 'staff',
     title: 'Staff & Operational Areas',
-    prompt: 'Upload 3-5 photos of staff and operational areas',
-    helper: 'Laundry, storage, staff room, mechanical/HVAC, cleaning supply area.',
+    prompt: 'Upload 3-5 photos of back-of-house operational areas',
+    helper: 'Facility-side operations only: laundry, storage, cleaning/sanitation, mechanical/HVAC, utilities, equipment, and workflow areas. Do not upload people/HR materials.',
   },
 ] as const
 
@@ -373,6 +380,7 @@ export default function FacilityReviewTab({
   const [extractingNotes, setExtractingNotes] = useState(false)
   const [advisorImages, setAdvisorImages] = useState<File[]>([])
   const [supportingDocuments, setSupportingDocuments] = useState<File[]>([])
+  const [supportingDocumentRefs, setSupportingDocumentRefs] = useState<Array<{ fileName: string; fileUrl: string; key: string; uploadedAt: string }>>([])
   const [reportRunMode, setReportRunMode] = useState<'standard' | 'advisor' | null>(null)
   const [intakeQuestions, setIntakeQuestions] = useState<FacilityIntakeQuestion[]>([])
   const [intakeResponses, setIntakeResponses] = useState<Record<string, string>>({})
@@ -463,6 +471,7 @@ export default function FacilityReviewTab({
         }
         if (advisorInputs?.location) setLocation(advisorInputs.location)
         if (advisorInputs?.businessName) setBusinessName(advisorInputs.businessName)
+        if (Array.isArray(advisorInputs?.supportingDocumentRefs)) setSupportingDocumentRefs(advisorInputs.supportingDocumentRefs)
       }
       const imageEntries = await Promise.all(PHOTO_SECTIONS.map(async section => {
         const docs = await Promise.all((CLIENT_IMAGE_DOCUMENT_IDS[section.key] ?? []).map(async documentId => {
@@ -858,6 +867,18 @@ export default function FacilityReviewTab({
     setAnalyzing(true)
     setError(null)
     try {
+      let nextSupportingRefs = supportingDocumentRefs
+      if (supportingDocuments.length) {
+        const uploadForm = new FormData()
+        uploadForm.append('clientId', clientId)
+        supportingDocuments.forEach(file => uploadForm.append('files', file))
+        const uploadRes = await fetch('/api/facility-review/supporting-documents', { method: 'POST', body: uploadForm })
+        if (!uploadRes.ok) throw new Error(await uploadRes.text())
+        const uploadData = await uploadRes.json()
+        nextSupportingRefs = [...supportingDocumentRefs, ...(uploadData.files ?? [])]
+        setSupportingDocumentRefs(nextSupportingRefs)
+        setSupportingDocuments([])
+      }
       const form = new FormData()
       form.append('businessName', businessName)
       form.append('location', location)
@@ -885,7 +906,7 @@ export default function FacilityReviewTab({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             section: 'facilityReviewAdvisorInputs',
-            data: { businessName, location, meetingNotes, meetingNotesFileName, runMode: 'advisor' },
+            data: { businessName, location, meetingNotes, meetingNotesFileName, supportingDocumentRefs: nextSupportingRefs, runMode: 'advisor' },
           }),
         })
         setSaved(true)
@@ -1200,7 +1221,7 @@ export default function FacilityReviewTab({
                   className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs leading-relaxed text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
                 />
               ) : (
-                <p className="text-xs text-slate-600 mt-2 leading-relaxed">{report.overallNarrative}</p>
+                <div className="mt-2"><NarrativeBullets text={report.overallNarrative} /></div>
               )}
             </div>
           </div>
@@ -1233,7 +1254,7 @@ export default function FacilityReviewTab({
                     className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-amber-300"
                   />
                 ) : (
-                  <p className="text-xs text-slate-600 leading-relaxed">{zone.narrative || zone.commentary}</p>
+                  <NarrativeBullets text={zone.narrative || zone.commentary} />
                 )}
 
                 {zone.strengths?.length > 0 && (

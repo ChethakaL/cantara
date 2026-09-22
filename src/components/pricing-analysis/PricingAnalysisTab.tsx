@@ -254,6 +254,7 @@ export default function PricingAnalysisTab({
   const [loadingInputs, setLoadingInputs] = useState(false)
   const [showManualEvidence, setShowManualEvidence] = useState(false)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [competitorHeaderDrafts, setCompetitorHeaderDrafts] = useState<Record<string, string>>({})
   const lastSavedSnapshotRef = useRef<string>('')
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { provider, setProvider } = useAgentAiProvider()
@@ -295,10 +296,12 @@ export default function PricingAnalysisTab({
           setAutoSaveStatus('saved')
           setTimeout(() => setAutoSaveStatus('idle'), 2500)
         }
+        return true
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Save failed'
         setError(message)
         if (options.silent) setAutoSaveStatus('error')
+        return false
       } finally {
         if (!options.silent) setSaving(false)
       }
@@ -338,13 +341,12 @@ export default function PricingAnalysisTab({
         const data = await res.json()
         if (cancelled) return
 
-        // Only hydrate result from sectionSubmissions when history did not already supply one
-        if (!activeRun?.report) {
-          const normalized = normalizePricingReport(data?.report)
-          if (normalized) {
-            setResult(normalized)
-            markSavedSnapshot(normalized)
-          }
+        // The database report contains the latest manual Save edits. Agent-run
+        // history can be an older analysis snapshot, so it must not overwrite it.
+        const normalized = normalizePricingReport(data?.report)
+        if (normalized) {
+          setResult(normalized)
+          markSavedSnapshot(normalized)
         }
         applyPortalPrefill(data?.prefill)
       } catch { /* ignore */ }
@@ -500,7 +502,8 @@ export default function PricingAnalysisTab({
   const handleSave = async () => {
     if (!result) return
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
-    await persistPricingAnalysisToServer(result, { silent: false })
+    const saved = await persistPricingAnalysisToServer(result, { silent: false })
+    if (saved) setEditMode(false)
   }
 
   // ── Mutation helpers ────────────────────────────────────────────────────────
@@ -554,6 +557,71 @@ export default function PricingAnalysisTab({
     const matrix = [...(result.priceMatrix ?? [])]
     matrix.splice(rowIndex, 1)
     setResult({ ...result, priceMatrix: matrix })
+  }
+
+  const renameCompetitorColumn = (oldName: string, nextName: string) => {
+    if (!result) return
+    const name = nextName.trim()
+    if (!name || name === oldName) return
+    const names = getCompetitorNamesFromReport(result)
+    if (names.some(existing => existing !== oldName && existing.toLowerCase() === name.toLowerCase())) {
+      setError('Competitor column names must be unique.')
+      return
+    }
+    setResult({
+      ...result,
+      competitors: (result.competitors ?? []).map(c => c.name === oldName ? { ...c, name } : c),
+      priceMatrix: (result.priceMatrix ?? []).map(row => ({
+        ...row,
+        competitors: row.competitors.map(c => c.name === oldName ? { ...c, name } : c),
+      })),
+      hiddenCompetitorNames: (result.hiddenCompetitorNames ?? []).map(hidden => hidden === oldName ? name : hidden),
+    })
+    setCompetitorHeaderDrafts(current => {
+      const next = { ...current }
+      delete next[oldName]
+      return next
+    })
+  }
+
+  const addCompetitorColumn = () => {
+    if (!result) return
+    const names = getCompetitorNamesFromReport(result)
+    let suffix = names.length + 1
+    let name = `New Competitor ${suffix}`
+    while (names.some(existing => existing.toLowerCase() === name.toLowerCase())) {
+      suffix += 1
+      name = `New Competitor ${suffix}`
+    }
+    setResult({
+      ...result,
+      competitors: [...(result.competitors ?? []), { name, websiteUrl: '' }],
+      priceMatrix: (result.priceMatrix ?? []).map(row => ({
+        ...row,
+        competitors: [...row.competitors, { name, listedPrice: '', normalized: '', normalizedNumeric: null, normalizationNote: '' }],
+      })),
+      competitorsAnalyzed: Math.max(result.competitorsAnalyzed ?? 0, names.length + 1),
+    })
+    setCompetitorHeaderDrafts(current => ({ ...current, [name]: name }))
+  }
+
+  const toggleCompetitorColumn = (name: string, visible: boolean) => {
+    if (!result) return
+    const hidden = new Set(result.hiddenCompetitorNames ?? [])
+    if (visible) hidden.delete(name)
+    else hidden.add(name)
+    setResult({ ...result, hiddenCompetitorNames: Array.from(hidden) })
+  }
+
+  const updateMatrixColumnHeader = (field: 'service' | 'basis' | 'sellerPrice' | 'competitorPrice', value: string) => {
+    if (!result) return
+    setResult({
+      ...result,
+      matrixColumnHeaders: {
+        ...(result.matrixColumnHeaders ?? {}),
+        [field]: value,
+      },
+    })
   }
 
   const addSummaryRow = () => {
@@ -698,7 +766,8 @@ export default function PricingAnalysisTab({
     </Card>
   )
 
-  const competitorNames = result ? getCompetitorNamesFromReport(result) : []
+  const allCompetitorNames = result ? getCompetitorNamesFromReport(result) : []
+  const competitorNames = allCompetitorNames.filter(name => !result?.hiddenCompetitorNames?.includes(name))
 
   const normalizeMatrixForEdit = useCallback((report: PricingAnalysisReport): PricingAnalysisReport => {
     const names = getCompetitorNamesFromReport(report)
@@ -1010,20 +1079,77 @@ export default function PricingAnalysisTab({
                         Add row
                       </button>
                     )}
+                    {editMode && result?.hiddenCompetitorNames?.length ? (
+                      <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400">
+                        <span>Hidden:</span>
+                        {result.hiddenCompetitorNames.map(name => (
+                          <button
+                            key={`${vertical}-restore-${name}`}
+                            type="button"
+                            onClick={() => toggleCompetitorColumn(name, true)}
+                            className="rounded border border-slate-200 px-1.5 py-0.5 hover:border-amber-300 hover:text-amber-700"
+                          >
+                            + {name}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                   {(editMode || groupedRows.length > 0) && (
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="border-b border-slate-100 bg-slate-50/50">
-                            <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Service</th>
-                            <th className="text-left px-3 py-2.5 font-semibold text-slate-600">Basis</th>
-                            <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">Your Price</th>
-                            {competitorNames.map(name => (
-                              <th key={`${vertical}-${name}-listed`} className="text-center px-3 py-2.5 font-semibold text-slate-600 bg-emerald-50 border-l border-slate-100">
-                                {name}
+                            {(['service', 'basis'] as const).map(field => (
+                              <th key={field} className="text-left px-3 py-2.5 font-semibold text-slate-600">
+                                {editMode ? (
+                                  <input
+                                    value={result?.matrixColumnHeaders?.[field] ?? (field === 'service' ? 'Service' : 'Basis')}
+                                    onChange={event => updateMatrixColumnHeader(field, event.target.value)}
+                                    className="w-full bg-transparent outline-none"
+                                  />
+                                ) : (result?.matrixColumnHeaders?.[field] ?? (field === 'service' ? 'Service' : 'Basis'))}
                               </th>
                             ))}
+                            <th className="text-right px-3 py-2.5 font-semibold text-slate-600 bg-yellow-50">
+                              {editMode ? (
+                                <input
+                                  value={result?.matrixColumnHeaders?.sellerPrice ?? 'Your Price'}
+                                  onChange={event => updateMatrixColumnHeader('sellerPrice', event.target.value)}
+                                  className="w-full bg-transparent text-right outline-none"
+                                />
+                              ) : (result?.matrixColumnHeaders?.sellerPrice ?? 'Your Price')}
+                            </th>
+                            {competitorNames.map(name => (
+                              <th key={`${vertical}-${name}-listed`} className="text-center px-3 py-2.5 font-semibold text-slate-600 bg-emerald-50 border-l border-slate-100">
+                                <div className="flex items-start justify-center gap-1.5">
+                                  {editMode && (
+                                    <input
+                                      type="checkbox"
+                                      checked={true}
+                                      onChange={() => toggleCompetitorColumn(name, false)}
+                                      title={`Hide ${name} column`}
+                                    />
+                                  )}
+                                  {editMode ? (
+                                    <input
+                                      value={competitorHeaderDrafts[name] ?? name}
+                                      onChange={event => setCompetitorHeaderDrafts(current => ({ ...current, [name]: event.target.value }))}
+                                      onBlur={event => renameCompetitorColumn(name, event.target.value)}
+                                      className="min-w-24 w-full bg-transparent text-center font-semibold outline-none focus:ring-1 focus:ring-amber-400 rounded"
+                                      aria-label={`Rename ${name} column`}
+                                    />
+                                  ) : name}
+                                </div>
+                              </th>
+                            ))}
+                            {editMode && (
+                              <th className="px-3 py-2.5 bg-slate-50 text-center">
+                                <button type="button" onClick={addCompetitorColumn} className="whitespace-nowrap font-medium text-amber-600 hover:text-amber-800">
+                                  + Add column
+                                </button>
+                              </th>
+                            )}
                           </tr>
                           <tr className="border-b border-slate-200 bg-slate-50/30">
                             <th className="px-3 py-1" />
@@ -1031,7 +1157,15 @@ export default function PricingAnalysisTab({
                             <th className="px-3 py-1 bg-yellow-50" />
                             {competitorNames.map(name => (
                               <Fragment key={`${vertical}-${name}-sub`}>
-                                <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">Price</th>
+                                <th className="text-right px-3 py-1 text-[10px] font-medium text-slate-400 bg-emerald-50 border-l border-slate-100">
+                                  {editMode ? (
+                                    <input
+                                      value={result?.matrixColumnHeaders?.competitorPrice ?? 'Price'}
+                                      onChange={event => updateMatrixColumnHeader('competitorPrice', event.target.value)}
+                                      className="w-full bg-transparent text-right outline-none"
+                                    />
+                                  ) : (result?.matrixColumnHeaders?.competitorPrice ?? 'Price')}
+                                </th>
                               </Fragment>
                             ))}
                             {editMode && <th className="w-10 px-2 py-1" />}

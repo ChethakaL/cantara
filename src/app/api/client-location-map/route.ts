@@ -150,6 +150,7 @@ export async function PATCH(req: NextRequest) {
     const reanalyzeFromEdits = Boolean(body.reanalyzeFromEdits)
     const statsSnapshot = body.statsSnapshot
     const clientName = typeof body.clientName === 'string' ? body.clientName : undefined
+    const aiProvider = body.aiProvider === 'openai' ? 'openai' : 'bedrock'
 
     if (!clientId || !mapData) {
       return new Response('clientId and mapData required', { status: 400 })
@@ -168,7 +169,7 @@ export async function PATCH(req: NextRequest) {
         ...statsSnapshot,
         facilityAddress: mapData.facilityAddress,
         clientName,
-      })
+      }, { provider: aiProvider })
       mapData = {
         ...mapData,
         insights: refreshed.insights,

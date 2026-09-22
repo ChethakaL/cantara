@@ -24,6 +24,7 @@ import { Button, Card, cn } from '@/components/ui'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
 import { generateReportHtml, buildHtmlTable } from '@/lib/report-export/generate-report-html'
 import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
+import type { AgentAiProvider } from '@/lib/agent-model-provider'
 
 function getAdminEmail(): string {
   if (typeof window === 'undefined') return 'admin@cantarapet.com'
@@ -63,6 +64,9 @@ interface MapData {
   insights?: string[]
   narrativeSummary?: string
   insightsUpdatedAt?: string
+  aiProvider?: AgentAiProvider
+  showServiceBreakout?: boolean
+  hiddenServiceTypes?: ServiceType[]
 }
 
 interface Props {
@@ -325,6 +329,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [entryDraft, setEntryDraft] = useState<ClientPin | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [reanalyzing, setReanalyzing] = useState(false)
+  const [editAiProvider, setEditAiProvider] = useState<AgentAiProvider>('bedrock')
   const [composingNew, setComposingNew] = useState(false)
   const [showDocsPanel, setShowDocsPanel] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(false)
@@ -708,6 +713,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         facilityLng,
         clients: updatedClients,
         generatedAt: new Date().toISOString(),
+        aiProvider: editAiProvider,
       }
 
       setMapData(newMapData)
@@ -830,6 +836,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const startEditMode = () => {
     if (!mapData) return
     preEditSnapshotRef.current = structuredClone(mapData)
+    setEditAiProvider(mapData.aiProvider ?? 'bedrock')
     setEditMode(true)
     setError(null)
   }
@@ -875,7 +882,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         body: JSON.stringify({
           clientId,
           clientName,
-          mapData,
+          mapData: { ...mapData, aiProvider: editAiProvider },
+          aiProvider: editAiProvider,
           reanalyzeFromEdits: true,
           statsSnapshot: {
             total: currentStats.total,
@@ -1084,6 +1092,15 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                   </Button>
                   {editMode && (
                     <>
+                      <select
+                        value={editAiProvider}
+                        onChange={(event) => setEditAiProvider(event.target.value as AgentAiProvider)}
+                        className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
+                        aria-label="Executive summary AI provider"
+                      >
+                        <option value="bedrock">Claude (AWS Bedrock)</option>
+                        <option value="openai">OpenAI</option>
+                      </select>
                       <Button
                         variant="outline"
                         size="sm"
@@ -1229,23 +1246,53 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
             )
           })}
             </div>
-            <Card className="p-4">
+            {mapData?.showServiceBreakout !== false ? <Card className="p-4">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Service breakout</h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">Daycare and boarding include clients marked Both / Multiple.</p>
                 </div>
-                <div className="text-[11px] text-slate-400">{stats.total} mapped clients in combined summary</div>
+                <div className="flex flex-wrap items-center gap-3">
+                  {editMode && !readOnly && (
+                    <label className="flex items-center gap-2 text-xs text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={true}
+                        onChange={(event) => {
+                          if (!mapData) return
+                          void persistMapData({ ...mapData, showServiceBreakout: event.target.checked }, { localOnly: true })
+                        }}
+                      />
+                      Show this section
+                    </label>
+                  )}
+                  <div className="text-[11px] text-slate-400">{stats.total} mapped clients in combined summary</div>
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {(['daycare', 'boarding', 'grooming'] as const).map(type => {
+                {(['daycare', 'boarding', 'grooming'] as const).filter(type => !mapData?.hiddenServiceTypes?.includes(type)).map(type => {
                   const serviceStats = stats.byService[type]
                   return (
                     <div key={type} className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SERVICE_COLORS[type] }} />
                         <span className="text-xs font-semibold text-slate-700">{SERVICE_LABELS[type]}</span>
-                        <span className="ml-auto text-[10px] text-slate-400">
+                        <span className="ml-auto flex items-center gap-2 text-[10px] text-slate-400">
+                          {editMode && !readOnly && (
+                            <label className="flex items-center gap-1 text-[10px] text-slate-500">
+                              <input
+                                type="checkbox"
+                                checked={true}
+                                onChange={() => {
+                                  if (!mapData) return
+                                  const hidden = new Set(mapData.hiddenServiceTypes ?? [])
+                                  hidden.add(type)
+                                  void persistMapData({ ...mapData, hiddenServiceTypes: Array.from(hidden) }, { localOnly: true })
+                                }}
+                              />
+                              Show
+                            </label>
+                          )}
                           {editMode && !readOnly ? (
                             <input 
                               type="number"
@@ -1308,28 +1355,69 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                   )
                 })}
               </div>
+              {editMode && !readOnly && (mapData?.hiddenServiceTypes?.length ?? 0) > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+                  <span>Hidden cards:</span>
+                  {mapData?.hiddenServiceTypes?.map(type => (
+                    <label key={type} className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={false}
+                        onChange={() => {
+                          if (!mapData) return
+                          void persistMapData({
+                            ...mapData,
+                            hiddenServiceTypes: (mapData.hiddenServiceTypes ?? []).filter(hiddenType => hiddenType !== type),
+                          }, { localOnly: true })
+                        }}
+                      />
+                      Show {SERVICE_LABELS[type]}
+                    </label>
+                  ))}
+                </div>
+              )}
               {editMode && !readOnly && (
                 <p className="mt-3 text-xs text-slate-500">
                   Edit radius % / service counts above, then click <span className="font-semibold text-slate-700">Save</span> to keep your numbers, or <span className="font-semibold text-slate-700">Update analysis from edits</span> to refresh insights so they match.
                 </p>
               )}
-              {stats.insights.length > 0 && (
-                <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
-                  <h4 className="text-xs font-semibold text-indigo-900 mb-2">Insights</h4>
-                  {mapData?.narrativeSummary && !editMode && (
-                    <p className="text-xs text-indigo-900/80 mb-2 leading-relaxed">{mapData.narrativeSummary}</p>
-                  )}
-                  <ul className="space-y-1.5 text-xs text-indigo-900/80">
-                    {stats.insights.map((insight, idx) => (
-                      <li key={idx} className="flex gap-2">
-                        <span className="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
-                        <span>{insight}</span>
-                      </li>
-                    ))}
-                  </ul>
+            </Card> : editMode && !readOnly ? (
+              <Card className="p-4 border-dashed border-slate-300 bg-slate-50/50">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Service breakout hidden</h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">This section will remain excluded from the view and PDF export.</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={false}
+                      onChange={() => {
+                        if (!mapData) return
+                        void persistMapData({ ...mapData, showServiceBreakout: true }, { localOnly: true })
+                      }}
+                    />
+                    Show this section
+                  </label>
                 </div>
-              )}
-            </Card>
+              </Card>
+            ) : null}
+            {stats.insights.length > 0 && (
+              <Card className="p-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-900 mb-2">Executive Summary</h3>
+                {mapData?.narrativeSummary && !editMode && (
+                  <p className="text-xs text-indigo-900/80 mb-2 leading-relaxed">{mapData.narrativeSummary}</p>
+                )}
+                <ul className="space-y-1.5 text-xs text-indigo-900/80">
+                  {stats.insights.map((insight, idx) => (
+                    <li key={idx} className="flex gap-2">
+                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+                      <span>{insight}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
         </div>
       )}
 
@@ -1607,6 +1695,26 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                 </div>
               </div>
             )}
+
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Executive Summary AI</h4>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Choose the provider used when you update the analysis after editing the map statistics.
+                  </p>
+                </div>
+                <select
+                  value={editAiProvider}
+                  onChange={(event) => setEditAiProvider(event.target.value as AgentAiProvider)}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-700"
+                  aria-label="Executive summary AI provider"
+                >
+                  <option value="bedrock">Claude (AWS Bedrock)</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </div>
+            </div>
 
             {/* Error Banner */}
             {error && (
@@ -1895,11 +2003,12 @@ function buildLocationMapReportHtml(
 ): string {
   const safe = (value: string) => escapeHtml(value)
   const kpis = stats ? RADIUS_RINGS.map(ring => ({ label: `Within ${ring.miles} miles`, value: `${stats.withinRadius[ring.miles]}%` })) : []
-  const serviceRows = stats ? (['daycare', 'boarding', 'grooming'] as const).map(type => {
+  const serviceRows = stats ? (['daycare', 'boarding', 'grooming'] as const)
+    .filter(type => !mapData?.hiddenServiceTypes?.includes(type))
+    .map(type => {
     const service = stats.byService[type]
     return [SERVICE_LABELS[type], String(service.total), ...RADIUS_RINGS.map(ring => `${service.withinRadius[ring.miles]}%`)]
-  }) : []
-  const entries = (mapData?.clients ?? []).map(client => [client.name, client.address, SERVICE_LABELS[client.serviceType], client.geocodeStatus])
+    }) : []
   const mapSection = staticMapUrl
     ? `<p><img src="${staticMapUrl}" alt="Client location map" style="width:100%;border-radius:12px;border:1px solid #dce2ea" /></p>${mapCaption ? `<p style="font-size:12px;color:#64748b;margin-top:8px;">${safe(mapCaption)}</p>` : ''}`
     : '<p>Map image unavailable at export time.</p>'
@@ -1915,9 +2024,10 @@ function buildLocationMapReportHtml(
         ? `<p>${safe(stats.insights.join(' '))}</p>`
         : '<p>No insights available.</p>',
     sections: [
-      { title: 'Service Breakdown', content: buildHtmlTable(['Service', 'Clients', 'Within 5 mi', 'Within 10 mi', 'Within 20 mi'], serviceRows) },
+      ...(mapData?.showServiceBreakout !== false
+        ? [{ title: 'Service Breakdown', content: buildHtmlTable(['Service', 'Clients', 'Within 5 mi', 'Within 10 mi', 'Within 20 mi'], serviceRows) }]
+        : []),
       ...(staticMapUrl ? [{ title: 'Location Map', content: mapSection, newPage: true }] : []),
-      { title: 'Client Entries', content: buildHtmlTable(['Client', 'Address', 'Service', 'Geocode Status'], entries) },
     ],
   })
 }

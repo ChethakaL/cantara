@@ -119,6 +119,10 @@ function normalizeNewReport(raw: Record<string, unknown>): PricingAnalysisReport
     radiusMiles: typeof raw.radiusMiles === 'number' ? raw.radiusMiles : 0,
     sellerWebsiteUrl: raw.sellerWebsiteUrl != null ? String(raw.sellerWebsiteUrl) : null,
     competitors: asArray(raw.competitors) as PricingAnalysisReport['competitors'],
+    hiddenCompetitorNames: asArray<string>(raw.hiddenCompetitorNames).map(String),
+    matrixColumnHeaders: raw.matrixColumnHeaders && typeof raw.matrixColumnHeaders === 'object'
+      ? raw.matrixColumnHeaders as PricingAnalysisReport['matrixColumnHeaders']
+      : undefined,
     competitorsAnalyzed:
       typeof raw.competitorsAnalyzed === 'number' ? raw.competitorsAnalyzed : 0,
     priceMatrix,
@@ -153,5 +157,5 @@ export function getCompetitorNamesFromReport(report: PricingAnalysisReport): str
     row.competitors.map(competitor => competitor.name).filter(Boolean),
   )
   const fromSaved = (report.competitors ?? []).map(c => c.name).filter(Boolean)
-  return Array.from(new Set([...fromMatrix, ...fromSaved])).slice(0, 5)
+  return Array.from(new Set([...fromMatrix, ...fromSaved]))
 }

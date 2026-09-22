@@ -67,15 +67,18 @@ export function buildContractSummaryHtml(report: ContractReport, clientName: str
 
   const flagsContent = [
     redFlags.length ? `<p style="font-weight:700;margin-top:12px;color:#991B1B;">Red Flags (${redFlags.length})</p>` + buildFlagWithStatus(redFlags, 'red') : '',
-    orangeFlags.length ? `<p style="font-weight:700;margin-top:12px;color:#92400E;">Orange Flags (${orangeFlags.length})</p>` + buildFlagWithStatus(orangeFlags, 'orange') : '',
+    orangeFlags.length ? `<p style="font-weight:700;margin-top:12px;color:#92400E;">Yellow Flags (${orangeFlags.length})</p>` + buildFlagWithStatus(orangeFlags, 'orange') : '',
     greenFlags.length ? `<p style="font-weight:700;margin-top:12px;color:#166534;">Green Flags (${greenFlags.length})</p>` + buildFlagWithStatus(greenFlags, 'green') : '',
   ].join('')
+
+  const executiveSummary = `The contract review identified ${report.contractRiskCards?.length || 0} material contract${(report.contractRiskCards?.length || 0) === 1 ? '' : 's'} for diligence. The package contains ${redFlags.length} red flag${redFlags.length === 1 ? '' : 's'}, ${orangeFlags.length} yellow flag${orangeFlags.length === 1 ? '' : 's'}, and ${greenFlags.length} green flag${greenFlags.length === 1 ? '' : 's'}. Buyers should confirm assignment, change-of-control, termination, and continuing-obligation terms before closing.`
 
   const config: ReportConfig = {
     title: 'Material Contracts Report',
     subtitle: 'Summary & Risk Assessment',
     clientName,
     generatedAt: report.generatedAt,
+    summary: report.executiveSummary || executiveSummary,
     flags: {
       red: redFlags.length,
       orange: orangeFlags.length,
@@ -84,7 +87,7 @@ export function buildContractSummaryHtml(report: ContractReport, clientName: str
     kpis: [
       { label: 'Contracts', value: String((report.contractRiskCards || []).length) },
       { label: 'Red Flags', value: String(redFlags.length) },
-      { label: 'Orange Flags', value: String(orangeFlags.length) },
+      { label: 'Yellow Flags', value: String(orangeFlags.length) },
       { label: 'Green Flags', value: String(greenFlags.length) },
     ],
     sections: [

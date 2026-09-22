@@ -14,7 +14,11 @@ const { PDFParse } = require('pdf-parse') as {
   }
 }
 
-const MAX_TRANSCRIPT_CHARS = 120_000
+// Keep enough headroom for long advisor call notes. This is a character guard
+// against oversized uploads, not a semantic excerpting limit. The previous
+// 120k cap cut valid DOCX/PDF notes off mid-sentence before Facility Review
+// could see them.
+export const MAX_TRANSCRIPT_CHARS = 240_000
 
 function stripJsonFence(text: string) {
   const t = text.trim()

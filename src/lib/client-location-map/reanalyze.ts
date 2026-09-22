@@ -1,4 +1,6 @@
 import { requireAIClient, resolveModel } from '@/lib/ai-client'
+import { createAgentMessage } from '@/lib/llm-completion'
+import type { AgentAiProvider } from '@/lib/agent-model-provider'
 
 export type LocationMapStatsSnapshot = {
   total: number
@@ -13,11 +15,11 @@ export type LocationMapStatsSnapshot = {
 }
 
 /**
- * Bedrock-only narrative refresh for Client Location Map edits.
- * No provider dropdown — used only when advisors update stats/overrides.
+ * Refresh the narrative after advisor edits using the selected AI provider.
  */
 export async function reanalyzeLocationMapInsightsFromEdits(
   snapshot: LocationMapStatsSnapshot,
+  options?: { provider?: AgentAiProvider },
 ): Promise<{ insights: string[]; narrativeSummary: string }> {
   const prompt = `You are a geographic market analyst for pet hospitality / boarding / daycare M&A diligence.
 
@@ -40,19 +42,23 @@ Return ONLY valid JSON:
   "narrativeSummary": "<string>"
 }`
 
-  const client = await requireAIClient()
-  const result = await client.messages.create({
-    model: resolveModel('claude-sonnet-4-20250514'),
-    max_tokens: 1200,
-    temperature: 0,
-    messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-  })
-
-  const text = result.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
-    .trim()
+  let text: string
+  if (options?.provider === 'openai') {
+    text = await createAgentMessage({ provider: 'openai', system: '', content: prompt, maxTokens: 1200, temperature: 0 })
+  } else {
+    const client = await requireAIClient()
+    const result = await client.messages.create({
+      model: resolveModel('claude-sonnet-4-20250514'),
+      max_tokens: 1200,
+      temperature: 0,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    })
+    text = result.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+      .trim()
+  }
 
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   const start = cleaned.indexOf('{')

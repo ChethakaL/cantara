@@ -101,11 +101,10 @@ export function buildOwnerGmReportHtml(
     m.title || '—',
     m.tenure || '—',
     m.responsibilities || '—',
-    m.hourlyOrSalaried || '—',
     m.couldStepUp === true ? 'Yes' : m.couldStepUp === false ? 'No' : '—',
   ])
   const teamContent = teamRows.length
-    ? buildHtmlTable(['Name', 'Title', 'Tenure', 'Responsibilities', 'Type', 'Could Step Up'], teamRows)
+    ? buildHtmlTable(['Name', 'Title', 'Tenure', 'Responsibilities', 'Could Step Up'], teamRows)
     : '<p>No senior team members identified in transcript.</p>'
 
   // ── Flags section ──
@@ -132,10 +131,6 @@ export function buildOwnerGmReportHtml(
     : '<p>No recommendations generated.</p>'
 
   // ── Counsel Items ──
-  const counselContent = assessment.counselItems?.length
-    ? buildBulletList(assessment.counselItems)
-    : '<p>No counsel items generated.</p>'
-
   const config: ReportConfig = {
     title: 'Owner & GM Involvement Assessment',
     subtitle: 'Transition Readiness & Dependency Analysis',
@@ -154,7 +149,6 @@ export function buildOwnerGmReportHtml(
       { title: 'Senior Management Bench', content: teamContent },
       { title: 'Assessment Flags', content: flagsContent },
       { title: 'Recommendations', content: recsContent },
-      { title: 'Counsel Items', content: counselContent },
     ],
   }
 

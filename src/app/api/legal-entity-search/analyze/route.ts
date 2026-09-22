@@ -22,6 +22,8 @@ export const maxDuration = 300
 
 const MAX_UPSTREAM_ATTEMPTS = 3
 const UPSTREAM_RETRY_DELAYS_MS = [1000, 2500]
+const MAX_DOCUMENTS = 40
+const MAX_TOTAL_BYTES = 50 * 1024 * 1024
 type MessageStream = AsyncIterable<any> & { controller: { abort: () => void } }
 
 export async function POST(req: NextRequest) {
@@ -40,6 +42,14 @@ export async function POST(req: NextRequest) {
 
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
       return new Response('No documents provided', { status: 400 })
+    }
+
+    if (documents.length > MAX_DOCUMENTS) {
+      return new Response(`Too many documents selected (${documents.length}). The limit is ${MAX_DOCUMENTS}; unselect some files and try again.`, { status: 413 })
+    }
+    const totalBytes = documents.reduce((sum: number, doc: any) => sum + Buffer.byteLength(String(doc.base64 || ''), 'base64'), 0)
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      return new Response(`Selected documents total ${Math.round(totalBytes / (1024 * 1024))} MB. The limit is 50 MB; unselect some files and try again.`, { status: 413 })
     }
 
     if (!clientName) {

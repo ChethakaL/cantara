@@ -122,6 +122,7 @@ const FILE_LABELS: Record<string, string> = {
   accountant_statements: 'Accountant-Prepared Financial Statements — 3 Fiscal Years',
   addback_disclosure: 'Seller Add-Back Disclosure (Items 2.1–2.5 and 3.2)',
   owner_gm_assessment: 'Owner & GM Assessment Output',
+  valuation_context: 'Additional Valuation Context',
 }
 
 /**
@@ -157,6 +158,13 @@ export async function prepareWs2DocumentFromServer(args: {
 
   const isExcel =
     mimeType.includes('spreadsheet') || mimeType.includes('excel') || lower.endsWith('.xlsx') || lower.endsWith('.xls')
+
+  // Context workbooks bypass the Cantara financial parser. Preserve the original
+  // bytes for the selected provider to inspect as an attached context file.
+  if (args.documentId === 'valuation_context' && isExcel) {
+    prepared.base64 = arrayBufferToBase64(buffer)
+    return prepared
+  }
 
   // V3 Section 4.3: Multi-sheet P&L and BS use the exact V3 conversion with column stripping
   if (isExcel && MULTI_SHEET_DOCUMENT_IDS.includes(args.documentId)) {

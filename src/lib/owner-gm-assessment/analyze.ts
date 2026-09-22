@@ -181,7 +181,7 @@ Rules:
 - Recommendations should be actionable next steps for the advisory team.
 - counselItems are talking points to raise with the owner in follow-up conversations.`;
 
-const MAX_TRANSCRIPT_CHARS = 120_000;
+const MAX_TRANSCRIPT_CHARS = 240_000;
 
 function isPdf(mediaType: string, fileName: string) {
   return mediaType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");

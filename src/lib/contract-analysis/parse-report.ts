@@ -13,6 +13,7 @@ export function parseReport(markdown: string): ContractReport {
 
   return {
     raw: markdown,
+    executiveSummary: extractExecutiveSummary(markdown),
     snapshotTable: parseSnapshotTable(sections["PART 1"] ?? ""),
     detailedFindings: parseDetailedFindings(sections["PART 2"] ?? ""),
     contractRiskCards: parseContractRiskCards(sections["PART 2"] ?? ""),
@@ -23,6 +24,10 @@ export function parseReport(markdown: string): ContractReport {
     transactionChecklist: parseChecklist(sections["PART 5"] ?? ""),
     generatedAt: new Date().toISOString(),
   };
+}
+
+function extractExecutiveSummary(markdown: string): string {
+  return markdown.match(/\*\*Executive Summary:\*\*\s*([\s\S]*?)(?=\n\s*\|)/i)?.[1]?.trim() || ''
 }
 
 function parseContractRiskCards(text: string): ContractRiskCard[] {
@@ -201,15 +206,15 @@ function parseDetailedFindings(text: string): FindingSection[] {
 function parseFlags(text: string, type: "red" | "orange" | "green"): Flag[] {
   let region = "";
   if (type === "red") {
-    region = text.match(/🔴 RED FLAGS[\s\S]*?(?=🟡 ORANGE FLAGS|$)/i)?.[0] ?? "";
+    region = text.match(/🔴 RED FLAGS[\s\S]*?(?=🟡 (?:ORANGE|YELLOW) FLAGS|$)/i)?.[0] ?? "";
   } else if (type === "orange") {
-    region = text.match(/🟡 ORANGE FLAGS[\s\S]*?(?=🟢 GREEN FLAGS|$)/i)?.[0] ?? "";
+    region = text.match(/🟡 (?:ORANGE|YELLOW) FLAGS[\s\S]*?(?=🟢 GREEN FLAGS|$)/i)?.[0] ?? "";
   } else {
     region = text.match(/🟢 GREEN FLAGS[\s\S]*?$/i)?.[0] ?? "";
   }
 
   if (!region) return [];
-  region = region.replace(/^.*(RED|ORANGE|GREEN)\s*FLAGS.*$/im, "").trim();
+  region = region.replace(/^.*(RED|ORANGE|YELLOW|GREEN)\s*FLAGS.*$/im, "").trim();
 
   const items: string[] = [];
   const startRegex = /(?:\n|^)\s*(?:\*\*)?\s*Issue\s*(?:\*\*)?\s*:?\s*/gi;
@@ -293,14 +298,14 @@ function parseContractSpecificFlagList(
     type === "red"
       ? "Contract-Specific Red Flags"
       : type === "orange"
-        ? "Contract-Specific Orange Flags"
+        ? "Contract-Specific Yellow Flags"
         : "Contract-Specific Green Flags";
 
   const escapedLabel = sectionLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   let region =
     finding.content.match(
       new RegExp(
-        `(?:\\*\\*)?${escapedLabel}(?:\\*\\*)?\\s*([\\s\\S]*?)(?=\\n####\\s|\\n(?:\\*\\*)?Contract-Specific\\s+(?:Red|Orange|Green)\\s+Flags|\\n####\\s+DISPOSITION|$)`,
+        `(?:\\*\\*)?${escapedLabel}(?:\\*\\*)?\\s*([\\s\\S]*?)(?=\\n####\\s|\\n(?:\\*\\*)?Contract-Specific\\s+(?:Red|Orange|Yellow|Green)\\s+Flags|\\n####\\s+DISPOSITION|$)`,
         "i",
       ),
     )?.[1] ?? "";

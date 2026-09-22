@@ -687,12 +687,14 @@ export default function ImprovementRoadmapTab({
 }) {
   const [report, setReport] = useState<RoadmapReport | null>(null)
   const [sources, setSources] = useState<RoadmapAgentSource[]>([])
+  const [excludedAgentIds, setExcludedAgentIds] = useState<string[]>([])
   const [canGenerateChecklist, setCanGenerateChecklist] = useState(false)
   const [sourcesChanged, setSourcesChanged] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [generating, setGenerating] = useState<'checklist' | 'report' | null>(null)
   const [editingChecklist, setEditingChecklist] = useState(false)
+  const [showAgentInputs, setShowAgentInputs] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { provider, setProvider } = useAgentAiProvider()
   const {
@@ -726,6 +728,7 @@ export default function ImprovementRoadmapTab({
       const data = await res.json()
       setReport(data.report)
       setSources(Array.isArray(data.sources) ? data.sources : [])
+      setExcludedAgentIds(Array.isArray(data.report?.excludedAgentIds) ? data.report.excludedAgentIds : [])
       setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
       setSourcesChanged(Boolean(data.sourcesChanged))
     } catch (err) {
@@ -805,7 +808,7 @@ export default function ImprovementRoadmapTab({
         const res = await fetch('/api/improvement-roadmap', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, provider, modelId: resolveAgentModelId(provider) }),
+            body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, excludedAgentIds, provider, modelId: resolveAgentModelId(provider) }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to generate roadmap.')
@@ -818,7 +821,7 @@ export default function ImprovementRoadmapTab({
       const res = await fetch('/api/improvement-roadmap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, stage: nextStage, provider, modelId: resolveAgentModelId(provider) }),
+        body: JSON.stringify({ clientId, stage: nextStage, excludedAgentIds, provider, modelId: resolveAgentModelId(provider) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Failed to generate ${nextStage === 'checklist' ? 'checklist' : 'roadmap'}.`)
@@ -1053,17 +1056,30 @@ export default function ImprovementRoadmapTab({
                           </div>
                         </div>
                         {!readOnly && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleOpenAgent(source.tabKey)}
-                            className="h-8 text-xs gap-1.5 shrink-0 cursor-pointer hover:bg-slate-50"
-                            title={`Go to ${source.name}`}
-                          >
-                            <span>Open Agent</span>
-                            <ExternalLink className="w-3 h-3 text-slate-400" />
-                          </Button>
+                          <div className="flex items-center gap-3 shrink-0 self-start">
+                            <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 whitespace-nowrap cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={!excludedAgentIds.includes(source.key)}
+                                onChange={() => setExcludedAgentIds(current => current.includes(source.key)
+                                  ? current.filter(id => id !== source.key)
+                                  : [...current, source.key])}
+                                className="h-4 w-4 accent-slate-800"
+                              />
+                              Include
+                            </label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenAgent(source.tabKey)}
+                              className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-slate-50"
+                              title={`Go to ${source.name}`}
+                            >
+                              <span>Open Agent</span>
+                              <ExternalLink className="w-3 h-3 text-slate-400" />
+                            </Button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1138,6 +1154,16 @@ export default function ImprovementRoadmapTab({
           <p className="text-xs text-slate-500 mt-1">Seller-facing plan built from completed diligence agent outputs</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {!readOnly && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowAgentInputs(value => !value)}
+              disabled={generating !== null}
+            >
+              {showAgentInputs ? 'Hide Agent Inputs' : 'Manage Agent Inputs'}
+            </Button>
+          )}
           {hasFullReport && (
             <Button
               size="sm"
@@ -1149,6 +1175,8 @@ export default function ImprovementRoadmapTab({
               <RefreshCw className={cn('w-3.5 h-3.5', generating === 'report' && 'animate-spin')} />
               {generating === 'report'
                 ? 'Generating...'
+                : excludedAgentIds.length > 0 && !sourcesChanged
+                  ? 'Re-run Roadmap'
                 : sourcesChanged
                   ? 'Re-run Roadmap (sources edited)'
                   : 'Re-run Roadmap'}
@@ -1175,6 +1203,37 @@ export default function ImprovementRoadmapTab({
           )}
         </div>
       </div>
+
+      {showAgentInputs && !readOnly && (
+        <Card className="border-slate-200 bg-white p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">Agent inputs for this roadmap</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Uncheck an agent to omit its existing findings. Re-enable it later and regenerate the roadmap to add it back. This does not rerun the agent.
+              </p>
+            </div>
+            <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap">
+              {sources.filter(source => !excludedAgentIds.includes(source.key)).length} of {sources.length} included
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {sources.map(source => (
+              <label key={source.key} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!excludedAgentIds.includes(source.key)}
+                  onChange={() => setExcludedAgentIds(current => current.includes(source.key)
+                    ? current.filter(id => id !== source.key)
+                    : [...current, source.key])}
+                  className="h-4 w-4 accent-slate-800"
+                />
+                <span className="truncate" title={source.name}>{source.name}</span>
+              </label>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {sourcesChanged && !readOnly && (
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">

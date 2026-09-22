@@ -142,6 +142,7 @@ export type RoadmapAgentSource = {
   required: false
   ready: boolean
   note: string
+  included?: boolean
 }
 
 /** Workstream-aware optional source list for the Sales Readiness Roadmap start UI.

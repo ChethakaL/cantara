@@ -31,6 +31,8 @@ Produce output in this EXACT structure using these EXACT delimiters.
 ---START_PART1---
 ## PART 1 — CONTRACT PACKAGE SNAPSHOT
 
+**Executive Summary:** Write one concise, buyer-facing paragraph summarizing the contract package, its overall transferability/continuity risk, and the most important diligence takeaway.
+
 List every contract identified in the uploaded documents.
 
 | # | Contract Type | Counterparty | Effective Date | Expiration Date | Auto-Renewal? | Annual Value | Termination Clause | Termination Terms | Risk Tier | Current Status |
@@ -168,7 +170,7 @@ Issues that could block or materially impair a business sale, impose unexpected 
 
 ---
 
-### 🟡 ORANGE FLAGS — Items Requiring Clarification or Negotiation
+### 🟡 YELLOW FLAGS — Items Requiring Clarification or Negotiation
 
 Not immediately disqualifying but must be addressed, quantified, or negotiated before or at closing.
 
@@ -180,11 +182,11 @@ Not immediately disqualifying but must be addressed, quantified, or negotiated b
 
 ---
 
-**Orange flag triggers:**
+**Yellow flag triggers:**
 - Assignment consent required but standard is "not unreasonably withheld" — still creates timeline risk
 - Assignment or consent fee payable to counterparty — quantify and include in deal economics
 - Change of control advance notice obligation — buyer must build exact timeline into transaction plan
-- Auto-renewal notice window still open — state the exact date by which notice must be delivered. Flag as orange if deadline is more than 60 days away; flag as red if within 60 days or already passed.
+- Auto-renewal notice window still open — state the exact date by which notice must be delivered. Flag as yellow if deadline is more than 60 days away; flag as red if within 60 days or already passed.
 - Long-notice auto-renewal window (e.g., 18 months) — even if years away, flag with exact deadline so buyer can plan
 - Preferred supplier or minimum usage obligation — confirm buyer's operational flexibility
 - Staffing exclusivity obligation (e.g., 70%+ of staffing through one agency) — confirm flexibility

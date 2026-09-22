@@ -126,7 +126,7 @@ export function ContractReport({
         <div className="flex w-full xl:w-auto flex-col gap-3">
           <div className="flex flex-wrap items-center gap-1.5 justify-start xl:justify-end">
             <Badge color="red">🔴 {flagCounts.red} Red</Badge>
-            <Badge color="gold">🟡 {flagCounts.orange} Orange</Badge>
+            <Badge color="gold">🟡 {flagCounts.orange} Yellow</Badge>
             <Badge color="green">🟢 {flagCounts.green} Green</Badge>
           </div>
           <div className="flex flex-wrap items-center gap-2 justify-start xl:justify-end">
@@ -199,7 +199,7 @@ export function ContractReport({
       </div>
 
       <div className="p-4 sm:p-6 min-h-[400px]">
-        {activeTab === 'snapshot' && <SnapshotTable rows={visibleReport.snapshotTable} />}
+        {activeTab === 'snapshot' && <SnapshotTable rows={visibleReport.snapshotTable} executiveSummary={visibleReport.executiveSummary} editMode={editMode} onExecutiveSummaryChange={value => setDraftReport(current => current ? { ...current, executiveSummary: value } : current)} />}
         {activeTab === 'findings' && (
           <DetailedFindings
             findings={visibleReport.detailedFindings}

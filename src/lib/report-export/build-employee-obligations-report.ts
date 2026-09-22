@@ -2,9 +2,12 @@ import type { WS16Report, Flag } from '@/types/ws1-6-types'
 import {
   generateReportHtml,
   buildHtmlTable,
-  buildBulletList,
   type ReportConfig,
 } from './generate-report-html'
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] ?? char))
+}
 
 function flagStatusLabel(status: string): string {
   switch (status) {
@@ -15,10 +18,22 @@ function flagStatusLabel(status: string): string {
   }
 }
 
+function flagSeverityBadge(severity: string): string {
+  const styles: Record<string, { bg: string; color: string; border: string; dot: string; label: string }> = {
+    'deal-risk': { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca', dot: '#ef4444', label: 'Deal Risk' },
+    negotiation: { bg: '#fffbeb', color: '#a16207', border: '#fde68a', dot: '#eab308', label: 'Negotiation' },
+    positive: { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', dot: '#22c55e', label: 'Positive' },
+    informational: { bg: '#f8fafc', color: '#475569', border: '#cbd5e1', dot: '#94a3b8', label: 'Informational' },
+  }
+  const style = styles[severity] ?? styles.informational
+  return `<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid ${style.border};border-radius:999px;background:${style.bg};color:${style.color};font-size:11px;font-weight:700;white-space:nowrap;"><span style="width:6px;height:6px;border-radius:50%;background:${style.dot};display:inline-block;"></span>${style.label}</span>`
+}
+
 export function buildEmployeeObligationsReportHtml(
   report: WS16Report,
   flags: Flag[],
   clientName: string,
+  hiddenSections: string[] = [],
 ): string {
   const confirmed = flags.filter(f => f.status === 'confirmed')
   const dealRisks = flags.filter(f => f.severity === 'deal-risk')
@@ -122,22 +137,8 @@ export function buildEmployeeObligationsReportHtml(
 
   // Flags
   const flagsContent = flags.length > 0
-    ? buildHtmlTable(
-        ['Domain', 'Severity', 'Title', 'Description', 'Advisor Review'],
-        flags.map(f => [
-          f.domain,
-          f.severity.charAt(0).toUpperCase() + f.severity.slice(1),
-          f.title,
-          f.description,
-          flagStatusLabel(f.status),
-        ]),
-      )
+    ? `<table class="report-table"><thead><tr><th>Domain</th><th>Severity</th><th>Title</th><th>Description</th><th>Advisor Review</th></tr></thead><tbody>${flags.map(f => `<tr><td><strong>${escapeHtml(f.domain)}</strong></td><td>${flagSeverityBadge(f.severity)}</td><td>${escapeHtml(f.title)}</td><td>${escapeHtml(f.description)}</td><td>${escapeHtml(flagStatusLabel(f.status))}</td></tr>`).join('')}</tbody></table>`
     : '<p>No flags raised.</p>'
-
-  // Counsel Items
-  const counselContent = bs.counselItems.length > 0
-    ? buildBulletList(bs.counselItems)
-    : '<p>No counsel items noted.</p>'
 
   const config: ReportConfig = {
     title: 'Employee Obligations Report',
@@ -154,8 +155,8 @@ export function buildEmployeeObligationsReportHtml(
       { title: 'Key People', content: keyPeopleContent },
       { title: 'Coverage Gaps', content: gapsContent },
       { title: 'Flags & Risk Items', content: flagsContent },
-      { title: 'Counsel Items', content: counselContent },
-    ],
+      // Counsel Items are intentionally excluded from the final PDF per client feedback.
+    ].filter(section => !hiddenSections.includes(section.title) && section.title !== 'Counsel Items'),
   }
 
   return generateReportHtml(config)

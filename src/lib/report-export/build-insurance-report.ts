@@ -41,7 +41,7 @@ export function buildInsuranceReportHtml(
     : ''
 
   const config: ReportConfig = {
-    title: 'Insurance Claim Review',
+    title: 'Insurance Summary and Claim Review',
     subtitle: 'Claim Summary & Risk Assessment',
     clientName,
     generatedAt: new Date().toISOString(),

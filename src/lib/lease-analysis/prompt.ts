@@ -42,6 +42,8 @@ Produce output in this EXACT structure using these EXACT delimiters. Do not reor
 ---START_PART1---
 ## PART 1 — LEASE SUMMARY TABLE
 
+**Executive Summary:** Write one concise, buyer-facing paragraph summarizing the lease, its transferability/continuity risk, and the most important diligence takeaway.
+
 **Table A — Property, Parties & Dates**
 
 | Key Item | Finding |
@@ -224,7 +226,7 @@ Three fields per flag. Every field is mandatory. No recommended actions.
 
 **FLAG DISCIPLINE — READ BEFORE WRITING ANY FLAG:**
 - **No duplicate flags**: Each distinct issue gets ONE flag. The lease expiration status and the extension notice deadline are the SAME underlying issue — combine them into a single flag. Do not write separate flags for the same problem.
-- **No re-flagging resolved issues**: If Part 2 already resolved a conflict or confirmed a status (e.g., "the Second Amendment rent schedule replaces the First Amendment schedule"), do NOT create an orange flag asking to "confirm which schedule is operative." The issue is resolved. Only flag things that are genuinely unresolved or require action.
+- **No re-flagging resolved issues**: If Part 2 already resolved a conflict or confirmed a status (e.g., "the Second Amendment rent schedule replaces the First Amendment schedule"), do NOT create a yellow flag asking to "confirm which schedule is operative." The issue is resolved. Only flag things that are genuinely unresolved or require action.
 - **Past benefits are not flags**: A concluded rent abatement, a paid TI allowance, or any past landlord concession that has no ongoing strings is not a flag of any color unless it creates a current unresolved obligation.
 - **Triggers are a checklist, not a script**: The trigger lists below tell you what to look for. Do not mechanically fire every trigger as a flag. Only raise a flag if the trigger condition is actually present and unresolved in the documents.
 - **No speculation from future dates**: A future expiration date is not an expired lease. If the expiration date is after **${currentDateLabel}**, do not say the tenant is in holdover or that the lease has expired.
@@ -276,7 +278,7 @@ These are provisions that could block or materially impair a business sale, impo
 
 ---
 
-### 🟡 ORANGE FLAGS — Items Requiring Clarification or Negotiation
+### 🟡 YELLOW FLAGS — Items Requiring Clarification or Negotiation
 
 These are not immediately disqualifying but must be addressed before or at closing.
 
@@ -303,7 +305,7 @@ These are not immediately disqualifying but must be addressed before or at closi
 - Recapture right — landlord can terminate the lease if tenant requests assignment approval
 - Redacted party names that could not be extracted from notary pages — identity of contracting parties needs verification
 - **DO NOT flag**: rent schedule discrepancies that have already been resolved by a later amendment — if Part 2 states which schedule is operative, do not re-flag it here
-- **DO NOT flag**: concluded rent abatements, paid TI allowances, or any past benefits with no ongoing obligations — these are not orange flags
+- **DO NOT flag**: concluded rent abatements, paid TI allowances, or any past benefits with no ongoing obligations — these are not yellow flags
 
 ---
 
