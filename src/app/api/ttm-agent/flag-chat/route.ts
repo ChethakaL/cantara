@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getTtmAnalysis, actionWs2RecastFlag } from '@/lib/ttm-agent/orchestrator'
+import { getTtmAnalysis, actionTtmFlag, actionWs2RecastFlag } from '@/lib/ttm-agent/orchestrator'
 import { llmContextFromStoredAnalysis, runWithAgentLlmContext } from '@/lib/agent-llm-context'
 import { createAgentMessage } from '@/lib/llm-completion'
 
 export const maxDuration = 120
 
-const SYSTEM = `You are Cantara's valuation review assistant. Answer questions about one valuation flag using only the supplied analysis context. Explain the source, reasoning, and impact plainly. If the user asks to correct the result, propose one safe structured action. Never invent source data. Return JSON only with this shape: {"answer": string, "canApply": boolean, "action": "RESOLVE"|"ESCALATE_CLIENT"|"OVERRIDE"|null, "overrideAmount": number|null, "payloadPatch": object, "notes": string}. Use RESOLVE to keep the item, ESCALATE_CLIENT to remove/escalate it, and OVERRIDE only when a replacement numeric amount is explicitly supported.`
+const SYSTEM = `You are Cantara's valuation review assistant for a non-technical advisor. Answer plainly and conversationally. Never mention JSON, payloads, fields, schemas, models, prompts, or developer terminology in the answer. Explain what was found, why it matters, and what the advisor can do next. If the user asks to correct the result, propose one safe structured action internally. Before the advisor clicks the Apply this change button, never say the item has been resolved, changed, updated, or applied; say it is a proposed change awaiting confirmation. For a GL reclassification, include the selected Cantara code in payloadPatch as assignedCantaraCode. If the advisor says an expense is a legitimate business expense and not personal, do not retain an owner/personal code: for Dining w Clients or client meals use OPX-MEALS (Meals & Entertainment (Business)), not OPX-MEALS-OWNER. Never invent source data. Return JSON only with this shape: {"answer": string, "canApply": boolean, "action": "RESOLVE"|"ESCALATE_CLIENT"|"OVERRIDE"|null, "overrideAmount": number|null, "payloadPatch": object, "notes": string}. The JSON is internal and must not be discussed in answer. Use RESOLVE to keep the item, ESCALATE_CLIENT to remove/escalate it, and OVERRIDE only when a replacement numeric amount is explicitly supported.`
+
+function parseAssistantResponse(raw: string) {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  try { return JSON.parse(cleaned) }
+  catch {
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start >= 0 && end > start) {
+      try { return JSON.parse(cleaned.slice(start, end + 1)) } catch { /* use plain text below */ }
+    }
+    return { answer: cleaned || 'I could not generate an answer.', canApply: false, action: null, overrideAmount: null, payloadPatch: {}, notes: '' }
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,10 +48,20 @@ export async function POST(req: NextRequest) {
       maxTokens: 1800,
       temperature: 0,
     }))
-    const parsed = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim())
+    const parsed = parseAssistantResponse(raw)
     if (body.mode === 'apply') {
       if (!parsed.canApply || !parsed.action) return NextResponse.json({ ...parsed, applied: false })
-      if (!recast) return NextResponse.json({ ...parsed, applied: false, note: 'Step 1 flags require the existing GL mapping controls to apply changes.' })
+      if (!recast) {
+        const updated = await actionTtmFlag({
+          analysisId: analysis.id,
+          flagId,
+          action: parsed.action,
+          payloadPatch: parsed.payloadPatch && typeof parsed.payloadPatch === 'object' ? parsed.payloadPatch : undefined,
+          notes: parsed.notes || parsed.answer,
+          actorName: String(body.actorName || 'Admin'),
+        })
+        return NextResponse.json({ ...parsed, applied: true, analysis: updated })
+      }
       const updated = await actionWs2RecastFlag({
         recastAnalysisId: recast.id,
         flagId,

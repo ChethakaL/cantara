@@ -123,4 +123,6 @@ export interface CompetitorAnalysisReport {
   clientProfile: SubjectBusinessProfile;
   discoveredCompetitors: DiscoveredCompetitorItem[];
   competitors: CompetitorReportItem[];
+  /** Client-entered competitor names used only for the service comparison columns. */
+  specifiedCompetitorNames?: string[];
 }

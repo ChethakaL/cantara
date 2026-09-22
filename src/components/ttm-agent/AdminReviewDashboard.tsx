@@ -467,7 +467,7 @@ export function AdminReviewDashboard({
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge color={severityColor(item.severity)}>{item.severity}</Badge>
                       <p className="text-sm font-medium text-slate-900">{item.title}</p>
-                      <button type="button" title="Ask Valuation AI about this item" aria-label={`Ask Valuation AI about ${item.title}`} onClick={() => window.dispatchEvent(new CustomEvent('cantara:valuation-ai-select', { detail: { flagId } }))} className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-indigo-200 text-indigo-600 hover:bg-indigo-50"><Bot className="h-3.5 w-3.5" /></button>
+                      <button type="button" title="Ask Valuation AI about this item" aria-label={`Ask Valuation AI about ${item.title}`} onClick={() => window.dispatchEvent(new CustomEvent('cantara:valuation-ai-select', { detail: { flagId, title: item.title } }))} className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-indigo-200 text-indigo-600 hover:bg-indigo-50"><Bot className="h-3.5 w-3.5" /></button>
                       {isResolved && flag?.resolutionAction && <Badge color="green">{flag.resolutionAction.replace('_', ' ')}</Badge>}
                     </div>
                     {isResolved ? (
