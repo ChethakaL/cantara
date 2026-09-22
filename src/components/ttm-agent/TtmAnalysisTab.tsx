@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Loader2, Play, AlertCircle, RefreshCw, Plus, FileSpreadsheet, FileText } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import { CheckCircle2, Loader2, Play, AlertCircle, RefreshCw, Plus, FileSpreadsheet, FileText, Bot, X } from 'lucide-react'
 import { buildWS2ReportAdapter } from '@/lib/ttm-agent/export-adapter'
 import { exportWS2Workbook } from '@/lib/ws2/ws2-export'
 import { Badge, Button, Card, Input } from '@/components/ui'
@@ -74,6 +75,12 @@ export const OPTIONAL_VALUATION_DOCS: ValuationDocDef[] = [
     description: 'Three fiscal years of accountant-prepared financial statements. Upload all years in one PDF/ZIP, or one file per year.',
     accept: '.pdf,.zip',
   },
+  {
+    id: 'valuation_context',
+    label: 'Additional Valuation Context',
+    description: 'Advisor-only PDFs or Excel files, including an external valuation, sent to the selected AI provider as context.',
+    accept: '.pdf,.xlsx,.xls,.csv',
+  },
 ]
 
 const ALL_VALUATION_DOC_IDS = [
@@ -88,6 +95,68 @@ function getAdminEmail(): string {
   return localStorage.getItem('cantara_admin_email') || 'admin@cantarapet.com'
 }
 
+
+function FlagChat({ analysisId, recastAnalysisId, flagId, adminName, onUpdated }: { analysisId: string; recastAnalysisId: string; flagId: string; adminName: string; onUpdated: (a: TtmAnalysisView) => void }) {
+  const [open, setOpen] = useState(false)
+  const [question, setQuestion] = useState('Why was this flagged?')
+  const [answer, setAnswer] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+  const ask = async (mode: 'ask' | 'apply') => {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/ttm-agent/flag-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ analysisId, recastAnalysisId, flagId, question, mode, suggestion: mode === 'apply' ? answer : undefined, actorName: adminName }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.message || 'Unable to answer')
+      setAnswer(data)
+      if (data.analysis) onUpdated(data.analysis)
+    } catch (error) { setAnswer({ answer: error instanceof Error ? error.message : 'Unable to answer' }) } finally { setBusy(false) }
+  }
+  return <div className="mt-2">
+    <button type="button" className="text-xs font-medium text-indigo-700 hover:text-indigo-900" onClick={() => setOpen((v) => !v)}>{open ? 'Hide assistant' : 'Mark for AI'}</button>
+    {open && <div className="mt-2 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+      <textarea value={question} onChange={(e) => setQuestion(e.target.value)} className="w-full rounded-md border border-slate-200 px-2.5 py-2 text-xs outline-none focus:border-amber-400" rows={2} placeholder="Why was this flagged? What should I change?" />
+      <div className="flex gap-2"><Button size="sm" onClick={() => void ask('ask')} disabled={busy || !question.trim()}>{busy ? 'Thinking…' : 'Ask'}</Button>{answer?.canApply && <Button size="sm" variant="outline" onClick={() => void ask('apply')} disabled={busy}>Apply suggested fix</Button>}</div>
+      {answer?.answer && <p className="text-xs leading-relaxed text-slate-600 whitespace-pre-wrap">{answer.answer}</p>}
+      {answer?.applied && <p className="text-xs font-medium text-emerald-700">Applied and saved to this valuation flag.</p>}
+    </div>}
+  </div>
+}
+
+function ValuationAssistant({ analysis, adminName, onUpdated }: { analysis: TtmAnalysisView; adminName: string; onUpdated: (a: TtmAnalysisView) => void }) {
+  const recast = analysis.recastAnalyses?.[0]
+  const flags = recast?.flags ?? analysis.flags
+  const [selectedId, setSelectedId] = useState('')
+  const [question, setQuestion] = useState('')
+  const [messages, setMessages] = useState<Array<{ role: 'assistant' | 'user'; text: string }>>([{ role: 'assistant', text: 'Hi, how can I help you with this valuation?' }])
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (selectedId && !flags.some((flag) => flag.id === selectedId)) setSelectedId('') }, [flags, selectedId])
+  useEffect(() => { const handler = (event: Event) => { const id = (event as CustomEvent<{ flagId?: string }>).detail?.flagId; if (id && flags.some((flag) => flag.id === id)) { setSelectedId(id); setMessages((current) => [...current, { role: 'assistant', text: `I’m looking at “${flags.find((flag) => flag.id === id)?.title}”. What would you like to know?` }]) } }; window.addEventListener('cantara:valuation-ai-select', handler); return () => window.removeEventListener('cantara:valuation-ai-select', handler) }, [flags])
+  const send = async () => {
+    const text = question.trim(); if (!text || busy) return
+    setQuestion(''); setMessages((current) => [...current, { role: 'user', text }]); setBusy(true)
+    try {
+      const res = await fetch('/api/ttm-agent/flag-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ analysisId: analysis.id, recastAnalysisId: recast?.id ?? '', flagId: selectedId, question: text, mode: 'ask', actorName: adminName }) })
+      const data = await res.json(); if (!res.ok) throw new Error(data?.message || 'Unable to answer')
+      setMessages((current) => [...current, { role: 'assistant', text: data.answer || 'I could not find enough information to answer that.' }])
+      if (data.canApply) setMessages((current) => [...current, { role: 'assistant', text: 'I can apply that suggested correction if you ask me to.' }])
+    } catch (error) { setMessages((current) => [...current, { role: 'assistant', text: error instanceof Error ? error.message : 'Unable to answer' }]) } finally { setBusy(false) }
+  }
+  return <div className="flex flex-col gap-3">
+    <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg bg-slate-50 p-3">{messages.map((message, index) => <div key={index} className={`max-w-[90%] rounded-xl px-3 py-2 text-xs leading-relaxed ${message.role === 'user' ? 'ml-auto bg-indigo-700 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-200'}`}>{message.role === 'assistant' ? <ReactMarkdown components={{ h1: ({ children }) => <p className="mb-2 text-sm font-semibold">{children}</p>, h2: ({ children }) => <p className="mb-1.5 font-semibold">{children}</p>, h3: ({ children }) => <p className="mb-1 font-semibold">{children}</p>, p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>, ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-4">{children}</ul>, ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-4">{children}</ol>, li: ({ children }) => <li>{children}</li>, strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>, code: ({ children }) => <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">{children}</code> }}>{message.text}</ReactMarkdown> : message.text}</div>)}{busy && <div className="text-xs text-slate-400">Thinking…</div>}</div>
+    <div className="flex items-end gap-2"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }} rows={2} placeholder={selectedId ? 'Ask about the marked item…' : 'Ask about this valuation…'} className="min-w-0 flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-indigo-400" /><Button size="sm" onClick={() => void send()} disabled={busy || !question.trim()}>Send</Button></div>
+  </div>
+}
+
+function FloatingValuationAssistant({ analysis, adminName, onUpdated }: { analysis: TtmAnalysisView; adminName: string; onUpdated: (a: TtmAnalysisView) => void }) {
+  const [open, setOpen] = useState(false)
+  return <>
+    {open && <div className="fixed bottom-24 right-6 z-[120] w-[min(440px,calc(100vw-2rem))] max-h-[min(620px,calc(100vh-7rem))] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-indigo-200">
+      <div className="flex items-center justify-between bg-indigo-700 px-4 py-3 text-white"><div className="flex items-center gap-2"><Bot className="h-5 w-5" /><span className="text-sm font-semibold">Valuation AI Assistant</span></div><button type="button" aria-label="Close valuation assistant" onClick={() => setOpen(false)}><X className="h-4 w-4" /></button></div>
+      <div className="p-3"><ValuationAssistant analysis={analysis} adminName={adminName} onUpdated={onUpdated} /></div>
+    </div>}
+    <button type="button" aria-label="Open valuation AI assistant" onClick={() => setOpen((value) => !value)} className="fixed bottom-5 right-6 z-[121] flex h-14 w-14 items-center justify-center rounded-full bg-indigo-700 text-white shadow-xl ring-4 ring-indigo-100 transition hover:bg-indigo-800"><Bot className="h-7 w-7" /></button>
+  </>
+}
 
 // ── Step 3: Clean valuation range entry ─────────────────────────────────────
 function Step3ValuationRange({
@@ -249,6 +318,7 @@ function Step3ValuationRange({
                   <div key={flag.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-800 truncate">{title}</p>
+                      <button type="button" title="Ask Valuation AI about this item" aria-label={`Ask Valuation AI about ${title}`} onClick={() => window.dispatchEvent(new CustomEvent('cantara:valuation-ai-select', { detail: { flagId: flag.id } }))} className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-indigo-200 text-indigo-600 hover:bg-indigo-50"><Bot className="h-3.5 w-3.5" /></button>
                       {flag.description && flag.description !== title && (<p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{flag.description}</p>)}
                     </div>
                     <div className="flex gap-2 flex-shrink-0">
@@ -648,7 +718,7 @@ function ValuationDocumentsChecklist({
         </div>
 
         <p className="text-xs text-slate-500">
-          Three fiscal years of accountant-prepared financial statements. Optional upload to cross-reference and validate figures.
+          Upload an external valuation for reference, or add PDFs/Excel files as advisor-only context for the valuation agent.
         </p>
 
         <div className="space-y-2.5">
@@ -1289,6 +1359,10 @@ export function TtmAnalysisTab({
             })}
           </div>
         </div>
+      )}
+
+      {activeAnalysis && !isFailed && !composingNew && !readOnly && (
+        <FloatingValuationAssistant analysis={activeAnalysis} adminName={adminName} onUpdated={handleUpdatedAnalysis} />
       )}
 
       {/* Error banner */}

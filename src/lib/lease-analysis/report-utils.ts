@@ -195,7 +195,7 @@ function buildPart3Markdown(report: LeaseReport) {
     "",
     renderFlagSection(report.redFlags),
     "",
-    "### 🟡 ORANGE FLAGS — Items Requiring Clarification or Negotiation",
+    "### 🟡 YELLOW FLAGS — Items Requiring Clarification or Negotiation",
     "",
     renderFlagSection(report.orangeFlags),
     "",

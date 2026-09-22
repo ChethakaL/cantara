@@ -253,7 +253,7 @@ export function FlagAnalysis({ riskCards, red, orange, green, report, adminMode 
                 <FlagGroup title="Red Flags" emoji="🔴" tone="rose" flags={section.red} allRed={red} renderReviewControls={renderReviewControls} adminMode={adminMode} />
               )}
               {section.orange.length > 0 && (
-                <FlagGroup title="Orange Flags" emoji="🟡" tone="amber" flags={section.orange} allOrange={orange} renderReviewControls={renderReviewControls} adminMode={adminMode} />
+                <FlagGroup title="Yellow Flags" emoji="🟡" tone="amber" flags={section.orange} allOrange={orange} renderReviewControls={renderReviewControls} adminMode={adminMode} />
               )}
               {section.green.length > 0 && (
                 <FlagGroup title="Green Flags" emoji="🟢" tone="emerald" flags={section.green} allGreen={green} renderReviewControls={renderReviewControls} adminMode={adminMode} />

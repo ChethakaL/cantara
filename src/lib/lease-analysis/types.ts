@@ -16,6 +16,7 @@ export interface RentScheduleRow {
 
 export interface LeaseReport {
   raw: string;                          // full streamed markdown
+  executiveSummary?: string;
   snapshotTable: SnapshotRow[];
   rentSchedule: RentScheduleRow[];
   detailedFindings: FindingSection[];

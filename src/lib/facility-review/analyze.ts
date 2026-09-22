@@ -26,14 +26,14 @@ const FACILITY_REPORT_JSON_SCHEMA = `Return ONLY valid JSON matching this shape:
   "nextReview": "Upon completion of improvement milestones",
   "overallScore": number,
   "overallRating": "Excellent|Good|Needs Attention|Critical",
-  "overallNarrative": "one strong paragraph, 2-4 sentences",
+  "overallNarrative": "2-4 concise bullet points, each starting with '- '; keep each bullet under 25 words",
   "zones": [
     {
       "zone": "Exterior & Curb Appeal|Reception & Client-Facing Areas|Boarding & Daycare Areas|Grooming Suite|Outdoor Play Areas|Staff & Operational Areas",
       "weight": number,
       "score": number,
       "rating": "Excellent|Good|Needs Attention|Critical",
-      "commentary": "one paragraph, 3-5 sentences, buyer-focused",
+      "commentary": "3-5 concise buyer-focused bullet points, each starting with '- '; keep each bullet under 30 words",
       "keyFindings": ["specific visible finding or missing evidence"]
     }
   ],
@@ -46,7 +46,7 @@ const FACILITY_REPORT_JSON_SCHEMA = `Return ONLY valid JSON matching this shape:
       "timing": "Week 1|Within 30 days|Within 60 days|Within 90 days|Ongoing — data room prep"
     }
   ],
-  "maintenanceHistorySummary": "one paragraph. If maintenance records were not uploaded, say records were not provided and list what should be compiled before market.",
+  "maintenanceHistorySummary": "concise bullet points. If maintenance records were not uploaded, say records were not provided and list what should be compiled before market.",
   "capitalExpenditureOutlook": [
     {
       "item": "near-term capex item or documentation item",
@@ -54,12 +54,12 @@ const FACILITY_REPORT_JSON_SCHEMA = `Return ONLY valid JSON matching this shape:
       "timing": "Year 1|Year 1-2|Year 2-3|Before marketing"
     }
   ],
-  "complianceLicensingSnapshot": "one paragraph. Do not claim licenses are current unless user notes prove it.",
-  "brandCurbAppealAssessment": "one paragraph focused on market photography and first impression.",
-  "cantaraAdvisoryCommentary": "one paragraph tying facility quality to buyer confidence and sale readiness.",
-  "methodologyDisclosure": "one paragraph explaining image-based limitations, no independent inspection, confidential advisory use.",
+  "complianceLicensingSnapshot": "concise bullet points. Do not claim licenses are current unless user notes prove it.",
+  "brandCurbAppealAssessment": "concise bullet points focused on market photography and first impression.",
+  "cantaraAdvisoryCommentary": "concise bullet points tying facility quality to buyer confidence and sale readiness.",
+  "methodologyDisclosure": "concise bullet points explaining image-based limitations, no independent inspection, confidential advisory use.",
   "imageCoverageNotes": ["which zones/images were well covered or under-covered"],
-  "buyerRiskSummary": "one paragraph on likely buyer diligence concerns",
+  "buyerRiskSummary": "concise bullet points on likely buyer diligence concerns",
   "generatedAt": "",
   "modelUsed": ""
 }`
@@ -77,7 +77,12 @@ Important scoring rule:
 - Critical requires a visible severe condition, major safety concern, explicit disclosure, or explicit advisor note, not absence of photos alone.
 - Separate "facility condition" from "image coverage". Missing coverage should create recommendations to capture optional photos, not invented defects.
 
-Write in same executive tone as Cantara sample: direct, sale-readiness focused, buyer-risk language, specific remediation, no generic AI caveats in main commentary. Mention "from image review" only in coverage notes.`
+Scope rule for Staff & Operational Areas:
+- This zone covers facility-side operations and spaces: back-of-house workflow, storage, laundry, cleaning/sanitation areas, maintenance, HVAC, utilities, equipment, safety, and physical organization.
+- Do not place staffing, HR, payroll, hiring, onboarding, employee retention, management delegation, QuickBooks, accounting, or general business administration in this zone.
+- Mixed advisor notes may contain those topics. Ignore them for this zone; do not summarize or score them as facility findings. They belong to the appropriate people/management or financial assessment.
+
+Write in same executive tone as Cantara sample: direct, sale-readiness focused, buyer-risk language, specific remediation, no generic AI caveats in main commentary. Format every narrative/description field as separate, short bullet lines beginning with "- "; never write a long paragraph. Mention "from image review" only in coverage notes.`
 
 function ratingForScore(score: number): FacilityRating {
   if (score >= 85) return 'Excellent'
@@ -401,6 +406,8 @@ export async function analyzeAdvisorFacilityReview(args: {
     prompt: `Create the SAME Cantara Pet Business Advisors Facility Assessment Report format used for standard seller intake reviews — with overall score, zone scores, prioritized improvements, and all standard report sections.
 
 This is an ADVISOR-RUN facility review from a site visit. The seller intake form was NOT used. Use the advisor meeting notes, any uploaded visit photos, and any additional supporting documents attached as files.
+
+Keep every zone focused on facility output. In particular, Staff & Operational Areas means facility-side operations and back-of-house spaces—not staffing, HR, payroll, hiring, onboarding, GM/leadership transition, QuickBooks, accounting, or other people/business administration. Mixed call notes may contain those topics; exclude them from this zone rather than repeating them.
 
 Business name: ${args.businessName}
 Location: ${args.location || 'Unknown'}

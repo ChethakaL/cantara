@@ -44,6 +44,13 @@ export interface PricingAnalysisReport {
   radiusMiles: number
   sellerWebsiteUrl?: string | null
   competitors: Array<{ name: string; websiteUrl: string }>
+  hiddenCompetitorNames?: string[]
+  matrixColumnHeaders?: {
+    service?: string
+    basis?: string
+    sellerPrice?: string
+    competitorPrice?: string
+  }
   competitorsAnalyzed: number
   priceMatrix: PriceMatrixRow[]
   pricingSummary: PricingSummaryRow[]

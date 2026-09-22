@@ -10,7 +10,7 @@ export function AnalysisProgress({ status, rawMarkdown }: Props) {
   const getStreamingStatus = () => {
     if (status === 'uploading') return 'Uploading documents...'
     if (rawMarkdown.includes('---START_PART4---')) return 'Finalizing document inventory...'
-    if (rawMarkdown.includes('---START_PART3---')) return 'Performing flag analysis (Red/Orange/Green)...'
+    if (rawMarkdown.includes('---START_PART3---')) return 'Performing flag analysis (Red/Yellow/Green)...'
     if (rawMarkdown.includes('---START_PART2---')) return 'Extracting contract-by-contract findings...'
     if (rawMarkdown.includes('---START_PART1---')) return 'Building contract package snapshot...'
     return 'Scanning documents...'

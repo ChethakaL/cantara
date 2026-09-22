@@ -9,6 +9,7 @@ export interface ContractDocument {
 
 export interface ContractReport {
   raw: string;
+  executiveSummary?: string;
   snapshotTable: SnapshotRow[];
   detailedFindings: FindingSection[];
   contractRiskCards: ContractRiskCard[];

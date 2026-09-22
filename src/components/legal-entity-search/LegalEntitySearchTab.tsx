@@ -157,6 +157,9 @@ const ALL_PORTAL_IDS = [
   'intellectual_property',
 ]
 
+const MAX_SELECTED_DOCUMENTS = 40
+const MAX_SELECTED_BYTES = 50 * 1024 * 1024
+
 // ── Legal Document Row Component ───────────────────────────────────────────
 
 function LegalDocRow({
@@ -496,12 +499,34 @@ export default function LegalEntitySearchTab({
     try {
       const docs = await listClientDocuments(clientId, ALL_PORTAL_IDS)
       setPortalDocs(docs)
+      if (!readOnly && docs.length) {
+        const imported = await Promise.all(docs.map(async (pDoc) => {
+          try {
+            const docData = await fetchClientDocumentAsBase64({
+              clientId,
+              documentId: pDoc.documentId,
+              recordId: pDoc.id,
+              fileName: pDoc.fileName,
+              mimeType: pDoc.mimeType,
+            })
+            return { ...docData, slotKey: OPTIONAL_CATEGORIES.find(category => category.portalIds?.includes(pDoc.documentId))?.id ?? 'sos_filings' }
+          } catch (err) {
+            console.warn('Failed to select portal document for legal search', pDoc.fileName, err)
+            return null
+          }
+        }))
+        setDocuments(prev => {
+          const byName = new Map(prev.map(doc => [doc.name, doc]))
+          imported.filter(Boolean).forEach(doc => byName.set(doc!.name, doc!))
+          return Array.from(byName.values())
+        })
+      }
     } catch (err) {
       console.error('Failed to load portal docs for legal search', err)
     } finally {
       setLoadingPortalDocs(false)
     }
-  }, [clientId])
+  }, [clientId, readOnly])
 
   useEffect(() => {
     void loadPortalDocs()
@@ -645,8 +670,15 @@ export default function LegalEntitySearchTab({
     () => documents.filter((d) => d.slotKey !== 'ucc_search_results').length,
     [documents],
   )
+  const selectedBytes = useMemo(() => documents.reduce((total, doc) => total + (doc.sizeBytes ?? 0), 0), [documents])
+  const overDocumentLimit = documents.length > MAX_SELECTED_DOCUMENTS || selectedBytes > MAX_SELECTED_BYTES
+  const documentLimitMessage = documents.length > MAX_SELECTED_DOCUMENTS
+    ? `You have selected ${documents.length} files. The limit is ${MAX_SELECTED_DOCUMENTS}; unselect ${documents.length - MAX_SELECTED_DOCUMENTS}.`
+    : selectedBytes > MAX_SELECTED_BYTES
+      ? `Selected files total ${formatFileSize(selectedBytes)}. The limit is ${formatFileSize(MAX_SELECTED_BYTES)}; unselect files before running.`
+      : null
 
-  const canRun = advisorToRun ? hasUcc : documents.length > 0
+  const canRun = !overDocumentLimit && (advisorToRun ? hasUcc : documents.length > 0)
 
   const handleRunAnalysis = () => {
     setWarning(null)
@@ -913,10 +945,10 @@ export default function LegalEntitySearchTab({
           </div>
 
           {/* Warning notice */}
-          {warning && (
+          {(warning || documentLimitMessage) && (
             <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-              <span>{warning}</span>
+              <span>{documentLimitMessage || warning}</span>
             </div>
           )}
 

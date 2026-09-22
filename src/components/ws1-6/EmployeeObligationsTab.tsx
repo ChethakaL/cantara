@@ -174,6 +174,9 @@ function EmployeeObligationsStructuredEditor({
   flags,
   onConfirm,
   onNA,
+  hiddenSections,
+  onHiddenSectionsChange,
+  onFlagsChange,
 }: {
   activeTab: string
   report: WS16Report
@@ -181,6 +184,9 @@ function EmployeeObligationsStructuredEditor({
   flags: Flag[]
   onConfirm: (id: string) => void
   onNA: (id: string) => void
+  hiddenSections: string[]
+  onHiddenSectionsChange: (sections: string[]) => void
+  onFlagsChange: (flags: Flag[]) => void
 }) {
   const patch = (updates: Partial<WS16Report>) => onChange({ ...report, ...updates })
   const patchSummary = (key: keyof WS16Report['buyerSummary'], value: any) => {
@@ -188,6 +194,7 @@ function EmployeeObligationsStructuredEditor({
   }
 
   if (activeTab === 'summary') {
+    const reportSections = ['Executive Summary', 'Document Inventory', 'Employment Agreements', 'Benefits & Obligations', 'Key People', 'Coverage Gaps', 'Flags & Risk Items', 'Counsel Items']
     const summaryFields: Array<[keyof WS16Report['buyerSummary'], string]> = [
       ['workforceOverview', 'Workforce overview'],
       ['nonCompeteProtections', 'Non-compete protections'],
@@ -198,6 +205,17 @@ function EmployeeObligationsStructuredEditor({
     ]
     return (
       <div className="p-6 space-y-5">
+        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-stone-600">Sections included in PDF</p>
+          <div className="flex flex-wrap gap-3">
+            {reportSections.map(section => (
+              <label key={section} className="flex items-center gap-1.5 text-xs text-stone-700">
+                <input type="checkbox" checked={!hiddenSections.includes(section)} onChange={event => onHiddenSectionsChange(event.target.checked ? hiddenSections.filter(x => x !== section) : [...hiddenSections, section])} />
+                {section}
+              </label>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-1 gap-4">
           {summaryFields.map(([key, label]) => (
             <div key={String(key)}>
@@ -214,6 +232,33 @@ function EmployeeObligationsStructuredEditor({
             />
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (activeTab === 'review') {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">Edit flags and risk items</p>
+          <button type="button" className="text-xs text-amber-700" onClick={() => onFlagsChange([...flags, { id: `flag-${Date.now()}`, domain: 'General', severity: 'informational', title: '', description: '', sourceRef: '', status: 'pending' }])}>+ Add flag</button>
+        </div>
+        {flags.map((flag, index) => (
+          <div key={flag.id} className="rounded-lg border border-stone-200 p-4 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <FieldInput value={flag.title} onChange={value => onFlagsChange(flags.map((item, i) => i === index ? { ...item, title: value } : item))} />
+              <select value={flag.domain} onChange={event => onFlagsChange(flags.map((item, i) => i === index ? { ...item, domain: event.target.value as Flag['domain'] } : item))} className="rounded border border-stone-200 px-2 text-sm">
+                {['General', 'Agreements', 'Non-competes', 'Benefits', 'Contractors', 'Key-people'].map(value => <option key={value}>{value}</option>)}
+              </select>
+              <select value={flag.severity} onChange={event => onFlagsChange(flags.map((item, i) => i === index ? { ...item, severity: event.target.value as Flag['severity'] } : item))} className="rounded border border-stone-200 px-2 text-sm">
+                {['deal-risk', 'negotiation', 'positive', 'informational'].map(value => <option key={value}>{value}</option>)}
+              </select>
+            </div>
+            <FieldInput textarea value={flag.description} onChange={value => onFlagsChange(flags.map((item, i) => i === index ? { ...item, description: value } : item))} />
+            <FieldInput value={flag.sourceRef} onChange={value => onFlagsChange(flags.map((item, i) => i === index ? { ...item, sourceRef: value } : item))} />
+            <button type="button" className="text-xs text-red-600" onClick={() => onFlagsChange(flags.filter((_, i) => i !== index))}>Delete flag</button>
+          </div>
+        ))}
       </div>
     )
   }
@@ -467,6 +512,7 @@ type ReviewMetadata = {
   flags?: Array<{ id: string; status: Flag['status'] }>
   releasedAt?: string | null
   downstream?: Record<string, unknown>
+  hiddenSections?: string[]
 }
 
 export default function EmployeeObligationsTab({
@@ -490,6 +536,7 @@ export default function EmployeeObligationsTab({
   const [draftReport, setDraftReport] = useState<WS16Report | null>(null)
   const [savingMarkdown, setSavingMarkdown] = useState(false)
   const [reanalyzing, setReanalyzing] = useState(false)
+  const [hiddenSections, setHiddenSections] = useState<string[]>([])
   const [composingNew, setComposingNew] = useState(false)
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoSavedMarkdownRef = useRef('')
@@ -548,6 +595,7 @@ export default function EmployeeObligationsTab({
       return
     }
     setSavedReport(activeRun as WS16Persistence)
+    setHiddenSections((activeRun.metadata as ReviewMetadata | undefined)?.hiddenSections ?? [])
     const { flags: pFlags } = parseWS16Markdown(activeRun.markdown, clientName)
     setFlags(mergeFlagStatuses(pFlags || [], activeRun.metadata as ReviewMetadata | undefined))
   }, [activeRun, clientName, loadingReport])
@@ -606,19 +654,12 @@ export default function EmployeeObligationsTab({
     if (!silent) setSavingMarkdown(true)
     try {
       const editedMarkdown = serializeWS16Report(draftReport, flags)
-      if (editedMarkdown === lastAutoSavedMarkdownRef.current) {
-        if (closeAfterSave) {
-          setEditMode(false)
-          setDraftReport(null)
-        }
-        return
-      }
       const response = await fetch(`/api/employee-obligations/reports?clientId=${clientId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           markdown: editedMarkdown,
-          metadata: (savedReport as any).metadata ?? undefined,
+          metadata: { ...((savedReport as any).metadata ?? {}), hiddenSections },
         }),
       })
       if (!response.ok) throw new Error(await response.text().catch(() => 'Failed to save final report'))
@@ -959,7 +1000,7 @@ export default function EmployeeObligationsTab({
             <Button size="sm" variant="outline" onClick={startEditing}>Edit Output</Button>
           ))}
           <ExportReportButton
-            html={buildEmployeeObligationsReportHtml(report, flags, clientName)}
+            html={buildEmployeeObligationsReportHtml(report, flags, clientName, hiddenSections)}
             fileName={`employee-obligations-${clientName.replace(/\s+/g, '-').toLowerCase()}`}
             label="Export PDF"
           />
@@ -1012,6 +1053,9 @@ export default function EmployeeObligationsTab({
               report={draftReport}
               onChange={setDraftReport}
               flags={flags}
+              onFlagsChange={setFlags}
+              hiddenSections={hiddenSections}
+              onHiddenSectionsChange={setHiddenSections}
               onConfirm={id => handleFlagUpdate(id, 'confirmed')}
               onNA={id => handleFlagUpdate(id, 'na')}
             />

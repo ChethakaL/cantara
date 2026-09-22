@@ -7,7 +7,7 @@ import { GoldLine, cn } from '@/components/ui'
 import { useAdminInboxUnread } from '@/hooks/useChatRoom'
 import AdminChatInboxWidget from '@/components/admin/AdminChatInboxWidget'
 
-export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) {
+export default function AdminNav({ name = 'Admin Pollack', hideClientChat = false }: { name?: string; hideClientChat?: boolean }) {
   const router = useRouter()
   const pathname = usePathname()
   const { total: unreadCount } = useAdminInboxUnread()
@@ -89,7 +89,7 @@ export default function AdminNav({ name = 'Admin Pollack' }: { name?: string }) 
         </div>
         <GoldLine />
       </header>
-      <AdminChatInboxWidget adminName={name} />
+      {!hideClientChat && <AdminChatInboxWidget adminName={name} />}
     </>
   )
 }

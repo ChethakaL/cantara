@@ -41,6 +41,7 @@ type RoadmapReport = {
   checklist?: SaleReadinessChecklistItem[]
   sourceAgents?: string[]
   sourceFingerprints?: Record<string, string>
+  excludedAgentIds?: string[]
 }
 
 function inferStage(report: Record<string, any> | null): SaleReadinessRoadmapStage {
@@ -62,6 +63,7 @@ function withChecklist(report: Record<string, any> | null, checklistItems: SaleR
     stage,
     checklist: checklistItems ?? (Array.isArray(report?.checklist) ? report.checklist : []),
     sourceAgents: sourceAgents ?? (Array.isArray(report?.sourceAgents) ? report.sourceAgents : []),
+    excludedAgentIds: Array.isArray(report?.excludedAgentIds) ? report.excludedAgentIds : [],
     sourceFingerprints: report?.sourceFingerprints && typeof report.sourceFingerprints === 'object'
       ? report.sourceFingerprints
       : undefined,
@@ -109,18 +111,23 @@ export async function GET(req: NextRequest) {
     submissions,
   )
   const report = withChecklist(stored, checklistItems)
+  const excludedAgentIds = new Set<string>((report?.excludedAgentIds ?? []).map(normalizeAgentStatusKey))
+  const visibleSourcesRaw = sourcesRaw.map((source) => ({
+    ...source,
+    included: !excludedAgentIds.has(normalizeAgentStatusKey(source.key)),
+  }))
   const sources = applySourceChangeFlags(
-    sourcesRaw,
+    visibleSourcesRaw,
     fingerprints,
     report?.sourceFingerprints,
     report?.updatedAt ?? report?.generatedAt,
   )
-  const readyCount = sources.filter(source => source.ready).length
+  const readyCount = sources.filter(source => source.ready && source.included !== false).length
   const sourcesChanged = Boolean(report?.stage === 'checklist' || report?.stage === 'report') && hasChangedSources(sources)
 
   return NextResponse.json({
     report,
-    sources,
+    sources: sources,
     readyCount,
     canGenerateChecklist: readyCount >= 1,
     sourcesChanged,
@@ -153,7 +160,11 @@ export async function POST(req: NextRequest) {
     propertyOwnership: propertyOwnership(submissions),
     sectionSubmissions: submissions,
   })
-  const agentData = await gatherCompletedAgentOutputs(clientId, assignedAgents)
+  const excludedAgentIds: Set<string> = Array.isArray(body.excludedAgentIds)
+    ? new Set(body.excludedAgentIds.map((id: unknown) => normalizeAgentStatusKey(String(id))))
+    : new Set<string>()
+  const agentData = (await gatherCompletedAgentOutputs(clientId, assignedAgents))
+    .filter((agent) => !excludedAgentIds.has(normalizeAgentStatusKey(agent.agentId)))
   if (!agentData.length) {
     return NextResponse.json({ error: 'No completed agent outputs found. Run at least one agent first.' }, { status: 409 })
   }
@@ -166,6 +177,16 @@ export async function POST(req: NextRequest) {
     submissions,
   )
   const existingReport = readRoadmapSubmission(submissions)
+  if (stage === 'report' && existingReport) {
+    const previousExcluded = new Set<string>((existingReport.excludedAgentIds ?? []).map((id: unknown) => normalizeAgentStatusKey(String(id))))
+    const selectionsMatch = previousExcluded.size === excludedAgentIds.size
+      && Array.from(previousExcluded).every((id) => excludedAgentIds.has(id))
+    if (!selectionsMatch) {
+      return NextResponse.json({
+        error: 'Regenerate the checklist after changing agent inputs, then approve the checklist items before generating the roadmap.',
+      }, { status: 409 })
+    }
+  }
   const existingChecklist = readChecklistSubmission(submissions)
   const submittedItems = Array.isArray(body.checklist)
     ? body.checklist.map((raw: any) => createChecklistItem(raw))
@@ -193,6 +214,7 @@ export async function POST(req: NextRequest) {
       checklist: checklistItems,
       sourceAgents,
       sourceFingerprints,
+      excludedAgentIds: Array.from(excludedAgentIds),
     }, checklistItems)
     return NextResponse.json({ report })
   }
@@ -221,6 +243,7 @@ export async function POST(req: NextRequest) {
     checklist: existingItems,
     sourceAgents,
     sourceFingerprints,
+    excludedAgentIds: Array.from(excludedAgentIds),
   }, existingItems)
   return NextResponse.json({ report })
 }

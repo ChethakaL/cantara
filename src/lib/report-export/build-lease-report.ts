@@ -64,11 +64,14 @@ export function buildLeaseSummaryHtml(report: LeaseReport, clientName: string): 
     greenFlags.length ? `<p style="font-weight:700;margin-top:12px;color:#166534;">Green Flags (${greenFlags.length})</p>` + buildFlagListHtml(greenFlags, 'green') : '',
   ].join('')
 
+  const executiveSummary = `The lease review summarizes ${snapshotRows.length} key lease term${snapshotRows.length === 1 ? '' : 's'} and identifies ${redFlags.length} red flag${redFlags.length === 1 ? '' : 's'}, ${orangeFlags.length} yellow flag${orangeFlags.length === 1 ? '' : 's'}, and ${greenFlags.length} green flag${greenFlags.length === 1 ? '' : 's'}. Buyers should confirm transferability, remaining term, renewal and termination rights, rent obligations, and other lease conditions before closing.`
+
   const config: ReportConfig = {
     title: 'Lease Analysis Report',
     subtitle: 'Summary & Risk Assessment',
     clientName,
     generatedAt: report.generatedAt,
+    summary: report.executiveSummary || executiveSummary,
     flags: { red: redFlags.length, orange: orangeFlags.length, green: greenFlags.length },
     kpis: [
       { label: 'Red Flags', value: String(redFlags.length) },

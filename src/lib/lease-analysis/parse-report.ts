@@ -12,6 +12,7 @@ export function parseReport(markdown: string): LeaseReport {
   
   return {
     raw: markdown,
+    executiveSummary: extractExecutiveSummary(markdown),
     snapshotTable: parseSnapshotTable(sections["PART 1"] ?? ""),
     rentSchedule: parseRentSchedule(sections["PART 2"] ?? ""),
     detailedFindings: parseDetailedFindings(sections["PART 2"] ?? ""),
@@ -21,6 +22,10 @@ export function parseReport(markdown: string): LeaseReport {
     documentInventory: parseDocumentInventory(sections["PART 4"] ?? ""),
     generatedAt: new Date().toISOString(),
   };
+}
+
+function extractExecutiveSummary(markdown: string): string {
+  return markdown.match(/\*\*Executive Summary:\*\*\s*([\s\S]*?)(?=\n\s*\|)/i)?.[1]?.trim() || ''
 }
 
 function splitBySections(markdown: string): Record<string, string> {
@@ -137,15 +142,15 @@ function parseDetailedFindings(text: string): FindingSection[] {
 function parseFlags(text: string, type: "red" | "orange" | "green"): Flag[] {
   let region = "";
   if (type === "red") {
-    region = text.match(/🔴 RED FLAGS[\s\S]*?(?=🟡 ORANGE FLAGS|$)/i)?.[0] ?? "";
+    region = text.match(/🔴 RED FLAGS[\s\S]*?(?=🟡 (?:ORANGE|YELLOW) FLAGS|$)/i)?.[0] ?? "";
   } else if (type === "orange") {
-    region = text.match(/🟡 ORANGE FLAGS[\s\S]*?(?=🟢 GREEN FLAGS|$)/i)?.[0] ?? "";
+    region = text.match(/🟡 (?:ORANGE|YELLOW) FLAGS[\s\S]*?(?=🟢 GREEN FLAGS|$)/i)?.[0] ?? "";
   } else if (type === "green") {
     region = text.match(/🟢 GREEN FLAGS[\s\S]*?$/i)?.[0] ?? "";
   }
 
   if (!region) return [];
-  region = region.replace(/^.*(RED|ORANGE|GREEN)\s*FLAGS.*$/im, "").trim();
+  region = region.replace(/^.*(RED|ORANGE|YELLOW|GREEN)\s*FLAGS.*$/im, "").trim();
 
   // Optimized split to perfectly isolate items
   const items: string[] = [];

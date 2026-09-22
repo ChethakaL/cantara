@@ -4,9 +4,12 @@ import { filterSnapshotRowsForBuyerPackage } from '@/lib/lease-analysis/report-u
 
 interface Props {
   rows: SnapshotRow[]
+  executiveSummary?: string
+  editMode?: boolean
+  onExecutiveSummaryChange?: (value: string) => void
 }
 
-export function SnapshotTable({ rows }: Props) {
+export function SnapshotTable({ rows, executiveSummary, editMode, onExecutiveSummaryChange }: Props) {
   const normalizedRows = filterSnapshotRowsForBuyerPackage(rows || [])
 
   if (!normalizedRows.length) {
@@ -19,6 +22,12 @@ export function SnapshotTable({ rows }: Props) {
 
   return (
     <div className="space-y-6">
+      <section className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800">Executive Summary</h4>
+        {editMode ? (
+          <textarea value={executiveSummary || ''} onChange={e => onExecutiveSummaryChange?.(e.target.value)} className="mt-2 min-h-28 w-full rounded-lg border border-amber-200 bg-white p-3 text-sm leading-relaxed text-slate-700" />
+        ) : <p className="mt-2 text-sm leading-relaxed text-slate-700">{executiveSummary || 'No executive summary available.'}</p>}
+      </section>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

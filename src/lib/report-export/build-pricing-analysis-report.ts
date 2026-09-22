@@ -48,10 +48,17 @@ function buildPriceMatrixHtml(report: PricingAnalysisReport): string {
   if (!rows.length) return '<p>No price matrix data available.</p>'
 
   const competitorNames = getCompetitorNamesFromReport(report)
+    .filter(name => !report.hiddenCompetitorNames?.includes(name))
+  const headers = {
+    service: report.matrixColumnHeaders?.service || 'Service',
+    basis: report.matrixColumnHeaders?.basis || 'Basis',
+    sellerPrice: report.matrixColumnHeaders?.sellerPrice || 'Your Price',
+    competitorPrice: report.matrixColumnHeaders?.competitorPrice || 'Price',
+  }
 
   // Header row 1 - main headers
-  let header1 = '<th>Service</th><th>Basis</th>'
-  header1 += '<th style="background:#fef9c3;text-align:right;">Your Price</th>'
+  let header1 = `<th>${escapeHtml(headers.service)}</th><th>${escapeHtml(headers.basis)}</th>`
+  header1 += `<th style="background:#fef9c3;text-align:right;">${escapeHtml(headers.sellerPrice)}</th>`
   for (const name of competitorNames) {
     header1 += `<th style="background:#dcfce7;text-align:center;border-left:1px solid #e2e8f0;">${escapeHtml(name)}</th>`
   }
@@ -59,7 +66,7 @@ function buildPriceMatrixHtml(report: PricingAnalysisReport): string {
   // Header row 2 - sub-headers
   let header2 = '<th></th><th></th><th style="background:#fef9c3;"></th>'
   for (const _name of competitorNames) {
-    header2 += '<th style="background:#dcfce7;font-size:10px;text-align:right;border-left:1px solid #e2e8f0;">Price</th>'
+    header2 += `<th style="background:#dcfce7;font-size:10px;text-align:right;border-left:1px solid #e2e8f0;">${escapeHtml(headers.competitorPrice)}</th>`
   }
 
   const body = rows.map(row => {

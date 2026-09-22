@@ -905,7 +905,6 @@ export default function OwnerGmAssessmentTab({
                         <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Title</th>
                         <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Tenure</th>
                         <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Responsibilities</th>
-                        <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Type</th>
                         <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Could Step Up</th>
                         {editMode && <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Actions</th>}
                       </tr>
@@ -960,23 +959,6 @@ export default function OwnerGmAssessmentTab({
                                 }}
                               />
                             ) : member.responsibilities || '—'}
-                          </td>
-                          <td className="py-2 px-3 text-slate-600">
-                            {editMode ? (
-                              <select
-                                value={member.hourlyOrSalaried || ''}
-                                onChange={e => {
-                                  const seniorTeam = [...assessment.seniorTeam]
-                                  seniorTeam[idx] = { ...member, hourlyOrSalaried: (e.target.value || null) as any }
-                                  updateAssessment({ seniorTeam })
-                                }}
-                                className="text-xs rounded border border-slate-200 bg-white px-1 py-0.5 outline-none font-medium text-slate-700"
-                              >
-                                <option value="">—</option>
-                                <option value="Hourly">Hourly</option>
-                                <option value="Salaried">Salaried</option>
-                              </select>
-                            ) : member.hourlyOrSalaried || '—'}
                           </td>
                           <td className="py-2 px-3">
                             {editMode ? (
@@ -1052,7 +1034,12 @@ export default function OwnerGmAssessmentTab({
               </div>
               {assessment.flags.length > 0 ? (
                 <div className="space-y-2">
-                  {assessment.flags.map((flag, idx) => (
+                  {[...assessment.flags].sort((a, b) => {
+                    const order: Record<string, number> = { 'deal-risk': 0, negotiation: 1, informational: 2, positive: 3 }
+                    return (order[a.severity] ?? 9) - (order[b.severity] ?? 9)
+                  }).map((flag) => {
+                    const idx = assessment.flags.indexOf(flag)
+                    return (
                     <div key={flag.id} className="relative">
                       {editMode ? (
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
@@ -1119,7 +1106,8 @@ export default function OwnerGmAssessmentTab({
                         <FlagItem flag={flag} />
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="text-xs text-slate-400">No assessment flags. Click "+ Add Flag" to add one.</p>
@@ -1175,58 +1163,6 @@ export default function OwnerGmAssessmentTab({
                 </ol>
               ) : (
                 <p className="text-xs text-slate-400">No recommendations. Click "+ Add Recommendation" to add one.</p>
-              )}
-            </div>
-          )}
-
-          {/* Counsel Items */}
-          {(assessment.counselItems.length > 0 || editMode) && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-slate-800">Counsel Items</h4>
-                {editMode && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      updateAssessment({ counselItems: [...assessment.counselItems, 'New Counsel Item'] })
-                    }}
-                  >
-                    + Add Counsel Item
-                  </Button>
-                )}
-              </div>
-              {assessment.counselItems.length > 0 ? (
-                <ul className="list-disc list-inside space-y-1">
-                  {assessment.counselItems.map((item, idx) => (
-                    <li key={idx} className="text-sm text-slate-600">
-                      {editMode ? (
-                        <div className="inline-flex items-center gap-2 w-[90%]">
-                          <InlineInput
-                            value={item}
-                            onChange={value => {
-                              const counselItems = [...assessment.counselItems]
-                              counselItems[idx] = value
-                              updateAssessment({ counselItems })
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="text-rose-500 hover:text-rose-700 flex-shrink-0"
-                            onClick={() => {
-                              const counselItems = assessment.counselItems.filter((_, i) => i !== idx)
-                              updateAssessment({ counselItems })
-                            }}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : item}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-slate-400">No counsel items. Click "+ Add Counsel Item" to add one.</p>
               )}
             </div>
           )}

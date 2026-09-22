@@ -1,5 +1,11 @@
 import type { FacilityReviewReport } from '@/lib/facility-review/types'
 
+function bulletList(value: unknown, fallback = '') {
+  const text = (Array.isArray(value) ? value.join('\n') : String(value ?? fallback)).trim()
+  const items = text.split(/\n+/).map(line => line.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean)
+  return `<ul>${items.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
+}
+
 function esc(value: string | number): string {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -38,7 +44,7 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
   const commentary = sortedZones.map(zone => `
     <section class="zone-block">
       <h2>${esc(zone.zone)} &mdash; ${zone.score}/100 &mdash; ${esc(zone.rating)}</h2>
-      <p>${esc(zone.commentary)}</p>
+      ${bulletList(zone.commentary)}
       <p class="key-label">Key findings:</p>
       ${bullets(zone.keyFindings)}
     </section>
@@ -68,8 +74,9 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(report.businessName)} - Facility Assessment Report</title>
 <style>
-  @page { size: letter; margin: 0.58in 0.68in 0.62in; }
+  @page { size: A4; margin: 0; }
   @media print {
+    body { margin: 20mm 16mm 20mm 16mm; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .no-print { display: none !important; }
     .cover { page-break-after: always; }
@@ -101,9 +108,8 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
     cursor: pointer;
   }
   .cover {
-    height: 9.62in;
-    margin: 0 auto;
-    width: 7.28in;
+    height: calc(297mm - 40mm);
+    width: 100%;
     background: linear-gradient(135deg, #21263C 0%, #151a2e 100%);
     color: white;
     display: flex;
@@ -112,6 +118,14 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
     justify-content: center;
     text-align: center;
     padding: 0.75in;
+  }
+  @media print {
+    .cover {
+      width: calc(100% + 32mm);
+      margin-left: -16mm;
+      margin-top: -20mm;
+      height: 297mm;
+    }
   }
   .cover img { width: 132px; margin-bottom: 38px; }
   .cover .eyebrow { color: #CAA15F; font-size: 14px; font-weight: 700; letter-spacing: 9px; text-transform: uppercase; margin-top: 28px; }
@@ -122,7 +136,7 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
   .cover .subtitle { color: #98a2b3; font-size: 16px; margin-top: 13px; }
   .cover .date { color: #536075; font-size: 12px; margin-top: 48px; }
   .cover .conf { color: #536075; font-size: 11px; letter-spacing: 5px; text-transform: uppercase; margin-top: 26px; }
-  .page { min-height: 9.8in; position: relative; padding: 0.03in 0 0.38in; }
+  .page { min-height: calc(297mm - 40mm); position: relative; padding: 0.03in 0 0.38in; }
   .header {
     color: #21263C;
     font-size: 12px;
@@ -233,6 +247,11 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
   .improvement-table td:first-child { width: 2.35in; font-weight: 600; }
   .capex-table td:first-child { width: 3.1in; }
   .additional h2, .method h2 { margin-top: 25px; }
+  /* Keep Facility Review aligned with the other report PDFs. This must come
+     after the base body rule so it cannot be overwritten by margin: 0. */
+  @media print {
+    body { margin: 20mm 16mm 20mm 16mm !important; }
+  }
 </style>
 </head>
 <body>
@@ -245,14 +264,6 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
     <div class="rule"></div>
     <h1>${esc(report.businessName)}</h1>
     <div class="title">Facility Assessment Report</div>
-    <div class="subtitle">Baseline Assessment &mdash; Sale Readiness Engagement</div>
-    <div class="meta" style="margin-top:42px;color:#d7dde8;text-align:left;">
-      <div class="meta-row"><strong>Location</strong><span>${esc(report.location)}</span></div>
-      <div class="meta-row"><strong>Prepared by</strong><span>${esc(report.preparedBy)}</span></div>
-      <div class="meta-row"><strong>Report version</strong><span>${esc(report.reportVersion)}</span></div>
-      <div class="meta-row"><strong>Next review</strong><span>${esc(report.nextReview)}</span></div>
-    </div>
-    <div class="date">${esc(report.assessmentDate)}</div>
     <div class="conf">Confidential</div>
   </section>
 
@@ -261,7 +272,7 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
     <h1>Overall Facility Score</h1>
     <div class="score-grid">
       <div class="score-pane"><div><div class="score-number">${report.overallScore}</div><div class="score-out">out of 100</div></div></div>
-      <div class="score-copy"><div class="rating-label">Overall Rating</div><div class="rating">${esc(report.overallRating)}</div><p>${esc(report.overallNarrative)}</p></div>
+      <div class="score-copy"><div class="rating-label">Overall Rating</div><div class="rating">${esc(report.overallRating)}</div>${bulletList(report.overallNarrative)}</div>
     </div>
     <h1>Zone Scores at a Glance</h1>
     <table class="score-table">
@@ -294,7 +305,7 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
     <div class="header">Cantara Pet Business Advisors<span> Facility Assessment Report&nbsp; | &nbsp;Confidential</span></div>
     <h1>Additional Report Elements</h1>
     <h2>Maintenance History Summary</h2>
-    <p>${esc(maintenance)}</p>
+    ${bulletList(maintenance)}
     <h2>Capital Expenditure Outlook &mdash; Years 1 to 3</h2>
     <p>A buyer should anticipate the following capital requirements in the near term based on current facility condition and available documentation:</p>
     <table class="capex-table">
@@ -302,11 +313,11 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
       <tbody>${capexRows}</tbody>
     </table>
     <h2>Compliance &amp; Licensing Snapshot</h2>
-    <p>${esc(compliance)}</p>
+    ${bulletList(compliance)}
     <h2>Brand &amp; Curb Appeal Assessment</h2>
-    <p>${esc(brand)}</p>
+    ${bulletList(brand)}
     <h2>Cantara Advisory Commentary &mdash; Market Context</h2>
-    <p>${esc(advisory)}</p>
+    ${bulletList(advisory)}
     <div class="footer">Sale Readiness Consulting | v1.0 Baseline</div>
   </section>
 
@@ -314,7 +325,7 @@ export function buildFacilityReviewReportHtml(report: FacilityReviewReport): str
     <div class="header">Cantara Pet Business Advisors<span> Facility Assessment Report&nbsp; | &nbsp;Confidential</span></div>
     <h1>Methodology Disclosure</h1>
     <h2>Methodology &amp; Limitations</h2>
-    <p>${esc(defaultMethodology(report))}</p>
+    ${bulletList(defaultMethodology(report))}
     <h2>Image Coverage Notes</h2>
     ${bullets(report.imageCoverageNotes)}
     <div class="footer">Sale Readiness Consulting | v1.0 Baseline</div>

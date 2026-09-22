@@ -21,6 +21,7 @@ function normalizeDocumentSlotId(documentId: string): string {
 }
 
 const DOCUMENT_UPLOAD_RULES: Record<string, UploadRuleKind> = {
+  valuation_context: 'pdf_or_excel',
   monthly_pl_excel: 'pdf_or_excel',
   monthly_bs_excel: 'pdf_or_excel',
   accountant_statements: 'pdf_or_excel',

@@ -3,9 +3,12 @@ import { SnapshotRow } from '../../../lib/contract-analysis/types'
 
 interface Props {
   rows: SnapshotRow[]
+  executiveSummary?: string
+  editMode?: boolean
+  onExecutiveSummaryChange?: (value: string) => void
 }
 
-export function SnapshotTable({ rows }: Props) {
+export function SnapshotTable({ rows, executiveSummary, editMode, onExecutiveSummaryChange }: Props) {
   if (!rows || !rows.length) {
     return (
       <div className="py-12 text-center text-sm text-slate-400">
@@ -15,7 +18,14 @@ export function SnapshotTable({ rows }: Props) {
   }
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    <div className="space-y-5">
+      <section className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800">Executive Summary</h4>
+        {editMode ? (
+          <textarea value={executiveSummary || ''} onChange={e => onExecutiveSummaryChange?.(e.target.value)} className="mt-2 min-h-28 w-full rounded-lg border border-amber-200 bg-white p-3 text-sm leading-relaxed text-slate-700" />
+        ) : <p className="mt-2 text-sm leading-relaxed text-slate-700">{executiveSummary || 'No executive summary available.'}</p>}
+      </section>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
       {rows.map((row, i) => (
         <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
@@ -42,6 +52,7 @@ export function SnapshotTable({ rows }: Props) {
           </div>
         </div>
       ))}
+      </div>
     </div>
   )
 }

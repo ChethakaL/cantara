@@ -11,7 +11,7 @@ export function AnalysisProgress({ status, rawMarkdown }: Props) {
     if (status === 'uploading') return 'Uploading documents...'
     if (rawMarkdown.includes('---END_PART4---')) return 'Finalizing report...'
     if (rawMarkdown.includes('---START_PART4---')) return 'Preparing document inventory...'
-    if (rawMarkdown.includes('---START_PART3---')) return 'Performing flag analysis (Red/Orange/Green)...'
+    if (rawMarkdown.includes('---START_PART3---')) return 'Performing flag analysis (Red/Yellow/Green)...'
     if (rawMarkdown.includes('---START_PART2---')) return 'Extracting detailed findings & rent schedules...'
     if (rawMarkdown.includes('---START_PART1---')) return 'Building lease summary...'
     return 'Scanning documents...'

@@ -36,15 +36,6 @@ export function generateReportHtml(config: ReportConfig): string {
     year: 'numeric',
   })
 
-  const flagBadges = config.flags
-    ? `
-      <div class="flag-row">
-        ${config.flags.red > 0 ? `<span class="flag-badge flag-red">${config.flags.red} Red Flag${config.flags.red !== 1 ? 's' : ''}</span>` : ''}
-        ${config.flags.orange > 0 ? `<span class="flag-badge flag-orange">${config.flags.orange} Yellow Flag${config.flags.orange !== 1 ? 's' : ''}</span>` : ''}
-        ${config.flags.green > 0 ? `<span class="flag-badge flag-green">${config.flags.green} Green Flag${config.flags.green !== 1 ? 's' : ''}</span>` : ''}
-      </div>`
-    : ''
-
   const kpiStrip = config.kpis?.length
     ? `
       <div class="kpi-strip">
@@ -227,6 +218,8 @@ export function generateReportHtml(config: ReportConfig): string {
     font-size: 22px;
     font-weight: 800;
     color: #CAA15F;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .kpi-label {
     font-size: 10px;
@@ -579,8 +572,6 @@ export function generateReportHtml(config: ReportConfig): string {
   <div class="cover-mid">
     <h1>${escapeHtml(config.clientName)}</h1>
     <div class="report-title">${escapeHtml(config.title)}</div>
-    <div class="report-subtitle">${escapeHtml(config.subtitle)}</div>
-    ${flagBadges}
   </div>
   <div class="cover-bottom">
     <div class="cover-date">${date}</div>
@@ -632,11 +623,21 @@ export function buildHtmlTable(
     .join('')
   const trs = rows.map((row, idx) => {
     const isTotal = options?.totalRow && idx === rows.length - 1
-    const tds = row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')
+    const tds = row.map(cell => `<td>${renderTableCell(cell)}</td>`).join('')
     return `<tr${isTotal ? ' class="total-row"' : ''}>${tds}</tr>`
   }).join('\n')
 
   return `<table class="report-table"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`
+}
+
+function renderTableCell(cell: string | number | null | undefined): string {
+  const escaped = escapeHtml(cell)
+  if (typeof cell !== 'string') return escaped
+
+  const value = cell.trim()
+  if (!/^https?:\/\/[^\s<]+$/i.test(value)) return escaped
+
+  return `<a href="${escaped}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${escaped}</a>`
 }
 
 export function buildFlagListHtml(
