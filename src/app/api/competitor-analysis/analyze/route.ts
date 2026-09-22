@@ -192,7 +192,6 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          // Merge manual competitors into the radius discovery results
           const existingPlaceIds = new Set(nearby.competitors.map(c => c.placeId).filter(Boolean));
           const newManualCompetitors = manual.competitors.filter(c => !existingPlaceIds.has(c.placeId));
           nearby = {
@@ -251,6 +250,10 @@ export async function POST(req: NextRequest) {
           provider,
           modelId,
         });
+
+        report.specifiedCompetitorNames = hasManualCompetitors
+          ? formData.manualCompetitors!.filter(c => c.name.trim()).slice(0, 5).map(c => c.name.trim())
+          : [];
 
         report.discoveredCompetitors = nearby.discoveredItems.map((item) => {
           const researched = report.competitors.find((competitor) => competitor.placeId === item.placeId);
