@@ -1,28 +1,28 @@
 Legal Reports page ↔ Client Portal mapping
-Updated: 2026-09-16
+Updated: 2026-09-23
 Scope: only what the Legal Reports & Entity Search page requests (not other agents / catalogs)
 
 ================================================================================
 1) WHAT THE LEGAL REPORTS PAGE REQUESTS
 ================================================================================
 
-REQUIRED (Advisor Mode)
+REQUIRED
 - UCC Search Results
   (UCC lien search reports, UCC-1 financing statements, continuation filings,
    secured debt schedules)
-
-OPTIONAL
 - Secretary of State Filings
   (articles / certificates of formation, corporate amendments, state registry records)
 - Certificates of Good Standing
   (good standing / existence / tax compliance certificates)
+- Registered Agent Confirmations
+  (registered agent appointment, service of process notices, annual agent verification)
+
+OPTIONAL
 - Corporate Governance Documents
   (operating agreements, bylaws, shareholder agreements, partnership agreements,
    corporate resolutions)
 - Trademark & IP Registrations
   (USPTO / state trademarks, brand copyrights, IP assignments)
-- Registered Agent Confirmations
-  (registered agent appointment, service of process, annual agent verification)
 
 NOTE: This page does NOT request Business Licenses.
 

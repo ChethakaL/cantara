@@ -627,7 +627,7 @@ export default function TaxLiabilityReviewTab({
               Tax Liability Review Source Documents
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Review documents uploaded by the client or upload files directly. Upload required tax returns and payroll forms to run analysis.
+              Review client uploads or add files directly. Required tax returns, federal payroll filings, state unemployment filings, and sales tax returns must be provided to run analysis.
             </p>
           </div>
 
@@ -666,7 +666,7 @@ export default function TaxLiabilityReviewTab({
             </div>
 
             <p className="text-xs text-slate-500">
-              Review income tax returns, payroll filings, 1099 contractor records, and sales tax returns. Missing required items must be provided before running analysis.
+              Review income tax returns, federal payroll filings, state unemployment filings, sales tax returns, and any available contractor 1099 records. Missing required items must be provided before running analysis.
             </p>
           </div>
 

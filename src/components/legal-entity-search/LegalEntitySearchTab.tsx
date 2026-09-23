@@ -105,7 +105,7 @@ const UCC_CATEGORY: CategoryDef = {
   icon: Scale,
 }
 
-const OPTIONAL_CATEGORIES: CategoryDef[] = [
+const LEGAL_ENTITY_CATEGORIES: CategoryDef[] = [
   {
     id: 'sos_filings',
     label: 'Secretary of State Filings',
@@ -237,7 +237,7 @@ function LegalDocRow({
                 <p className="text-sm font-semibold text-slate-800">{category.label}</p>
                 {required ? (
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
-                    Required (Advisor Mode)
+                    Required
                   </span>
                 ) : (
                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
@@ -509,7 +509,7 @@ export default function LegalEntitySearchTab({
               fileName: pDoc.fileName,
               mimeType: pDoc.mimeType,
             })
-            return { ...docData, slotKey: OPTIONAL_CATEGORIES.find(category => category.portalIds?.includes(pDoc.documentId))?.id ?? 'sos_filings' }
+            return { ...docData, slotKey: LEGAL_ENTITY_CATEGORIES.find(category => category.portalIds?.includes(pDoc.documentId))?.id ?? 'sos_filings' }
           } catch (err) {
             console.warn('Failed to select portal document for legal search', pDoc.fileName, err)
             return null
@@ -665,8 +665,13 @@ export default function LegalEntitySearchTab({
     [documents],
   )
   const hasUcc = uccDocs.length > 0
+  const requiredCategoryIds = new Set(['sos_filings', 'good_standing', 'registered_agent_confirmations'])
+  const missingRequiredCategories = LEGAL_ENTITY_CATEGORIES.filter(
+    (category) => requiredCategoryIds.has(category.id)
+      && !documents.some((doc) => doc.slotKey === category.id),
+  )
 
-  const optionalDocsCount = useMemo(
+  const legalEntityDocsCount = useMemo(
     () => documents.filter((d) => d.slotKey !== 'ucc_search_results').length,
     [documents],
   )
@@ -678,12 +683,18 @@ export default function LegalEntitySearchTab({
       ? `Selected files total ${formatFileSize(selectedBytes)}. The limit is ${formatFileSize(MAX_SELECTED_BYTES)}; unselect files before running.`
       : null
 
-  const canRun = !overDocumentLimit && (advisorToRun ? hasUcc : documents.length > 0)
+  const canRun = !overDocumentLimit
+    && missingRequiredCategories.length === 0
+    && (advisorToRun ? hasUcc : documents.length > 0)
 
   const handleRunAnalysis = () => {
     setWarning(null)
     if (advisorToRun && !hasUcc) {
       setWarning('UCC search results document required before running advisor analysis.')
+      return
+    }
+    if (missingRequiredCategories.length > 0) {
+      setWarning(`Required documents missing: ${missingRequiredCategories.map((category) => category.label).join(', ')}.`)
       return
     }
     if (documents.length === 0) {
@@ -903,24 +914,24 @@ export default function LegalEntitySearchTab({
             />
           </div>
 
-          {/* Sector 2: Optional Legal Entity Documents */}
+          {/* Sector 2: Required and supplemental legal entity documents */}
           <div className="space-y-3">
             <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Optional Legal Entity Documents
+                  Legal Entity Documents
                 </h4>
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                  {optionalDocsCount} uploaded
+                  {legalEntityDocsCount} uploaded
                 </span>
               </div>
             </div>
             <p className="text-xs text-slate-500">
-              Upload corporate governance records, Secretary of State filings, certificates of good standing, trademark registrations, and registered agent confirmations for comprehensive legal due diligence.
+              Secretary of State filings, certificates of good standing, and registered agent confirmations are required. Corporate governance records and trademark registrations are supplemental documents.
             </p>
 
             <div className="space-y-3">
-              {OPTIONAL_CATEGORIES.map((category) => {
+              {LEGAL_ENTITY_CATEGORIES.map((category) => {
                 const categoryFiles = documents.filter((d) => d.slotKey === category.id)
                 const relevantPortalDocs = portalDocs.filter((p) =>
                   category.portalIds ? category.portalIds.includes(p.documentId) : false,
@@ -932,7 +943,7 @@ export default function LegalEntitySearchTab({
                     category={category}
                     files={categoryFiles}
                     portalDocs={relevantPortalDocs}
-                    required={false}
+                    required={requiredCategoryIds.has(category.id)}
                     onUpload={(files) => void handleSlotUpload(category.id, files)}
                     onRemove={removeDocument}
                     onImportPortalDoc={(pDoc) => void handleImportPortalDoc(pDoc, category.id)}
