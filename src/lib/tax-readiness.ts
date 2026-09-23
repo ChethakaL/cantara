@@ -28,13 +28,22 @@ export const TAX_READINESS_DOCUMENT_GROUPS: TaxReadinessDocumentGroup[] = [
     required: true,
   },
   {
+    id: 'state_unemployment_filings',
+    title: 'State Unemployment Filings',
+    shortTitle: 'State unemployment filings',
+    detail: 'State unemployment insurance (SUI/SUTA) returns and related filings for the last 3 years.',
+    whyNeeded: 'Verifies state unemployment reporting and payments, and helps identify payroll-tax balances, penalties, or filing gaps.',
+    bestSource: 'State workforce or unemployment agency portal, payroll provider, bookkeeper, or CPA.',
+    required: true,
+  },
+  {
     id: 'contractor_1099_agreements',
     title: 'Forms 1099-NEC / 1099-MISC + Contractor Agreements',
     shortTitle: '1099s and contractor agreements',
     detail: 'All 1099s issued and related independent contractor agreements for the last 3 years.',
     whyNeeded: 'Helps identify contractor classification risk, recurring outside labor, and missing documentation.',
     bestSource: 'Bookkeeper, accountant, payroll provider, or accounts payable files.',
-    required: true,
+    required: false,
   },
   {
     id: 'sales_use_tax_3yr',
@@ -58,9 +67,9 @@ export const TAX_READINESS_DOCUMENT_GROUPS: TaxReadinessDocumentGroup[] = [
 
 export const TAX_READINESS_REFERENCE_CONTEXT = `
 Tax readiness reference for the WS1-11 Tax Liability Review:
-- Required document groups: federal and state income tax returns; IRS Forms 941 and 940; Forms 1099-NEC/1099-MISC plus contractor agreements; state sales and use tax returns; IRS or state tax notices and audit correspondence where applicable.
+- Required document groups: federal and state income tax returns; IRS Forms 941 and 940; state unemployment filings; state sales and use tax returns. Forms 1099-NEC/1099-MISC plus contractor agreements and tax notices are supplemental where available.
 - The review should check completeness, filing consistency, taxable income support, payroll tax compliance, contractor classification exposure, sales/use tax compliance, unresolved notices, audit history, penalties, payment plans, and buyer diligence risk.
-- Best source guidance: income tax returns usually come from the CPA/tax preparer/accountant; payroll tax forms from payroll provider/bookkeeper/CPA; 1099s and contractor agreements from bookkeeper/accounts payable/payroll provider; sales tax returns from CPA/bookkeeper/state tax portal/POS records; tax notices from owner/CPA/accountant/IRS or state portal.
+- Best source guidance: income tax returns usually come from the CPA/tax preparer/accountant; payroll tax forms from payroll provider/bookkeeper/CPA; state unemployment filings from the state workforce agency, payroll provider, bookkeeper, or CPA; 1099s and contractor agreements from bookkeeper/accounts payable/payroll provider; sales tax returns from CPA/bookkeeper/state tax portal/POS records; tax notices from owner/CPA/accountant/IRS or state portal.
 - If a document group is missing or incomplete, explicitly state that limitation and avoid treating absence of evidence as evidence of no tax exposure.
 `.trim()
 
