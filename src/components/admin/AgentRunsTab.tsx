@@ -40,7 +40,7 @@ const STATUS_META: Record<AgentRunStatus, { label: string; color: 'gray' | 'blue
   approved: { label: 'Final approved', color: 'green', icon: CheckCircle2 },
 }
 
-type ApprovalAction = 'assignee_approve' | 'craig_approve' | 'craig_request_changes' | 'save_feedback_doc' | 'revert_review'
+type ApprovalAction = 'assignee_approve' | 'assignee_revert' | 'craig_approve' | 'craig_request_changes' | 'save_feedback_doc' | 'revert_review'
 
 type FilterTabKey = 'all' | 'needs_assignee' | 'needs_craig' | 'changes_requested' | 'approved' | 'released' | 'not_run'
 
@@ -947,6 +947,17 @@ export default function AgentRunsTab({
                                     Approved
                                   </span>
                                   <p className="text-[10px] text-slate-400">Passed to Craig</p>
+                                  {run.craigStatus !== 'approved' && (
+                                    <button
+                                      type="button"
+                                      disabled={busy || !canApproveAsAssignee(run.assignedTo)}
+                                      onClick={() => void runApprovalAction(run.agentId, 'assignee_revert')}
+                                      title={canApproveAsAssignee(run.assignedTo) ? 'Undo your approval and return this to review' : `Only ${run.assignedTo || 'the assigned advisor'} can undo this approval`}
+                                      className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-800 underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      <RotateCcw className="w-3 h-3" /> Undo approval
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1449,10 +1460,23 @@ function AgentStatusCard({
           {!run.hasRun ? (
             <span className="text-xs text-slate-400">Waiting for run</span>
           ) : run.assigneeStatus === 'approved' ? (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-              <CheckCircle2 className="w-3 h-3" />
-              Approved
-            </span>
+            <div className="flex flex-col items-end gap-1">
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                <CheckCircle2 className="w-3 h-3" />
+                Approved
+              </span>
+              {run.craigStatus !== 'approved' && (
+                <button
+                  type="button"
+                  disabled={busy || !canActAsAssignee}
+                  onClick={() => onAction('assignee_revert')}
+                  title={canActAsAssignee ? 'Undo your approval and return this to review' : `Only ${run.assignedTo || 'the assigned advisor'} can undo this approval`}
+                  className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-800 underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RotateCcw className="w-3 h-3" /> Undo approval
+                </button>
+              )}
+            </div>
           ) : run.craigStatus === 'changes_requested' ? (
             <span className="text-xs font-bold text-rose-700">Changes Requested</span>
           ) : (

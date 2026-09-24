@@ -150,6 +150,18 @@ export function applyAssigneeApprove(entry: AgentApprovalWorkflow): AgentApprova
   }
 }
 
+export function applyAssigneeRevert(entry: AgentApprovalWorkflow): AgentApprovalWorkflow {
+  const next: AgentApprovalWorkflow = {
+    ...entry,
+    assigneeStatus: 'in_review',
+    craigStatus: 'waiting',
+    assigneeApprovedAt: null,
+    status: 'in_review',
+  }
+  delete next.approvedAt
+  return next
+}
+
 export function applyCraigRequestChanges(
   entry: AgentApprovalWorkflow,
   feedbackDocUrl?: string | null,
