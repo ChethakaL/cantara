@@ -6,6 +6,7 @@ import { readChecklistSubmission, readRoadmapSubmission } from '@/lib/sale-readi
 import { VALUATION_DOCS, DOCUMENT_CATEGORIES } from '@/lib/documentData'
 import {
   applyAssigneeApprove,
+  applyAssigneeRevert,
   applyCraigApprove,
   applyCraigRequestChanges,
   applyRevertToReview,
@@ -608,6 +609,7 @@ export async function PATCH(req: NextRequest) {
   if (status && status !== 'approved' && status !== 'in_review') return new Response('status must be approved or in_review', { status: 400 })
   const allowedActions = new Set([
     'assignee_approve',
+    'assignee_revert',
     'craig_approve',
     'craig_request_changes',
     'save_feedback_doc',
@@ -676,6 +678,25 @@ export async function PATCH(req: NextRequest) {
       )
     }
     nextEntry = applyAssigneeApprove(nextEntry)
+  } else if (action === 'assignee_revert') {
+    const reviewers = await prisma.user.findMany({
+      where: { role: 'ADMIN' },
+      select: { name: true, email: true },
+    })
+    if (!isAssignedReviewer(actorEmail, nextAssignedTo, reviewers)) {
+      return new Response(
+        nextAssignedTo
+          ? 'Only the assigned advisor can undo this approval'
+          : 'Assign an advisor before undoing approval',
+        { status: 403 },
+      )
+    }
+    if (nextEntry.assigneeStatus !== 'approved' || nextEntry.craigStatus === 'approved') {
+      return new Response('Only a pending assignee approval can be undone', { status: 409 })
+    }
+    nextEntry = applyAssigneeRevert(nextEntry)
+    delete releases[agentId]
+    delete releases[statusKey]
   } else if (action === 'craig_approve' || status === 'approved') {
     nextEntry = applyCraigApprove(nextEntry, feedbackDocUrl)
   } else if (action === 'craig_request_changes') {
