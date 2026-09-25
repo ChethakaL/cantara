@@ -15,6 +15,7 @@ import {
   Save,
   Trash2,
   Plus,
+  Search,
   FileSpreadsheet,
   FileText,
   Play,
@@ -60,7 +61,7 @@ interface MapData {
   clients: ClientPin[]
   generatedAt: string
   statsOverrides?: Record<string, StatsOverride>
-  /** Bedrock-refreshed insights from advisor edits (preferred over heuristic templates). */
+  /** Persisted executive-summary insights (generated on each analysis). */
   insights?: string[]
   narrativeSummary?: string
   insightsUpdatedAt?: string
@@ -327,6 +328,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [staticMapUrl, setStaticMapUrl] = useState<string | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | 'new' | null>(null)
   const [entryDraft, setEntryDraft] = useState<ClientPin | null>(null)
+  const [entrySearch, setEntrySearch] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [reanalyzing, setReanalyzing] = useState(false)
   const [editAiProvider, setEditAiProvider] = useState<AgentAiProvider>('bedrock')
@@ -334,6 +336,17 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [showDocsPanel, setShowDocsPanel] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(false)
   const adminEmail = useMemo(() => getAdminEmail(), [])
+  const filteredClientEntries = useMemo(() => {
+    const query = entrySearch.trim().toLocaleLowerCase()
+    return (mapData?.clients ?? [])
+      .map((client, index) => ({ client, index }))
+      .filter(({ client }) => !query || [
+        client.name,
+        client.address,
+        SERVICE_LABELS[client.serviceType],
+        client.geocodeStatus,
+      ].some(value => value.toLocaleLowerCase().includes(query)))
+  }, [entrySearch, mapData?.clients])
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const googleMapRef = useRef<google.maps.Map | null>(null)
@@ -652,59 +665,111 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     setError(null)
 
     try {
-      const apiKey = await fetchBrowserGoogleMapsKey()
-      await loadGoogleMapsScript(apiKey)
-
-      const geocoder = new google.maps.Geocoder()
       const updatedClients = [...clients]
       const total = updatedClients.length
+      const hasCoordinates = (client: ClientPin) =>
+        client.geocodeStatus === 'success'
+        && Number.isFinite(client.lat)
+        && Number.isFinite(client.lng)
+      const cachedFacility = Boolean(
+        mapData
+        && normalizeAddress(mapData.facilityAddress) === normalizeAddress(facilityAddress)
+        && Number.isFinite(mapData.facilityLat)
+        && Number.isFinite(mapData.facilityLng),
+      )
+      let facilityLat = cachedFacility ? mapData?.facilityLat : undefined
+      let facilityLng = cachedFacility ? mapData?.facilityLng : undefined
+      const pendingByAddress = new Map<string, number[]>()
       let done = 0
-      setGeocodeProgress({ done: 0, total })
+      updatedClients.forEach((client, index) => {
+        if (hasCoordinates(client)) {
+          done += 1
+          return
+        }
+        const addressKey = normalizeAddress(client.address)
+        const indices = pendingByAddress.get(addressKey) ?? []
+        indices.push(index)
+        pendingByAddress.set(addressKey, indices)
+      })
+      setGeocodeProgress({ done, total })
+
+      const shouldGeocodeFacility = Boolean(facilityAddress.trim()) && !cachedFacility
+      let geocoder: google.maps.Geocoder | null = null
+      if (pendingByAddress.size > 0 || shouldGeocodeFacility) {
+        const apiKey = await fetchBrowserGoogleMapsKey()
+        await loadGoogleMapsScript(apiKey)
+        geocoder = new google.maps.Geocoder()
+      }
 
       // Geocode facility address first
-      let facilityLat: number | undefined
-      let facilityLng: number | undefined
-      if (facilityAddress.trim()) {
+      let facilityGeocodeSucceeded = false
+      if (shouldGeocodeFacility && geocoder) {
         try {
           const facilityResult = await geocodeAddress(geocoder, facilityAddress.trim())
           facilityLat = facilityResult.lat
           facilityLng = facilityResult.lng
+          facilityGeocodeSucceeded = true
         } catch {
           // Facility geocoding failed, continue without it
         }
       }
 
-      // Batch geocode clients
-      for (let i = 0; i < total; i += GEOCODE_BATCH_SIZE) {
-        const batch = updatedClients.slice(i, i + GEOCODE_BATCH_SIZE)
+      // Geocode only addresses without saved coordinates, once per unique address.
+      const pendingAddresses = Array.from(pendingByAddress.entries())
+      let failedClientGeocodeRequests = 0
+      for (let i = 0; i < pendingAddresses.length; i += GEOCODE_BATCH_SIZE) {
+        if (!geocoder) break
+        const batch = pendingAddresses.slice(i, i + GEOCODE_BATCH_SIZE)
         const results = await Promise.allSettled(
-          batch.map(client => geocodeAddress(geocoder, client.address))
+          batch.map(([, indices]) => geocodeAddress(geocoder!, updatedClients[indices[0]].address))
         )
 
         results.forEach((result, idx) => {
-          const clientIdx = i + idx
-          if (result.status === 'fulfilled') {
-            updatedClients[clientIdx] = {
-              ...updatedClients[clientIdx],
-              lat: result.value.lat,
-              lng: result.value.lng,
-              geocodeStatus: 'success',
-            }
-          } else {
-            updatedClients[clientIdx] = {
-              ...updatedClients[clientIdx],
-              geocodeStatus: 'failed',
+          const [, indices] = batch[idx]
+          if (result.status === 'rejected') failedClientGeocodeRequests += 1
+          for (const clientIdx of indices) {
+            if (result.status === 'fulfilled') {
+              updatedClients[clientIdx] = {
+                ...updatedClients[clientIdx],
+                lat: result.value.lat,
+                lng: result.value.lng,
+                geocodeStatus: 'success',
+              }
+            } else {
+              updatedClients[clientIdx] = {
+                ...updatedClients[clientIdx],
+                lat: undefined,
+                lng: undefined,
+                geocodeStatus: 'failed',
+              }
             }
           }
+          done += indices.length
         })
 
-        done += batch.length
         setGeocodeProgress({ done, total })
 
         // Rate limiting delay between batches
-        if (i + GEOCODE_BATCH_SIZE < total) {
+        if (i + GEOCODE_BATCH_SIZE < pendingAddresses.length) {
           await delay(GEOCODE_BATCH_DELAY_MS)
         }
+      }
+
+      let geocodingSummary: Record<string, number | boolean> | undefined
+      if (process.env.NODE_ENV === 'development') {
+        const clientGeocodeRequests = pendingAddresses.length
+        const facilityGeocodeRequests = shouldGeocodeFacility ? 1 : 0
+        geocodingSummary = {
+          clientRows: total,
+          reusedClientCoordinates: total - Array.from(pendingByAddress.values()).reduce((count, indices) => count + indices.length, 0),
+          clientGeocodeRequests,
+          failedClientGeocodeRequests,
+          facilityGeocodeRequests,
+          facilityGeocodeSucceeded,
+          reusedFacilityCoordinates: cachedFacility,
+          totalGeocodeRequests: clientGeocodeRequests + facilityGeocodeRequests,
+        }
+        console.info('[client-location-map] Geocoding run complete', geocodingSummary)
       }
 
       const newMapData: MapData = {
@@ -715,6 +780,16 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         generatedAt: new Date().toISOString(),
         aiProvider: editAiProvider,
       }
+      const initialStats = computeStats(newMapData)
+      if (initialStats) {
+        newMapData.insights = initialStats.insights
+        newMapData.narrativeSummary = buildLocationNarrativeSummary(
+          initialStats,
+          newMapData.clients.length,
+          newMapData.facilityAddress,
+        )
+        newMapData.insightsUpdatedAt = newMapData.generatedAt
+      }
 
       setMapData(newMapData)
       setPhase('map')
@@ -723,11 +798,12 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       // Save to server
       setSaving(true)
       try {
-        await fetch('/api/client-location-map', {
+        const saveRes = await fetch('/api/client-location-map', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientId, mapData: newMapData }),
+          body: JSON.stringify({ clientId, mapData: newMapData, geocodingSummary }),
         })
+        if (!saveRes.ok) throw new Error(await saveRes.text())
       } catch {
         // Non-critical, map is rendered even if save fails
       } finally {
@@ -768,12 +844,28 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         throw new Error(text || 'Failed to parse client addresses from document')
       }
       const data = await res.json()
-      const rows: ClientPin[] = (data.clients || []).map((c: any) => ({
-        name: c.name,
-        address: c.address,
-        serviceType: c.serviceType as ServiceType,
-        geocodeStatus: 'pending' as const,
-      }))
+      const savedCoordinatesByAddress = new Map<string, ClientPin>()
+      for (const client of mapData?.clients ?? []) {
+        const addressKey = normalizeAddress(client.address)
+        if (
+          addressKey
+          && client.geocodeStatus === 'success'
+          && Number.isFinite(client.lat)
+          && Number.isFinite(client.lng)
+          && !savedCoordinatesByAddress.has(addressKey)
+        ) {
+          savedCoordinatesByAddress.set(addressKey, client)
+        }
+      }
+      const rows: ClientPin[] = (data.clients || []).map((c: any) => {
+        const saved = savedCoordinatesByAddress.get(normalizeAddress(c.address))
+        return {
+          name: c.name,
+          address: c.address,
+          serviceType: c.serviceType as ServiceType,
+          ...(saved ? { lat: saved.lat, lng: saved.lng, geocodeStatus: 'success' as const } : { geocodeStatus: 'pending' as const }),
+        }
+      })
       if (!rows || rows.length === 0) {
         throw new Error('No valid client addresses found in the document. Please check the file headers.')
       }
@@ -938,7 +1030,16 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       address: entryDraft.address.trim(),
     }
 
-    if (geocode) {
+    const original = editingIndex !== 'new' ? mapData.clients[editingIndex] : null
+    const sameAddress = Boolean(original && normalizeAddress(original.address) === normalizeAddress(nextDraft.address))
+    const originalHasCoordinates = Boolean(
+      original
+      && original.geocodeStatus === 'success'
+      && Number.isFinite(original.lat)
+      && Number.isFinite(original.lng),
+    )
+
+    if (geocode && (!sameAddress || !originalHasCoordinates)) {
       try {
         setSaving(true)
         const apiKey = await fetchBrowserGoogleMapsKey()
@@ -951,9 +1052,10 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       } finally {
         setSaving(false)
       }
+    } else if (sameAddress && originalHasCoordinates && original) {
+      nextDraft = { ...nextDraft, lat: original.lat, lng: original.lng, geocodeStatus: 'success' }
     } else if (editingIndex !== 'new') {
-      const original = mapData.clients[editingIndex]
-      if (original?.address !== nextDraft.address) {
+      if (!sameAddress) {
         nextDraft = { ...nextDraft, lat: undefined, lng: undefined, geocodeStatus: 'pending' }
       }
     }
@@ -1402,7 +1504,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                 </div>
               </Card>
             ) : null}
-            {stats.insights.length > 0 && (
+            {stats && (
               <Card className="p-4">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-900 mb-2">Executive Summary</h3>
                 {mapData?.narrativeSummary && !editMode && (
@@ -1493,18 +1595,36 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Client Entries</h3>
-            <p className="mt-0.5 text-[11px] text-slate-400">Update client names, addresses, or service types; the percentages and service counts recalculate after saving.</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              {entrySearch.trim()
+                ? `Showing ${filteredClientEntries.length} of ${mapData?.clients.length ?? 0} entries. `
+                : ''}
+              Update client names, addresses, or service types; the percentages and service counts recalculate after saving.
+            </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={startNewEntry}
-            disabled={editingIndex !== null}
-            className="text-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add entry
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative block w-full sm:w-72">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={entrySearch}
+                onChange={event => setEntrySearch(event.target.value)}
+                placeholder="Search name, address, or service…"
+                aria-label="Search client entries"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              />
+            </label>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={startNewEntry}
+              disabled={editingIndex !== null}
+              className="text-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add entry
+            </Button>
+          </div>
         </div>
 
         <div className="max-h-96 overflow-auto rounded-xl border border-slate-100">
@@ -1528,7 +1648,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                   saving={saving}
                 />
               )}
-              {mapData?.clients.map((client, index) => (
+              {filteredClientEntries.map(({ client, index }) => (
                 editingIndex === index && entryDraft ? (
                   <ClientEntryEditRow
                     key={`${index}-edit`}
@@ -1575,6 +1695,13 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                   </tr>
                 )
               ))}
+              {filteredClientEntries.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-8 text-center text-xs text-slate-400">
+                    No client entries match “{entrySearch}”.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1915,6 +2042,15 @@ function geocodeAddress(geocoder: google.maps.Geocoder, address: string): Promis
   })
 }
 
+function normalizeAddress(address: string | null | undefined): string {
+  return (address ?? '')
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[.,#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -2048,5 +2184,23 @@ function buildLocationInsights(
     insights.push(`Daycare and boarding have different proximity profiles: ${daycareNear}% of daycare clients vs ${boardingNear}% of boarding clients are within 5 miles.`)
   }
   if (byService.grooming.total > 0) insights.push(`Grooming is mapped as a separate client type with ${byService.grooming.total} mapped client${byService.grooming.total === 1 ? '' : 's'}.`)
+  if (insights.length === 0) {
+    insights.push(
+      `${total.toLocaleString()} geocoded client records are included in the analysis; ${withinRadius[5] ?? 0}% are within 5 miles, ${withinRadius[10] ?? 0}% within 10 miles, and ${withinRadius[20] ?? 0}% within 20 miles.`,
+    )
+  }
   return insights
+}
+
+function buildLocationNarrativeSummary(
+  stats: NonNullable<ReturnType<typeof computeStats>>,
+  sourceCount: number,
+  facilityAddress: string,
+): string {
+  const missed = Math.max(0, sourceCount - stats.total)
+  const coverage = missed > 0
+    ? `${stats.total.toLocaleString()} of ${sourceCount.toLocaleString()} client records were successfully mapped; ${missed.toLocaleString()} could not be geocoded.`
+    : `All ${stats.total.toLocaleString()} client records were successfully mapped.`
+  const facility = facilityAddress.trim() ? ` of ${facilityAddress.trim()}` : ' of the facility'
+  return `${coverage} Among mapped clients${facility}, ${stats.withinRadius[5]}% are within 5 miles, ${stats.withinRadius[10]}% within 10 miles, and ${stats.withinRadius[20]}% within 20 miles.`
 }
