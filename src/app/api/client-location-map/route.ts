@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── PATCH: Save geocoded map data (+ optional Bedrock insight refresh on edit) ─
+// ── PATCH: Save geocoded map data (+ optional AI insight refresh) ─────────────
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -148,6 +148,7 @@ export async function PATCH(req: NextRequest) {
     const clientId = String(body.clientId || '')
     let mapData = body.mapData
     const reanalyzeFromEdits = Boolean(body.reanalyzeFromEdits)
+    const geocodingSummary = body.geocodingSummary
     const statsSnapshot = body.statsSnapshot
     const clientName = typeof body.clientName === 'string' ? body.clientName : undefined
     const aiProvider = body.aiProvider === 'openai' ? 'openai' : 'bedrock'
@@ -156,7 +157,7 @@ export async function PATCH(req: NextRequest) {
       return new Response('clientId and mapData required', { status: 400 })
     }
 
-    // Edit-only AI path: refresh insights/narrative from advisor-overridden stats via Bedrock (no UI provider choice).
+    // Refresh the narrative from advisor-overridden statistics when requested.
     if (reanalyzeFromEdits) {
       if (!statsSnapshot || typeof statsSnapshot !== 'object') {
         return NextResponse.json(
@@ -200,6 +201,19 @@ export async function PATCH(req: NextRequest) {
         },
       },
     })
+
+    if (process.env.NODE_ENV === 'development' && geocodingSummary && typeof geocodingSummary === 'object') {
+      console.info('[client-location-map] Geocoding run complete', {
+        clientRows: Number(geocodingSummary.clientRows) || 0,
+        reusedClientCoordinates: Number(geocodingSummary.reusedClientCoordinates) || 0,
+        clientGeocodeRequests: Number(geocodingSummary.clientGeocodeRequests) || 0,
+        failedClientGeocodeRequests: Number(geocodingSummary.failedClientGeocodeRequests) || 0,
+        facilityGeocodeRequests: Number(geocodingSummary.facilityGeocodeRequests) || 0,
+        facilityGeocodeSucceeded: geocodingSummary.facilityGeocodeSucceeded === true,
+        reusedFacilityCoordinates: geocodingSummary.reusedFacilityCoordinates === true,
+        totalGeocodeRequests: Number(geocodingSummary.totalGeocodeRequests) || 0,
+      })
+    }
 
     return NextResponse.json({ success: true, mapData })
   } catch (error) {
