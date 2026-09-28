@@ -28,6 +28,15 @@ import {
 import { Badge, Button, Card, Input, cn } from '@/components/ui'
 import { getAdminEmail } from '@/lib/store'
 import type { AgentReviewer, AgentRunRecord, AgentRunStatus } from '@/app/api/agent-runs/route'
+
+// Legacy WS assessment reports stay in storage and in the API for compatibility,
+// but are hidden from the advisor-facing Agent Status table.
+const HIDDEN_AGENT_STATUS_KEYS = new Set([
+  'ws1_assessment',
+  'ws1Assessment',
+  'ws2_assessment',
+  'ws2Assessment',
+])
 import { isCraigReviewer, isAssignedReviewer, type AssigneeApprovalStatus, type CraigApprovalStatus } from '@/lib/agent-approval-workflow'
 
 const STATUS_META: Record<AgentRunStatus, { label: string; color: 'gray' | 'blue' | 'slate' | 'gold' | 'green' | 'red'; icon: typeof Bot }> = {
@@ -160,6 +169,7 @@ export default function AgentRunsTab({
   onOpenAgent?: (tabKey: string) => void
 }) {
   const [runs, setRuns] = useState<AgentRunRecord[]>([])
+  const [releaseSources, setReleaseSources] = useState<Record<string, 'agent' | 'external'>>({})
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return '—'
     const d = new Date(dateStr)
@@ -225,7 +235,9 @@ export default function AgentRunsTab({
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       const nextRuns = (data.runs ?? []) as AgentRunRecord[]
-      setRuns(nextRuns)
+      setRuns(nextRuns.filter((run) =>
+        !HIDDEN_AGENT_STATUS_KEYS.has(run.agentId) && !HIDDEN_AGENT_STATUS_KEYS.has(run.agentKey),
+      ))
       setReviewers(data.reviewers ?? [])
       setDocDrafts(Object.fromEntries(nextRuns.map((run) => [run.agentId, run.feedbackDocUrl ?? ''])))
     } catch (err) {
@@ -266,8 +278,13 @@ export default function AgentRunsTab({
     }
   }
 
-  const updateClientRelease = async (agentId: string, clientReleased: boolean) => {
-    await patchRun(agentId, { clientReleased })
+  const updateClientRelease = async (agentId: string, clientReleased: boolean, releaseSource?: 'agent' | 'external', externalReportId?: string | null) => {
+    await patchRun(agentId, { clientReleased, ...(clientReleased ? { releaseSource: releaseSource ?? 'agent', externalReportId } : {}) })
+  }
+
+  const updateReleaseSource = async (run: AgentRunRecord, source: 'agent' | 'external') => {
+    setReleaseSources((prev) => ({ ...prev, [run.agentId]: source }))
+    await patchRun(run.agentId, { releaseSource: source, externalReportId: run.externalValuationReportId }, `${run.agentId}:release-source`)
   }
 
   const updateFacilityReviewMode = async (agentId: string, facilityReviewMode: '360' | 'advisor') => {
@@ -650,7 +667,8 @@ export default function AgentRunsTab({
               onFacilityMode={(value) => void updateFacilityReviewMode(run.agentId, value)}
               onAdvisorToRun={(value) => void updateAdvisorToRun(run.agentId, value)}
               onAction={(action, url) => void runApprovalAction(run.agentId, action, url)}
-              onRelease={(released) => void updateClientRelease(run.agentId, released)}
+              onRelease={(released, source) => void updateClientRelease(run.agentId, released, source, run.externalValuationReportId)}
+              onReleaseSourceChange={(source) => void updateReleaseSource(run, source)}
               canActAsCraig={canActAsCraig}
               canActAsAssignee={canApproveAsAssignee(run.assignedTo)}
             />
@@ -783,6 +801,21 @@ export default function AgentRunsTab({
                               >
                                 <option value="standard">Standard</option>
                                 <option value="advisor">Advisor to Run</option>
+                              </select>
+                            </div>
+                          )}
+                          {run.agentKey === 'ttmAnalysis' && (
+                            <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-[10px] text-slate-500 font-medium">Release:</span>
+                              <select
+                                value={releaseSources[run.agentId] ?? run.releaseSource ?? 'agent'}
+                                disabled={busy || run.clientReleased}
+                                onChange={(event) => void updateReleaseSource(run, event.target.value as 'agent' | 'external')}
+                                className="max-w-[210px] rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-700 shadow-2xs"
+                                aria-label="Valuation version for client release"
+                              >
+                                <option value="agent">Valuation Agent output</option>
+                                <option value="external" disabled={!run.externalValuationAvailable}>External valuation report{run.externalValuationFileName ? ` · ${run.externalValuationFileName}` : ''}</option>
                               </select>
                             </div>
                           )}
@@ -1108,7 +1141,7 @@ export default function AgentRunsTab({
                                     Released to Client
                                   </span>
                                   <p className="text-[10px] text-slate-500">
-                                    {formatDate(run.clientReleasedAt)}
+                                    {run.agentKey === 'ttmAnalysis' ? (run.releaseSource === 'external' ? `External report: ${run.externalValuationFileName ?? 'uploaded file'}` : 'Valuation Agent output') : formatDate(run.clientReleasedAt)}
                                   </p>
                                   <button
                                     type="button"
@@ -1128,7 +1161,7 @@ export default function AgentRunsTab({
                                   <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => void updateClientRelease(run.agentId, true)}
+                                    onClick={() => void updateClientRelease(run.agentId, true, run.agentKey === 'ttmAnalysis' ? (releaseSources[run.agentId] ?? 'agent') : 'agent', run.externalValuationReportId)}
                                     className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md bg-[#21263C] text-[#F1E6BB] hover:opacity-90 transition-all shadow-2xs disabled:opacity-50 cursor-pointer"
                                   >
                                     <Send className="w-3 h-3 text-[#CAA15F]" />
@@ -1328,6 +1361,7 @@ function AgentStatusCard({
   onAdvisorToRun,
   onAction,
   onRelease,
+  onReleaseSourceChange,
   canActAsCraig,
   canActAsAssignee,
 }: {
@@ -1342,7 +1376,8 @@ function AgentStatusCard({
   onFacilityMode: (value: '360' | 'advisor') => void
   onAdvisorToRun: (value: boolean) => void
   onAction: (action: ApprovalAction, url?: string) => void
-  onRelease: (released: boolean) => void
+  onRelease: (released: boolean, source?: 'agent' | 'external') => void
+  onReleaseSourceChange: (source: 'agent' | 'external') => void
   canActAsCraig: boolean
   canActAsAssignee: boolean
 }) {
@@ -1355,6 +1390,13 @@ function AgentStatusCard({
         <div>
           <span className="text-[10px] font-bold uppercase tracking-widest text-[#CAA15F]">{run.category}</span>
           <h3 className="font-bold text-slate-900 text-sm mt-0.5">{run.label}</h3>
+          {run.agentKey === 'ttmAnalysis' && <div className="mt-2 flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-500 font-medium">Release:</span>
+            <select aria-label="Valuation version for client release" value={run.releaseSource ?? 'agent'} onChange={(event) => onReleaseSourceChange(event.target.value as 'agent' | 'external')} className="max-w-[210px] rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px]" disabled={busy || run.clientReleased}>
+              <option value="agent">Valuation Agent output</option>
+              <option value="external" disabled={!run.externalValuationAvailable}>External valuation report{run.externalValuationFileName ? ` · ${run.externalValuationFileName}` : ''}</option>
+            </select>
+          </div>}
         </div>
         {run.hasRun && (
           <button
@@ -1649,7 +1691,7 @@ function AgentStatusCard({
           </span>
         ) : run.clientReleased ? (
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-emerald-700">Released</span>
+            <span className="text-xs font-semibold text-emerald-700">{run.agentKey === 'ttmAnalysis' ? (run.releaseSource === 'external' ? `External: ${run.externalValuationFileName ?? 'uploaded report'}` : 'Valuation Agent output released') : 'Released'}</span>
             <button
               type="button"
               disabled={busy}
@@ -1660,14 +1702,16 @@ function AgentStatusCard({
             </button>
           </div>
         ) : (
+          <div className="flex items-center gap-2">
           <button
             type="button"
             disabled={busy}
-            onClick={() => onRelease(true)}
+            onClick={() => onRelease(true, run.releaseSource ?? 'agent')}
             className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-lg bg-[#21263C] text-[#F1E6BB] cursor-pointer"
           >
             <Send className="w-3 h-3 text-[#CAA15F]" /> Release to Client
           </button>
+          </div>
         )}
       </div>
     </Card>

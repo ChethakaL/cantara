@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
+import { agentLookupKeys, getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 import { clientPortalReleasedAt, isClientPortalAgentReleased } from '@/lib/client-approved-agents'
 import { readRoadmapSubmission } from '@/lib/sale-readiness-checklist'
 
@@ -45,6 +45,8 @@ const AGENT_OUTPUTS: Record<string, { label: string; source: 'table' | 'submissi
   net_proceeds: { label: 'Net Proceeds Calculator', source: 'submission', key: 'netProceeds' },
   ws1Assessment: { label: 'WS1 Assessment Report', source: 'submission', key: 'assessmentReport_ws1' },
   ws2Assessment: { label: 'WS2 Assessment Report', source: 'submission', key: 'assessmentReport_ws2' },
+  ws1BuyerReport: { label: 'WS1 Buyer Report', source: 'submission', key: 'buyerReport_ws1' },
+  ws2BuyerReport: { label: 'WS2 Buyer Report', source: 'submission', key: 'buyerReport_ws2' },
   salesReadinessRoadmap: { label: 'Sales Readiness Roadmap', source: 'submission', key: 'improvementRoadmap' },
 }
 
@@ -105,6 +107,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!isClientPortalAgentReleased(releases, agent.agentId)) continue
+    const releaseEntry = findReleaseEntry(releases, agent.agentId)
 
     const config = AGENT_OUTPUTS[agentKey]
     if (!config) continue
@@ -115,6 +118,7 @@ export async function GET(req: NextRequest) {
       agentKey,
       client.businessName || 'Client',
       client.businessAddress || '',
+      releaseEntry,
     )
     if (!output.markdown.trim() && !output.data) continue
 
@@ -133,6 +137,7 @@ export async function GET(req: NextRequest) {
     const normKey = normalizeAgentStatusKey(key)
     if (seen.has(normKey)) continue
     if (!isClientPortalAgentReleased(releases, key)) continue
+    const releaseEntry = findReleaseEntry(releases, key)
     seen.add(normKey)
 
     const output = await readOutput(
@@ -142,6 +147,7 @@ export async function GET(req: NextRequest) {
       normKey,
       client.businessName || 'Client',
       client.businessAddress || '',
+      releaseEntry,
     )
     if (!output.markdown.trim() && !output.data) continue
 
@@ -165,8 +171,9 @@ async function readOutput(
   agentKey: string,
   clientName: string,
   businessAddress: string,
+  releaseEntry?: Record<string, any>,
 ) {
-  if (agentKey === 'ttmAnalysis') return readValuationOutput(clientId, clientName)
+  if (agentKey === 'ttmAnalysis') return readValuationOutput(clientId, clientName, releaseEntry)
 
   if (agentKey === 'digitalPresence') {
     const report = submissions.digitalPresence
@@ -227,7 +234,29 @@ async function readOutput(
   }
 }
 
-async function readValuationOutput(clientId: string, clientName: string): Promise<{ markdown: string; data: unknown }> {
+async function readValuationOutput(clientId: string, clientName: string, release?: Record<string, any>): Promise<{ markdown: string; data: unknown }> {
+  if (release?.releaseSource === 'external') {
+    if (typeof release.externalReportId !== 'string') return { markdown: '', data: null }
+    try {
+      const external = await (prisma as any).externalValuationReport.findFirst({
+        where: { clientId, id: release.externalReportId },
+        select: { id: true, clientId: true, fileName: true, mimeType: true, fileSize: true, reportJson: true, createdAt: true },
+      })
+      if (external) {
+        return {
+          markdown: '',
+          data: {
+            type: 'externalValuation',
+            report: { ...external, createdAt: external.createdAt.toISOString() },
+          },
+        }
+      }
+    } catch (error) {
+      console.error('[client-approved-outputs] external valuation lookup failed', error)
+    }
+    return { markdown: '', data: null }
+  }
+
   const row = await prisma.ttmAnalysis.findFirst({
     where: { clientId },
     orderBy: { createdAt: 'desc' },
@@ -307,6 +336,14 @@ async function readValuationOutput(clientId: string, clientName: string): Promis
         : null,
     },
   }
+}
+
+function findReleaseEntry(releases: Record<string, any>, agentId: string) {
+  for (const key of agentLookupKeys(agentId)) {
+    const entry = releases[key]
+    if (entry && typeof entry === 'object' && entry.released === true) return entry as Record<string, any>
+  }
+  return undefined
 }
 
 function serializeValue(value: unknown): { markdown: string; data: unknown } {
