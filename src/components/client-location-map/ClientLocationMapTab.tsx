@@ -95,6 +95,14 @@ const SERVICE_LABELS: Record<ServiceType, string> = {
   other: 'Other',
 }
 
+const SERVICE_BADGE_STYLES: Record<ServiceType, { bg: string; text: string; border: string; dot: string }> = {
+  boarding: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe', dot: '#2563eb' },
+  daycare: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0', dot: '#16a34a' },
+  grooming: { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa', dot: '#ea580c' },
+  both: { bg: '#faf5ff', text: '#6b21a8', border: '#e9d5ff', dot: '#7c3aed' },
+  other: { bg: '#f8fafc', text: '#475569', border: '#e2e8f0', dot: '#64748b' },
+}
+
 const RADIUS_RINGS = [
   { miles: 5, color: '#16a34a', label: '5-mile radius' },
   { miles: 10, color: '#eab308', label: '10-mile radius' },
@@ -321,6 +329,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [geocodeProgress, setGeocodeProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [deletingIndex, setDeletingIndex] = useState<number | null>(null)
   const [visibleTypes, setVisibleTypes] = useState<Set<ServiceType>>(
     () => new Set<ServiceType>(['boarding', 'daycare', 'grooming', 'both', 'other']),
   )
@@ -352,7 +361,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const googleMapRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
   const circlesRef = useRef<google.maps.Circle[]>([])
-  const deleteEntryRef = useRef<(index: number) => Promise<void>>(async () => {})
+  const activeInfoWindowRef = useRef<google.maps.InfoWindow | null>(null)
+  const deleteEntryRef = useRef<(index: number) => Promise<boolean>>(async () => false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const preEditSnapshotRef = useRef<MapData | null>(null)
 
@@ -473,6 +483,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
 
   const renderOverlays = useCallback((map: google.maps.Map, data: MapData, visible: Set<ServiceType>) => {
     // Clear existing
+    activeInfoWindowRef.current?.close()
+    activeInfoWindowRef.current = null
     markersRef.current.forEach(m => m.setMap(null))
     markersRef.current = []
     circlesRef.current.forEach(c => c.setMap(null))
@@ -516,10 +528,100 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       })
       markersRef.current.push(facilityMarker)
 
-      const facilityInfo = new google.maps.InfoWindow({
-        content: `<div style="font-family:system-ui;padding:4px 0"><strong>${clientName}</strong><br/><span style="color:#64748b;font-size:12px">${data.facilityAddress}</span><br/><span style="font-size:11px;color:#1e293b;font-weight:600">Client Facility</span></div>`,
+      const facilityInfoContent = document.createElement('div')
+      facilityInfoContent.className = 'cantara-infowindow-card'
+      facilityInfoContent.style.cssText = `
+        min-width: 290px;
+        max-width: 380px;
+        box-sizing: border-box;
+        padding: 14px 16px;
+        position: relative;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        color: #0f172a;
+        background: #ffffff;
+        border-radius: 12px;
+      `
+
+      const fCleanAddress = data.facilityAddress?.trim() || 'Address not specified'
+
+      // Header row with badge and custom close button in same flex row
+      const fHeaderRow = document.createElement('div')
+      fHeaderRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:26px;margin-bottom:10px;'
+
+      const fBadge = document.createElement('span')
+      fBadge.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:9999px;background:#0f172a;color:#ffffff;line-height:1;white-space:nowrap;'
+      fBadge.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#38bdf8;display:inline-block;flex-shrink:0;"></span>Client Facility'
+      fHeaderRow.appendChild(fBadge)
+
+      const fCloseButton = document.createElement('button')
+      fCloseButton.type = 'button'
+      fCloseButton.title = 'Close'
+      fCloseButton.setAttribute('aria-label', 'Close')
+      fCloseButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
+      fCloseButton.style.cssText = 'width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;color:#64748b;cursor:pointer;padding:0;margin:0;transition:all 0.15s ease;box-sizing:border-box;flex-shrink:0;'
+      fCloseButton.addEventListener('mouseenter', () => {
+        fCloseButton.style.background = '#f1f5f9'
+        fCloseButton.style.borderColor = '#cbd5e1'
+        fCloseButton.style.color = '#0f172a'
       })
-      facilityMarker.addListener('click', () => facilityInfo.open(map, facilityMarker))
+      fCloseButton.addEventListener('mouseleave', () => {
+        fCloseButton.style.background = '#f8fafc'
+        fCloseButton.style.borderColor = '#e2e8f0'
+        fCloseButton.style.color = '#64748b'
+      })
+      fCloseButton.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        facilityInfo.close()
+      })
+      fHeaderRow.appendChild(fCloseButton)
+      facilityInfoContent.appendChild(fHeaderRow)
+
+      const fBody = document.createElement('div')
+      fBody.innerHTML = `
+        <div style="font-size:15px;font-weight:700;color:#0f172a;line-height:1.25;margin-bottom:2px;word-break:break-word;">
+          ${escapeHtml(clientName)}
+        </div>
+        <div style="font-size:11px;font-weight:500;color:#94a3b8;margin-bottom:10px;">
+          Primary Location & Radius Center
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:9px 11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px;">
+          <svg style="flex-shrink:0;margin-top:2px;color:#64748b;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+          <span style="font-size:12px;color:#334155;line-height:1.45;word-break:break-word;flex:1;">
+            ${escapeHtml(fCleanAddress)}
+          </span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px solid #f1f5f9;font-size:11px;">
+          <span style="color:#64748b;">Rings: <strong style="color:#0f172a;">5, 10, 20 mi</strong></span>
+          <span style="font-weight:600;color:#0f172a;">${data.clients.length} mapped clients</span>
+        </div>
+      `
+      facilityInfoContent.appendChild(fBody)
+
+      const facilityInfo = new google.maps.InfoWindow({
+        content: facilityInfoContent,
+      })
+      facilityInfo.addListener('domready', () => {
+        const iw = facilityInfoContent.closest('.gm-style-iw') as HTMLElement | null
+        if (iw) {
+          iw.style.setProperty('padding', '0', 'important')
+          const closeBtn = iw.querySelector('.gm-ui-hover-effect') as HTMLElement | null
+          if (closeBtn) closeBtn.style.setProperty('display', 'none', 'important')
+          const d = iw.querySelector('.gm-style-iw-d') as HTMLElement | null
+          if (d) {
+            d.style.setProperty('padding', '0', 'important')
+            d.style.setProperty('overflow', 'hidden', 'important')
+          }
+        }
+      })
+      facilityMarker.addListener('click', () => {
+        activeInfoWindowRef.current?.close()
+        activeInfoWindowRef.current = facilityInfo
+        facilityInfo.open(map, facilityMarker)
+      })
     }
 
     // Client markers
@@ -543,28 +645,201 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         zIndex: 10,
       })
 
-      const distanceStr = facilityCenter
-        ? (() => {
-            const d = haversineDistance(facilityCenter.lat, facilityCenter.lng, client.lat!, client.lng!)
-            return `<br/><span style="font-size:11px;color:#64748b">${d.toFixed(1)} miles from facility</span>`
-          })()
-        : ''
+      const cardContainer = document.createElement('div')
+      cardContainer.className = 'cantara-infowindow-card'
+      cardContainer.style.cssText = `
+        min-width: 290px;
+        max-width: 380px;
+        box-sizing: border-box;
+        padding: 14px 16px;
+        position: relative;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        color: #0f172a;
+        background: #ffffff;
+        border-radius: 12px;
+      `
+
+      // 1. Header with service badge and actions container
+      const headerRow = document.createElement('div')
+      headerRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:26px;margin-bottom:10px;'
+
+      const badgeStyle = SERVICE_BADGE_STYLES[client.serviceType] || SERVICE_BADGE_STYLES.other
+      const serviceLabel = SERVICE_LABELS[client.serviceType] || 'Other'
+
+      const serviceBadge = document.createElement('span')
+      serviceBadge.style.cssText = `
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 9px;
+        border-radius: 9999px;
+        background: ${badgeStyle.bg};
+        color: ${badgeStyle.text};
+        border: 1px solid ${badgeStyle.border};
+        line-height: 1;
+        white-space: nowrap;
+      `
+      serviceBadge.innerHTML = `<span style="width:6px;height:6px;border-radius:50%;background:${badgeStyle.dot};display:inline-block;flex-shrink:0;"></span>${serviceLabel}`
+      headerRow.appendChild(serviceBadge)
+
+      // 2. Action buttons container (delete + close side by side)
+      const actionsContainer = document.createElement('div')
+      actionsContainer.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0;'
+
+      if (!readOnly) {
+        const deleteButton = document.createElement('button')
+        deleteButton.type = 'button'
+        deleteButton.title = 'Delete location'
+        deleteButton.setAttribute('aria-label', `Delete ${client.name || 'entry'}`)
+        deleteButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>'
+        deleteButton.style.cssText = 'width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #fecdd3;border-radius:6px;background:#fff1f2;color:#e11d48;cursor:pointer;padding:0;margin:0;transition:all 0.15s ease;box-sizing:border-box;flex-shrink:0;'
+        deleteButton.addEventListener('mouseenter', () => {
+          deleteButton.style.background = '#ffe4e6'
+          deleteButton.style.borderColor = '#fda4af'
+          deleteButton.style.color = '#be123c'
+        })
+        deleteButton.addEventListener('mouseleave', () => {
+          deleteButton.style.background = '#fff1f2'
+          deleteButton.style.borderColor = '#fecdd3'
+          deleteButton.style.color = '#e11d48'
+        })
+        deleteButton.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (deleteButton.disabled) return
+          const trashIcon = deleteButton.innerHTML
+          deleteButton.disabled = true
+          deleteButton.style.opacity = '0.65'
+          deleteButton.style.cursor = 'wait'
+          deleteButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="animate-spin"><path d="M12 2v4"/><path d="m16.2 7.8 2.8-2.8"/><path d="M18 12h4"/><path d="m16.2 16.2 2.8 2.8"/><path d="M12 18v4"/><path d="m4.9 19.1 2.8-2.8"/><path d="M2 12h4"/><path d="m4.9 4.9 2.8 2.8"/></svg>'
+          void deleteEntryRef.current(clientIndex).then((deleted) => {
+            if (deleted) {
+              info.close()
+              return
+            }
+            deleteButton.disabled = false
+            deleteButton.style.opacity = '1'
+            deleteButton.style.cursor = 'pointer'
+            deleteButton.innerHTML = trashIcon
+          })
+        })
+        actionsContainer.appendChild(deleteButton)
+      }
+
+      const closeButton = document.createElement('button')
+      closeButton.type = 'button'
+      closeButton.title = 'Close'
+      closeButton.setAttribute('aria-label', 'Close')
+      closeButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
+      closeButton.style.cssText = 'width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;color:#64748b;cursor:pointer;padding:0;margin:0;transition:all 0.15s ease;box-sizing:border-box;flex-shrink:0;'
+      closeButton.addEventListener('mouseenter', () => {
+        closeButton.style.background = '#f1f5f9'
+        closeButton.style.borderColor = '#cbd5e1'
+        closeButton.style.color = '#0f172a'
+      })
+      closeButton.addEventListener('mouseleave', () => {
+        closeButton.style.background = '#f8fafc'
+        closeButton.style.borderColor = '#e2e8f0'
+        closeButton.style.color = '#64748b'
+      })
+      closeButton.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        info.close()
+      })
+      actionsContainer.appendChild(closeButton)
+
+      headerRow.appendChild(actionsContainer)
+      cardContainer.appendChild(headerRow)
+
+      // 3. Client Name & Subtitle
+      const rawName = client.name?.trim() || ''
+      const isPlaceholder = !rawName || rawName.toLowerCase() === 'none' || rawName.toLowerCase() === 'null' || rawName.toLowerCase() === 'undefined'
+      const displayName = isPlaceholder ? `Client #${clientIndex + 1}` : rawName
+
+      const nameEl = document.createElement('div')
+      nameEl.style.cssText = 'font-size:15px;font-weight:700;color:#0f172a;line-height:1.25;margin-bottom:2px;word-break:break-word;'
+      nameEl.textContent = displayName
+      cardContainer.appendChild(nameEl)
+
+      const subEl = document.createElement('div')
+      subEl.style.cssText = 'font-size:11px;font-weight:500;color:#94a3b8;margin-bottom:10px;'
+      subEl.textContent = isPlaceholder ? 'Client location record' : `Client record #${clientIndex + 1}`
+      cardContainer.appendChild(subEl)
+
+      // 4. Address box
+      let cleanAddress = client.address ? client.address.replace(/^none,?\s*/i, '').trim() : ''
+      if (!cleanAddress || cleanAddress.toLowerCase() === 'none' || cleanAddress.toLowerCase() === 'null') {
+        cleanAddress = 'Address not provided'
+      }
+
+      const addressBox = document.createElement('div')
+      addressBox.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:9px 11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px;'
+      addressBox.innerHTML = `
+        <svg style="flex-shrink:0;margin-top:2px;color:#64748b;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+        <span style="font-size:12px;color:#334155;line-height:1.45;word-break:break-word;flex:1;">
+          ${escapeHtml(cleanAddress)}
+        </span>
+      `
+      cardContainer.appendChild(addressBox)
+
+      // 5. Distance & Radius metrics
+      if (facilityCenter && client.lat && client.lng) {
+        const distance = haversineDistance(facilityCenter.lat, facilityCenter.lng, client.lat, client.lng)
+        const distFormatted = distance.toFixed(1)
+
+        let tierBadgeHtml = ''
+        if (distance <= 5) {
+          tierBadgeHtml = '<span style="display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;white-space:nowrap;">Within 5 mi</span>'
+        } else if (distance <= 10) {
+          tierBadgeHtml = '<span style="display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:#fefce8;color:#a16207;border:1px solid #fef08a;white-space:nowrap;">Within 10 mi</span>'
+        } else if (distance <= 20) {
+          tierBadgeHtml = '<span style="display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:#fff1f2;color:#be123c;border:1px solid #fecdd3;white-space:nowrap;">Within 20 mi</span>'
+        } else {
+          tierBadgeHtml = '<span style="display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:#f8fafc;color:#64748b;border:1px solid #e2e8f0;white-space:nowrap;">Beyond 20 mi</span>'
+        }
+
+        const footer = document.createElement('div')
+        footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px solid #f1f5f9;font-size:11px;'
+        footer.innerHTML = `
+          <div style="display:inline-flex;align-items:center;gap:5px;color:#64748b;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#94a3b8;flex-shrink:0;">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span><strong style="color:#0f172a;font-weight:600;">${distFormatted} mi</strong> from facility</span>
+          </div>
+          ${tierBadgeHtml}
+        `
+        cardContainer.appendChild(footer)
+      }
 
       const info = new google.maps.InfoWindow({
-        content: `<div style="font-family:system-ui;padding:4px 24px 4px 0;position:relative">${readOnly ? '' : `<button type="button" data-delete-client-index="${clientIndex}" title="Delete location" aria-label="Delete location" style="position:absolute;right:0;top:-2px;width:24px;height:24px;border:0;border-radius:6px;background:#fff1f2;color:#be123c;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>`}<strong>${client.name}</strong><br/><span style="color:#64748b;font-size:12px">${client.address}</span><br/><span style="font-size:11px;color:${color};font-weight:600">${SERVICE_LABELS[client.serviceType]}</span>${distanceStr}</div>`,
+        content: cardContainer,
       })
-      if (!readOnly) {
-        info.addListener('domready', () => {
-          const deleteButton = document.querySelector<HTMLButtonElement>(`[data-delete-client-index="${clientIndex}"]`)
-          if (!deleteButton) return
-          deleteButton.onclick = (event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            void deleteEntryRef.current(clientIndex).then(() => info.close())
+      info.addListener('domready', () => {
+        const iw = cardContainer.closest('.gm-style-iw') as HTMLElement | null
+        if (iw) {
+          iw.style.setProperty('padding', '0', 'important')
+          const closeBtn = iw.querySelector('.gm-ui-hover-effect') as HTMLElement | null
+          if (closeBtn) closeBtn.style.setProperty('display', 'none', 'important')
+          const d = iw.querySelector('.gm-style-iw-d') as HTMLElement | null
+          if (d) {
+            d.style.setProperty('padding', '0', 'important')
+            d.style.setProperty('overflow', 'hidden', 'important')
           }
-        })
-      }
-      marker.addListener('click', () => info.open(map, marker))
+        }
+      })
+      marker.addListener('click', () => {
+        activeInfoWindowRef.current?.close()
+        activeInfoWindowRef.current = info
+        info.open(map, marker)
+      })
 
       markersRef.current.push(marker)
       bounds.extend({ lat: client.lat, lng: client.lng })
@@ -921,17 +1196,24 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   }
 
   const persistMapData = async (nextMapData: MapData, options?: { localOnly?: boolean }) => {
-    setMapData(nextMapData)
-    if (options?.localOnly) return
+    if (options?.localOnly) {
+      setMapData(nextMapData)
+      return true
+    }
     setSaving(true)
     try {
-      await fetch('/api/client-location-map', {
+      const res = await fetch('/api/client-location-map', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId, mapData: nextMapData }),
       })
-    } catch {
-      setError('Map changes were applied locally but could not be saved.')
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(result?.error || result?.message || `Save failed (${res.status})`)
+      setMapData((result.mapData ?? nextMapData) as MapData)
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? `Map changes could not be saved: ${err.message}` : 'Map changes could not be saved.')
+      return false
     } finally {
       setSaving(false)
     }
@@ -1084,11 +1366,17 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     cancelEntryEdit()
   }
 
-  const deleteEntry = async (index: number) => {
-    if (!mapData) return
+  const deleteEntry = async (index: number): Promise<boolean> => {
+    if (!mapData || saving) return false
     const nextClients = mapData.clients.filter((_, idx) => idx !== index)
-    await persistMapData({ ...mapData, clients: nextClients, generatedAt: new Date().toISOString() })
-    if (editingIndex === index) cancelEntryEdit()
+    setDeletingIndex(index)
+    try {
+      const deleted = await persistMapData({ ...mapData, clients: nextClients, generatedAt: new Date().toISOString() })
+      if (deleted && editingIndex === index) cancelEntryEdit()
+      return deleted
+    } finally {
+      setDeletingIndex(null)
+    }
   }
   deleteEntryRef.current = deleteEntry
 
@@ -1598,7 +1886,33 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         </Card>
 
         {/* Map container */}
-        <Card className="flex-1 overflow-hidden" style={{ minHeight: 540 }}>
+        <Card className="cantara-map-wrapper flex-1 overflow-hidden relative" style={{ minHeight: 540 }}>
+          <style>{`
+            .cantara-map-wrapper .gm-style-iw.gm-style-iw-c {
+              padding: 0 !important;
+              border-radius: 12px !important;
+              box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.18), 0 8px 10px -6px rgba(15, 23, 42, 0.08) !important;
+              border: 1px solid rgba(226, 232, 240, 0.95) !important;
+              overflow: visible !important;
+            }
+            .cantara-map-wrapper .gm-style-iw-d {
+              padding: 0 !important;
+              overflow: hidden !important;
+              max-height: none !important;
+            }
+            .cantara-map-wrapper .gm-style-iw-tc::after {
+              background: #ffffff !important;
+            }
+            .cantara-map-wrapper .gm-ui-hover-effect,
+            .gm-ui-hover-effect {
+              display: none !important;
+              visibility: hidden !important;
+              opacity: 0 !important;
+              pointer-events: none !important;
+              width: 0 !important;
+              height: 0 !important;
+            }
+          `}</style>
           <div ref={mapContainerRef} className="w-full h-full" style={{ minHeight: 540 }} />
         </Card>
       </div>
@@ -1701,7 +2015,9 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                           className="rounded-md border border-rose-100 p-1.5 text-rose-500 hover:bg-rose-50 disabled:opacity-40"
                           title="Delete entry"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {deletingIndex === index
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Trash2 className="h-3.5 w-3.5" />}
                         </button>
                       </div>
                     </td>
