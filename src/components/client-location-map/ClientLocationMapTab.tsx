@@ -352,6 +352,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const googleMapRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
   const circlesRef = useRef<google.maps.Circle[]>([])
+  const deleteEntryRef = useRef<(index: number) => Promise<void>>(async () => {})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const preEditSnapshotRef = useRef<MapData | null>(null)
 
@@ -525,7 +526,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     const bounds = new google.maps.LatLngBounds()
     if (facilityCenter) bounds.extend(facilityCenter)
 
-    data.clients.forEach(client => {
+    data.clients.forEach((client, clientIndex) => {
       if (client.geocodeStatus !== 'success' || !client.lat || !client.lng) return
       if (!visible.has(client.serviceType)) return
 
@@ -550,8 +551,19 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
         : ''
 
       const info = new google.maps.InfoWindow({
-        content: `<div style="font-family:system-ui;padding:4px 0"><strong>${client.name}</strong><br/><span style="color:#64748b;font-size:12px">${client.address}</span><br/><span style="font-size:11px;color:${color};font-weight:600">${SERVICE_LABELS[client.serviceType]}</span>${distanceStr}</div>`,
+        content: `<div style="font-family:system-ui;padding:4px 24px 4px 0;position:relative">${readOnly ? '' : `<button type="button" data-delete-client-index="${clientIndex}" title="Delete location" aria-label="Delete location" style="position:absolute;right:0;top:-2px;width:24px;height:24px;border:0;border-radius:6px;background:#fff1f2;color:#be123c;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>`}<strong>${client.name}</strong><br/><span style="color:#64748b;font-size:12px">${client.address}</span><br/><span style="font-size:11px;color:${color};font-weight:600">${SERVICE_LABELS[client.serviceType]}</span>${distanceStr}</div>`,
       })
+      if (!readOnly) {
+        info.addListener('domready', () => {
+          const deleteButton = document.querySelector<HTMLButtonElement>(`[data-delete-client-index="${clientIndex}"]`)
+          if (!deleteButton) return
+          deleteButton.onclick = (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void deleteEntryRef.current(clientIndex).then(() => info.close())
+          }
+        })
+      }
       marker.addListener('click', () => info.open(map, marker))
 
       markersRef.current.push(marker)
@@ -561,7 +573,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     if (markersRef.current.length > 1) {
       map.fitBounds(bounds, { top: 60, right: 60, bottom: 60, left: 60 })
     }
-  }, [clientName])
+  }, [clientName, readOnly])
 
   // ── File handling ───────────────────────────────────────────────────────
 
@@ -1078,6 +1090,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
     await persistMapData({ ...mapData, clients: nextClients, generatedAt: new Date().toISOString() })
     if (editingIndex === index) cancelEntryEdit()
   }
+  deleteEntryRef.current = deleteEntry
 
   // ── Stats computation ──────────────────────────────────────────────────
 
