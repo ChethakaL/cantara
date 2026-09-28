@@ -82,6 +82,23 @@ model RealEstateAppraisalReport {
   @@index([clientId, createdAt])
 }
 
+model ExternalValuationReport {
+  id          String        @id @default(cuid())
+  clientId    String
+  fileName    String
+  mimeType    String
+  fileSize    Int
+  storageKey  String
+  reportJson  Json
+  aiProvider  String        @default("bedrock")
+  aiModel     String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  client      ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
 model TtmAnalysis {
   id                String              @id @default(cuid())
   clientId          String
@@ -365,6 +382,7 @@ model ClientProfile {
   DocumentRequest              DocumentRequest[]
   EmployeeObligationsReports   EmployeeObligationsReport[]
   RealEstateAppraisalReports   RealEstateAppraisalReport[]
+  ExternalValuationReports     ExternalValuationReport[]
   LeaseAnalysis                LeaseAnalysis[]
   OwnershipVerificationReports OwnershipVerificationReport[]
   PermitsZoningReports         PermitsZoningReport[]

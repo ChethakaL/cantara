@@ -37,6 +37,7 @@ import { parseMarkdownBlocks, serializeMarkdownBlocks, type MarkdownBlock } from
 import { exportSaleReadinessChecklistExcel, type SaleReadinessChecklistItem } from '@/lib/sale-readiness-checklist'
 import { buildClientReleasedRoadmapMarkdown } from '@/lib/roadmap-flag-items'
 import { Ws2WorkbookView } from '@/components/ttm-agent/Ws2WorkbookView'
+import { ExternalValuationReportViewer } from '@/components/ttm-agent/ExternalValuationReport'
 import DigitalPresenceScorecard from '@/components/digital-presence/DigitalPresenceScorecard'
 import type { DocumentStatus } from '@/lib/store'
 
@@ -449,6 +450,9 @@ function RoadmapReleasedReport({
 
 function ValuationApprovedView({ data, clientName, fallbackMarkdown }: { data: unknown; clientName: string; fallbackMarkdown?: string }) {
   const record = data && typeof data === 'object' ? data as Record<string, any> : {}
+  if (record.type === 'externalValuation' && record.report) {
+    return <ExternalValuationReportViewer report={record.report} />
+  }
   if (record.analysis && record.recastView) {
     return (
       <Ws2WorkbookView

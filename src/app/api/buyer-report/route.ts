@@ -13,6 +13,7 @@ import {
   collectBuyerSourceFingerprints,
   hasChangedSources,
 } from '@/lib/source-freshness'
+import { loadExternalValuationContext } from '@/lib/external-valuation-context'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
   const roadmapReady = Boolean(roadmap?.stage === 'report' && roadmap.markdown?.trim())
 
   const fingerprints = await collectBuyerSourceFingerprints(clientId, workstream, submissions)
+  if (report?.valuationSource === 'external') delete fingerprints.ttm
   const rawSources = await checkAgentSources(clientId, workstream, submissions)
   const sources = applySourceChangeFlags(rawSources, fingerprints, report?.sourceFingerprints, report?.generatedAt)
   const sourcesChanged = Boolean(report) && hasChangedSources(sources)
@@ -93,7 +95,16 @@ export async function POST(req: NextRequest) {
   if (!roadmapReport || roadmapReport.stage !== 'report' || !roadmapReport.markdown?.trim()) {
     return NextResponse.json({ error: 'Run and submit the Sales Readiness Roadmap before generating the buyer report.' }, { status: 409 })
   }
-  const agentData = await gatherAgentData(clientId, workstream)
+  const valuationSource = body.valuationSource === 'external' ? 'external' : 'agent'
+  let externalValuation: Awaited<ReturnType<typeof loadExternalValuationContext>> | null = null
+  if (valuationSource === 'external') {
+    try {
+      externalValuation = await loadExternalValuationContext(clientId, String(body.externalReportId || ''))
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to load the selected uploaded valuation report.' }, { status: 404 })
+    }
+  }
+  const agentData = await gatherAgentData(clientId, workstream, Boolean(externalValuation))
 
   const wsLabel = workstream === 'ws1' ? 'Workstream 1 — Risk Mitigation' : 'Workstream 2 — Profitability & Growth'
   const clientName = client.businessName
@@ -204,13 +215,14 @@ ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`)
   const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
     createAgentMessage({
       system: systemPrompt,
-      content: userPrompt,
+      content: [...(externalValuation?.blocks ?? []), { type: 'text', text: `${userPrompt}${externalValuation ? `\n\n## Uploaded Valuation Source\nUse the attached client-uploaded valuation report (${externalValuation.fileName}) as the only valuation source. Do not refer to, quote, or use Cantara Valuation Agent output.` : ''}` }],
       maxTokens: 16000,
       temperature: 0.15,
     }),
   )
 
   const fingerprints = await collectBuyerSourceFingerprints(clientId, workstream, submissions)
+  if (externalValuation) delete fingerprints.ttm
 
   const report = {
     workstream,
@@ -219,6 +231,9 @@ ${agentData.map(a => `### ${a.agentName}\n${a.excerpt || 'No data available.'}`)
     generatedAt: new Date().toISOString(),
     markdown,
     sourceFingerprints: fingerprints,
+    valuationSource,
+    ...(externalValuation ? { externalValuationReportId: String(body.externalReportId) } : {}),
+    ...(externalValuation ? { externalValuationFileName: externalValuation.fileName } : {}),
   }
 
   const current = (client.sectionSubmissions && typeof client.sectionSubmissions === 'object' ? client.sectionSubmissions : {}) as Record<string, any>
@@ -279,7 +294,7 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ report })
 }
 
-async function gatherAgentData(clientId: string, workstream: 'ws1' | 'ws2') {
+async function gatherAgentData(clientId: string, workstream: 'ws1' | 'ws2', excludeCantaraValuation = false) {
   const agentSources: Array<{ agentName: string; excerpt: string }> = []
 
   const addFromTable = async (name: string, delegate: any, textField: string) => {
@@ -313,7 +328,7 @@ async function gatherAgentData(clientId: string, workstream: 'ws1' | 'ws2') {
   }
 
   if (workstream === 'ws1') {
-    await addFromTable('Valuation Agent', (prisma as any).ttmAnalysis, 'reportMarkdown')
+    if (!excludeCantaraValuation) await addFromTable('Valuation Agent', (prisma as any).ttmAnalysis, 'reportMarkdown')
     await addFromTable('Employee Obligations', (prisma as any).employeeObligationsReport, 'markdown')
     await addFromSubmissions('Employee Compensation', 'employeeCompReport')
     await addFromTable('Lease Analysis', (prisma as any).leaseAnalysis, 'report')
@@ -329,7 +344,7 @@ async function gatherAgentData(clientId: string, workstream: 'ws1' | 'ws2') {
     await addFromSubmissions('Professional Advisors', 'professionalAdvisors')
     await addFromSubmissions('Software & Vendors', 'vendorDirectory')
   } else {
-    await addFromTable('Valuation Agent', (prisma as any).ttmAnalysis, 'reportMarkdown')
+    if (!excludeCantaraValuation) await addFromTable('Valuation Agent', (prisma as any).ttmAnalysis, 'reportMarkdown')
     await addFromTable('Competitor Analysis', (prisma as any).competitorAnalysis, 'report')
     await addFromSubmissions('Digital Presence', 'digitalPresence')
     await addFromSubmissions('Facility Review', 'facilityReview')
@@ -578,4 +593,3 @@ async function checkAgentSources(clientId: string, workstream: 'ws1' | 'ws2', su
     ]
   }
 }
-

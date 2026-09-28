@@ -33,6 +33,10 @@ export type AgentRunRecord = {
   hasRun: boolean
   clientReleased: boolean
   clientReleasedAt: string | null
+  releaseSource?: 'agent' | 'external'
+  externalValuationAvailable?: boolean
+  externalValuationFileName?: string | null
+  externalValuationReportId?: string | null
   assignedTo: string | null
   runAt: string | null
   tabKey: string | null
@@ -106,6 +110,8 @@ const AGENT_LABELS: Record<string, { label: string; tabKey: string; category: st
   ws1Assessment: { label: 'WS1 Assessment Report', tabKey: 'ws1-assessment', category: 'Reports & Roadmaps' },
   ws2_assessment: { label: 'WS2 Assessment Report', tabKey: 'ws2-assessment', category: 'Reports & Roadmaps' },
   ws2Assessment: { label: 'WS2 Assessment Report', tabKey: 'ws2-assessment', category: 'Reports & Roadmaps' },
+  ws1BuyerReport: { label: 'WS1 Buyer Report', tabKey: 'ws1-buyer-report', category: 'Reports & Roadmaps' },
+  ws2BuyerReport: { label: 'WS2 Buyer Report', tabKey: 'ws2-buyer-report', category: 'Reports & Roadmaps' },
   sales_readiness_roadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
   salesReadinessRoadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
   ws1_roadmap: { label: 'Sales Readiness Roadmap', tabKey: 'sales-readiness-roadmap', category: 'Reports & Roadmaps' },
@@ -167,12 +173,14 @@ function manualRelease(
   releases: Record<string, unknown> | null | undefined,
   agentId: string,
   statusKey: string,
-): { released: boolean; releasedAt: string | null } {
+): { released: boolean; releasedAt: string | null; releaseSource: 'agent' | 'external'; externalReportId: string | null } {
   const release = firstLookupEntry(releases, agentId, statusKey)
-  if (!release) return { released: false, releasedAt: null }
+  if (!release) return { released: false, releasedAt: null, releaseSource: 'agent', externalReportId: null }
   return {
     released: release.released === true,
     releasedAt: typeof release.releasedAt === 'string' ? release.releasedAt : null,
+    releaseSource: release.releaseSource === 'external' ? 'external' : 'agent',
+    externalReportId: typeof release.externalReportId === 'string' ? release.externalReportId : null,
   }
 }
 
@@ -251,6 +259,14 @@ export async function GET(req: NextRequest) {
         : '',
     sectionSubmissions: submissions,
   })
+  const normalizedWorkstream = client.workstream?.toLowerCase()
+  // Buyer reports participate in the same Agent Status approval and release flow as other reports.
+  if (normalizedWorkstream === 'ws1' || normalizedWorkstream === 'both') {
+    assignedAgents.push({ agentId: 'ws1BuyerReport', agentName: 'WS1 Buyer Report', documentIds: [] })
+  }
+  if (normalizedWorkstream === 'ws2' || normalizedWorkstream === 'both') {
+    assignedAgents.push({ agentId: 'ws2BuyerReport', agentName: 'WS2 Buyer Report', documentIds: [] })
+  }
 
   const [
     ttm,
@@ -267,6 +283,7 @@ export async function GET(req: NextRequest) {
     insuranceDoc,
     salesDoc,
     realEstateAppraisal,
+    externalValuation,
     uploadedDocs,
     statusesWithFiles,
   ] = await Promise.all([
@@ -284,6 +301,7 @@ export async function GET(req: NextRequest) {
     safeFind(() => prisma.clientDocument.findFirst({ where: { clientId, documentId: 'insurance_claims_12m' }, orderBy: { createdAt: 'desc' }, select: { aiReviewSummary: true, aiReviewStatus: true, createdAt: true } })),
     safeFind(() => prisma.clientDocument.findFirst({ where: { clientId, documentId: 'sales_process_transcript' }, orderBy: { createdAt: 'desc' }, select: { aiReviewSummary: true, aiReviewStatus: true, aiReviewedAt: true, createdAt: true } })),
     safeFind(() => (prisma as any).realEstateAppraisalReport.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } })),
+    safeFind(() => (prisma as any).externalValuationReport.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' }, select: { id: true, fileName: true, createdAt: true } })),
     safeFind(() => prisma.clientDocument.findMany({ where: { clientId }, select: { documentId: true } })),
     safeFind(() =>
       prisma.clientDocumentStatus.findMany({
@@ -295,10 +313,10 @@ export async function GET(req: NextRequest) {
 
   const runChecks: Record<string, { hasRun: boolean; approved: boolean; runAt: string | null }> = {
     ttmAnalysis: {
-      hasRun: Boolean(ttm || submissions.valuation),
+      hasRun: Boolean(ttm || submissions.valuation || externalValuation),
       // Client portal only releases output after Mark Approved in Agent Status — not DB APPROVED alone.
       approved: manualApproval(approvals, 'ttm', 'ttmAnalysis'),
-      runAt: ttm?.approvedAt?.toISOString() ?? ttm?.createdAt?.toISOString() ?? null,
+      runAt: ttm?.approvedAt?.toISOString() ?? ttm?.createdAt?.toISOString() ?? (externalValuation as { createdAt?: Date } | null)?.createdAt?.toISOString() ?? null,
     },
     lease: {
       hasRun: Boolean(lease),
@@ -453,6 +471,20 @@ export async function GET(req: NextRequest) {
         ?? (submissions.assessmentReport_ws2 as { generatedAt?: string })?.generatedAt
         ?? null,
     },
+    ws1BuyerReport: {
+      hasRun: Boolean(submissions.buyerReport_ws1),
+      approved: manualApproval(approvals, 'ws1BuyerReport', 'ws1BuyerReport'),
+      runAt: (submissions.buyerReport_ws1 as { updatedAt?: string; generatedAt?: string })?.updatedAt
+        ?? (submissions.buyerReport_ws1 as { generatedAt?: string })?.generatedAt
+        ?? null,
+    },
+    ws2BuyerReport: {
+      hasRun: Boolean(submissions.buyerReport_ws2),
+      approved: manualApproval(approvals, 'ws2BuyerReport', 'ws2BuyerReport'),
+      runAt: (submissions.buyerReport_ws2 as { updatedAt?: string; generatedAt?: string })?.updatedAt
+        ?? (submissions.buyerReport_ws2 as { generatedAt?: string })?.generatedAt
+        ?? null,
+    },
     salesReadinessRoadmap: (() => {
       const stored = readRoadmapSubmission(submissions) ?? readChecklistSubmission(submissions)
       return {
@@ -524,6 +556,10 @@ export async function GET(req: NextRequest) {
       hasRun: check.hasRun,
       clientReleased: release.released,
       clientReleasedAt: release.releasedAt,
+      releaseSource: release.releaseSource,
+      externalValuationAvailable: Boolean(externalValuation),
+      externalValuationFileName: (externalValuation as { fileName?: string } | null)?.fileName ?? null,
+      externalValuationReportId: release.externalReportId ?? (externalValuation as { id?: string } | null)?.id ?? null,
       assignedTo: assignmentEntry?.assignedTo !== undefined ? (assignmentEntry.assignedTo ?? null) : clientAssignedAdvisor,
       runAt: check.runAt,
       tabKey: meta.tabKey,
@@ -561,6 +597,7 @@ export async function GET(req: NextRequest) {
       hasRun: check.hasRun,
       clientReleased: release.released,
       clientReleasedAt: release.releasedAt,
+      releaseSource: release.releaseSource,
       assignedTo: assignmentEntry?.assignedTo !== undefined ? (assignmentEntry.assignedTo ?? null) : clientAssignedAdvisor,
       runAt: check.runAt,
       tabKey: meta.tabKey,
@@ -599,6 +636,8 @@ export async function PATCH(req: NextRequest) {
     status,
     assignedTo,
     clientReleased,
+    releaseSource,
+    externalReportId,
     facilityReviewMode,
     advisorToRun,
     action,
@@ -628,6 +667,9 @@ export async function PATCH(req: NextRequest) {
   }
   if (typeof clientReleased !== 'undefined' && typeof clientReleased !== 'boolean') {
     return new Response('clientReleased must be a boolean', { status: 400 })
+  }
+  if (typeof releaseSource !== 'undefined' && releaseSource !== 'agent' && releaseSource !== 'external') {
+    return new Response('releaseSource must be agent or external', { status: 400 })
   }
   if (typeof facilityReviewMode !== 'undefined' && facilityReviewMode !== '360' && facilityReviewMode !== 'advisor') {
     return new Response('facilityReviewMode must be 360 or advisor', { status: 400 })
@@ -721,13 +763,48 @@ export async function PATCH(req: NextRequest) {
       return new Response('Agent output must be approved by Craig before client release', { status: 409 })
     }
     if (clientReleased) {
-      const releaseEntry = { released: true, releasedAt: new Date().toISOString() }
+      const selectedSource = releaseSource === 'external' ? 'external' : 'agent'
+      let selectedReportId: string | null = null
+      if (selectedSource === 'external') {
+        if (statusKey !== 'ttmAnalysis') return new Response('External valuation is only available for the Valuation Agent', { status: 400 })
+        const report = await (prisma as any).externalValuationReport.findFirst({
+          where: { clientId, ...(typeof externalReportId === 'string' && externalReportId ? { id: externalReportId } : {}) },
+          orderBy: { createdAt: 'desc' }, select: { id: true },
+        })
+        if (!report) return new Response('No uploaded external valuation report is available', { status: 409 })
+        selectedReportId = report.id
+      }
+      const releaseEntry = { released: true, releasedAt: new Date().toISOString(), releaseSource: selectedSource, externalReportId: selectedReportId }
       releases[agentId] = releaseEntry
       releases[statusKey] = releaseEntry
     } else {
-      delete releases[agentId]
-      delete releases[statusKey]
+      const prior = (releases[agentId] ?? releases[statusKey] ?? {}) as Record<string, unknown>
+      const releaseEntry = { ...prior, released: false, releasedAt: null }
+      releases[agentId] = releaseEntry
+      releases[statusKey] = releaseEntry
     }
+  }
+
+  if (typeof releaseSource !== 'undefined' && typeof clientReleased === 'undefined') {
+    if (statusKey !== 'ttmAnalysis') return new Response('Release source can only be changed for the Valuation Agent', { status: 400 })
+    let selectedReportId: string | null = null
+    if (releaseSource === 'external') {
+      const report = await (prisma as any).externalValuationReport.findFirst({
+        where: { clientId, ...(typeof externalReportId === 'string' && externalReportId ? { id: externalReportId } : {}) },
+        orderBy: { createdAt: 'desc' }, select: { id: true },
+      })
+      if (!report) return new Response('No uploaded external valuation report is available', { status: 409 })
+      selectedReportId = report.id
+    }
+    const prior = (releases[agentId] ?? releases[statusKey] ?? {}) as Record<string, unknown>
+    const releaseEntry = {
+      ...prior,
+      releaseSource,
+      externalReportId: selectedReportId,
+      released: prior.released === true,
+    }
+    releases[agentId] = releaseEntry
+    releases[statusKey] = releaseEntry
   }
 
   // Assignment-only clear when reverting with no assignee (legacy behavior)

@@ -45,6 +45,8 @@ type RoadmapReport = {
   stage: SaleReadinessRoadmapStage
   checklist?: SaleReadinessChecklistItem[]
   sourceAgents?: string[]
+  valuationSource?: 'agent' | 'external'
+  externalValuationFileName?: string
 }
 
 type RoadmapAgentSource = {
@@ -687,6 +689,8 @@ export default function ImprovementRoadmapTab({
 }) {
   const [report, setReport] = useState<RoadmapReport | null>(null)
   const [sources, setSources] = useState<RoadmapAgentSource[]>([])
+  const [externalReport, setExternalReport] = useState<{ id: string; fileName: string } | null>(null)
+  const [valuationSource, setValuationSource] = useState<'agent' | 'external'>('agent')
   const [excludedAgentIds, setExcludedAgentIds] = useState<string[]>([])
   const [canGenerateChecklist, setCanGenerateChecklist] = useState(false)
   const [sourcesChanged, setSourcesChanged] = useState(false)
@@ -695,6 +699,7 @@ export default function ImprovementRoadmapTab({
   const [generating, setGenerating] = useState<'checklist' | 'report' | null>(null)
   const [editingChecklist, setEditingChecklist] = useState(false)
   const [showAgentInputs, setShowAgentInputs] = useState(false)
+  const [composingNew, setComposingNew] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { provider, setProvider } = useAgentAiProvider()
   const {
@@ -715,6 +720,7 @@ export default function ImprovementRoadmapTab({
   const hasChecklist = Boolean(report)
   const hasFullReport = stage === 'report' && Boolean(report?.markdown?.trim())
   const readyCount = sources.filter(source => source.ready).length
+  const canRunRoadmap = canGenerateChecklist || (valuationSource === 'external' && Boolean(externalReport))
   const changedSourceNames = useMemo(
     () => sources.filter((s) => s.changed).map((s) => s.name),
     [sources],
@@ -727,10 +733,17 @@ export default function ImprovementRoadmapTab({
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setReport(data.report)
+      setValuationSource(data.report?.valuationSource === 'external' ? 'external' : 'agent')
       setSources(Array.isArray(data.sources) ? data.sources : [])
       setExcludedAgentIds(Array.isArray(data.report?.excludedAgentIds) ? data.report.excludedAgentIds : [])
       setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
       setSourcesChanged(Boolean(data.sourcesChanged))
+      const externalRes = await fetch(`/api/ttm-agent/external-report?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+      if (externalRes.ok) {
+        const externalData = await externalRes.json()
+        setExternalReport(externalData.report ? { id: externalData.report.id, fileName: externalData.report.fileName } : null)
+        if (!data.report) setValuationSource(externalData.report && externalData.releaseSource === 'external' ? 'external' : 'agent')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load roadmap.')
     }
@@ -742,7 +755,7 @@ export default function ImprovementRoadmapTab({
     ;(async () => {
       setLoading(true)
       try {
-        if (activeRun?.report) {
+        if (!composingNew && activeRun?.report) {
           setReport(activeRun.report as RoadmapReport)
         }
         // Always refresh source readiness for the start workspace.
@@ -750,10 +763,19 @@ export default function ImprovementRoadmapTab({
         if (!res.ok) throw new Error(await res.text())
         const data = await res.json()
         if (cancelled) return
-        if (!activeRun?.report) setReport(data.report)
+        if (composingNew) setReport(null)
+        else if (!activeRun?.report) setReport(data.report)
         setSources(Array.isArray(data.sources) ? data.sources : [])
         setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
         setSourcesChanged(Boolean(data.sourcesChanged))
+        const selectedReport = composingNew ? null : ((activeRun?.report as RoadmapReport | undefined) ?? data.report)
+        setValuationSource(selectedReport?.valuationSource === 'external' ? 'external' : 'agent')
+        const externalRes = await fetch(`/api/ttm-agent/external-report?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+        if (externalRes.ok) {
+          const externalData = await externalRes.json()
+          setExternalReport(externalData.report ? { id: externalData.report.id, fileName: externalData.report.fileName } : null)
+          if ((composingNew || (!activeRun?.report && !data.report))) setValuationSource(externalData.report && externalData.releaseSource === 'external' ? 'external' : 'agent')
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load roadmap.')
       } finally {
@@ -763,7 +785,7 @@ export default function ImprovementRoadmapTab({
     return () => {
       cancelled = true
     }
-  }, [activeRun, loadingRuns, clientId])
+  }, [activeRun, loadingRuns, clientId, composingNew])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -779,9 +801,32 @@ export default function ImprovementRoadmapTab({
   }
 
   function selectRun(run: AgentRunHistoryItem) {
+    setComposingNew(false)
     setActiveId(run.id)
     const full = runs.find((item) => item.id === run.id)
-    if (full?.report) setReport(full.report as RoadmapReport)
+    if (full?.report) {
+      setReport(full.report as RoadmapReport)
+      setValuationSource((full.report as RoadmapReport).valuationSource === 'external' ? 'external' : 'agent')
+    }
+  }
+
+  const startNewAnalysis = async () => {
+    setComposingNew(true)
+    setActiveId(null)
+    setReport(null)
+    setError(null)
+    setSourcesChanged(false)
+    setExcludedAgentIds([])
+    setShowAgentInputs(false)
+    try {
+      const res = await fetch(`/api/ttm-agent/external-report?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      setExternalReport(data.report ? { id: data.report.id, fileName: data.report.fileName } : null)
+      setValuationSource(data.report && data.releaseSource === 'external' ? 'external' : 'agent')
+    } catch {
+      setValuationSource('agent')
+    }
   }
 
   const persistRun = async (nextReport: RoadmapReport) => {
@@ -808,10 +853,11 @@ export default function ImprovementRoadmapTab({
         const res = await fetch('/api/improvement-roadmap', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, excludedAgentIds, provider, modelId: resolveAgentModelId(provider) }),
+            body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to generate roadmap.')
+        setComposingNew(false)
         setReport(data.report)
         setSourcesChanged(false)
         await persistRun(data.report)
@@ -821,10 +867,11 @@ export default function ImprovementRoadmapTab({
       const res = await fetch('/api/improvement-roadmap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, stage: nextStage, excludedAgentIds, provider, modelId: resolveAgentModelId(provider) }),
+        body: JSON.stringify({ clientId, stage: nextStage, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Failed to generate ${nextStage === 'checklist' ? 'checklist' : 'roadmap'}.`)
+      setComposingNew(false)
       setReport(data.report)
       setSourcesChanged(false)
       await persistRun(data.report)
@@ -997,7 +1044,9 @@ export default function ImprovementRoadmapTab({
                       {group.label}
                     </p>
                   )}
-                  {group.items.map(source => (
+                  {group.items.map(source => {
+                    const isValuationSource = source.key === 'ttm' || source.key === 'ttmAnalysis' || source.tabKey === 'ttm'
+                    return (
                     <div
                       key={source.key}
                       className={cn(
@@ -1052,6 +1101,13 @@ export default function ImprovementRoadmapTab({
                                     ? 'Agent report complete. Will be included when generating the checklist.'
                                     : 'Not generated yet — optional. Checklist can still run without this agent.'}
                               </p>
+                              {isValuationSource && <label className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                                <span>Valuation input:</span>
+                                <select aria-label="Valuation source for sales readiness roadmap" value={valuationSource} onChange={event => setValuationSource(event.target.value as 'agent' | 'external')} disabled={generating !== null} className="max-w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800">
+                                  <option value="agent">Cantara Valuation Agent</option>
+                                  <option value="external" disabled={!externalReport}>{externalReport ? `Uploaded report — ${externalReport.fileName}` : 'Uploaded valuation report (none uploaded)'}</option>
+                                </select>
+                              </label>}
                             </div>
                           </div>
                         </div>
@@ -1083,13 +1139,14 @@ export default function ImprovementRoadmapTab({
                         )}
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ))}
             </div>
           )}
 
-          {!canGenerateChecklist && (
+              {!canRunRoadmap && (
             <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-800 flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div>
@@ -1104,11 +1161,11 @@ export default function ImprovementRoadmapTab({
           {!readOnly && (
             <div className="sticky bottom-0 z-10 -mx-6 -mb-6 px-6 py-4 mt-2 border-t border-slate-200 bg-white/95 backdrop-blur-xs rounded-b-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="w-full sm:w-auto">
-                {canGenerateChecklist ? (
+                {canRunRoadmap ? (
                   <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>
-                      {readyCount} agent output{readyCount === 1 ? '' : 's'} ready — checklist can be generated.
+                      {valuationSource === 'external' ? `Uploaded valuation report selected${readyCount ? ` with ${readyCount} agent output${readyCount === 1 ? '' : 's'}` : ''} — checklist can be generated.` : `${readyCount} agent output${readyCount === 1 ? '' : 's'} ready — checklist can be generated.`}
                     </span>
                   </div>
                 ) : (
@@ -1120,7 +1177,7 @@ export default function ImprovementRoadmapTab({
               </div>
               <Button
                 onClick={() => void generate('checklist')}
-                disabled={generating !== null || !canGenerateChecklist}
+                disabled={generating !== null || !canRunRoadmap}
                 className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white"
               >
                 Generate Checklist
@@ -1141,11 +1198,17 @@ export default function ImprovementRoadmapTab({
           onProviderChange={setProvider}
           disabled={generating !== null}
           historyItems={historyItems}
-          activeId={activeId}
           onSelectRun={selectRun}
           activeProvider={activeRun?.aiProvider}
           activeModel={activeRun?.aiModel}
           activeVersion={activeRun?.version}
+          activeId={composingNew ? null : activeId}
+          rightActions={!readOnly && hasChecklist && !composingNew ? (
+            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => void startNewAnalysis()} disabled={generating !== null}>
+              <Plus className="w-3.5 h-3.5" />
+              New Analysis
+            </Button>
+          ) : undefined}
         />
       )}
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1186,7 +1249,7 @@ export default function ImprovementRoadmapTab({
             size="sm"
             variant="outline"
             onClick={() => void generate('checklist')}
-            disabled={generating !== null || editingChecklist || !canGenerateChecklist}
+            disabled={generating !== null || editingChecklist || !canRunRoadmap}
             className={cn(sourcesChanged && 'border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100')}
           >
             <RefreshCw className={cn('w-3.5 h-3.5', generating === 'checklist' && 'animate-spin')} />
@@ -1258,7 +1321,7 @@ export default function ImprovementRoadmapTab({
           <Button
             type="button"
             size="sm"
-            disabled={generating !== null || editingChecklist || !canGenerateChecklist}
+            disabled={generating !== null || editingChecklist || !canRunRoadmap}
             onClick={() => void generate('checklist')}
             className="h-8 text-xs shrink-0 bg-amber-700 hover:bg-amber-800 text-white"
           >

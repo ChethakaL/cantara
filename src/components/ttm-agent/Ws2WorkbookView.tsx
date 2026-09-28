@@ -49,7 +49,7 @@ function negClass(value: number | null | undefined): string {
 
 type TabId = 'valuation' | 'pl-summary' | 'normalization' | 'revenue' | 'benchmarks' | 'labor'
 
-const TABS: { id: TabId; label: string }[] = [
+export const WS2_REPORT_TABS: { id: TabId; label: string }[] = [
   { id: 'valuation', label: 'Valuation' },
   { id: 'pl-summary', label: 'P&L / 4-Wall EBITDA' },
   { id: 'normalization', label: 'Normalization Items' },
@@ -281,6 +281,7 @@ export function Ws2WorkbookView({
     valuation: Record<string, { low: number; mid: number; high: number }>
     normLines: Array<{ id?: string; description: string; source?: string; byPeriod?: Record<string, number> }>
   } | undefined
+  const isExternalReport = (recast as any).parsedReport?.externalReport === true
 
   const getPreRecast = useCallback(
     (periodKey: PeriodKey): number => {
@@ -295,13 +296,13 @@ export function Ws2WorkbookView({
       // Fallback: Use Net Income (not EBITDA) as the pre-recast baseline per methodology v2.
       // Net Income includes Other Income (PPP/ERC). Falls back to EBITDA if netIncome not available.
       switch (periodKey) {
-        case 'ltm': return (years[2] as any)?.netIncome ?? analysis.ttmSummary?.ebitdaPreRecast ?? 0
-        case 'fy3': return (years[2] as any)?.netIncome ?? years[2]?.ebitdaPreRecast ?? 0
-        case 'fy2': return (years[1] as any)?.netIncome ?? years[1]?.ebitdaPreRecast ?? 0
-        case 'fy1': return (years[0] as any)?.netIncome ?? years[0]?.ebitdaPreRecast ?? 0
+        case 'ltm': return (years[2] as any)?.netIncome ?? analysis.ttmSummary?.ebitdaPreRecast ?? (isExternalReport ? Number.NaN : 0)
+        case 'fy3': return (years[2] as any)?.netIncome ?? years[2]?.ebitdaPreRecast ?? (isExternalReport ? Number.NaN : 0)
+        case 'fy2': return (years[1] as any)?.netIncome ?? years[1]?.ebitdaPreRecast ?? (isExternalReport ? Number.NaN : 0)
+        case 'fy1': return (years[0] as any)?.netIncome ?? years[0]?.ebitdaPreRecast ?? (isExternalReport ? Number.NaN : 0)
       }
     },
-    [analysis, years, llmResult, getTabOverride],
+    [analysis, years, llmResult, getEffectiveTabOverride, isExternalReport],
   )
 
   const getRevenue = useCallback(
@@ -309,13 +310,13 @@ export function Ws2WorkbookView({
       const override = getEffectiveTabOverride('valuation:revenue', periodKey)
       if (override !== undefined) return override
       switch (periodKey) {
-        case 'ltm': return analysis.ttmSummary?.totalRevenue ?? 0
-        case 'fy3': return years[2]?.totalRevenue ?? 0
-        case 'fy2': return years[1]?.totalRevenue ?? 0
-        case 'fy1': return years[0]?.totalRevenue ?? 0
+        case 'ltm': return analysis.ttmSummary?.totalRevenue ?? (isExternalReport ? Number.NaN : 0)
+        case 'fy3': return years[2]?.totalRevenue ?? (isExternalReport ? Number.NaN : 0)
+        case 'fy2': return years[1]?.totalRevenue ?? (isExternalReport ? Number.NaN : 0)
+        case 'fy1': return years[0]?.totalRevenue ?? (isExternalReport ? Number.NaN : 0)
       }
     },
-    [analysis, years, getTabOverride],
+    [analysis, years, getEffectiveTabOverride, isExternalReport],
   )
 
   // Computed totals per period — LLM values are source of truth when available
@@ -802,9 +803,9 @@ export function Ws2WorkbookView({
             ? recast.assumptions?.multipleMid
             : recast.assumptions?.multipleHigh) ??
         multiple
-      return totals.ltm.normalizedEbitda * effectiveMult
+      return isExternalReport && !Number.isFinite(totals.ltm.normalizedEbitda) ? Number.NaN : totals.ltm.normalizedEbitda * effectiveMult
     },
-    [getEffectiveTabOverride, savedLtmValuation, llmResult, totals.ltm.normalizedEbitda, recast.assumptions, multiple],
+    [getEffectiveTabOverride, savedLtmValuation, llmResult, totals.ltm.normalizedEbitda, recast.assumptions, multiple, isExternalReport],
   )
 
   // ── TAB: Valuation ─────────────────────────────────────────────────────
@@ -820,14 +821,14 @@ export function Ws2WorkbookView({
       const override = getEffectiveTabOverride('valuation:value-low', periodKey)
       if (override !== undefined) return override
       const lk = periodKey.toUpperCase()
-      return llmResult?.valuation?.[lk]?.low ?? totals[periodKey].normalizedEbitda * getMultipleLow(periodKey)
+      return llmResult?.valuation?.[lk]?.low ?? (isExternalReport && !Number.isFinite(totals[periodKey].normalizedEbitda) ? Number.NaN : totals[periodKey].normalizedEbitda * getMultipleLow(periodKey))
     }
     const getValuationHigh = (periodKey: PeriodKey) => {
       if (periodKey === 'ltm') return ltmValuationAmount('high')
       const override = getEffectiveTabOverride('valuation:value-high', periodKey)
       if (override !== undefined) return override
       const lk = periodKey.toUpperCase()
-      return llmResult?.valuation?.[lk]?.high ?? totals[periodKey].normalizedEbitda * getMultipleHigh(periodKey)
+      return llmResult?.valuation?.[lk]?.high ?? (isExternalReport && !Number.isFinite(totals[periodKey].normalizedEbitda) ? Number.NaN : totals[periodKey].normalizedEbitda * getMultipleHigh(periodKey))
     }
     return (
       <div className="space-y-4">
@@ -1906,7 +1907,7 @@ export function Ws2WorkbookView({
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200 overflow-x-auto">
-        {TABS.map((tab) => (
+        {WS2_REPORT_TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"

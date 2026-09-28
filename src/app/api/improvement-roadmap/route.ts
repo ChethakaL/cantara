@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { createAgentMessage } from '@/lib/llm-completion'
+import { createAgentMessage, type AgentMessageBlock } from '@/lib/llm-completion'
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
@@ -24,6 +24,7 @@ import {
   type SaleReadinessRoadmapStage,
 } from '@/lib/sale-readiness-checklist'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
+import { loadExternalValuationContext } from '@/lib/external-valuation-context'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -40,6 +41,9 @@ type RoadmapReport = {
   stage: SaleReadinessRoadmapStage
   checklist?: SaleReadinessChecklistItem[]
   sourceAgents?: string[]
+  valuationSource?: 'agent' | 'external'
+  externalValuationReportId?: string
+  externalValuationFileName?: string
   sourceFingerprints?: Record<string, string>
   excludedAgentIds?: string[]
 }
@@ -63,6 +67,9 @@ function withChecklist(report: Record<string, any> | null, checklistItems: SaleR
     stage,
     checklist: checklistItems ?? (Array.isArray(report?.checklist) ? report.checklist : []),
     sourceAgents: sourceAgents ?? (Array.isArray(report?.sourceAgents) ? report.sourceAgents : []),
+    valuationSource: report?.valuationSource === 'external' ? 'external' : 'agent',
+    externalValuationReportId: typeof report?.externalValuationReportId === 'string' ? report.externalValuationReportId : undefined,
+    externalValuationFileName: typeof report?.externalValuationFileName === 'string' ? report.externalValuationFileName : undefined,
     excludedAgentIds: Array.isArray(report?.excludedAgentIds) ? report.excludedAgentIds : [],
     sourceFingerprints: report?.sourceFingerprints && typeof report.sourceFingerprints === 'object'
       ? report.sourceFingerprints
@@ -163,14 +170,27 @@ export async function POST(req: NextRequest) {
   const excludedAgentIds: Set<string> = Array.isArray(body.excludedAgentIds)
     ? new Set(body.excludedAgentIds.map((id: unknown) => normalizeAgentStatusKey(String(id))))
     : new Set<string>()
+  const valuationSource = body.valuationSource === 'external' ? 'external' : 'agent'
+  let externalValuation: Awaited<ReturnType<typeof loadExternalValuationContext>> | null = null
+  if (valuationSource === 'external') {
+    try {
+      externalValuation = await loadExternalValuationContext(clientId, String(body.externalReportId || ''))
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to load the selected uploaded valuation report.' }, { status: 404 })
+    }
+  }
   const agentData = (await gatherCompletedAgentOutputs(clientId, assignedAgents))
+    .filter((agent) => !externalValuation || !['ttm', 'ttmAnalysis', 'valuationAgent'].includes(normalizeAgentStatusKey(agent.agentId)))
     .filter((agent) => !excludedAgentIds.has(normalizeAgentStatusKey(agent.agentId)))
-  if (!agentData.length) {
+  if (!agentData.length && !externalValuation) {
     return NextResponse.json({ error: 'No completed agent outputs found. Run at least one agent first.' }, { status: 409 })
   }
 
   const clientName = client.businessName
-  const sourceAgents = agentData.map(agent => agent.agentName)
+  const sourceAgents = [
+    ...agentData.map(agent => agent.agentName),
+    ...(externalValuation ? [`Uploaded Valuation Report — ${externalValuation.fileName}`] : []),
+  ]
   const sourceFingerprints = await collectRoadmapSourceFingerprints(
     clientId,
     agentData.map((a) => a.agentId),
@@ -178,6 +198,12 @@ export async function POST(req: NextRequest) {
   )
   const existingReport = readRoadmapSubmission(submissions)
   if (stage === 'report' && existingReport) {
+    if ((existingReport.valuationSource === 'external' ? 'external' : 'agent') !== valuationSource) {
+      return NextResponse.json({ error: 'Valuation source changed. Regenerate the checklist with the selected valuation source before generating the full roadmap.' }, { status: 409 })
+    }
+    if (valuationSource === 'external' && existingReport.externalValuationReportId && existingReport.externalValuationReportId !== String(body.externalReportId || '')) {
+      return NextResponse.json({ error: 'The uploaded valuation report changed. Regenerate the checklist with the currently selected report before generating the full roadmap.' }, { status: 409 })
+    }
     const previousExcluded = new Set<string>((existingReport.excludedAgentIds ?? []).map((id: unknown) => normalizeAgentStatusKey(String(id))))
     const selectionsMatch = previousExcluded.size === excludedAgentIds.size
       && Array.from(previousExcluded).every((id) => excludedAgentIds.has(id))
@@ -198,7 +224,7 @@ export async function POST(req: NextRequest) {
 
   if (stage === 'checklist') {
     const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
-      generateChecklistMarkdown({ clientName, agentData }),
+      generateChecklistMarkdown({ clientName, agentData, externalValuation }),
     )
     const checklistItems = extractSaleReadinessChecklist(markdown, existingItems)
     if (!checklistItems.length) {
@@ -213,6 +239,9 @@ export async function POST(req: NextRequest) {
       stage: 'checklist',
       checklist: checklistItems,
       sourceAgents,
+      valuationSource,
+      ...(externalValuation ? { externalValuationReportId: String(body.externalReportId) } : {}),
+      ...(externalValuation ? { externalValuationFileName: externalValuation.fileName } : {}),
       sourceFingerprints,
       excludedAgentIds: Array.from(excludedAgentIds),
     }, checklistItems)
@@ -230,6 +259,7 @@ export async function POST(req: NextRequest) {
       agentData,
       approved,
       skipped: existingItems.filter(item => !item.advisorApproved),
+      externalValuation,
     }),
   )
   const report = await saveRoadmap(clientId, submissions, {
@@ -242,6 +272,9 @@ export async function POST(req: NextRequest) {
     stage: 'report',
     checklist: existingItems,
     sourceAgents,
+    valuationSource,
+    ...(externalValuation ? { externalValuationReportId: String(body.externalReportId) } : {}),
+    ...(externalValuation ? { externalValuationFileName: externalValuation.fileName } : {}),
     sourceFingerprints,
     excludedAgentIds: Array.from(excludedAgentIds),
   }, existingItems)
@@ -329,10 +362,9 @@ function checklistTable(items: SaleReadinessChecklistItem[]) {
 async function generateChecklistMarkdown(args: {
   clientName: string
   agentData: Array<{ agentName: string; excerpt: string }>
+  externalValuation: Awaited<ReturnType<typeof loadExternalValuationContext>> | null
 }) {
-  return createAgentMessage({
-    system: `You are a senior M&A advisor at Cantara Pet Advisors. You create a sale-readiness checklist from completed diligence agent outputs only. Do not invent findings that are not supported by the source data. Return markdown only.`,
-    content: `Create a Sale-Readiness Checklist for **${args.clientName}** using ONLY the completed agent outputs below.
+  const userText = `Create a Sale-Readiness Checklist for **${args.clientName}** using ONLY the completed agent outputs below.${args.externalValuation ? ` Use the attached uploaded valuation report (${args.externalValuation.fileName}) as the valuation source. Do not use any Cantara Valuation Agent output.` : ''}
 
 Completed agents: ${args.agentData.map(agent => agent.agentName).join(', ')}
 
@@ -356,7 +388,10 @@ Return exactly this structure:
 
 ## Source Data
 
-${agentDataBlock(args.agentData)}`,
+${agentDataBlock(args.agentData)}`
+  return createAgentMessage({
+    system: `You are a senior M&A advisor at Cantara Pet Advisors. You create a sale-readiness checklist from completed diligence agent outputs only. Do not invent findings that are not supported by the source data. Return markdown only.`,
+    content: [...(args.externalValuation?.blocks ?? []), { type: 'text', text: userText }],
     maxTokens: 8000,
     temperature: 0.15,
   })
@@ -367,6 +402,7 @@ async function generateFullReportMarkdown(args: {
   agentData: Array<{ agentName: string; excerpt: string }>
   approved: SaleReadinessChecklistItem[]
   skipped: SaleReadinessChecklistItem[]
+  externalValuation: Awaited<ReturnType<typeof loadExternalValuationContext>> | null
 }) {
   const firstName = args.clientName.split(' ')[0] || 'Seller'
   return createAgentMessage({
@@ -392,7 +428,7 @@ CRITICAL RULES:
 - Do not recommend requiring a standalone Seller Non-Compete
 
 Return markdown only. Do not include any preamble.`,
-    content: `Generate a comprehensive Sales Readiness Roadmap for **${args.clientName}**.
+    content: [...(args.externalValuation?.blocks ?? []), { type: 'text', text: `Generate a comprehensive Sales Readiness Roadmap for **${args.clientName}**.${args.externalValuation ? ` Use the attached uploaded valuation report ${args.externalValuation.fileName} as the valuation source; never use a Cantara Valuation Agent output.` : ''}
 
 This is a SELLER-FACING document. The advisor has already reviewed and edited the checklist. Use the approved items EXACTLY as written — including the advisor's wording for category, item, status, and action needed. Do not replace their text with your own phrasing.
 
@@ -468,7 +504,7 @@ Provide a thorough category-by-category breakdown for APPROVED findings only. Us
 
 Completed agents: ${args.agentData.map(agent => agent.agentName).join(', ')}
 
-${agentDataBlock(args.agentData)}`,
+${agentDataBlock(args.agentData)}` }],
     maxTokens: 16000,
     temperature: 0.15,
   })

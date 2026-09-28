@@ -238,6 +238,40 @@ async function completeOpenAiWithBlocks(args: {
   return completion.choices[0]?.message?.content?.trim() ?? "";
 }
 
+async function completeBedrockWithBlocks(args: {
+  model: string
+  system: string
+  content: AgentMessageBlock[]
+  maxTokens?: number
+  temperature?: number
+}): Promise<string> {
+  const client = await requireAIClient()
+  const content = [] as any[]
+  for (const block of args.content) {
+    if (block.type === "text" && block.text.trim()) content.push({ type: "text", text: block.text })
+    if (block.type === "document" && block.source?.data) {
+      const mediaType = (block.source.media_type || "application/pdf").toLowerCase()
+      if (mediaType === "application/pdf") {
+        content.push({ type: "document", source: { type: "base64", media_type: mediaType, data: block.source.data } })
+      } else {
+        const extracted = await agentMessageBlocksToText([block])
+        content.push({ type: "text", text: `${block.title || "Attached document"}:\n${extracted}` })
+      }
+    }
+    if (block.type === "image" && block.source?.data) {
+      content.push({ type: "image", source: { type: "base64", media_type: block.source.media_type || "image/jpeg", data: block.source.data } })
+    }
+  }
+  const response = await client.messages.create({
+    model: resolveModel(args.model),
+    max_tokens: args.maxTokens ?? 16000,
+    temperature: args.temperature ?? 0,
+    system: args.system,
+    messages: [{ role: "user", content: content.length ? content : [{ type: "text", text: "(No content provided.)" }] }],
+  } as any)
+  return response.content.filter((item: any) => item.type === "text").map((item: any) => item.text).join("").trim()
+}
+
 async function streamOpenAiWithBlocks(args: {
   model: string;
   system: string;
@@ -285,6 +319,16 @@ export async function createAgentMessage(args: CreateAgentMessageArgs): Promise<
       maxTokens: args.maxTokens,
       temperature: args.temperature,
     });
+  }
+
+  if (provider === "bedrock" && Array.isArray(args.content) && blocksNeedOpenAiMultimodal(args.content)) {
+    return completeBedrockWithBlocks({
+      model,
+      system: args.system,
+      content: args.content,
+      maxTokens: args.maxTokens,
+      temperature: args.temperature,
+    })
   }
 
   const userText =

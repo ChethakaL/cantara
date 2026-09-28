@@ -17,10 +17,10 @@ import type { MappedLedgerRow, TtmAnalysisView, TtmRequiredDocumentId } from '@/
 import { useAgentAiProvider } from '@/hooks/useAgentAiProvider'
 import { AgentProviderBar } from '@/components/admin/AgentProviderBar'
 import { AgentReportHistoryBar } from '@/components/admin/AgentReportHistoryBar'
-import { formatAgentProviderLabel } from '@/lib/agent-model-provider'
 import { resolveAgentModelId } from '@/lib/agent-model-provider'
 import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
 import { listClientDocuments, type ClientUploadedDoc } from '@/lib/client-documents-client'
+import { ExternalValuationReport } from '@/components/ttm-agent/ExternalValuationReport'
 
 export interface ValuationDocDef {
   id: string
@@ -776,6 +776,8 @@ export function TtmAnalysisTab({
   const [composingNew, setComposingNew] = useState(false)
   const [uploadedDocsMap, setUploadedDocsMap] = useState<Record<string, ClientUploadedDoc[]>>({})
   const [loadingDocs, setLoadingDocs] = useState(false)
+  const [usingExternalReport, setUsingExternalReport] = useState(false)
+  const [savedValuationSourceLoaded, setSavedValuationSourceLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const adminEmail = useMemo(() => getAdminEmail(), [])
   const [baselineBuildState, setBaselineBuildState] = useState<{
@@ -790,6 +792,19 @@ export function TtmAnalysisTab({
     error: null,
   })
   const { provider, setProvider, recordModelUsed } = useAgentAiProvider()
+
+  useEffect(() => {
+    let active = true
+    void fetch(`/api/ttm-agent/external-report?clientId=${encodeURIComponent(clientId)}`)
+      .then(async (res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (!active) return
+        if (data?.releaseSource === 'external' && data.report) setUsingExternalReport(true)
+        setSavedValuationSourceLoaded(true)
+      })
+      .catch(() => { if (active) setSavedValuationSourceLoaded(true) })
+    return () => { active = false }
+  }, [clientId])
 
   const reloadDocuments = useCallback(async () => {
     setLoadingDocs(true)
@@ -1271,8 +1286,8 @@ export function TtmAnalysisTab({
                 aiModel: analysis.model,
               }))}
               activeId={composingNew ? null : activeAnalysis?.id}
-              activeProvider={composingNew ? null : activeAnalysis?.aiProvider}
-              activeModel={composingNew ? null : activeAnalysis?.model}
+              activeProvider={null}
+              activeModel={null}
               activeVersion={composingNew ? null : activeAnalysis?.version}
               onSelect={(run) => {
                 setComposingNew(false)
@@ -1288,6 +1303,15 @@ export function TtmAnalysisTab({
               disabled={running || baselineBuildState.running}
             />
           )}
+          <Button
+            variant={usingExternalReport ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => setUsingExternalReport(true)}
+            className="gap-1.5 h-8 font-medium"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Use own valuation report
+          </Button>
           {activeAnalysis && !readOnly && !composingNew && (
             <>
               <Button
@@ -1322,6 +1346,12 @@ export function TtmAnalysisTab({
           )}
         </div>
       </div>
+
+      {!savedValuationSourceLoaded ? (
+        <Card className="p-8 text-center text-sm text-slate-500">Loading the selected valuation report…</Card>
+      ) : usingExternalReport ? (
+        <ExternalValuationReport clientId={clientId} provider={provider} onBack={() => setUsingExternalReport(false)} readOnly={readOnly} />
+      ) : <>
 
       {/* 4-Step Valuation Workflow Bar */}
       {activeAnalysis && !isFailed && !composingNew && (
@@ -1647,6 +1677,7 @@ export function TtmAnalysisTab({
           />
         </div>
       )}
+      </>}
     </div>
   )
 }

@@ -236,10 +236,19 @@ function DeleteConfirmModal({
 function AgentSourceRow({
   source,
   onOpen,
+  valuationSource,
+  externalReport,
+  onValuationSourceChange,
+  disabled,
 }: {
   source: AgentSourceItem
   onOpen: (tabKey: string) => void
+  valuationSource: 'agent' | 'external'
+  externalReport: { id: string; fileName: string } | null
+  onValuationSourceChange: (source: 'agent' | 'external') => void
+  disabled: boolean
 }) {
+  const isValuation = source.key === 'ttm' || source.key === 'ttmAnalysis' || source.tabKey === 'ttm'
   return (
     <div
       className={cn(
@@ -304,10 +313,18 @@ function AgentSourceRow({
                   ? 'Not generated yet (required — must be submitted in the roadmap agent before generating).'
                   : 'Not generated yet (optional — buyer report compiles with or without this agent output).'}
               </p>
+              {isValuation && <label className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                <span>Valuation input:</span>
+                <select aria-label="Valuation source for buyer report" value={valuationSource} onChange={e => onValuationSourceChange(e.target.value as 'agent' | 'external')} disabled={disabled} className="max-w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800">
+                  <option value="agent">Cantara Valuation Agent</option>
+                  <option value="external" disabled={!externalReport}>{externalReport ? `Uploaded report — ${externalReport.fileName}` : 'Uploaded valuation report (none uploaded)'}</option>
+                </select>
+              </label>}
             </div>
           </div>
         </div>
 
+        <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
         <Button
           type="button"
           variant="outline"
@@ -319,6 +336,7 @@ function AgentSourceRow({
           <span>Open Agent</span>
           <ExternalLink className="w-3 h-3 text-slate-400" />
         </Button>
+        </div>
       </div>
     </div>
   )
@@ -339,6 +357,8 @@ export default function BuyerReportTab({
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [roadmapReady, setRoadmapReady] = useState(false)
+  const [externalReport, setExternalReport] = useState<{ id: string; fileName: string } | null>(null)
+  const [valuationSource, setValuationSource] = useState<'agent' | 'external'>('agent')
   const [sourcesChanged, setSourcesChanged] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -413,17 +433,27 @@ export default function BuyerReportTab({
       setRoadmapReady(Boolean(data.roadmapReady))
       setSources(data.sources || [])
       setSourcesChanged(Boolean(data.sourcesChanged))
+      if (!activeRun?.report || composingNew) setValuationSource(data.report?.valuationSource === 'external' ? 'external' : 'agent')
+      const externalRes = await fetch(`/api/ttm-agent/external-report?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
+      if (externalRes.ok) {
+        const externalData = await externalRes.json()
+        setExternalReport(externalData.report ? { id: externalData.report.id, fileName: externalData.report.fileName } : null)
+        if (!activeRun?.report || composingNew) {
+          setValuationSource(externalData.report && externalData.releaseSource === 'external' ? 'external' : 'agent')
+        }
+      }
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load buyer report.')
     } finally {
       setLoading(false)
     }
-  }, [clientId, workstream, activeRun])
+  }, [clientId, workstream, activeRun, composingNew])
 
   useEffect(() => {
     if (loadingRuns || composingNew) return
     if (activeRun?.report) {
       setReport(activeRun.report as BuyerReport)
+      setValuationSource((activeRun.report as any).valuationSource === 'external' ? 'external' : 'agent')
       setLoading(false)
       void loadFromApi()
       return
@@ -435,7 +465,10 @@ export default function BuyerReportTab({
     setComposingNew(false)
     setActiveId(run.id)
     const full = runs.find((item) => item.id === run.id)
-    if (full?.report) setReport(full.report as BuyerReport)
+    if (full?.report) {
+      setReport(full.report as BuyerReport)
+      setValuationSource((full.report as any).valuationSource === 'external' ? 'external' : 'agent')
+    }
   }
 
   const handleRefresh = async () => {
@@ -462,6 +495,8 @@ export default function BuyerReportTab({
           workstream,
           provider,
           modelId: resolveAgentModelId(provider),
+          valuationSource,
+          externalReportId: externalReport?.id,
         }),
       })
       const data = await res.json()
@@ -474,7 +509,7 @@ export default function BuyerReportTab({
         fileName: `${clientName} — ${wsLabel} Buyer Report`,
         report: data.report,
         markdown: data.report?.markdown,
-        metadata: { workstream },
+        metadata: { workstream, valuationSource, externalReportId: externalReport?.id ?? null },
         aiProvider: provider,
         aiModel: resolveAgentModelId(provider),
       })
@@ -641,7 +676,6 @@ export default function BuyerReportTab({
             activeVersion={activeRun?.version}
           />
         )}
-
         {error && (
           <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 px-4 py-3 rounded-lg">
             <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600" />
@@ -798,7 +832,6 @@ export default function BuyerReportTab({
           activeVersion={composingNew ? null : activeRun?.version}
         />
       )}
-
       {sourcesChanged && !readOnly && (
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
           <div className="flex items-start gap-2.5 min-w-0">
@@ -870,7 +903,7 @@ export default function BuyerReportTab({
         {/* Required Slot Row */}
         <div className="space-y-3">
           {requiredSources.map((source) => (
-            <AgentSourceRow key={source.key} source={source} onOpen={handleOpenAgent} />
+            <AgentSourceRow key={source.key} source={source} onOpen={handleOpenAgent} valuationSource={valuationSource} externalReport={externalReport} onValuationSourceChange={setValuationSource} disabled={generating} />
           ))}
           {requiredSources.length === 0 && (
             <AgentSourceRow
@@ -883,6 +916,10 @@ export default function BuyerReportTab({
                 note: 'Strategic action plan and seller readiness rating. Required to generate buyer report.',
               }}
               onOpen={handleOpenAgent}
+              valuationSource={valuationSource}
+              externalReport={externalReport}
+              onValuationSourceChange={setValuationSource}
+              disabled={generating}
             />
           )}
         </div>
@@ -914,7 +951,7 @@ export default function BuyerReportTab({
         {/* Optional Slot Rows */}
         <div className="space-y-3">
           {optionalSources.map((source) => (
-            <AgentSourceRow key={source.key} source={source} onOpen={handleOpenAgent} />
+            <AgentSourceRow key={source.key} source={source} onOpen={handleOpenAgent} valuationSource={valuationSource} externalReport={externalReport} onValuationSourceChange={setValuationSource} disabled={generating} />
           ))}
         </div>
 
