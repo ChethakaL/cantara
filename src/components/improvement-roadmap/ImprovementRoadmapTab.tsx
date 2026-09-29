@@ -33,7 +33,7 @@ import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
 import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 import { getStatusBadgeKind, isStatusCell } from '@/lib/report-export/status-cell'
-import { createChecklistItem, exportSaleReadinessChecklistExcel, type SaleReadinessChecklistItem, type SaleReadinessRoadmapStage } from '@/lib/sale-readiness-checklist'
+import { createChecklistItem, exportSaleReadinessChecklistExcel, sortSaleReadinessChecklist, type SaleReadinessChecklistItem, type SaleReadinessChecklistOrder, type SaleReadinessRoadmapStage } from '@/lib/sale-readiness-checklist'
 import { isFlagTitleLine, isItemApprovedInMarkdown, normalizeTitleKey, toggleItemApprovalInMarkdown } from '@/lib/roadmap-flag-items'
 
 type RoadmapReport = {
@@ -44,6 +44,7 @@ type RoadmapReport = {
   markdown: string
   stage: SaleReadinessRoadmapStage
   checklist?: SaleReadinessChecklistItem[]
+  checklistOrder?: SaleReadinessChecklistOrder
   sourceAgents?: string[]
   valuationSource?: 'agent' | 'external'
   externalValuationFileName?: string
@@ -118,6 +119,8 @@ function ChecklistApprovalPanel({
   sourceAgents = [],
   changedSourceNames = [],
   disabled = false,
+  checklistOrder = 'category',
+  onOrderChange,
   onUpdated,
   onEditingChange,
 }: {
@@ -127,6 +130,8 @@ function ChecklistApprovalPanel({
   sourceAgents?: string[]
   changedSourceNames?: string[]
   disabled?: boolean
+  checklistOrder?: SaleReadinessChecklistOrder
+  onOrderChange: (order: SaleReadinessChecklistOrder) => void
   onUpdated: (items: SaleReadinessChecklistItem[]) => void
   onEditingChange?: (editing: boolean) => void
 }) {
@@ -134,7 +139,7 @@ function ChecklistApprovalPanel({
   const [draft, setDraft] = useState<SaleReadinessChecklistItem[]>(items)
   const [updating, setUpdating] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const rows = editing ? draft : items
+  const rows = sortSaleReadinessChecklist(editing ? draft : items, checklistOrder)
   const approvedCount = rows.filter(item => item.advisorApproved).length
   const changedNameSet = useMemo(() => {
     const set = new Set(changedSourceNames.map((n) => n.trim().toLowerCase()))
@@ -249,7 +254,20 @@ function ChecklistApprovalPanel({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center justify-end gap-2.5">
+          <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600">
+            <span className="whitespace-nowrap">Group by</span>
+            <select
+              aria-label="Group roadmap items by"
+              value={checklistOrder}
+              disabled={disabled || updating !== null}
+              onChange={(event) => onOrderChange(event.target.value as SaleReadinessChecklistOrder)}
+              className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <option value="category">Category</option>
+              <option value="status">Status (Red, Yellow, Green)</option>
+            </select>
+          </label>
           {editing ? (
             <>
               <button
@@ -296,7 +314,7 @@ function ChecklistApprovalPanel({
             <button
               type="button"
               disabled={disabled}
-              onClick={() => exportSaleReadinessChecklistExcel(items, clientName)}
+              onClick={() => exportSaleReadinessChecklistExcel(rows, clientName)}
               className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
               title="Download Checklist as Excel (.xlsx)"
             >
@@ -691,6 +709,7 @@ export default function ImprovementRoadmapTab({
   const [sources, setSources] = useState<RoadmapAgentSource[]>([])
   const [externalReport, setExternalReport] = useState<{ id: string; fileName: string } | null>(null)
   const [valuationSource, setValuationSource] = useState<'agent' | 'external'>('agent')
+  const [checklistOrder, setChecklistOrder] = useState<SaleReadinessChecklistOrder>('category')
   const [excludedAgentIds, setExcludedAgentIds] = useState<string[]>([])
   const [canGenerateChecklist, setCanGenerateChecklist] = useState(false)
   const [sourcesChanged, setSourcesChanged] = useState(false)
@@ -733,6 +752,7 @@ export default function ImprovementRoadmapTab({
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setReport(data.report)
+      setChecklistOrder(data.report?.checklistOrder === 'status' ? 'status' : 'category')
       setValuationSource(data.report?.valuationSource === 'external' ? 'external' : 'agent')
       setSources(Array.isArray(data.sources) ? data.sources : [])
       setExcludedAgentIds(Array.isArray(data.report?.excludedAgentIds) ? data.report.excludedAgentIds : [])
@@ -755,20 +775,26 @@ export default function ImprovementRoadmapTab({
     ;(async () => {
       setLoading(true)
       try {
-        if (!composingNew && activeRun?.report) {
-          setReport(activeRun.report as RoadmapReport)
-        }
         // Always refresh source readiness for the start workspace.
         const res = await fetch(`/api/improvement-roadmap?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
         if (!res.ok) throw new Error(await res.text())
         const data = await res.json()
         if (cancelled) return
+        const activeRunReport = activeRun?.report as RoadmapReport | undefined
+        const activeRunIsLatest = Boolean(activeRun && runs[0]?.id === activeRun.id)
+        // The canonical roadmap submission is updated by checklist edits and inline report edits.
+        // AgentAnalysisRun entries are immutable snapshots, so prefer that canonical state for the
+        // newest run while retaining snapshots when an older history entry is selected.
+        const reportToDisplay = activeRunIsLatest && data.report
+          ? data.report as RoadmapReport
+          : activeRunReport ?? data.report
         if (composingNew) setReport(null)
-        else if (!activeRun?.report) setReport(data.report)
+        else setReport(reportToDisplay ?? null)
+        setChecklistOrder(reportToDisplay?.checklistOrder === 'status' ? 'status' : 'category')
         setSources(Array.isArray(data.sources) ? data.sources : [])
         setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
         setSourcesChanged(Boolean(data.sourcesChanged))
-        const selectedReport = composingNew ? null : ((activeRun?.report as RoadmapReport | undefined) ?? data.report)
+        const selectedReport = composingNew ? null : reportToDisplay
         setValuationSource(selectedReport?.valuationSource === 'external' ? 'external' : 'agent')
         const externalRes = await fetch(`/api/ttm-agent/external-report?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
         if (externalRes.ok) {
@@ -785,7 +811,7 @@ export default function ImprovementRoadmapTab({
     return () => {
       cancelled = true
     }
-  }, [activeRun, loadingRuns, clientId, composingNew])
+  }, [activeRun, runs, loadingRuns, clientId, composingNew])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -853,7 +879,7 @@ export default function ImprovementRoadmapTab({
         const res = await fetch('/api/improvement-roadmap', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id }),
+            body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, checklistOrder, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to generate roadmap.')
@@ -867,7 +893,7 @@ export default function ImprovementRoadmapTab({
       const res = await fetch('/api/improvement-roadmap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, stage: nextStage, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id }),
+        body: JSON.stringify({ clientId, stage: nextStage, checklistOrder, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Failed to generate ${nextStage === 'checklist' ? 'checklist' : 'roadmap'}.`)
@@ -1380,6 +1406,23 @@ export default function ImprovementRoadmapTab({
             sourceAgents={report?.sourceAgents ?? []}
             changedSourceNames={changedSourceNames}
             disabled={generating !== null}
+            checklistOrder={checklistOrder}
+            onOrderChange={async (order) => {
+              setChecklistOrder(order)
+              setReport(current => current ? { ...current, checklistOrder: order } : current)
+              try {
+                const res = await fetch('/api/improvement-roadmap', {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ clientId, checklistOrder: order }),
+                })
+                const data = await res.json()
+                if (!res.ok) throw new Error(data.error || 'Could not save report grouping.')
+                setReport(data.report)
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Could not save report grouping.')
+                void loadFromApi()
+              }
+            }}
             onUpdated={(items) => setReport(current => current ? { ...current, checklist: items } : current)}
             onEditingChange={setEditingChecklist}
           />

@@ -17,6 +17,29 @@ export const ROADMAP_SUBMISSION_KEY = 'improvementRoadmap'
 export const CHECKLIST_SUBMISSION_KEY = 'saleReadinessChecklist'
 
 export type SaleReadinessRoadmapStage = 'checklist' | 'report'
+export type SaleReadinessChecklistOrder = 'category' | 'status'
+
+export function sortSaleReadinessChecklist(
+  items: SaleReadinessChecklistItem[],
+  order: SaleReadinessChecklistOrder = 'category',
+): SaleReadinessChecklistItem[] {
+  const statusRank = (status: string) => {
+    const value = status.toLowerCase()
+    if (value.includes('red') || status.includes('🔴')) return 0
+    if (value.includes('yellow') || status.includes('🟡')) return 1
+    if (value.includes('green') || status.includes('🟢')) return 2
+    return 3
+  }
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const primary = order === 'status'
+        ? statusRank(a.item.status) - statusRank(b.item.status)
+        : a.item.category.localeCompare(b.item.category, undefined, { sensitivity: 'base' })
+      return primary || a.index - b.index
+    })
+    .map(({ item }) => item)
+}
 
 export type SaleReadinessChecklistState = {
   workstream?: string
@@ -252,4 +275,3 @@ export function exportSaleReadinessChecklistExcel(
   const safeName = (clientName || 'Client').replace(/[^a-zA-Z0-9_-]/g, '_')
   XLSX.writeFile(workbook, `${safeName}_Sale_Readiness_Checklist.xlsx`)
 }
-

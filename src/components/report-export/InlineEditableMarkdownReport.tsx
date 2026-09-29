@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Pencil, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ListOrdered, Pencil, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button, Card, cn } from '@/components/ui'
@@ -47,6 +47,25 @@ function ChecklistSelect({ value, onChange }: { value: string; onChange: (value:
       <option value="☑">Done</option>
     </select>
   )
+}
+
+type ReorderableSection = { title: string; markdown: string }
+
+function splitReportSections(markdown: string): { preamble: string; sections: ReorderableSection[] } {
+  const lines = markdown.split('\n')
+  const preamble: string[] = []
+  const sections: ReorderableSection[] = []
+  let current: string[] | null = null
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+)$/)
+    if (heading) {
+      if (current) sections.push({ title: current[0].replace(/^##\s+/, '').trim(), markdown: current.join('\n').trim() })
+      current = [line]
+    } else if (current) current.push(line)
+    else preamble.push(line)
+  }
+  if (current) sections.push({ title: current[0].replace(/^##\s+/, '').trim(), markdown: current.join('\n').trim() })
+  return { preamble: preamble.join('\n').trim(), sections }
 }
 
 function EditableTableBlock({
@@ -166,6 +185,8 @@ export default function InlineEditableMarkdownReport({
   const [saving, setSaving] = useState(false)
   const [reanalyzing, setReanalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reorderingSections, setReorderingSections] = useState(false)
+  const [sectionDraft, setSectionDraft] = useState<ReorderableSection[]>([])
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedRef = useRef(report.markdown)
@@ -269,6 +290,37 @@ export default function InlineEditableMarkdownReport({
     setError(null)
   }
 
+  const startReorderingSections = () => {
+    setSectionDraft(splitReportSections(report.markdown).sections)
+    setReorderingSections(true)
+    setError(null)
+  }
+
+  const moveSection = (index: number, offset: -1 | 1) => {
+    setSectionDraft(current => {
+      const target = index + offset
+      if (target < 0 || target >= current.length) return current
+      const next = [...current]
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
+  }
+
+  const saveSectionOrder = async () => {
+    const { preamble } = splitReportSections(report.markdown)
+    const markdown = [preamble, ...sectionDraft.map(section => section.markdown)].filter(Boolean).join('\n\n')
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(markdown)
+      setReorderingSections(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save section order.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Card className="overflow-hidden border-slate-200 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
@@ -285,7 +337,7 @@ export default function InlineEditableMarkdownReport({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {!readOnly && (effectiveEditMode ? (
             <>
               <Button size="sm" variant="outline" onClick={cancelEditing} disabled={busy}>
@@ -316,9 +368,25 @@ export default function InlineEditableMarkdownReport({
               )}
             </>
           ) : (
-            <Button size="sm" variant="outline" onClick={() => setEditMode(true)}>
-              <Pencil className="h-3.5 w-3.5" /> Edit Output
-            </Button>
+            <>
+              {reorderingSections ? (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => setReorderingSections(false)} disabled={saving}>Cancel order</Button>
+                  <Button size="sm" onClick={() => void saveSectionOrder()} disabled={saving || sectionDraft.length < 2}>
+                    <Save className="h-3.5 w-3.5" /> {saving ? 'Saving…' : 'Save order'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button size="sm" variant="outline" onClick={startReorderingSections}>
+                    <ListOrdered className="h-3.5 w-3.5" /> Reorder sections
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditMode(true)}>
+                    <Pencil className="h-3.5 w-3.5" /> Edit Output
+                  </Button>
+                </>
+              )}
+            </>
           ))}
         </div>
       </div>
@@ -327,8 +395,33 @@ export default function InlineEditableMarkdownReport({
         <div className="mx-5 mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
       )}
 
+      {reorderingSections && !readOnly && (
+        <div className="mx-5 mt-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+          <div className="mb-3">
+            <p className="text-sm font-semibold text-slate-800">Report section order</p>
+            <p className="mt-1 text-xs text-slate-500">Use the arrows to choose the order shown in the report and exported PDF.</p>
+          </div>
+          {sectionDraft.length ? (
+            <ol className="space-y-2">
+              {sectionDraft.map((section, index) => (
+                <li key={`${section.title}-${index}`} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <span className="w-6 shrink-0 text-center text-xs font-semibold text-slate-400">{index + 1}</span>
+                  <span className="min-w-0 flex-1 text-sm font-medium text-slate-700">{section.title}</span>
+                  <button type="button" aria-label={`Move ${section.title} up`} title="Move up" disabled={index === 0 || saving} onClick={() => moveSection(index, -1)} className="rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+                    <ArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" aria-label={`Move ${section.title} down`} title="Move down" disabled={index === sectionDraft.length - 1 || saving} onClick={() => moveSection(index, 1)} className="rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="text-xs text-slate-500">No reorderable sections found in this report.</p>}
+        </div>
+      )}
+
       <div className="p-6">
-        {effectiveEditMode ? (
+        {reorderingSections ? null : effectiveEditMode ? (
           <div className="space-y-4">
             <p className="text-[11px] text-slate-500">
               Edit directly in the report below. Tables can be changed cell by cell — add or remove rows and lines as needed.

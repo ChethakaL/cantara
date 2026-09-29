@@ -20,7 +20,9 @@ import {
   extractSaleReadinessChecklist,
   readChecklistSubmission,
   readRoadmapSubmission,
+  sortSaleReadinessChecklist,
   type SaleReadinessChecklistItem,
+  type SaleReadinessChecklistOrder,
   type SaleReadinessRoadmapStage,
 } from '@/lib/sale-readiness-checklist'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
@@ -40,6 +42,7 @@ type RoadmapReport = {
   markdown: string
   stage: SaleReadinessRoadmapStage
   checklist?: SaleReadinessChecklistItem[]
+  checklistOrder?: SaleReadinessChecklistOrder
   sourceAgents?: string[]
   valuationSource?: 'agent' | 'external'
   externalValuationReportId?: string
@@ -66,6 +69,7 @@ function withChecklist(report: Record<string, any> | null, checklistItems: SaleR
     markdown: typeof report?.markdown === 'string' ? report.markdown : '',
     stage,
     checklist: checklistItems ?? (Array.isArray(report?.checklist) ? report.checklist : []),
+    checklistOrder: report?.checklistOrder === 'status' ? 'status' : 'category',
     sourceAgents: sourceAgents ?? (Array.isArray(report?.sourceAgents) ? report.sourceAgents : []),
     valuationSource: report?.valuationSource === 'external' ? 'external' : 'agent',
     externalValuationReportId: typeof report?.externalValuationReportId === 'string' ? report.externalValuationReportId : undefined,
@@ -171,6 +175,7 @@ export async function POST(req: NextRequest) {
     ? new Set(body.excludedAgentIds.map((id: unknown) => normalizeAgentStatusKey(String(id))))
     : new Set<string>()
   const valuationSource = body.valuationSource === 'external' ? 'external' : 'agent'
+  const checklistOrder: SaleReadinessChecklistOrder = body.checklistOrder === 'status' ? 'status' : 'category'
   let externalValuation: Awaited<ReturnType<typeof loadExternalValuationContext>> | null = null
   if (valuationSource === 'external') {
     try {
@@ -238,6 +243,7 @@ export async function POST(req: NextRequest) {
       markdown: '',
       stage: 'checklist',
       checklist: checklistItems,
+      checklistOrder,
       sourceAgents,
       valuationSource,
       ...(externalValuation ? { externalValuationReportId: String(body.externalReportId) } : {}),
@@ -257,9 +263,10 @@ export async function POST(req: NextRequest) {
     generateFullReportMarkdown({
       clientName,
       agentData,
-      approved,
-      skipped: existingItems.filter(item => !item.advisorApproved),
+      approved: sortItemsForReport(approved, checklistOrder),
+      skipped: sortItemsForReport(existingItems.filter(item => !item.advisorApproved), checklistOrder),
       externalValuation,
+      checklistOrder,
     }),
   )
   const report = await saveRoadmap(clientId, submissions, {
@@ -271,6 +278,7 @@ export async function POST(req: NextRequest) {
     markdown,
     stage: 'report',
     checklist: existingItems,
+    checklistOrder,
     sourceAgents,
     valuationSource,
     ...(externalValuation ? { externalValuationReportId: String(body.externalReportId) } : {}),
@@ -285,9 +293,10 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const clientId = String(body.clientId || '')
   const markdown = typeof body.markdown === 'string' ? body.markdown : null
+  const checklistOrder = body.checklistOrder === 'status' ? 'status' : body.checklistOrder === 'category' ? 'category' : null
 
-  if (!clientId || markdown === null) {
-    return new Response('clientId and markdown required', { status: 400 })
+  if (!clientId || (markdown === null && checklistOrder === null)) {
+    return new Response('clientId and markdown or checklistOrder required', { status: 400 })
   }
 
   const client = await prisma.clientProfile.findUnique({
@@ -300,7 +309,7 @@ export async function PATCH(req: NextRequest) {
     ? client.sectionSubmissions
     : {}) as Record<string, any>
   const existing = readRoadmapSubmission(current)
-  if (!existing) {
+  if (!existing && markdown !== null) {
     return new Response('Generate the sales readiness roadmap before editing.', { status: 404 })
   }
   const existingChecklist = readChecklistSubmission(current)
@@ -308,12 +317,21 @@ export async function PATCH(req: NextRequest) {
     ? existingChecklist.items
     : Array.isArray(existing.checklist) ? existing.checklist : []
 
+  const nextMarkdown = markdown !== null
+    ? markdown
+    : checklistOrder && existing?.stage === 'report'
+      ? reorderChecklistTable(existing.markdown ?? '', checklistItems, checklistOrder)
+      : existing?.markdown ?? ''
   const report = await saveRoadmap(clientId, current, {
-    ...existing,
+    ...(existing ?? {
+      workstream: 'sales-readiness', workstreamLabel: ROADMAP_LABEL,
+      clientName: 'Client', generatedAt: new Date().toISOString(), markdown: '', stage: 'checklist' as const,
+    }),
     workstreamLabel: ROADMAP_LABEL,
-    markdown,
+    markdown: nextMarkdown,
+    ...(checklistOrder ? { checklistOrder } : {}),
     checklist: checklistItems,
-    stage: 'report',
+    ...(markdown !== null ? { stage: 'report' as const } : {}),
     updatedAt: new Date().toISOString(),
   }, checklistItems)
 
@@ -357,6 +375,42 @@ function checklistTable(items: SaleReadinessChecklistItem[]) {
     '|----------|------|--------|---------------|',
     ...items.map(item => `| ${item.category} | ${item.item} | ${item.status} | ${item.actionNeeded} |`),
   ].join('\n')
+}
+
+function sortItemsForReport(items: SaleReadinessChecklistItem[], order: SaleReadinessChecklistOrder) {
+  return sortSaleReadinessChecklist(items, order)
+}
+
+function markdownRowCells(line: string) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(cell => cell.trim().replace(/\\\|/g, '|'))
+}
+
+function reorderChecklistTable(markdown: string, items: SaleReadinessChecklistItem[], order: SaleReadinessChecklistOrder) {
+  const lines = markdown.split('\n')
+  const sortIndex = new Map(sortItemsForReport(items, order).map((item, index) => [`${item.category.toLowerCase()}|${item.item.toLowerCase()}`, index]))
+  for (let heading = 0; heading < lines.length; heading += 1) {
+    if (!/^##\s+sale[- ]readiness checklist\s*$/i.test(lines[heading].trim())) continue
+    let header = heading + 1
+    while (header < lines.length && !lines[header].trim().startsWith('|')) header += 1
+    if (header + 1 >= lines.length || !/^\|[\s\-:|]+\|$/.test(lines[header + 1].trim())) continue
+    const headers = markdownRowCells(lines[header]).map(value => value.toLowerCase().replace(/[^a-z]/g, ''))
+    const categoryColumn = headers.findIndex(value => value === 'category')
+    const itemColumn = headers.findIndex(value => value === 'item' || value === 'actionitem')
+    if (categoryColumn < 0 || itemColumn < 0 || !headers.some(value => value === 'status')) continue
+    let end = header + 2
+    while (end < lines.length && lines[end].trim().startsWith('|') && !/^\|[\s\-:|]+\|$/.test(lines[end].trim())) end += 1
+    const rowLines = lines.slice(header + 2, end)
+    rowLines.sort((a, b) => {
+      const aCells = markdownRowCells(a)
+      const bCells = markdownRowCells(b)
+      const aOrder = sortIndex.get(`${(aCells[categoryColumn] ?? '').replace(/\*\*/g, '').toLowerCase()}|${(aCells[itemColumn] ?? '').replace(/\*\*/g, '').replace(/^☐\s*/, '').replace(/^☑\s*/, '').toLowerCase()}`) ?? Number.MAX_SAFE_INTEGER
+      const bOrder = sortIndex.get(`${(bCells[categoryColumn] ?? '').replace(/\*\*/g, '').toLowerCase()}|${(bCells[itemColumn] ?? '').replace(/\*\*/g, '').replace(/^☐\s*/, '').replace(/^☑\s*/, '').toLowerCase()}`) ?? Number.MAX_SAFE_INTEGER
+      return aOrder - bOrder
+    })
+    lines.splice(header + 2, rowLines.length, ...rowLines)
+    heading = end
+  }
+  return lines.join('\n')
 }
 
 async function generateChecklistMarkdown(args: {
@@ -403,6 +457,7 @@ async function generateFullReportMarkdown(args: {
   approved: SaleReadinessChecklistItem[]
   skipped: SaleReadinessChecklistItem[]
   externalValuation: Awaited<ReturnType<typeof loadExternalValuationContext>> | null
+  checklistOrder: SaleReadinessChecklistOrder
 }) {
   const firstName = args.clientName.split(' ')[0] || 'Seller'
   return createAgentMessage({
@@ -429,6 +484,8 @@ CRITICAL RULES:
 
 Return markdown only. Do not include any preamble.`,
     content: [...(args.externalValuation?.blocks ?? []), { type: 'text', text: `Generate a comprehensive Sales Readiness Roadmap for **${args.clientName}**.${args.externalValuation ? ` Use the attached uploaded valuation report ${args.externalValuation.fileName} as the valuation source; never use a Cantara Valuation Agent output.` : ''}
+
+The advisor selected report grouping by ${args.checklistOrder === 'status' ? 'STATUS: group items by status in Red, Yellow, Green order wherever checklist/action items are listed' : 'CATEGORY: group items by category wherever checklist/action items are listed'}. Preserve the selected grouping consistently in the report. Keep the original order within each group.
 
 This is a SELLER-FACING document. The advisor has already reviewed and edited the checklist. Use the approved items EXACTLY as written — including the advisor's wording for category, item, status, and action needed. Do not replace their text with your own phrasing.
 
