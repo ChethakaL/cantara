@@ -38,7 +38,6 @@ const EmployeeObligationsTab = dynamic(() => import('@/components/ws1-6/Employee
 const NetProceedsCalculator = dynamic(() => import('@/components/net-proceeds/NetProceedsCalculator'), { loading: TabLoader })
 const TeaserGeneratorTab = dynamic(() => import('@/components/teaser/TeaserGeneratorTab'), { loading: TabLoader })
 const CimGeneratorTab = dynamic(() => import('@/components/cim/CimGeneratorTab'), { loading: TabLoader })
-const ProfessionalAdvisorsTab = dynamic(() => import('@/components/advisors/ProfessionalAdvisorsTab'), { loading: TabLoader })
 const VendorDirectoryTab = dynamic(() => import('@/components/vendor-directory/VendorDirectoryTab'), { loading: TabLoader })
 const OrgChartReviewTab = dynamic(() => import('@/components/org-chart/OrgChartReviewTab'), { loading: TabLoader })
 const LitigationSearchTab = dynamic(() => import('@/components/litigation-search/LitigationSearchTab'), { loading: TabLoader })
@@ -133,7 +132,6 @@ const TAB_AGENT_APPROVAL_KEYS: Partial<Record<TabKey, string>> = {
   competitor: 'competitor',
   'facility-review': 'facilityReview',
   insurance: 'insuranceReview',
-  advisors: 'professionalAdvisors',
   'vendor-directory': 'vendorDirectory',
   'org-chart': 'orgChart',
   litigation: 'litigationSearch',
@@ -165,7 +163,6 @@ const AGENT_ID_TO_TAB_KEY: Record<string, TabKey> = {
   competitor_analysis: 'competitor',
   facility_review: 'facility-review',
   insurance_review: 'insurance',
-  professional_advisors: 'advisors',
   vendor_directory: 'vendor-directory',
   org_chart_review: 'org-chart',
   litigation_search: 'litigation',
@@ -894,9 +891,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 documentStatuses={client.documentStatuses}
                 readOnly={activeAgentReadOnly}
               />
-            )}
-            {activeTab === 'advisors' && (
-              <ProfessionalAdvisorsTab clientId={client.id} clientName={client.company || client.name} readOnly={activeAgentReadOnly} />
             )}
             {activeTab === 'vendor-directory' && (
               <VendorDirectoryTab
