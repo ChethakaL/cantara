@@ -264,6 +264,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
   const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
   return {
     activeFormKeys: [
+      'business_operations',
       ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
       ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
       ...(hasAgentForm('competitor_analysis') || hasAgentForm('pricing_analysis') ? ['competitor_analysis'] : []),
@@ -273,6 +274,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
     ],
     formLabels: {
+      business_operations: 'Business Operations',
       facility_review: 'Facility Review',
       digital_presence: 'Digital Presence',
       competitor_analysis: 'Competitor & Pricing Inputs',
@@ -2799,6 +2801,7 @@ function AgentInformationTab({
 
   const memberAssignedTo = sessionTeamMember ? [sessionTeamMember.name, sessionTeamMember.email] : []
   const isFormAssignedToCurrentTeamMember = (formKey: string) => {
+    if (formKey === 'business_operations') return true
     if (!isTeamMemberSession) return true
     const formAssignments = (client.sectionSubmissions as any)?.formAssignments ?? {}
     const assignedTo = formAssignments[formKey]
@@ -2811,18 +2814,6 @@ function AgentInformationTab({
     : activeFormKeys
 
   const [activeFormTab, setActiveFormTab] = useState<string>('')
-
-  const navigableFormKeys = visibleFormKeys.filter(
-    key => !isRequiredInfoFormNotApplicable(client.sectionSubmissions, key),
-  )
-  const currentIndex = navigableFormKeys.indexOf(activeFormTab)
-  const hasNext = currentIndex !== -1 && currentIndex < navigableFormKeys.length - 1
-  const handleNext = async () => {
-    const success = await saveFormResponses()
-    if (success && hasNext) {
-      setActiveFormTab(navigableFormKeys[currentIndex + 1])
-    }
-  }
 
   useEffect(() => {
     if (visibleFormKeys.length && (!activeFormTab || !visibleFormKeys.includes(activeFormTab))) {
@@ -3074,11 +3065,6 @@ function AgentInformationTab({
             {formError && <p className="text-xs text-red-600">{formError}</p>}
             <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
               <div className="flex items-center gap-3 min-h-[32px]">
-                {activeFormTab !== 'digital_presence' && activeFormTab !== 'competitor_analysis' && (
-                  <Button size="sm" onClick={() => void saveFormResponses()} disabled={savingFormResponses}>
-                    {savingFormResponses ? 'Saving...' : (hasNext ? 'Save Information' : 'Submit')}
-                  </Button>
-                )}
                 {savingFormResponses ? (
                   <span className="text-xs text-slate-500 font-medium">Saving...</span>
                 ) : formSaved ? (

@@ -451,7 +451,7 @@ function RoadmapReleasedReport({
 function ValuationApprovedView({ data, clientName, fallbackMarkdown }: { data: unknown; clientName: string; fallbackMarkdown?: string }) {
   const record = data && typeof data === 'object' ? data as Record<string, any> : {}
   if (record.type === 'externalValuation' && record.report) {
-    return <ExternalValuationReportViewer report={record.report} />
+    return <ExternalValuationReportViewer report={record.report} originalOnly={record.originalOnly === true} />
   }
   if (record.analysis && record.recastView) {
     return (

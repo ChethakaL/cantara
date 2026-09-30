@@ -60,6 +60,23 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<string, AgentSelection[]> = {
     { agentId: 'professional_advisors', agentName: 'Professional Advisors Agent' },
   ],
 }
+
+const BUSINESS_OPERATIONS_QUESTIONS: FormQuestionRow[] = [
+  {
+    id: 'business-operations-24-hour-care', agentId: 'business_operations', agentName: 'Business Operations',
+    fieldKey: 'businessOffers24HourCare', label: 'Does the facility offer 24-hour care?',
+    description: 'This helps us understand overnight staffing and coverage needs.', inputType: 'select',
+    placeholder: null, required: true, options: ['Yes', 'No', 'Not sure'], groupKey: null, groupLabel: null, sortOrder: -2,
+  },
+  {
+    id: 'business-operations-fiscal-year', agentId: 'business_operations', agentName: 'Business Operations',
+    fieldKey: 'businessFiscalYearStartMonth', label: 'When does the business fiscal year start?',
+    description: 'Select the first month of the business’s financial reporting year.', inputType: 'select',
+    placeholder: null, required: true,
+    options: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'Not sure'],
+    groupKey: null, groupLabel: null, sortOrder: -1,
+  },
+]
 SYSTEM_WORKSTREAM_AGENTS.both = [...SYSTEM_WORKSTREAM_AGENTS.ws1, ...SYSTEM_WORKSTREAM_AGENTS.ws2].filter(
   (agent, index, agents) => agents.findIndex(item => item.agentId === agent.agentId) === index,
 )
@@ -323,7 +340,10 @@ export async function GET(req: NextRequest) {
   const agentIds = activeAgentIds(client)
     .filter(id => !isAdvisorFacilityReviewMode(client) || id !== 'facility_review')
     .filter(id => /^[a-z0-9_]+$/.test(id))
-  if (!agentIds.length) return NextResponse.json({ questions: [], responses: {} })
+  if (!agentIds.length) {
+    const existing = (client.sectionSubmissions as Record<string, any>) ?? {}
+    return NextResponse.json({ questions: BUSINESS_OPERATIONS_QUESTIONS, responses: existing.agentFormResponses ?? {} })
+  }
 
   const inList = agentIds.map(id => `'${id}'`).join(',')
   const rows = await (prisma as any).$queryRawUnsafe(`
@@ -340,12 +360,13 @@ export async function GET(req: NextRequest) {
     ...syncStructuredToFormResponses(existing, client),
   }
 
-  const questions = dedupeQuestions(
-    ensureOccupancyFormFields(
+  const questions = dedupeQuestions([
+    ...BUSINESS_OPERATIONS_QUESTIONS,
+    ...ensureOccupancyFormFields(
       ensureCompetitorFormFields(rows, agentIds),
       agentIds,
     ),
-  )
+  ])
     // Commented out for now: Google Business locations
     .filter(q => q.fieldKey !== 'googleBusinessLocations')
     .map(question => ({

@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     const client = await prisma.clientProfile.findUnique({ where: { id: clientId }, select: { clientRelease: true } })
     const releases = (client?.clientRelease as Record<string, any>) || {}
     const release = releases.ttmAnalysis ?? releases.ttm
-    if (!client || !isClientPortalAgentReleased(releases, 'ttm') || release?.releaseSource !== 'external' || release?.externalReportId !== reportId) {
+    if (!client || !isClientPortalAgentReleased(releases, 'ttm') || !['external', 'external_original'].includes(release?.releaseSource) || release?.externalReportId !== reportId) {
       return new Response('Report is not available in the client portal', { status: 404 })
     }
     const report = await (prisma as any).externalValuationReport.findFirst({ where: { id: reportId, clientId }, select: { fileName: true, mimeType: true, storageKey: true } })

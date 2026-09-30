@@ -941,7 +941,7 @@ export default function ImprovementRoadmapTab({
         const res = await fetch('/api/improvement-roadmap', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, checklistOrder, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id }),
+          body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, checklistOrder, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id, fresh: composingNew }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to generate roadmap.')
@@ -952,10 +952,12 @@ export default function ImprovementRoadmapTab({
         await loadFromApi()
         return
       }
+      const latestItems = checklistRef.current
+      if (latestItems.length) await saveChecklistItems(clientId, latestItems)
       const res = await fetch('/api/improvement-roadmap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, stage: nextStage, checklistOrder, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id }),
+        body: JSON.stringify({ clientId, stage: nextStage, checklist: latestItems, checklistOrder, excludedAgentIds, provider, modelId: resolveAgentModelId(provider), valuationSource, externalReportId: externalReport?.id, fresh: composingNew }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Failed to generate ${nextStage === 'checklist' ? 'checklist' : 'roadmap'}.`)

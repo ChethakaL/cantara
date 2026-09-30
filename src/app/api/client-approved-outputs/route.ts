@@ -235,18 +235,22 @@ async function readOutput(
 }
 
 async function readValuationOutput(clientId: string, clientName: string, release?: Record<string, any>): Promise<{ markdown: string; data: unknown }> {
-  if (release?.releaseSource === 'external') {
+  if (release?.releaseSource === 'external' || release?.releaseSource === 'external_original') {
     if (typeof release.externalReportId !== 'string') return { markdown: '', data: null }
     try {
       const external = await (prisma as any).externalValuationReport.findFirst({
         where: { clientId, id: release.externalReportId },
-        select: { id: true, clientId: true, fileName: true, mimeType: true, fileSize: true, reportJson: true, createdAt: true },
+        select: {
+          id: true, clientId: true, fileName: true, mimeType: true, fileSize: true, createdAt: true,
+          ...(release.releaseSource === 'external_original' ? {} : { reportJson: true }),
+        },
       })
       if (external) {
         return {
           markdown: '',
           data: {
             type: 'externalValuation',
+            originalOnly: release.releaseSource === 'external_original',
             report: { ...external, createdAt: external.createdAt.toISOString() },
           },
         }

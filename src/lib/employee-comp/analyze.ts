@@ -188,6 +188,7 @@ export async function analyzePayrollDocument(args: {
   base64?: string
   mediaType?: string
   freeText?: string
+  businessOperationsContext?: string
   provider?: AgentAiProvider
   modelId?: string
 }): Promise<EmployeeCompReport> {
@@ -247,7 +248,7 @@ export async function analyzePayrollDocument(args: {
   let { rawText, truncated } = await requestPayrollExtraction({
     provider,
     modelId: args.modelId,
-    system: SYSTEM_PROMPT,
+    system: args.businessOperationsContext ? `${SYSTEM_PROMPT}\n\nBusiness operations context from the client: ${args.businessOperationsContext}\nUse this only to interpret staffing coverage needs; do not infer employee schedules or headcount from it.` : SYSTEM_PROMPT,
     content,
     maxTokens: MAX_OUTPUT_TOKENS,
   })
@@ -260,7 +261,7 @@ export async function analyzePayrollDocument(args: {
     const retry = await requestPayrollExtraction({
       provider,
       modelId: args.modelId,
-      system: `${SYSTEM_PROMPT}\n\nCRITICAL: Your previous response was not valid parseable JSON. Reply with the JSON object only.`,
+      system: `${args.businessOperationsContext ? `${SYSTEM_PROMPT}\n\nBusiness operations context from the client: ${args.businessOperationsContext}\nUse this only to interpret staffing coverage needs; do not infer employee schedules or headcount from it.` : SYSTEM_PROMPT}\n\nCRITICAL: Your previous response was not valid parseable JSON. Reply with the JSON object only.`,
       content,
       maxTokens: MAX_OUTPUT_TOKENS,
     })

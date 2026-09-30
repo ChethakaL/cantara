@@ -347,6 +347,7 @@ export default function EmployeeCompTab({
         analysisFileName = analysisFile.name
         const formData = new FormData()
         formData.append('file', analysisFile)
+        formData.append('clientId', clientId)
         formData.append('provider', provider)
         formData.append('modelId', resolveAgentModelId(provider))
         res = await fetch('/api/employee-comp/analyze', { method: 'POST', body: formData })
@@ -357,6 +358,7 @@ export default function EmployeeCompTab({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             freeText,
+            clientId,
             provider,
             modelId: resolveAgentModelId(provider),
           }),

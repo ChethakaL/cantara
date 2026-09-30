@@ -521,6 +521,14 @@ export async function runTtmAgent(args: {
   aiModel?: string;
 }) {
   console.log(`[TTM] ▶ Starting WS2-1 agent for client=${args.clientId} triggered by ${args.triggeredByName ?? "system"}`);
+  const clientBusinessContext = await (prisma as any).clientProfile.findUnique({
+    where: { id: args.clientId }, select: { sectionSubmissions: true },
+  });
+  const businessResponses = (clientBusinessContext?.sectionSubmissions as Record<string, any> | null)?.agentFormResponses ?? {};
+  const fiscalMonthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const fiscalYearStartMonth = fiscalMonthNames.indexOf(String(businessResponses.businessFiscalYearStartMonth ?? '')) + 1;
+  const knownFiscalYearStartMonth = fiscalYearStartMonth > 0 && fiscalYearStartMonth <= 12 ? fiscalYearStartMonth : undefined;
+  if (knownFiscalYearStartMonth) console.log(`[TTM] Using client fiscal year start month: ${fiscalMonthNames[knownFiscalYearStartMonth - 1]}`);
   const resolvedSlots = await loadResolvedMonthlySlots(args.clientId);
   const inputDocuments = [resolvedSlots.pl.primary, resolvedSlots.bs.primary];
   const inputSnapshot = resolvedSlots.inputSnapshot;
@@ -702,6 +710,7 @@ export async function runTtmAgent(args: {
           recordId: monthlyBsDocument.id,
         },
       },
+      fiscalYearStartMonth: knownFiscalYearStartMonth,
     });
 
     const wcResult = buildWorkingCapitalSummary({

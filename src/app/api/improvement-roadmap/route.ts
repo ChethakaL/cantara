@@ -28,6 +28,13 @@ import {
 } from '@/lib/sale-readiness-checklist'
 import { getClientWorkstreamAgents, normalizeAgentStatusKey } from '@/lib/workstream-agents'
 import { loadExternalValuationContext } from '@/lib/external-valuation-context'
+import {
+  checklistDeltaIsEmpty,
+  diffChecklist,
+  mergeChecklistDelta,
+  proposeChecklistDelta,
+  rewriteChangedNarrative,
+} from '@/lib/sale-readiness-refresh'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -151,6 +158,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const clientId = String(body.clientId || '')
   const stage = String(body.stage || 'checklist') as SaleReadinessRoadmapStage
+  const fresh = body.fresh === true
   const provider = parseAnalyzeProvider(body.provider)
   const modelId = resolveAnalyzeModelId(provider, body.modelId)
   if (!clientId || (stage !== 'checklist' && stage !== 'report')) {
@@ -228,65 +236,119 @@ export async function POST(req: NextRequest) {
       ? existingChecklist.items
       : Array.isArray(existingReport?.checklist) ? existingReport.checklist : [])
 
-  if (stage === 'checklist') {
+  const previousExcluded = new Set<string>((existingReport?.excludedAgentIds ?? []).map((id: unknown) => normalizeAgentStatusKey(String(id))))
+  const flaggedSources = applySourceChangeFlags(
+    agentData.map((agent) => ({ key: agent.agentId, name: agent.agentName })),
+    sourceFingerprints,
+    existingReport?.sourceFingerprints,
+    existingReport?.updatedAt ?? existingReport?.generatedAt,
+  )
+  const changedAgentIds = new Set(
+    flaggedSources.filter((source) => source.changed).map((source) => normalizeAgentStatusKey(source.key)),
+  )
+  const removedAgentNames = assignedAgents
+    .filter((agent) => {
+      const key = normalizeAgentStatusKey(agent.agentId)
+      return previousExcluded.has(key) === false && excludedAgentIds.has(key)
+    })
+    .map((agent) => agent.agentName)
+  const valuationChanged = Boolean(
+    existingReport
+    && valuationSource === 'external'
+    && externalValuation
+    && existingReport.externalValuationReportId
+    && existingReport.externalValuationReportId !== String(body.externalReportId || ''),
+  )
+  const refreshAgents = agentData.filter((agent) =>
+    changedAgentIds.has(normalizeAgentStatusKey(agent.agentId))
+    || previousExcluded.has(normalizeAgentStatusKey(agent.agentId)),
+  )
+  const canTarget = !fresh && existingItems.length > 0 && (refreshAgents.length > 0 || removedAgentNames.length > 0 || valuationChanged)
+
+  let checklistItems = existingItems
+  if (fresh || existingItems.length === 0) {
     const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
       generateChecklistMarkdown({ clientName, agentData, externalValuation }),
     )
-    const checklistItems = extractSaleReadinessChecklist(markdown, existingItems)
+    checklistItems = extractSaleReadinessChecklist(markdown, existingItems)
     if (!checklistItems.length) {
       return NextResponse.json({ error: 'The checklist could not be generated from the current agent outputs. Try again after more agents have run.' }, { status: 422 })
     }
-    const report = await saveRoadmap(clientId, submissions, {
-      workstream: 'sales-readiness',
-      workstreamLabel: ROADMAP_LABEL,
-      clientName,
-      generatedAt: new Date().toISOString(),
-      markdown: '',
-      stage: 'checklist',
-      checklist: checklistItems,
-      checklistOrder,
-      sourceAgents,
-      valuationSource,
-      ...(externalValuation ? { externalValuationReportId: String(body.externalReportId) } : {}),
-      ...(externalValuation ? { externalValuationFileName: externalValuation.fileName } : {}),
-      sourceFingerprints,
-      excludedAgentIds: Array.from(excludedAgentIds),
-    }, checklistItems)
-    return NextResponse.json({ report })
+  } else if (canTarget) {
+    const delta = await runWithAgentLlmContext({ provider, modelId }, () =>
+      proposeChecklistDelta({
+        items: existingItems,
+        changedAgents: refreshAgents,
+        removedAgentNames,
+        externalNote: valuationChanged && externalValuation
+          ? `The uploaded valuation report changed to ${externalValuation.fileName}. Update only valuation-related items.`
+          : undefined,
+        blocks: valuationChanged ? externalValuation?.blocks : undefined,
+      }),
+    )
+    checklistItems = mergeChecklistDelta(existingItems, delta)
   }
 
-  const approved = existingItems.filter(item => item.advisorApproved && (item.item || item.category))
-  if (!approved.length) {
-    return NextResponse.json({ error: 'Approve at least one checklist item before generating the full report.' }, { status: 409 })
-  }
-
-  const markdown = await runWithAgentLlmContext({ provider, modelId }, () =>
-    generateFullReportMarkdown({
-      clientName,
-      agentData,
-      approved: sortItemsForReport(approved, checklistOrder),
-      skipped: sortItemsForReport(existingItems.filter(item => !item.advisorApproved), checklistOrder),
-      externalValuation,
-      checklistOrder,
-    }),
-  )
-  const report = await saveRoadmap(clientId, submissions, {
-    workstream: 'sales-readiness',
+  const savedChecklist: SaleReadinessChecklistItem[] = Array.isArray(existingReport?.checklist)
+    ? existingReport.checklist
+    : existingItems
+  const contentChange = diffChecklist(savedChecklist, checklistItems)
+  const keepReport = stage === 'report' || (stage === 'checklist' && Boolean(existingReport?.markdown?.trim()) && !fresh)
+  const reportMeta = {
+    workstream: 'sales-readiness' as const,
     workstreamLabel: ROADMAP_LABEL,
     clientName,
-    generatedAt: existingReport?.generatedAt ?? new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    markdown,
-    stage: 'report',
-    checklist: existingItems,
     checklistOrder,
     sourceAgents,
-    valuationSource,
+    valuationSource: valuationSource as 'agent' | 'external',
     ...(externalValuation ? { externalValuationReportId: String(body.externalReportId) } : {}),
     ...(externalValuation ? { externalValuationFileName: externalValuation.fileName } : {}),
     sourceFingerprints,
     excludedAgentIds: Array.from(excludedAgentIds),
-  }, existingItems)
+  }
+
+  if (!keepReport) {
+    const report = await saveRoadmap(clientId, submissions, {
+      ...reportMeta,
+      generatedAt: fresh ? new Date().toISOString() : (existingReport?.generatedAt ?? new Date().toISOString()),
+      markdown: '',
+      stage: 'checklist',
+      checklist: checklistItems,
+    }, checklistItems)
+    return NextResponse.json({ report })
+  }
+
+  const approved = checklistItems.filter(item => item.advisorApproved && (item.item || item.category))
+  if (stage === 'report' && !approved.length) {
+    return NextResponse.json({ error: 'Approve at least one checklist item before generating the full report.' }, { status: 409 })
+  }
+
+  const existingMarkdown = existingReport?.markdown?.trim() ? existingReport.markdown : ''
+  const markdown = existingMarkdown
+    ? (checklistDeltaIsEmpty(contentChange)
+      ? existingMarkdown
+      : await runWithAgentLlmContext({ provider, modelId }, () =>
+        rewriteChangedNarrative({ markdown: existingMarkdown, change: contentChange }),
+      ))
+    : await runWithAgentLlmContext({ provider, modelId }, () =>
+      generateFullReportMarkdown({
+        clientName,
+        agentData,
+        approved: sortItemsForReport(approved, checklistOrder),
+        skipped: sortItemsForReport(checklistItems.filter(item => !item.advisorApproved), checklistOrder),
+        externalValuation,
+        checklistOrder,
+      }),
+    )
+
+  const report = await saveRoadmap(clientId, submissions, {
+    ...reportMeta,
+    generatedAt: existingReport?.generatedAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    markdown,
+    stage: 'report',
+    checklist: checklistItems,
+  }, checklistItems)
   return NextResponse.json({ report })
 }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzePayrollDocument } from '@/lib/employee-comp/analyze'
+import { prisma } from '@/lib/prisma'
 import {
   assertOpenAiConfiguredForAnalyze,
   parseAnalyzeProvider,
@@ -8,13 +9,22 @@ import {
 
 export const maxDuration = 120
 
+async function businessOperationsContext(clientId: unknown): Promise<string | undefined> {
+  if (typeof clientId !== 'string' || !clientId) return undefined
+  const client = await prisma.clientProfile.findUnique({ where: { id: clientId }, select: { sectionSubmissions: true } })
+  const responses = ((client?.sectionSubmissions as Record<string, any> | null)?.agentFormResponses ?? {}) as Record<string, unknown>
+  const coverage = String(responses.businessOffers24HourCare ?? '').trim()
+  if (!coverage) return undefined
+  return `The facility offers 24-hour care: ${coverage}.`
+}
+
 export async function POST(req: NextRequest) {
   try {
     const contentType = req.headers.get('content-type') || ''
 
     // JSON body — free-text mode
     if (contentType.includes('application/json')) {
-      const { freeText, provider: rawProvider, modelId: requestedModelId } = await req.json()
+      const { freeText, clientId, provider: rawProvider, modelId: requestedModelId } = await req.json()
       if (!freeText || typeof freeText !== 'string') {
         return new Response('freeText is required', { status: 400 })
       }
@@ -24,7 +34,7 @@ export async function POST(req: NextRequest) {
         const gate = await assertOpenAiConfiguredForAnalyze()
         if (gate) return gate
       }
-      const result = await analyzePayrollDocument({ freeText, provider, modelId })
+      const result = await analyzePayrollDocument({ freeText, provider, modelId, businessOperationsContext: await businessOperationsContext(clientId) })
       return NextResponse.json(result)
     }
 
@@ -50,6 +60,7 @@ export async function POST(req: NextRequest) {
       mediaType,
       provider,
       modelId,
+      businessOperationsContext: await businessOperationsContext(formData.get('clientId')),
     })
     return NextResponse.json(result)
   } catch (error: any) {
