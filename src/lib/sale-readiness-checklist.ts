@@ -17,12 +17,13 @@ export const ROADMAP_SUBMISSION_KEY = 'improvementRoadmap'
 export const CHECKLIST_SUBMISSION_KEY = 'saleReadinessChecklist'
 
 export type SaleReadinessRoadmapStage = 'checklist' | 'report'
-export type SaleReadinessChecklistOrder = 'category' | 'status'
+export type SaleReadinessChecklistOrder = 'category' | 'status' | 'manual'
 
 export function sortSaleReadinessChecklist(
   items: SaleReadinessChecklistItem[],
   order: SaleReadinessChecklistOrder = 'category',
 ): SaleReadinessChecklistItem[] {
+  if (order === 'manual') return [...items]
   const statusRank = (status: string) => {
     const value = status.toLowerCase()
     if (value.includes('red') || status.includes('🔴')) return 0
@@ -39,6 +40,43 @@ export function sortSaleReadinessChecklist(
       return primary || a.index - b.index
     })
     .map(({ item }) => item)
+}
+
+function markdownTableCells(line: string) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(cell => cell.trim().replace(/\\\|/g, '|'))
+}
+
+export function reorderSaleReadinessChecklistMarkdown(
+  markdown: string,
+  items: SaleReadinessChecklistItem[],
+  order: SaleReadinessChecklistOrder,
+): string {
+  const lines = markdown.split('\n')
+  const orderedItems = sortSaleReadinessChecklist(items, order)
+  const sortIndex = new Map(orderedItems.map((item, index) => [`${item.category.toLowerCase()}|${item.item.toLowerCase()}`, index]))
+  for (let heading = 0; heading < lines.length; heading += 1) {
+    if (!/^##\s+sale[- ]readiness checklist\s*$/i.test(lines[heading].trim())) continue
+    let header = heading + 1
+    while (header < lines.length && !lines[header].trim().startsWith('|')) header += 1
+    if (header + 1 >= lines.length || !/^\|[\s\-:|]+\|$/.test(lines[header + 1].trim())) continue
+    const headers = markdownTableCells(lines[header]).map(value => value.toLowerCase().replace(/[^a-z]/g, ''))
+    const categoryColumn = headers.findIndex(value => value === 'category')
+    const itemColumn = headers.findIndex(value => value === 'item' || value === 'actionitem')
+    if (categoryColumn < 0 || itemColumn < 0 || !headers.some(value => value === 'status')) continue
+    let end = header + 2
+    while (end < lines.length && lines[end].trim().startsWith('|') && !/^\|[\s\-:|]+\|$/.test(lines[end].trim())) end += 1
+    const rowLines = lines.slice(header + 2, end)
+    const rowOrder = (line: string) => {
+      const cells = markdownTableCells(line)
+      const category = (cells[categoryColumn] ?? '').replace(/\*\*/g, '').replace(/__/g, '').toLowerCase()
+      const item = (cells[itemColumn] ?? '').replace(/\*\*/g, '').replace(/__/g, '').replace(/^☐\s*/, '').replace(/^☑\s*/, '').toLowerCase()
+      return sortIndex.get(`${category}|${item}`) ?? Number.MAX_SAFE_INTEGER
+    }
+    rowLines.sort((a, b) => rowOrder(a) - rowOrder(b))
+    lines.splice(header + 2, rowLines.length, ...rowLines)
+    heading = end
+  }
+  return lines.join('\n')
 }
 
 export type SaleReadinessChecklistState = {

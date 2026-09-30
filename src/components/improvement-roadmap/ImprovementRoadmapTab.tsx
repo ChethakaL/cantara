@@ -11,6 +11,7 @@ import {
   ExternalLink,
   FileSpreadsheet,
   FileText,
+  GripVertical,
   Loader2,
   MapPin,
   Pencil,
@@ -139,7 +140,9 @@ function ChecklistApprovalPanel({
   const [draft, setDraft] = useState<SaleReadinessChecklistItem[]>(items)
   const [updating, setUpdating] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const rows = sortSaleReadinessChecklist(editing ? draft : items, checklistOrder)
+  const rows = editing ? draft : sortSaleReadinessChecklist(items, checklistOrder)
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
+  const [wasReordered, setWasReordered] = useState(false)
   const approvedCount = rows.filter(item => item.advisorApproved).length
   const changedNameSet = useMemo(() => {
     const set = new Set(changedSourceNames.map((n) => n.trim().toLowerCase()))
@@ -177,7 +180,9 @@ function ChecklistApprovalPanel({
   }
 
   const startEditing = () => {
-    setDraft(items.map(item => ({ ...item })))
+    setDraft(sortSaleReadinessChecklist(items, checklistOrder).map(item => ({ ...item })))
+    setWasReordered(false)
+    setDraggedItemId(null)
     setSaveError(null)
     setEditingMode(true)
   }
@@ -185,6 +190,8 @@ function ChecklistApprovalPanel({
   const cancelEditing = () => {
     setDraft(items.map(item => ({ ...item })))
     setSaveError(null)
+    setWasReordered(false)
+    setDraggedItemId(null)
     setEditingMode(false)
   }
 
@@ -193,6 +200,7 @@ function ChecklistApprovalPanel({
       const saved = await persist(draft, 'save')
       setDraft(saved.map(item => ({ ...item })))
       setEditingMode(false)
+      if (wasReordered) await onOrderChange('manual')
     } catch {
       // Error is shown in the panel; stay in edit mode.
     }
@@ -200,6 +208,26 @@ function ChecklistApprovalPanel({
 
   const updateDraft = (itemId: string, patch: Partial<SaleReadinessChecklistItem>) => {
     setDraft(current => current.map(item => item.id === itemId ? { ...item, ...patch } : item))
+  }
+
+  const moveDraftItem = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return
+    setDraft(current => {
+      const from = current.findIndex(item => item.id === sourceId)
+      const to = current.findIndex(item => item.id === targetId)
+      if (from < 0 || to < 0) return current
+      const next = [...current]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+    setWasReordered(true)
+  }
+
+  const changeGrouping = (order: SaleReadinessChecklistOrder) => {
+    if (editing) setDraft(current => sortSaleReadinessChecklist(current, order))
+    setWasReordered(false)
+    onOrderChange(order)
   }
 
   const toggleApproved = async (item: SaleReadinessChecklistItem) => {
@@ -249,7 +277,7 @@ function ChecklistApprovalPanel({
             <p className="text-sm font-semibold text-slate-800">Advisor Checklist Review</p>
             <p className="text-[11px] text-slate-500">
               {editing
-                ? 'Edit wording, add or remove items, then save before generating the report.'
+                ? 'Edit wording, add or remove items, or drag the handle to change their order. Save to apply your changes.'
                 : 'Approve the items that should go into the full report. Click Edit to change wording or add items.'}
             </p>
           </div>
@@ -261,11 +289,12 @@ function ChecklistApprovalPanel({
               aria-label="Group roadmap items by"
               value={checklistOrder}
               disabled={disabled || updating !== null}
-              onChange={(event) => onOrderChange(event.target.value as SaleReadinessChecklistOrder)}
+              onChange={(event) => changeGrouping(event.target.value as SaleReadinessChecklistOrder)}
               className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="category">Category</option>
               <option value="status">Status (Red, Yellow, Green)</option>
+              <option value="manual">Custom order</option>
             </select>
           </label>
           {editing ? (
@@ -360,6 +389,7 @@ function ChecklistApprovalPanel({
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-400">
             <tr>
+              {editing && <th className="w-10 px-2" aria-label="Reorder items" />}
               <th className="px-4 py-2 text-left font-semibold">Include</th>
               <th className="px-4 py-2 text-left font-semibold">Category</th>
               <th className="px-4 py-2 text-left font-semibold">Item</th>
@@ -370,12 +400,41 @@ function ChecklistApprovalPanel({
           <tbody className="divide-y divide-slate-100">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={editing ? 5 : 4} className="px-4 py-8 text-center text-sm text-slate-500">
+                <td colSpan={editing ? 6 : 4} className="px-4 py-8 text-center text-sm text-slate-500">
                   {editing ? 'No checklist items yet. Add one to include it in the report.' : 'No checklist items yet. Click Edit to add items.'}
                 </td>
               </tr>
             ) : rows.map(item => (
-              <tr key={item.id} className="align-top">
+              <tr
+                key={item.id}
+                onDragOver={event => { if (editing) event.preventDefault() }}
+                onDrop={event => {
+                  event.preventDefault()
+                  const sourceId = event.dataTransfer.getData('text/plain') || draggedItemId
+                  if (sourceId) moveDraftItem(sourceId, item.id)
+                  setDraggedItemId(null)
+                }}
+                className={cn('align-top transition-colors', editing && 'hover:bg-emerald-50/40', draggedItemId === item.id && 'opacity-40')}
+              >
+                {editing && (
+                  <td className="px-2 py-3 align-middle">
+                    <button
+                      type="button"
+                      draggable={!disabled && updating === null}
+                      onDragStart={event => {
+                        setDraggedItemId(item.id)
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', item.id)
+                      }}
+                      onDragEnd={() => setDraggedItemId(null)}
+                      className="cursor-grab touch-none rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing"
+                      aria-label={`Drag to reorder ${item.category}: ${item.item}`}
+                      title="Drag to reorder"
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </button>
+                  </td>
+                )}
                 <td className="px-4 py-3">
                   <button
                     type="button"
@@ -752,7 +811,7 @@ export default function ImprovementRoadmapTab({
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setReport(data.report)
-      setChecklistOrder(data.report?.checklistOrder === 'status' ? 'status' : 'category')
+      setChecklistOrder(data.report?.checklistOrder === 'status' || data.report?.checklistOrder === 'manual' ? data.report.checklistOrder : 'category')
       setValuationSource(data.report?.valuationSource === 'external' ? 'external' : 'agent')
       setSources(Array.isArray(data.sources) ? data.sources : [])
       setExcludedAgentIds(Array.isArray(data.report?.excludedAgentIds) ? data.report.excludedAgentIds : [])
@@ -790,7 +849,7 @@ export default function ImprovementRoadmapTab({
           : activeRunReport ?? data.report
         if (composingNew) setReport(null)
         else setReport(reportToDisplay ?? null)
-        setChecklistOrder(reportToDisplay?.checklistOrder === 'status' ? 'status' : 'category')
+        setChecklistOrder(reportToDisplay?.checklistOrder === 'status' || reportToDisplay?.checklistOrder === 'manual' ? reportToDisplay.checklistOrder : 'category')
         setSources(Array.isArray(data.sources) ? data.sources : [])
         setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
         setSourcesChanged(Boolean(data.sourcesChanged))
