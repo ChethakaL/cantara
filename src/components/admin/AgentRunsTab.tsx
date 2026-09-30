@@ -54,6 +54,7 @@ type ApprovalAction = 'assignee_approve' | 'assignee_revert' | 'craig_approve' |
 type FilterTabKey = 'all' | 'needs_assignee' | 'needs_craig' | 'changes_requested' | 'approved' | 'released' | 'not_run'
 
 const STATUS_GUIDE_STORAGE_KEY = 'cantara.agentStatus.statusGuideDismissed'
+type ValuationReleaseSource = 'agent' | 'external' | 'external_original'
 
 interface WorkflowStageGuide {
   stepNumber: number
@@ -169,7 +170,7 @@ export default function AgentRunsTab({
   onOpenAgent?: (tabKey: string) => void
 }) {
   const [runs, setRuns] = useState<AgentRunRecord[]>([])
-  const [releaseSources, setReleaseSources] = useState<Record<string, 'agent' | 'external'>>({})
+  const [releaseSources, setReleaseSources] = useState<Record<string, ValuationReleaseSource>>({})
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return '—'
     const d = new Date(dateStr)
@@ -278,11 +279,11 @@ export default function AgentRunsTab({
     }
   }
 
-  const updateClientRelease = async (agentId: string, clientReleased: boolean, releaseSource?: 'agent' | 'external', externalReportId?: string | null) => {
+  const updateClientRelease = async (agentId: string, clientReleased: boolean, releaseSource?: ValuationReleaseSource, externalReportId?: string | null) => {
     await patchRun(agentId, { clientReleased, ...(clientReleased ? { releaseSource: releaseSource ?? 'agent', externalReportId } : {}) })
   }
 
-  const updateReleaseSource = async (run: AgentRunRecord, source: 'agent' | 'external') => {
+  const updateReleaseSource = async (run: AgentRunRecord, source: ValuationReleaseSource) => {
     setReleaseSources((prev) => ({ ...prev, [run.agentId]: source }))
     await patchRun(run.agentId, { releaseSource: source, externalReportId: run.externalValuationReportId }, `${run.agentId}:release-source`)
   }
@@ -810,12 +811,13 @@ export default function AgentRunsTab({
                               <select
                                 value={releaseSources[run.agentId] ?? run.releaseSource ?? 'agent'}
                                 disabled={busy || run.clientReleased}
-                                onChange={(event) => void updateReleaseSource(run, event.target.value as 'agent' | 'external')}
+                                onChange={(event) => void updateReleaseSource(run, event.target.value as ValuationReleaseSource)}
                                 className="max-w-[210px] rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-700 shadow-2xs"
                                 aria-label="Valuation version for client release"
                               >
                                 <option value="agent">Valuation Agent output</option>
                                 <option value="external" disabled={!run.externalValuationAvailable}>External valuation report{run.externalValuationFileName ? ` · ${run.externalValuationFileName}` : ''}</option>
+                                <option value="external_original" disabled={!run.externalValuationAvailable}>External valuation: original document view</option>
                               </select>
                             </div>
                           )}
@@ -1141,7 +1143,7 @@ export default function AgentRunsTab({
                                     Released to Client
                                   </span>
                                   <p className="text-[10px] text-slate-500">
-                                    {run.agentKey === 'ttmAnalysis' ? (run.releaseSource === 'external' ? `External report: ${run.externalValuationFileName ?? 'uploaded file'}` : 'Valuation Agent output') : formatDate(run.clientReleasedAt)}
+                                    {run.agentKey === 'ttmAnalysis' ? (run.releaseSource === 'external_original' ? `Original document: ${run.externalValuationFileName ?? 'uploaded file'}` : run.releaseSource === 'external' ? `External report: ${run.externalValuationFileName ?? 'uploaded file'}` : 'Valuation Agent output') : formatDate(run.clientReleasedAt)}
                                   </p>
                                   <button
                                     type="button"
@@ -1376,8 +1378,8 @@ function AgentStatusCard({
   onFacilityMode: (value: '360' | 'advisor') => void
   onAdvisorToRun: (value: boolean) => void
   onAction: (action: ApprovalAction, url?: string) => void
-  onRelease: (released: boolean, source?: 'agent' | 'external') => void
-  onReleaseSourceChange: (source: 'agent' | 'external') => void
+  onRelease: (released: boolean, source?: ValuationReleaseSource) => void
+  onReleaseSourceChange: (source: ValuationReleaseSource) => void
   canActAsCraig: boolean
   canActAsAssignee: boolean
 }) {
@@ -1392,9 +1394,10 @@ function AgentStatusCard({
           <h3 className="font-bold text-slate-900 text-sm mt-0.5">{run.label}</h3>
           {run.agentKey === 'ttmAnalysis' && <div className="mt-2 flex items-center gap-1.5">
             <span className="text-[10px] text-slate-500 font-medium">Release:</span>
-            <select aria-label="Valuation version for client release" value={run.releaseSource ?? 'agent'} onChange={(event) => onReleaseSourceChange(event.target.value as 'agent' | 'external')} className="max-w-[210px] rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px]" disabled={busy || run.clientReleased}>
+            <select aria-label="Valuation version for client release" value={run.releaseSource ?? 'agent'} onChange={(event) => onReleaseSourceChange(event.target.value as ValuationReleaseSource)} className="max-w-[210px] rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px]" disabled={busy || run.clientReleased}>
               <option value="agent">Valuation Agent output</option>
               <option value="external" disabled={!run.externalValuationAvailable}>External valuation report{run.externalValuationFileName ? ` · ${run.externalValuationFileName}` : ''}</option>
+              <option value="external_original" disabled={!run.externalValuationAvailable}>External valuation: original document view</option>
             </select>
           </div>}
         </div>
@@ -1691,7 +1694,7 @@ function AgentStatusCard({
           </span>
         ) : run.clientReleased ? (
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-emerald-700">{run.agentKey === 'ttmAnalysis' ? (run.releaseSource === 'external' ? `External: ${run.externalValuationFileName ?? 'uploaded report'}` : 'Valuation Agent output released') : 'Released'}</span>
+            <span className="text-xs font-semibold text-emerald-700">{run.agentKey === 'ttmAnalysis' ? (run.releaseSource === 'external_original' ? `Original document: ${run.externalValuationFileName ?? 'uploaded report'}` : run.releaseSource === 'external' ? `External: ${run.externalValuationFileName ?? 'uploaded report'}` : 'Valuation Agent output released') : 'Released'}</span>
             <button
               type="button"
               disabled={busy}

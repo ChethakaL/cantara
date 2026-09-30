@@ -1,7 +1,7 @@
 import type { Client } from './store'
 
 /** Facility Review is completed on the onboarding call and cannot be marked N/A. */
-export const REQUIRED_INFO_FORM_NA_EXCLUDED = new Set(['facility_review'])
+export const REQUIRED_INFO_FORM_NA_EXCLUDED = new Set(['facility_review', 'business_operations'])
 
 export function canMarkRequiredInfoFormNotApplicable(formKey: string): boolean {
   return !REQUIRED_INFO_FORM_NA_EXCLUDED.has(formKey)

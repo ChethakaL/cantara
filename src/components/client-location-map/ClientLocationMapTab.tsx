@@ -328,6 +328,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const [geocoding, setGeocoding] = useState(false)
   const [geocodeProgress, setGeocodeProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState<string | null>(null)
+  const [rowLimitWarning, setRowLimitWarning] = useState<{ rowCount: number; limit: number } | null>(null)
+  const [rowLimitAcknowledged, setRowLimitAcknowledged] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null)
   const [visibleTypes, setVisibleTypes] = useState<Set<ServiceType>>(
@@ -365,6 +367,21 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   const deleteEntryRef = useRef<(index: number) => Promise<boolean>>(async () => false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const preEditSnapshotRef = useRef<MapData | null>(null)
+
+  const readLocationMapResponse = async (res: Response) => {
+    const raw = await res.text()
+    let data: any = null
+    try { data = JSON.parse(raw) } catch { /* retain plain-text API errors */ }
+    if (!res.ok) {
+      if (data?.code === 'LOCATION_MAP_ROW_LIMIT') {
+        setRowLimitWarning({ rowCount: Number(data.rowCount) || 3001, limit: Number(data.limit) || 3000 })
+        setRowLimitAcknowledged(false)
+        return null
+      }
+      throw new Error(data?.error || raw || 'Failed to process client address spreadsheet.')
+    }
+    return data
+  }
 
   const reloadDocument = useCallback(async () => {
     setLoadingDocs(true)
@@ -435,11 +452,12 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
   // ── Initialize map when phase changes to 'map' ─────────────────────────
 
   useEffect(() => {
-    if (phase !== 'map' || !mapData) return
+    if (phase !== 'map' || !mapData || composingNew) return
     let cancelled = false
 
     const initMap = async () => {
       try {
+        setMapsError(null)
         const apiKey = await fetchBrowserGoogleMapsKey()
         await loadGoogleMapsScript(apiKey)
         if (cancelled || !mapContainerRef.current) return
@@ -470,7 +488,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
 
     initMap()
     return () => { cancelled = true }
-  }, [phase, mapData])
+  }, [phase, mapData, composingNew])
 
   // ── Re-render markers when filters change ───────────────────────────────
 
@@ -858,6 +876,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       setError('Please upload a CSV or XLSX file.')
       return
     }
+    setRowLimitWarning(null)
+    setRowLimitAcknowledged(false)
     setSelectedFile(file)
     setParsedRows(null)
     setError(null)
@@ -881,11 +901,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       formData.append('useUploadedDoc', 'true')
 
       const res = await fetch('/api/client-location-map', { method: 'POST', body: formData })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || 'Failed to process uploaded document')
-      }
-      const data = await res.json()
+      const data = await readLocationMapResponse(res)
+      if (!data) return
       const rows: ClientPin[] = data.clients.map((c: any) => ({
         name: c.name,
         address: c.address,
@@ -912,11 +929,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       formData.append('file', selectedFile)
 
       const res = await fetch('/api/client-location-map', { method: 'POST', body: formData })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || 'Upload failed')
-      }
-      const data = await res.json()
+      const data = await readLocationMapResponse(res)
+      if (!data) return
       const rows: ClientPin[] = data.clients.map((c: any) => ({
         name: c.name,
         address: c.address,
@@ -1126,11 +1140,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       }
 
       const res = await fetch('/api/client-location-map', { method: 'POST', body: formData })
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(text || 'Failed to parse client addresses from document')
-      }
-      const data = await res.json()
+      const data = await readLocationMapResponse(res)
+      if (!data) return
       const savedCoordinatesByAddress = new Map<string, ClientPin>()
       for (const client of mapData?.clients ?? []) {
         const addressKey = normalizeAddress(client.address)
@@ -1161,6 +1172,7 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
       await startGeocoding(rows)
     } catch (err: any) {
       setError(err.message || 'Failed to process address document')
+    } finally {
       setUploading(false)
     }
   }
@@ -1432,6 +1444,43 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
 
   return (
     <div className="space-y-5">
+      {rowLimitWarning && !rowLimitAcknowledged && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-[2px]" role="presentation">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="location-map-row-limit-title"
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-2xl"
+          >
+            <div className="flex gap-4 p-6">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 id="location-map-row-limit-title" className="text-base font-bold text-slate-900">Spreadsheet is too large to process</h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  This file contains <strong className="text-slate-900">{rowLimitWarning.rowCount.toLocaleString()} records</strong>. The Client Locations Map limit is {rowLimitWarning.limit.toLocaleString()} records, so this file is at or above the limit.
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  Please advise the client to provide a smaller spreadsheet with fewer than {rowLimitWarning.limit.toLocaleString()} records, then upload it again.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <Button
+                type="button"
+                onClick={() => {
+                  setUploading(false)
+                  setRowLimitAcknowledged(true)
+                }}
+                className="bg-slate-900 text-white hover:bg-slate-800"
+              >
+                Got it
+              </Button>
+            </div>
+          </section>
+        </div>
+      )}
       {/* ── Active Map View ── */}
       {mapData && !composingNew && (
         <>
@@ -2074,6 +2123,8 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                 setSelectedFile(null)
                 setParsedRows(null)
                 setError(null)
+                setRowLimitWarning(null)
+                setRowLimitAcknowledged(false)
                 await reloadDocument()
               }}
               readOnly={readOnly}
@@ -2224,7 +2275,12 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
             {/* Readiness Action Footer */}
             <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="text-xs">
-                {readyToRun ? (
+                {rowLimitWarning ? (
+                  <span className="text-amber-800 font-medium flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    This spreadsheet has {rowLimitWarning.rowCount.toLocaleString()} records. Replace it with one containing fewer than {rowLimitWarning.limit.toLocaleString()} records before running the analysis.
+                  </span>
+                ) : readyToRun ? (
                   <span className="text-emerald-700 font-medium flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     Required client address document and facility address ready. You can start the map analysis.
@@ -2248,26 +2304,28 @@ export default function ClientLocationMapTab({ clientId, clientName, businessAdd
                     Cancel
                   </Button>
                 )}
-                <Button
-                  size="sm"
-                  onClick={() => void runMapAnalysis()}
-                  disabled={!readyToRun || uploading || geocoding || (readOnly && !composingNew)}
-                  className="gap-1.5"
-                >
-                  {uploading ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Processing Document...
-                    </>
-                  ) : geocoding ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Geocoding ({geocodeProgress.done}/{geocodeProgress.total})...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-3.5 h-3.5" /> {composingNew ? 'Run New Analysis' : 'Start Map Analysis'}
-                    </>
-                  )}
-                </Button>
+                {!rowLimitWarning && (
+                  <Button
+                    size="sm"
+                    onClick={() => void runMapAnalysis()}
+                    disabled={!readyToRun || uploading || geocoding || (readOnly && !composingNew)}
+                    className="gap-1.5"
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Processing Document...
+                      </>
+                    ) : geocoding ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Geocoding ({geocodeProgress.done}/{geocodeProgress.total})...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3.5 h-3.5" /> {composingNew ? 'Run New Analysis' : 'Start Map Analysis'}
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           </div>

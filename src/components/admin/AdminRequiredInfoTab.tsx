@@ -35,6 +35,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
   const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
   return {
     activeFormKeys: [
+      'business_operations',
       ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
       ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
       ...(hasAgentForm('competitor_analysis') || hasAgentForm('pricing_analysis') ? ['competitor_analysis'] : []),
@@ -44,6 +45,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
       ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
     ],
     formLabels: {
+      business_operations: 'Business Operations',
       facility_review: 'Facility Review',
       digital_presence: 'Digital Presence',
       competitor_analysis: 'Competitor & Pricing Inputs',

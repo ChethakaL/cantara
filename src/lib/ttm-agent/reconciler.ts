@@ -115,13 +115,31 @@ function buildBreakdown(rows: MappedLedgerRow[], months: string[], codes: string
   }));
 }
 
-function groupMonthsByFiscalYear(monthKeys: string[]) {
+function groupMonthsByFiscalYear(monthKeys: string[], requestedStartMonth?: number) {
   const sorted = [...monthKeys].sort((a, b) => a.localeCompare(b));
 
   // Determine if data starts on January — if so, use calendar years.
   // If data starts mid-year (e.g. June), group into rolling 12-month periods.
   const firstMonth = sorted[0]; // e.g. "2019-06"
-  const startMonth = firstMonth ? parseInt(firstMonth.split("-")[1]) : 1;
+  const startMonth = requestedStartMonth ?? (firstMonth ? parseInt(firstMonth.split("-")[1]) : 1);
+  if (requestedStartMonth && requestedStartMonth >= 1 && requestedStartMonth <= 12) {
+    const byFiscalYear = new Map<number, string[]>();
+    for (const month of sorted) {
+      const [yearText, monthText] = month.split("-");
+      const year = Number(yearText);
+      const fiscalStartYear = Number(monthText) >= requestedStartMonth ? year : year - 1;
+      const months = byFiscalYear.get(fiscalStartYear) ?? [];
+      months.push(month);
+      byFiscalYear.set(fiscalStartYear, months);
+    }
+    return Array.from(byFiscalYear.entries()).sort(([a], [b]) => a - b).map(([year, months], i) => ({
+      fiscalYear: `FY${i + 1}`,
+      months,
+      periodStart: months[0],
+      periodEnd: months[months.length - 1],
+      accountantYearKey: String(year),
+    }));
+  }
   const useCalendarYear = startMonth === 1;
 
   if (useCalendarYear) {
@@ -192,7 +210,7 @@ function toExcelColumnName(columnNumber: number) {
   return columnName;
 }
 
-function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: ParsedMonthlyWorkbook, mappedPlRows: MappedLedgerRow[]) {
+function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: ParsedMonthlyWorkbook, mappedPlRows: MappedLedgerRow[], fiscalYearStartMonth?: number) {
   const items: SectionReportItem[] = [];
   const plMonths = uniqueMonths(monthlyPl.monthKeys);
   const bsMonths = uniqueMonths(monthlyBs.monthKeys);
@@ -273,8 +291,8 @@ function buildCoverageSection(monthlyPl: ParsedMonthlyWorkbook, monthlyBs: Parse
     });
   }
 
-  const plYears = groupMonthsByFiscalYear(plMonths).map((entry) => entry.fiscalYear);
-  const bsYears = groupMonthsByFiscalYear(bsMonths).map((entry) => entry.fiscalYear);
+  const plYears = groupMonthsByFiscalYear(plMonths, fiscalYearStartMonth).map((entry) => entry.fiscalYear);
+  const bsYears = groupMonthsByFiscalYear(bsMonths, fiscalYearStartMonth).map((entry) => entry.fiscalYear);
   if (plYears.length !== bsYears.length) {
     items.push({
       title: "Fiscal year alignment mismatch between P&L and balance sheet",
@@ -393,9 +411,9 @@ function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl
   };
 }
 
-function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl: ParsedMonthlyWorkbook): AnnualModel {
+function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl: ParsedMonthlyWorkbook, fiscalYearStartMonth?: number): AnnualModel {
   // Always take the last 3 complete fiscal years and relabel as FY1 (oldest), FY2, FY3 (most recent)
-  const allYears = groupMonthsByFiscalYear(monthKeys);
+  const allYears = groupMonthsByFiscalYear(monthKeys, fiscalYearStartMonth);
   const last3 = allYears.slice(-3);
   const groupedYears = last3.map((entry, i) => ({ ...entry, fiscalYear: `FY${i + 1}` }));
   const fourWallRows = filterFourWallRows(rows);
@@ -588,6 +606,7 @@ function buildAccountantVarianceSection(args: {
   accountantStatements: ParsedAccountantStatements;
   mappedPlRows: MappedLedgerRow[];
   monthKeys: string[];
+  fiscalYearStartMonth?: number;
 }) {
   const items: SectionReportItem[] = [];
   const accountantByYear = new Map(args.accountantStatements.years.map((year) => [year.fiscalYear, year]));
@@ -600,7 +619,7 @@ function buildAccountantVarianceSection(args: {
   const isMidYearStart = firstMonth !== 1;
   const accountantYears = Array.from(accountantByYear.keys()).sort();
 
-  if (isMidYearStart && accountantYears.length > 0) {
+  if (isMidYearStart && !args.fiscalYearStartMonth && accountantYears.length > 0) {
     // Cross-check using CALENDAR YEAR periods (Jan–Dec) to match accountant statements.
     // Re-sum monthly data for each calendar year that has accountant data.
     for (const calYear of accountantYears) {
@@ -743,6 +762,7 @@ export function reconcileFinancials(args: {
     monthlyPl?: { fileName?: string | null; recordId?: string | null };
     monthlyBs?: { fileName?: string | null; recordId?: string | null };
   };
+  fiscalYearStartMonth?: number;
 }) {
   // Filter to only valid YYYY-MM month keys — exclude any non-date columns
   // that may have leaked from rollup/subtotal/year-total columns in F1/F2.
@@ -757,7 +777,7 @@ export function reconcileFinancials(args: {
   console.log(`[TTM] Structured model: ${structuredModel.months.length} months, confidence=${structuredModel.confidence}`);
   const ttmSummary = buildTtmSummary(fourWallPlRows, monthKeys, args.monthlyPl);
   console.log(`[TTM] TTM summary: revenue=$${ttmSummary.totalRevenue.toLocaleString()}, GM=${ttmSummary.grossMarginPct?.toFixed(1) ?? "n/a"}%, EBITDA=$${ttmSummary.ebitdaPreRecast.toLocaleString()}`);
-  const annualModel = buildAnnualModel(args.mappedPlRows, monthKeys, args.monthlyPl);
+  const annualModel = buildAnnualModel(args.mappedPlRows, monthKeys, args.monthlyPl, args.fiscalYearStartMonth);
   console.log(`[TTM] Annual model: ${annualModel.years.length} years, ${annualModel.anomalies.length} anomalies`);
 
   // DEBUG: check what mappedPlRows look like at this point
@@ -790,8 +810,9 @@ export function reconcileFinancials(args: {
       accountantStatements: args.accountantStatements,
       mappedPlRows: args.mappedPlRows,
       monthKeys,
+      fiscalYearStartMonth: args.fiscalYearStartMonth,
     }),
-    D: buildCoverageSection(args.monthlyPl, args.monthlyBs, args.mappedPlRows),
+    D: buildCoverageSection(args.monthlyPl, args.monthlyBs, args.mappedPlRows, args.fiscalYearStartMonth),
     E: [],
   };
 

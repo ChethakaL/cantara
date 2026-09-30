@@ -80,7 +80,7 @@ const AGENT_TABS = [
   { key: 'owner-gm-assessment', label: 'Owner & GM Assessment', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'ownership-verification', label: 'Ownership Verification', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
   { key: 'permits-zoning', label: 'Permits & Zoning', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
-  { key: 'advisors', label: 'Professional Advisors', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
+  // { key: 'advisors', label: 'Professional Advisors', badge: null, icon: Users2, group: 'WS1 — Risk & Legal' },
   { key: 'real-estate-appraisal', label: 'Real Estate Appraisal', badge: null, icon: Landmark, group: 'WS1 — Risk & Legal' },
   { key: 'vendor-directory', label: 'Software & Vendors', badge: null, icon: FileText, group: 'WS1 — Risk & Legal' },
   { key: 'tax-liability-review', label: 'Tax Liability Review', badge: null, icon: FileSpreadsheet, group: 'WS1 — Risk & Legal' },

@@ -21,6 +21,7 @@ import {
 } from '@/lib/agent-approval-workflow'
 
 export const dynamic = 'force-dynamic'
+type ValuationReleaseSource = 'agent' | 'external' | 'external_original'
 
 export type AgentRunStatus = 'not_started' | 'docs_uploaded' | 'partial_docs' | 'docs_missing' | 'advisor_to_run' | 'in_review' | 'approved'
 
@@ -33,7 +34,7 @@ export type AgentRunRecord = {
   hasRun: boolean
   clientReleased: boolean
   clientReleasedAt: string | null
-  releaseSource?: 'agent' | 'external'
+  releaseSource?: ValuationReleaseSource
   externalValuationAvailable?: boolean
   externalValuationFileName?: string | null
   externalValuationReportId?: string | null
@@ -173,13 +174,13 @@ function manualRelease(
   releases: Record<string, unknown> | null | undefined,
   agentId: string,
   statusKey: string,
-): { released: boolean; releasedAt: string | null; releaseSource: 'agent' | 'external'; externalReportId: string | null } {
+): { released: boolean; releasedAt: string | null; releaseSource: ValuationReleaseSource; externalReportId: string | null } {
   const release = firstLookupEntry(releases, agentId, statusKey)
   if (!release) return { released: false, releasedAt: null, releaseSource: 'agent', externalReportId: null }
   return {
     released: release.released === true,
     releasedAt: typeof release.releasedAt === 'string' ? release.releasedAt : null,
-    releaseSource: release.releaseSource === 'external' ? 'external' : 'agent',
+    releaseSource: release.releaseSource === 'external_original' ? 'external_original' : release.releaseSource === 'external' ? 'external' : 'agent',
     externalReportId: typeof release.externalReportId === 'string' ? release.externalReportId : null,
   }
 }
@@ -668,8 +669,8 @@ export async function PATCH(req: NextRequest) {
   if (typeof clientReleased !== 'undefined' && typeof clientReleased !== 'boolean') {
     return new Response('clientReleased must be a boolean', { status: 400 })
   }
-  if (typeof releaseSource !== 'undefined' && releaseSource !== 'agent' && releaseSource !== 'external') {
-    return new Response('releaseSource must be agent or external', { status: 400 })
+  if (typeof releaseSource !== 'undefined' && releaseSource !== 'agent' && releaseSource !== 'external' && releaseSource !== 'external_original') {
+    return new Response('releaseSource must be agent, external, or external_original', { status: 400 })
   }
   if (typeof facilityReviewMode !== 'undefined' && facilityReviewMode !== '360' && facilityReviewMode !== 'advisor') {
     return new Response('facilityReviewMode must be 360 or advisor', { status: 400 })
@@ -763,9 +764,11 @@ export async function PATCH(req: NextRequest) {
       return new Response('Agent output must be approved by Craig before client release', { status: 409 })
     }
     if (clientReleased) {
-      const selectedSource = releaseSource === 'external' ? 'external' : 'agent'
+      const selectedSource: ValuationReleaseSource = releaseSource === 'external_original'
+        ? 'external_original'
+        : releaseSource === 'external' ? 'external' : 'agent'
       let selectedReportId: string | null = null
-      if (selectedSource === 'external') {
+      if (selectedSource !== 'agent') {
         if (statusKey !== 'ttmAnalysis') return new Response('External valuation is only available for the Valuation Agent', { status: 400 })
         const report = await (prisma as any).externalValuationReport.findFirst({
           where: { clientId, ...(typeof externalReportId === 'string' && externalReportId ? { id: externalReportId } : {}) },
@@ -788,7 +791,7 @@ export async function PATCH(req: NextRequest) {
   if (typeof releaseSource !== 'undefined' && typeof clientReleased === 'undefined') {
     if (statusKey !== 'ttmAnalysis') return new Response('Release source can only be changed for the Valuation Agent', { status: 400 })
     let selectedReportId: string | null = null
-    if (releaseSource === 'external') {
+    if (releaseSource === 'external' || releaseSource === 'external_original') {
       const report = await (prisma as any).externalValuationReport.findFirst({
         where: { clientId, ...(typeof externalReportId === 'string' && externalReportId ? { id: externalReportId } : {}) },
         orderBy: { createdAt: 'desc' }, select: { id: true },

@@ -275,6 +275,42 @@ export function parseXlsxBuffer(buffer: Buffer): AddressParseResult {
   }
 }
 
+/** Count populated spreadsheet records after its header, before address validation. */
+export function countAddressRecordsBuffer(buffer: Buffer, fileName: string): number {
+  const ext = (fileName.split('.').pop() || '').toLowerCase()
+  if (ext === 'xlsx' || ext === 'xls') {
+    const XLSX = require('xlsx') as typeof import('xlsx')
+    const workbook = XLSX.read(buffer, { type: 'buffer' })
+    const sheetName = workbook.SheetNames[0]
+    if (!sheetName) return 0
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, defval: '' })
+    if (!rows.length) return 0
+    let headerRowIndex = 0
+    for (let i = 0; i < Math.min(rows.length, 5); i++) {
+      const candidate = (rows[i] as unknown[]).map(value => String(value ?? '').trim())
+      if (headersMatchAddressParser(candidate) || candidate.some(value => /customer name|street address|^address$/i.test(value))) {
+        headerRowIndex = i
+        break
+      }
+    }
+    return (rows.slice(headerRowIndex + 1) as unknown[][])
+      .filter(row => row.some(value => String(value ?? '').trim() !== '')).length
+  }
+
+  const lines = buffer.toString('utf-8').replace(/^\uFEFF/, '').split(/\r?\n/)
+  if (!lines.length) return 0
+  const rows = lines.map(parseCsvLine)
+  let headerRowIndex = 0
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const candidate = rows[i].map(value => String(value ?? '').trim())
+    if (headersMatchAddressParser(candidate) || candidate.some(value => /customer name|street address|^address$/i.test(value))) {
+      headerRowIndex = i
+      break
+    }
+  }
+  return rows.slice(headerRowIndex + 1).filter(row => row.some(value => String(value ?? '').trim() !== '')).length
+}
+
 /** Convert workbook/CSV buffer to UTF-8 CSV text for Claude code execution upload. */
 export function bufferToCsvText(buffer: Buffer, fileName: string): string {
   const ext = (fileName.split('.').pop() || '').toLowerCase()

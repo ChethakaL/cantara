@@ -208,8 +208,8 @@ function ReportSummary({ report }: { report: Report }) {
   return <Ws2WorkbookView analysis={analysis} recast={recast} clientName={report.reportJson?.businessName || 'Business'} readOnly />
 }
 
-export function ExternalValuationReportViewer({ report }: { report: Report }) {
-  const [mode, setMode] = useState<'report' | 'file'>('report')
+export function ExternalValuationReportViewer({ report, originalOnly = false }: { report: Report; originalOnly?: boolean }) {
+  const [mode, setMode] = useState<'report' | 'file'>(originalOnly ? 'file' : 'report')
   const [preview, setPreview] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -232,11 +232,11 @@ export function ExternalValuationReportViewer({ report }: { report: Report }) {
   }, [mode, report.id, endpoint, ext])
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="flex gap-2"><Button size="sm" variant={mode === 'report' ? 'primary' : 'outline'} onClick={() => setMode('report')}>Report view</Button><Button size="sm" variant={mode === 'file' ? 'primary' : 'outline'} onClick={() => setMode('file')}>Original file</Button></div>
+      {!originalOnly && <div className="flex gap-2"><Button size="sm" variant={mode === 'report' ? 'primary' : 'outline'} onClick={() => setMode('report')}>Report view</Button><Button size="sm" variant={mode === 'file' ? 'primary' : 'outline'} onClick={() => setMode('file')}>Original file</Button></div>}
       <a className="inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-sm" href={`${endpoint}&download=1`}><Download className="h-4 w-4"/>Download original</a>
     </div>
     {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    {mode === 'report' && <ReportSummary report={report}/>}
+    {!originalOnly && mode === 'report' && <ReportSummary report={report}/>}
     {mode === 'file' && <div className="overflow-hidden rounded-xl border"><div className="flex items-center gap-2 border-b bg-slate-50 p-3 text-sm font-medium"><FileText className="h-4 w-4"/>{report.fileName}</div>{ext === 'pdf' ? <iframe title={report.fileName} src={endpoint} className="h-[75vh] w-full"/> : loading ? <div className="p-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin"/></div> : preview?.kind === 'table' ? <div className="max-h-[75vh] overflow-auto"><StyledWorkbookPreview sheets={preview.sheets}/></div> : <pre className="max-h-[75vh] overflow-auto whitespace-pre-wrap p-4 text-sm">{preview?.text || 'Loading preview…'}</pre>}</div>}
   </div>
 }

@@ -5,11 +5,13 @@ import { assertS3Configured, s3BucketName, s3Client } from '@/lib/s3'
 import {
   parseCsvText,
   parseXlsxBuffer,
+  countAddressRecordsBuffer,
 } from '@/lib/client-location-map/parse-addresses'
 import { extractAddressesWithClaudeCodeExecution } from '@/lib/client-location-map/claude-extract-addresses'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
+const MAX_LOCATION_MAP_RECORDS = 3000
 
 async function bodyToBuffer(body: any): Promise<Buffer> {
   if (!body) return Buffer.alloc(0)
@@ -69,12 +71,6 @@ export async function POST(req: NextRequest) {
 
     if (!clientId) return new Response('Missing clientId', { status: 400 })
 
-    const client = await prisma.clientProfile.findUnique({
-      where: { id: clientId },
-      select: { id: true },
-    })
-    if (!client) return new Response('Client not found', { status: 404 })
-
     let buffer: Buffer
     let fileName = ''
 
@@ -102,6 +98,22 @@ export async function POST(req: NextRequest) {
     } else {
       return new Response('Missing file or uploaded document', { status: 400 })
     }
+
+    const recordCount = countAddressRecordsBuffer(buffer, fileName)
+    if (recordCount >= MAX_LOCATION_MAP_RECORDS) {
+      return NextResponse.json({
+        code: 'LOCATION_MAP_ROW_LIMIT',
+        rowCount: recordCount,
+        limit: MAX_LOCATION_MAP_RECORDS,
+        error: `This spreadsheet contains ${recordCount.toLocaleString()} records. Please advise the client to provide a spreadsheet with fewer than 3,000 records.`,
+      }, { status: 413 })
+    }
+
+    const client = await prisma.clientProfile.findUnique({
+      where: { id: clientId },
+      select: { id: true },
+    })
+    if (!client) return new Response('Client not found', { status: 404 })
 
     const ext = (fileName.split('.').pop() || '').toLowerCase()
 

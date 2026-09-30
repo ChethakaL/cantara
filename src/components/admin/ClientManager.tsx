@@ -139,7 +139,7 @@ const AGENT_CATALOG = [
   { id: 'ownership_verification', name: 'Ownership Verification Agent', defaultDocumentIds: ['articles_org', 'shareholder_agreement', 'operating_agreement_bylaws', 'org_document_amendments', 'good_standing_certificate', 'annual_reports'] },
   { id: 'permits_zoning', name: 'Permits & Zoning Agent', defaultDocumentIds: ['business_licenses', 'kennel_license', 'health_permit', 'fire_permit', 'zoning_approval', 'certificate_occupancy', 'conditional_use_permit', 'signage_permit', 'building_permits', 'environmental_permits', 'variance_approvals'] },
   { id: 'pricing_vertical', name: 'Pricing by Vertical Agent', defaultDocumentIds: ['revenue_breakdown', 'pricing_schedule'] },
-  { id: 'professional_advisors', name: 'Professional Advisors Agent', defaultDocumentIds: [] },
+  // { id: 'professional_advisors', name: 'Professional Advisors Agent', defaultDocumentIds: [] },
   { id: 'real_estate_appraisal', name: 'Real Estate Appraisal Agent', defaultDocumentIds: ['real_estate_appraisal'] },
   { id: 'sales_process_review', name: 'Sales Process Review Agent', defaultDocumentIds: ['sales_process_transcript', 'pricing_schedule'] },
   { id: 'sales_readiness_roadmap', name: 'Sales Readiness Roadmap', defaultDocumentIds: [] },

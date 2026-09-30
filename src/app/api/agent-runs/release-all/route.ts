@@ -41,7 +41,27 @@ export async function POST(req: NextRequest) {
     const isAlreadyReleased = existingRelease?.released === true
 
     if (isApproved && !isAlreadyReleased) {
-      const releaseEntry = { released: true, releasedAt: new Date().toISOString() }
+      const priorSource = existingRelease && ['agent', 'external', 'external_original'].includes(String((existingRelease as any).releaseSource))
+        ? (existingRelease as any).releaseSource
+        : 'agent'
+      let externalReportId = typeof (existingRelease as any)?.externalReportId === 'string'
+        ? (existingRelease as any).externalReportId
+        : null
+      if ((agentKey === 'ttmAnalysis' || agentKey === 'ttm') && priorSource !== 'agent') {
+        const report = await (prisma as any).externalValuationReport.findFirst({
+          where: { clientId, ...(externalReportId ? { id: externalReportId } : {}) },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        })
+        if (!report) continue
+        externalReportId = report.id
+      }
+      const releaseEntry = {
+        ...existingRelease,
+        released: true,
+        releasedAt: new Date().toISOString(),
+        ...(agentKey === 'ttmAnalysis' || agentKey === 'ttm' ? { releaseSource: priorSource, externalReportId } : {}),
+      }
       releases[agent.agentId] = releaseEntry
       releases[agentKey] = releaseEntry
       releasedCount++
