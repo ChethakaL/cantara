@@ -46,6 +46,40 @@ function cssForCell(cell: any) {
   return style
 }
 
+function hasVisibleCellContent(cell: any): boolean {
+  if (!cell) return false
+  const displayedValue = cell.w ?? cell.v
+  return displayedValue !== undefined && displayedValue !== null && String(displayedValue).trim() !== ''
+}
+
+function contentRange(sheet: XLSX.WorkSheet) {
+  const declared = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1')
+  const merges = (sheet['!merges'] || []) as Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>
+  const mergeByAnchor = new Map(merges.map(merge => [`${merge.s.r}:${merge.s.c}`, merge]))
+  let endRow = declared.s.r - 1
+  let endCol = declared.s.c - 1
+
+  for (const [address, cell] of Object.entries(sheet)) {
+    if (address.startsWith('!') || !hasVisibleCellContent(cell)) continue
+    const { r, c } = XLSX.utils.decode_cell(address)
+    endRow = Math.max(endRow, r)
+    endCol = Math.max(endCol, c)
+    const merge = mergeByAnchor.get(`${r}:${c}`)
+    if (merge) {
+      endRow = Math.max(endRow, merge.e.r)
+      endCol = Math.max(endCol, merge.e.c)
+    }
+  }
+
+  return {
+    s: declared.s,
+    e: {
+      r: Math.max(declared.s.r, endRow),
+      c: Math.max(declared.s.c, endCol),
+    },
+  }
+}
+
 function xmlColor(node: Element | null) {
   if (!node) return undefined
   const value = node.getAttribute('rgb') || ''
@@ -136,7 +170,7 @@ async function readStyledWorkbook(buffer: ArrayBuffer) {
   } catch { /* legacy XLS/CSV use SheetJS' available cell style information */ }
   return workbook.SheetNames.map((name, sheetIndex) => {
     const sheet = workbook.Sheets[name]
-    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1')
+    const range = contentRange(sheet)
     const maxRow = Math.min(range.e.r, range.s.r + 999)
     const maxCol = Math.min(range.e.c, range.s.c + 79)
     const merges = (sheet['!merges'] || []) as Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>
