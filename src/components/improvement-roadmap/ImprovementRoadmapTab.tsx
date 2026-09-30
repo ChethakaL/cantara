@@ -1304,19 +1304,21 @@ export default function ImprovementRoadmapTab({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!readOnly && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowAgentInputs(value => !value)}
-              disabled={generating !== null}
-            >
-              {showAgentInputs ? 'Hide Agent Inputs' : 'Manage Agent Inputs'}
-            </Button>
-            {excludedAgentIds.length > 0 && (
-              <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
-                {excludedAgentIds.length} excluded from this checklist
-              </span>
-            )}
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowAgentInputs(value => !value)}
+                disabled={generating !== null}
+              >
+                {showAgentInputs ? 'Hide Agent Inputs' : 'Manage Agent Inputs'}
+              </Button>
+              {excludedAgentIds.length > 0 && (
+                <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+                  {excludedAgentIds.length} excluded from this checklist
+                </span>
+              )}
+            </>
           )}
           {hasFullReport && (
             <Button
