@@ -7,6 +7,8 @@ import {
   extractSaleReadinessChecklist,
   readChecklistSubmission,
   readRoadmapSubmission,
+  reorderSaleReadinessChecklistMarkdown,
+  type SaleReadinessChecklistOrder,
   type SaleReadinessChecklistItem,
 } from '@/lib/sale-readiness-checklist'
 
@@ -143,13 +145,26 @@ export async function PATCH(req: NextRequest) {
 
   const nextState = { ...state, workstream: 'sales-readiness', items, updatedAt: now }
   const roadmap = readRoadmapSubmission(submissions)
+  const checklistOrder: SaleReadinessChecklistOrder = roadmap?.checklistOrder === 'status' || roadmap?.checklistOrder === 'manual'
+    ? roadmap.checklistOrder
+    : 'category'
+  const nextRoadmap = roadmap
+    ? {
+        ...roadmap,
+        checklist: items,
+        ...(roadmap.stage === 'report'
+          ? { markdown: reorderSaleReadinessChecklistMarkdown(roadmap.markdown ?? '', items, checklistOrder) }
+          : {}),
+        updatedAt: now,
+      }
+    : null
   await prisma.clientProfile.update({
     where: { id: clientId },
     data: {
       sectionSubmissions: {
         ...submissions,
         [CHECKLIST_SUBMISSION_KEY]: nextState,
-        ...(roadmap ? { [ROADMAP_SUBMISSION_KEY]: { ...roadmap, checklist: items } } : {}),
+        ...(nextRoadmap ? { [ROADMAP_SUBMISSION_KEY]: nextRoadmap } : {}),
       },
     },
   })
