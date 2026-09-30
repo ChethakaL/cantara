@@ -36,6 +36,7 @@ import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPane
 import { getStatusBadgeKind, isStatusCell } from '@/lib/report-export/status-cell'
 import { createChecklistItem, exportSaleReadinessChecklistExcel, sortSaleReadinessChecklist, type SaleReadinessChecklistItem, type SaleReadinessChecklistOrder, type SaleReadinessRoadmapStage } from '@/lib/sale-readiness-checklist'
 import { isFlagTitleLine, isItemApprovedInMarkdown, normalizeTitleKey, toggleItemApprovalInMarkdown } from '@/lib/roadmap-flag-items'
+import { isAgentExcluded, toggleExcludedAgentId } from '@/lib/workstream-agents'
 
 type RoadmapReport = {
   workstreamLabel: string
@@ -49,6 +50,7 @@ type RoadmapReport = {
   sourceAgents?: string[]
   valuationSource?: 'agent' | 'external'
   externalValuationFileName?: string
+  excludedAgentIds?: string[]
 }
 
 type RoadmapAgentSource = {
@@ -854,6 +856,7 @@ export default function ImprovementRoadmapTab({
         setCanGenerateChecklist(Boolean(data.canGenerateChecklist))
         setSourcesChanged(Boolean(data.sourcesChanged))
         const selectedReport = composingNew ? null : reportToDisplay
+        setExcludedAgentIds(Array.isArray(selectedReport?.excludedAgentIds) ? selectedReport.excludedAgentIds : [])
         setValuationSource(selectedReport?.valuationSource === 'external' ? 'external' : 'agent')
         const externalRes = await fetch(`/api/ttm-agent/external-report?clientId=${encodeURIComponent(clientId)}`, { cache: 'no-store' })
         if (externalRes.ok) {
@@ -1201,10 +1204,8 @@ export default function ImprovementRoadmapTab({
                             <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 whitespace-nowrap cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={!excludedAgentIds.includes(source.key)}
-                                onChange={() => setExcludedAgentIds(current => current.includes(source.key)
-                                  ? current.filter(id => id !== source.key)
-                                  : [...current, source.key])}
+                                checked={!isAgentExcluded(excludedAgentIds, source.key)}
+                                onChange={() => setExcludedAgentIds(current => toggleExcludedAgentId(current, source.key))}
                                 className="h-4 w-4 accent-slate-800"
                               />
                               Include
@@ -1311,6 +1312,11 @@ export default function ImprovementRoadmapTab({
             >
               {showAgentInputs ? 'Hide Agent Inputs' : 'Manage Agent Inputs'}
             </Button>
+            {excludedAgentIds.length > 0 && (
+              <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+                {excludedAgentIds.length} excluded from this checklist
+              </span>
+            )}
           )}
           {hasFullReport && (
             <Button
@@ -1362,7 +1368,7 @@ export default function ImprovementRoadmapTab({
               </p>
             </div>
             <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap">
-              {sources.filter(source => !excludedAgentIds.includes(source.key)).length} of {sources.length} included
+              {sources.filter(source => !isAgentExcluded(excludedAgentIds, source.key)).length} of {sources.length} included
             </span>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1370,10 +1376,8 @@ export default function ImprovementRoadmapTab({
               <label key={source.key} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={!excludedAgentIds.includes(source.key)}
-                  onChange={() => setExcludedAgentIds(current => current.includes(source.key)
-                    ? current.filter(id => id !== source.key)
-                    : [...current, source.key])}
+                  checked={!isAgentExcluded(excludedAgentIds, source.key)}
+                  onChange={() => setExcludedAgentIds(current => toggleExcludedAgentId(current, source.key))}
                   className="h-4 w-4 accent-slate-800"
                 />
                 <span className="truncate" title={source.name}>{source.name}</span>

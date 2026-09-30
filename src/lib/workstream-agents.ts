@@ -152,6 +152,17 @@ function dedupeAgents(agents: WorkstreamAgentSelection[]) {
   return agents.filter((agent, index) => agents.findIndex(item => item.agentId === agent.agentId) === index)
 }
 
+export function isAgentExcluded(excludedAgentIds: string[], sourceKey: string) {
+  const key = normalizeAgentStatusKey(sourceKey)
+  return excludedAgentIds.some((id) => normalizeAgentStatusKey(id) === key)
+}
+
+export function toggleExcludedAgentId(excludedAgentIds: string[], sourceKey: string) {
+  const key = normalizeAgentStatusKey(sourceKey)
+  const next = excludedAgentIds.filter((id) => normalizeAgentStatusKey(id) !== key)
+  return next.length === excludedAgentIds.length ? [...next, key] : next
+}
+
 export function normalizeAgentStatusKey(agentId: string) {
   const aliases: Record<string, string> = {
     ttm: 'ttmAnalysis',
