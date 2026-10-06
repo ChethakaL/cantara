@@ -3,6 +3,7 @@ import { readFile as readFileBuffer } from "fs/promises";
 import path from "path";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "@/lib/prisma";
+import { FISCAL_MONTHS, fiscalYearEndFromAnswer, fiscalYearStartMonthFromAnswer } from "@/lib/fiscal-year";
 import { assertS3Configured, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { mapLedgerRows } from "@/lib/ttm-agent/mapping";
 import { parseAccountantStatementsDocument, parseAccountantStatementsPreparedDocument } from "@/lib/ttm-agent/parsers/accountant-statements";
@@ -525,10 +526,15 @@ export async function runTtmAgent(args: {
     where: { id: args.clientId }, select: { sectionSubmissions: true },
   });
   const businessResponses = (clientBusinessContext?.sectionSubmissions as Record<string, any> | null)?.agentFormResponses ?? {};
-  const fiscalMonthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const fiscalYearStartMonth = fiscalMonthNames.indexOf(String(businessResponses.businessFiscalYearStartMonth ?? '')) + 1;
-  const knownFiscalYearStartMonth = fiscalYearStartMonth > 0 && fiscalYearStartMonth <= 12 ? fiscalYearStartMonth : undefined;
-  if (knownFiscalYearStartMonth) console.log(`[TTM] Using client fiscal year start month: ${fiscalMonthNames[knownFiscalYearStartMonth - 1]}`);
+  const fiscalYearAnswer = businessResponses.businessFiscalYearStartMonth;
+  const knownFiscalYearStartMonth = fiscalYearStartMonthFromAnswer(fiscalYearAnswer);
+  const knownFiscalYearEnd = fiscalYearEndFromAnswer(fiscalYearAnswer);
+  const fiscalYearEndLabel = knownFiscalYearEnd
+    ? `${FISCAL_MONTHS[knownFiscalYearEnd.month - 1]} ${knownFiscalYearEnd.day}`
+    : undefined;
+  if (knownFiscalYearEnd) {
+    console.log(`[TTM] Client fiscal year ends ${fiscalYearEndLabel}; grouping monthly data from month ${knownFiscalYearStartMonth}`);
+  }
   const resolvedSlots = await loadResolvedMonthlySlots(args.clientId);
   const inputDocuments = [resolvedSlots.pl.primary, resolvedSlots.bs.primary];
   const inputSnapshot = resolvedSlots.inputSnapshot;
@@ -711,6 +717,7 @@ export async function runTtmAgent(args: {
         },
       },
       fiscalYearStartMonth: knownFiscalYearStartMonth,
+      fiscalYearEnd: knownFiscalYearEnd,
     });
 
     const wcResult = buildWorkingCapitalSummary({
@@ -726,6 +733,7 @@ export async function runTtmAgent(args: {
       ttmSummary: reconciled.ttmSummary,
       annualTrends: reconciled.annualModel.trends,
       anomalies: reconciled.annualModel.anomalies,
+      fiscalYearEnd: knownFiscalYearEnd ? `${fiscalYearEndLabel} (years are labeled by end year)` : undefined,
       qualityCounts: dataQualityReport.counts,
       workingCapital: wcResult.workingCapital,
       quickBooksStatus: "Skipped - QuickBooks not connected",
@@ -738,6 +746,7 @@ export async function runTtmAgent(args: {
       mappedBsRows,
       ttmSummary: reconciled.ttmSummary,
       annualModel: reconciled.annualModel,
+      fiscalYearEndLabel,
       workingCapital: wcResult.workingCapital,
       dataQualityReport,
       summary,
@@ -1707,7 +1716,8 @@ async function buildWs22PromptContent(args: {
 TTM Revenue: $${(args.analysis.ttmSummary?.totalRevenue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
 TTM Pre-Recast EBITDA: $${(args.analysis.ttmSummary?.ebitdaPreRecast ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
 TTM Period: ${args.analysis.ttmSummary?.startMonth ?? "?"} to ${args.analysis.ttmSummary?.endMonth ?? "?"}
-Annual Years: ${(args.analysis.annualModel?.years ?? []).map(y => `${y.fiscalYear} (Rev: $${(y.totalRevenue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}, EBITDA: $${(y.ebitdaPreRecast ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })})`).join(" | ")}`,
+Fiscal year convention: ${args.analysis.annualModel?.fiscalYearEnd ? `the business fiscal year ends ${FISCAL_MONTHS[args.analysis.annualModel.fiscalYearEnd.month - 1]} ${args.analysis.annualModel.fiscalYearEnd.day}; years are identified by their ending year` : "not provided"}.
+Annual Years: ${(args.analysis.annualModel?.years ?? []).map(y => `${y.fiscalYear}${y.fiscalYearEndDate ? ` (year ended ${y.fiscalYearEndDate})` : ""} (Rev: $${(y.totalRevenue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}, EBITDA: $${(y.ebitdaPreRecast ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })})`).join(" | ")}`,
     },
   ];
 

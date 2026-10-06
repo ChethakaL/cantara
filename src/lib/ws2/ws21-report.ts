@@ -40,8 +40,17 @@ function formatPct(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "n/a";
 }
 
-function yearDisplayLabel(fiscalYear: string, periodStart: string, periodEnd: string) {
-  return `${fiscalYear} (${periodStart} — ${periodEnd})`;
+function formatFiscalEndDate(value?: string) {
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const monthName = new Date(Number(match[1]), Number(match[2]) - 1, 1).toLocaleString("en-US", { month: "long" });
+  return `${monthName} ${Number(match[3])}, ${match[1]}`;
+}
+
+function yearDisplayLabel(fiscalYear: string, periodStart: string, periodEnd: string, fiscalYearEndDate?: string) {
+  const endLabel = formatFiscalEndDate(fiscalYearEndDate);
+  return `${fiscalYear} (${periodStart} — ${periodEnd}${endLabel ? `; year ended ${endLabel}` : ""})`;
 }
 
 function monthLabel(value: string | null | undefined) {
@@ -174,7 +183,7 @@ function breakdownValue(rows: CategoryBreakdown[], code: string) {
 
 function renderAnnualPnl(annualModel: AnnualModel) {
   const years = annualModel.years;
-  const header = ["Line Item", ...years.map((year) => yearDisplayLabel(year.fiscalYear, year.periodStart, year.periodEnd)), "FY1→FY2", "FY2→FY3"];
+  const header = ["Line Item", ...years.map((year) => yearDisplayLabel(year.fiscalYear, year.periodStart, year.periodEnd, year.fiscalYearEndDate)), "FY1→FY2", "FY2→FY3"];
   const rows: string[][] = [];
 
   const revenueCodes = new Set(years.flatMap((year) => year.revenueByCategory.map((row) => row.code)));
@@ -310,6 +319,7 @@ export function buildWs21DeterministicReport(args: {
   workingCapital: WorkingCapitalSummary | null;
   dataQualityReport: DataQualityReport;
   summary: TtmAgentSummary;
+  fiscalYearEndLabel?: string;
 }) {
   const lines: string[] = [];
   const allMappedRows = [...args.mappedPlRows, ...args.mappedBsRows];
@@ -323,6 +333,9 @@ export function buildWs21DeterministicReport(args: {
   lines.push("## TTM FINANCIAL ANALYSIS REPORT", "");
   lines.push("### PERIOD COVERAGE");
   lines.push(`Dataset coverage: ${monthLabel(args.ttmSummary.startMonth)} through ${monthLabel(args.ttmSummary.endMonth)}.`);
+  if (args.fiscalYearEndLabel) {
+    lines.push(`Fiscal year convention: the business year ends on ${args.fiscalYearEndLabel}; annual periods are identified by their ending year.`);
+  }
   if (years.length === 3) {
     lines.push(`Fiscal years: FY1 = ${years[0].periodStart} — ${years[0].periodEnd} (oldest 12 months), FY2 = ${years[1].periodStart} — ${years[1].periodEnd}, FY3 = ${years[2].periodStart} — ${years[2].periodEnd} (most recent 12 months).`);
   }

@@ -51,8 +51,10 @@ import DigitalPresenceScorecard from '@/components/digital-presence/DigitalPrese
 import ClientApprovedAgentOutput, { type ClientApprovedClient } from '@/components/client-portal/ClientApprovedAgentOutput'
 import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
+import { FiscalYearEndPicker } from '@/components/client-portal/FiscalYearEndPicker'
 import { readCompetitorSlots } from '@/lib/competitor-portal-form'
 import { FORM_FIELD_NA_VALUE, isFormFieldAnswered, isFormFieldNa } from '@/lib/client-form-na'
+import { parseFiscalYearEnd } from '@/lib/fiscal-year'
 import {
   canMarkRequiredInfoFormNotApplicable,
   isRequiredInfoFormNotApplicable,
@@ -67,7 +69,7 @@ export type ClientPortalFormQuestion = {
   fieldKey: string
   label: string
   description?: string | null
-  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number'
+  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number' | 'fiscal-year-end'
   placeholder?: string | null
   required: boolean
   options?: string[] | null
@@ -2244,7 +2246,7 @@ function FormQuestionFields({
         const value = formResponses[question.fieldKey] ?? ''
         const isNa = !question.required && !structured && isFormFieldNa(value)
         const showNaToggle = !question.required && !structured
-        const Shell = structured || showNaToggle ? 'div' : 'label'
+        const Shell = structured || showNaToggle || question.inputType === 'fiscal-year-end' ? 'div' : 'label'
         const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2 flex flex-col justify-between' : 'flex flex-col justify-between'
         return (
           <Shell key={question.id} className={shellClass}>
@@ -2285,6 +2287,8 @@ function FormQuestionFields({
               <div className={`${commonClass} mt-1 bg-slate-50 text-slate-400 border-dashed`}>
                 Not applicable
               </div>
+            ) : question.inputType === 'fiscal-year-end' ? (
+              <FiscalYearEndPicker value={value} onChange={next => onUpdate(question.fieldKey, next)} />
             ) : question.inputType === 'textarea' ? (
               <textarea
                 value={value}
@@ -2422,7 +2426,9 @@ function StructuredRowsInput({
   return (
     <div className="mt-2 space-y-3">
       <p className="text-[11px] text-slate-400">
-        Download the Excel template, fill in your rows, then upload it here. You can still edit rows in the table below.
+        {fieldKey === 'professionalAdvisorsList'
+          ? 'Enter or edit professional advisor details in the table below.'
+          : 'Download the Excel template, fill in your rows, then upload it here. You can still edit rows in the table below.'}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         {fieldKey === 'professionalAdvisorsList' && (
@@ -2434,6 +2440,8 @@ function StructuredRowsInput({
             {noProfessionalAdvisors ? 'Add professional advisors' : 'No professional advisors'}
           </button>
         )}
+        {/* Craig asked to remove the Excel download/upload options from Professional Advisors. */}
+        {fieldKey !== 'professionalAdvisorsList' && <>
         <button
           type="button"
           onClick={() => {
@@ -2462,6 +2470,7 @@ function StructuredRowsInput({
           <Upload className="w-3.5 h-3.5" />
           {importing ? 'Importing...' : 'Upload completed Excel'}
         </label>
+        </>}
         <button
           type="button"
           onClick={addRow}
@@ -2753,7 +2762,10 @@ function AgentInformationTab({
 
   async function saveFormResponses(options?: { silent?: boolean }) {
     if (!formQuestions.length) return true
-    const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
+    const missing = formQuestions.filter(q => {
+      const answer = String(formResponses[q.fieldKey] ?? '').trim()
+      return q.required && (!answer || (q.inputType === 'select' && !q.options?.includes(answer)) || (q.inputType === 'fiscal-year-end' && !parseFiscalYearEnd(answer)))
+    })
     if (missing.length && !options?.silent) {
       setFormError(`Please complete required fields: ${missing.slice(0, 3).map(q => q.label).join(', ')}${missing.length > 3 ? '...' : ''}`)
       return false
@@ -3176,7 +3188,10 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
   }
 
   async function saveFormResponses() {
-    const missing = formQuestions.filter(q => q.required && !String(formResponses[q.fieldKey] ?? '').trim())
+    const missing = formQuestions.filter(q => {
+      const answer = String(formResponses[q.fieldKey] ?? '').trim()
+      return q.required && (!answer || (q.inputType === 'select' && !q.options?.includes(answer)) || (q.inputType === 'fiscal-year-end' && !parseFiscalYearEnd(answer)))
+    })
     if (missing.length) {
       setFormError(`Please complete required fields: ${missing.slice(0, 3).map(q => q.label).join(', ')}${missing.length > 3 ? '...' : ''}`)
       return

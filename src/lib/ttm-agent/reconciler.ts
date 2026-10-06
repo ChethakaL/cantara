@@ -137,7 +137,8 @@ function groupMonthsByFiscalYear(monthKeys: string[], requestedStartMonth?: numb
       months,
       periodStart: months[0],
       periodEnd: months[months.length - 1],
-      accountantYearKey: String(year),
+      // Accountant statements name a non-calendar fiscal year by its end year.
+      accountantYearKey: String(year + (requestedStartMonth === 1 ? 0 : 1)),
     }));
   }
   const useCalendarYear = startMonth === 1;
@@ -411,7 +412,13 @@ function buildTtmSummary(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl
   };
 }
 
-function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[], monthlyPl: ParsedMonthlyWorkbook, fiscalYearStartMonth?: number): AnnualModel {
+function buildAnnualModel(
+  rows: MappedLedgerRow[],
+  monthKeys: string[],
+  monthlyPl: ParsedMonthlyWorkbook,
+  fiscalYearStartMonth?: number,
+  fiscalYearEnd?: { month: number; day: number },
+): AnnualModel {
   // Always take the last 3 complete fiscal years and relabel as FY1 (oldest), FY2, FY3 (most recent)
   const allYears = groupMonthsByFiscalYear(monthKeys, fiscalYearStartMonth);
   const last3 = allYears.slice(-3);
@@ -444,6 +451,9 @@ function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[], monthlyP
       fiscalYear,
       periodStart,
       periodEnd,
+      ...(fiscalYearEnd && accountantYearKey ? {
+        fiscalYearEndDate: `${accountantYearKey}-${String(fiscalYearEnd.month).padStart(2, "0")}-${String(fiscalYearEnd.day).padStart(2, "0")}`,
+      } : {}),
       accountantYearKey,
       revenueByCategory: buildBreakdown(rows, months, REVENUE_CODES),
       cogsByCategory: buildBreakdown(rows, months, COGS_CODES),
@@ -517,7 +527,7 @@ function buildAnnualModel(rows: MappedLedgerRow[], monthKeys: string[], monthlyP
     }
   }
 
-  return { years, trends, anomalies };
+  return { years, trends, anomalies, ...(fiscalYearEnd ? { fiscalYearEnd } : {}) };
 }
 
 function buildMappingSection(
@@ -763,6 +773,7 @@ export function reconcileFinancials(args: {
     monthlyBs?: { fileName?: string | null; recordId?: string | null };
   };
   fiscalYearStartMonth?: number;
+  fiscalYearEnd?: { month: number; day: number };
 }) {
   // Filter to only valid YYYY-MM month keys — exclude any non-date columns
   // that may have leaked from rollup/subtotal/year-total columns in F1/F2.
@@ -777,7 +788,7 @@ export function reconcileFinancials(args: {
   console.log(`[TTM] Structured model: ${structuredModel.months.length} months, confidence=${structuredModel.confidence}`);
   const ttmSummary = buildTtmSummary(fourWallPlRows, monthKeys, args.monthlyPl);
   console.log(`[TTM] TTM summary: revenue=$${ttmSummary.totalRevenue.toLocaleString()}, GM=${ttmSummary.grossMarginPct?.toFixed(1) ?? "n/a"}%, EBITDA=$${ttmSummary.ebitdaPreRecast.toLocaleString()}`);
-  const annualModel = buildAnnualModel(args.mappedPlRows, monthKeys, args.monthlyPl, args.fiscalYearStartMonth);
+  const annualModel = buildAnnualModel(args.mappedPlRows, monthKeys, args.monthlyPl, args.fiscalYearStartMonth, args.fiscalYearEnd);
   console.log(`[TTM] Annual model: ${annualModel.years.length} years, ${annualModel.anomalies.length} anomalies`);
 
   // DEBUG: check what mappedPlRows look like at this point
