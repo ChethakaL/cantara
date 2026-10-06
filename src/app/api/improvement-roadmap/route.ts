@@ -21,6 +21,7 @@ import {
   readChecklistSubmission,
   readRoadmapSubmission,
   reorderSaleReadinessChecklistMarkdown,
+  sanitizeSaleReadinessRoadmapMarkdown,
   sortSaleReadinessChecklist,
   type SaleReadinessChecklistItem,
   type SaleReadinessChecklistOrder,
@@ -74,7 +75,7 @@ function withChecklist(report: Record<string, any> | null, checklistItems: SaleR
     clientName: report?.clientName ?? 'Client',
     generatedAt: report?.generatedAt ?? new Date().toISOString(),
     updatedAt: report?.updatedAt,
-    markdown: typeof report?.markdown === 'string' ? report.markdown : '',
+    markdown: sanitizeSaleReadinessRoadmapMarkdown(typeof report?.markdown === 'string' ? report.markdown : ''),
     stage,
     checklist: checklistItems ?? (Array.isArray(report?.checklist) ? report.checklist : []),
     checklistOrder: report?.checklistOrder === 'status' || report?.checklistOrder === 'manual' ? report.checklistOrder : 'category',
@@ -409,7 +410,10 @@ async function saveRoadmap(
   report: RoadmapReport,
   checklistItems: SaleReadinessChecklistItem[],
 ) {
-  const nextReport = withChecklist(report, checklistItems, report.sourceAgents)!
+  const nextReport = withChecklist({
+    ...report,
+    markdown: sanitizeSaleReadinessRoadmapMarkdown(report.markdown),
+  }, checklistItems, report.sourceAgents)!
   await prisma.clientProfile.update({
     where: { id: clientId },
     data: {
@@ -469,9 +473,9 @@ Return exactly this structure:
 
 ## Sale-Readiness Checklist
 
-| ✅ | Category | Item | Status | Action Needed |
-|----|----------|------|--------|---------------|
-| ☐ | Category | Specific document or action | 🟢 GREEN / 🟡 YELLOW / 🔴 RED | What to do |
+| Category | Item | Status | Action Needed |
+|----------|------|--------|---------------|
+| Category | Specific document or action | 🟢 GREEN / 🟡 YELLOW / 🔴 RED | What to do |
 
 ## Source Data
 
@@ -514,6 +518,7 @@ CRITICAL RULES:
 - ALWAYS include "Impact on Deal" for every action item and in the summary table
 - Use the exact approved category names consistently in every section
 - Do not recommend requiring a standalone Seller Non-Compete
+- Do not include or refer to a "Deep Dive" section anywhere in the report.
 
 Return markdown only. Do not include any preamble.`,
     content: [...(args.externalValuation?.blocks ?? []), { type: 'text', text: `Generate a comprehensive Sales Readiness Roadmap for **${args.clientName}**.${args.externalValuation ? ` Use the attached uploaded valuation report ${args.externalValuation.fileName} as the valuation source; never use a Cantara Valuation Agent output.` : ''}
@@ -523,7 +528,7 @@ The advisor selected report grouping by ${args.checklistOrder === 'status' ? 'ST
 This is a SELLER-FACING document. The advisor has already reviewed and edited the checklist. Use the approved items EXACTLY as written — including the advisor's wording for category, item, status, and action needed. Do not replace their text with your own phrasing.
 
 ## Advisor-Approved Checklist Items
-These items MUST drive the overview, checklist, red/yellow actions, and deep dive. Copy the Item and Action Needed text as the advisor wrote it.
+These items MUST drive the overview, checklist, and red/yellow actions. Copy the Item and Action Needed text as the advisor wrote it.
 
 ${checklistTable(args.approved)}
 
@@ -544,7 +549,7 @@ Write a warm 2-3 paragraph letter:
 
 ## Advisor Review Notes
 - How many checklist items were approved vs not approved
-- That the rest of this report is based on the approved items
+- That the overview, checklist, and red/yellow action plans are based on the approved items
 - A short list of excluded items, if any, and that they were intentionally left out of the action plan
 
 ## Sale-Readiness Overview
@@ -565,9 +570,9 @@ Status definitions:
 
 Repeat the approved checklist only.
 
-| ✅ | Category | Item | Status | Action Needed |
-|----|----------|------|--------|---------------|
-| ☐ | Category | Specific document or action | 🟢/🟡/🔴 | What to do |
+| Category | Item | Status | Action Needed |
+|----------|------|--------|---------------|
+| Category | Specific document or action | 🟢/🟡/🔴 | What to do |
 
 ## Red Flag Action Items
 
@@ -583,10 +588,6 @@ List ALL 🔴 RED items from the APPROVED checklist, grouped by category:
 ## Yellow Flag Action Items
 
 List ALL 🟡 YELLOW items from the APPROVED checklist, grouped by category. Same format as above.
-
-## Deep Dive by Category
-
-Provide a thorough category-by-category breakdown for APPROVED findings only. Use the approved category names as headings. For each item: What, Why, Impact on Deal, How, Owner.
 
 ---
 
