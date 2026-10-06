@@ -145,6 +145,7 @@ function buildDeterministicTtmSummary(payload: Record<string, unknown>): TtmAgen
   const ebitdaMarginPct = asNumber(ttmSummary?.ebitdaMarginPct);
   const startMonth = typeof ttmSummary?.startMonth === "string" ? ttmSummary.startMonth : null;
   const endMonth = typeof ttmSummary?.endMonth === "string" ? ttmSummary.endMonth : null;
+  const fiscalYearEnd = typeof payload.fiscalYearEnd === "string" ? payload.fiscalYearEnd : null;
 
   const netWorkingCapital = asNumber(workingCapital?.netWorkingCapital);
   const trailingNwc = asNumber(workingCapital?.trailingThreeMonthAverageNwc);
@@ -182,6 +183,9 @@ function buildDeterministicTtmSummary(payload: Record<string, unknown>): TtmAgen
   }
 
   const mappingNotes: string[] = [];
+  if (fiscalYearEnd) {
+    mappingNotes.push(`Client fiscal years end ${fiscalYearEnd}; annual periods are identified by their ending year.`);
+  }
   if (ownerComp > 0) {
     mappingNotes.push(`Owner compensation is mapped to OPX-LABOR-OWN at ${formatCurrency(ownerComp)} in the TTM model.`);
   }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { ChevronRight, FileSpreadsheet, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { Button, Card } from '@/components/ui'
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
+import { FiscalYearEndPicker } from '@/components/client-portal/FiscalYearEndPicker'
 import type { Client } from '@/lib/store'
 import {
   STRUCTURED_FORM_COLUMNS,
@@ -22,7 +23,7 @@ type ClientPortalFormQuestion = {
   fieldKey: string
   label: string
   description?: string | null
-  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number'
+  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number' | 'fiscal-year-end'
   placeholder?: string | null
   required: boolean
   options?: string[] | null
@@ -96,7 +97,7 @@ function FormQuestionFields({
         const value = formResponses[question.fieldKey] ?? ''
         const isNa = !question.required && !structured && isFormFieldNa(value)
         const showNaToggle = !question.required && !structured
-        const Shell = structured || showNaToggle ? 'div' : 'label'
+        const Shell = structured || showNaToggle || question.inputType === 'fiscal-year-end' ? 'div' : 'label'
         const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2' : ''
         return (
           <Shell key={question.id} className={shellClass}>
@@ -135,6 +136,8 @@ function FormQuestionFields({
               <div className={`${commonClass} mt-1 bg-slate-50 text-slate-400 border-dashed`}>
                 Not applicable
               </div>
+            ) : question.inputType === 'fiscal-year-end' ? (
+              <FiscalYearEndPicker value={value} onChange={next => onUpdate(question.fieldKey, next)} />
             ) : question.inputType === 'textarea' ? (
               <textarea
                 value={value}
@@ -221,7 +224,9 @@ function StructuredRowsInput({
   return (
     <div className="mt-2 space-y-3">
       <p className="text-[11px] text-slate-400">
-        Download the Excel template, fill in rows, then upload or edit inline below.
+        {fieldKey === 'professionalAdvisorsList'
+          ? 'Enter or edit professional advisor details in the table below.'
+          : 'Download the Excel template, fill in rows, then upload or edit inline below.'}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         {fieldKey === 'professionalAdvisorsList' && (
@@ -233,6 +238,8 @@ function StructuredRowsInput({
             {noProfessionalAdvisors ? 'Add professional advisors' : 'No professional advisors'}
           </button>
         )}
+        {/* Craig asked to remove the Excel download/upload options from Professional Advisors. */}
+        {fieldKey !== 'professionalAdvisorsList' && <>
         <button
           type="button"
           onClick={() => {
@@ -261,6 +268,7 @@ function StructuredRowsInput({
           <Upload className="w-3.5 h-3.5" />
           {importing ? 'Importing...' : 'Upload completed Excel'}
         </label>
+        </>}
         <button
           type="button"
           onClick={addRow}

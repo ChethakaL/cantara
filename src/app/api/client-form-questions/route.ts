@@ -66,14 +66,13 @@ const BUSINESS_OPERATIONS_QUESTIONS: FormQuestionRow[] = [
     id: 'business-operations-24-hour-care', agentId: 'business_operations', agentName: 'Business Operations',
     fieldKey: 'businessOffers24HourCare', label: 'Does the facility offer 24-hour care?',
     description: 'This helps us understand overnight staffing and coverage needs.', inputType: 'select',
-    placeholder: null, required: true, options: ['Yes', 'No', 'Not sure'], groupKey: null, groupLabel: null, sortOrder: -2,
+    placeholder: null, required: true, options: ['Yes', 'No'], groupKey: null, groupLabel: null, sortOrder: -2,
   },
   {
     id: 'business-operations-fiscal-year', agentId: 'business_operations', agentName: 'Business Operations',
-    fieldKey: 'businessFiscalYearStartMonth', label: 'When does the business fiscal year start?',
-    description: 'Select the first month of the business’s financial reporting year.', inputType: 'select',
-    placeholder: null, required: true,
-    options: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'Not sure'],
+    fieldKey: 'businessFiscalYearStartMonth', label: 'When does the business fiscal year end?',
+    description: 'Choose the month; its last day is selected automatically. Adjust the day if needed.', inputType: 'fiscal-year-end',
+    placeholder: null, required: true, options: [],
     groupKey: null, groupLabel: null, sortOrder: -1,
   },
 ]

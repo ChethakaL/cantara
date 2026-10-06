@@ -192,6 +192,7 @@ export interface AnnualModelYear {
   fiscalYear: string;
   periodStart: string;
   periodEnd: string;
+  fiscalYearEndDate?: string;
   accountantYearKey: string | null;
   revenueByCategory: CategoryBreakdown[];
   cogsByCategory: CategoryBreakdown[];
@@ -209,6 +210,7 @@ export interface AnnualModel {
   years: AnnualModelYear[];
   trends: AnnualTrend[];
   anomalies: string[];
+  fiscalYearEnd?: { month: number; day: number };
 }
 
 export interface WorkingCapitalComponent {
