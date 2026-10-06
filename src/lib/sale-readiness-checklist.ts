@@ -46,6 +46,46 @@ function markdownTableCells(line: string) {
   return line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(cell => cell.trim().replace(/\\\|/g, '|'))
 }
 
+/** Hide client completion UI and the Deep Dive section from roadmap report views. */
+export function sanitizeSaleReadinessRoadmapMarkdown(markdown: string): string {
+  const lines = markdown
+    .replace(/,\s*and\s+the\s+deep dive\b/gi, '')
+    .replace(/,\s*the\s+deep dive\b/gi, '')
+    .split('\n')
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^##\s+deep dive by category\s*$/i.test(lines[index].trim())) {
+      let end = index + 1
+      while (end < lines.length && !/^##\s+/.test(lines[end].trim())) end += 1
+      lines.splice(index, end - index)
+      index -= 1
+      continue
+    }
+
+    if (!/^##\s+sale[- ]readiness checklist\s*$/i.test(lines[index].trim())) continue
+    let header = index + 1
+    while (header < lines.length && !lines[header].trim().startsWith('|')) header += 1
+    if (header + 1 >= lines.length || !/^\|[\s\-:|]+\|$/.test(lines[header + 1].trim())) continue
+    const headers = markdownTableCells(lines[header])
+    const firstHeader = headers[0]?.replace(/[^a-z]/gi, '').toLowerCase() ?? ''
+    if (headers[0]?.includes('✅') || ['done', 'complete', 'completed', 'check'].includes(firstHeader)) {
+      const withoutFirstCell = (line: string) => {
+        const cells = markdownTableCells(line)
+        return `| ${cells.slice(1).map(cell => cell.replace(/\|/g, '\\|')).join(' | ')} |`
+      }
+      lines[header] = withoutFirstCell(lines[header])
+      lines[header + 1] = withoutFirstCell(lines[header + 1])
+      let row = header + 2
+      while (row < lines.length && lines[row].trim().startsWith('|')) {
+        if (!/^\|[\s\-:|]+\|$/.test(lines[row].trim())) lines[row] = withoutFirstCell(lines[row])
+        row += 1
+      }
+    }
+  }
+
+  return lines.join('\n')
+}
+
 export function reorderSaleReadinessChecklistMarkdown(
   markdown: string,
   items: SaleReadinessChecklistItem[],
@@ -227,7 +267,6 @@ export function buildSaleReadinessChecklistPdfHtml(args: {
 }): string {
   const rows = args.items.map(item => `
     <tr>
-      <td style="text-align:center;font-size:16px;color:#94a3b8;">${item.clientCompleted ? '☑' : '☐'}</td>
       <td>${esc(item.category)}</td>
       <td><strong>${esc(item.item)}</strong></td>
       <td>${statusHtml(item.status)}</td>
@@ -239,7 +278,6 @@ export function buildSaleReadinessChecklistPdfHtml(args: {
     <table class="report-table">
       <thead>
         <tr>
-          <th style="width:44px;">Done</th>
           <th>Category</th>
           <th>Checklist Item</th>
           <th>Status</th>

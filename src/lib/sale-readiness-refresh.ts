@@ -221,7 +221,7 @@ function sectionHeading(item: SaleReadinessChecklistItem) {
   const status = item.status.toLowerCase()
   if (status.includes('red') || item.status.includes('🔴')) return '## Red Flag Action Items'
   if (status.includes('yellow') || item.status.includes('🟡')) return '## Yellow Flag Action Items'
-  return '## Deep Dive by Category'
+  return null
 }
 
 function insertBlock(markdown: string, heading: string, block: string): string {
@@ -250,7 +250,8 @@ export function spliceNarrativeBlock(
     return lines.join('\n')
   }
   if (!replacement?.trim() || !insertNear) return markdown
-  return insertBlock(markdown, sectionHeading(insertNear), replacement)
+  const heading = sectionHeading(insertNear)
+  return heading ? insertBlock(markdown, heading, replacement) : markdown
 }
 
 type NarrativeRewrite = {

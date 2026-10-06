@@ -34,7 +34,7 @@ import { ExportReportButton } from '@/components/report-export/ExportReportButto
 import { generateReportHtml } from '@/lib/report-export/generate-report-html'
 import { buildImprovementRoadmapHtml } from '@/lib/report-export/build-improvement-roadmap-report'
 import { parseMarkdownBlocks, serializeMarkdownBlocks, type MarkdownBlock } from '@/lib/markdown-blocks'
-import { exportSaleReadinessChecklistExcel, type SaleReadinessChecklistItem } from '@/lib/sale-readiness-checklist'
+import { exportSaleReadinessChecklistExcel, sanitizeSaleReadinessRoadmapMarkdown, type SaleReadinessChecklistItem } from '@/lib/sale-readiness-checklist'
 import { buildClientReleasedRoadmapMarkdown } from '@/lib/roadmap-flag-items'
 import { Ws2WorkbookView } from '@/components/ttm-agent/Ws2WorkbookView'
 import { ExternalValuationReportViewer } from '@/components/ttm-agent/ExternalValuationReport'
@@ -227,9 +227,8 @@ function isChecklistHeading(content: string) {
 function buildChecklistBlock(items: SaleReadinessChecklistItem[]): Extract<MarkdownBlock, { type: 'table' }> {
   return {
     type: 'table',
-    headers: ['Done', 'Category', 'Item', 'Status', 'Action Needed'],
+    headers: ['Category', 'Item', 'Status', 'Action Needed'],
     rows: items.map(item => [
-      item.clientCompleted ? '☑' : '☐',
       item.category,
       item.item,
       item.status || 'Open',
@@ -279,49 +278,18 @@ function renderFormattedText(text: string | undefined): React.ReactNode {
 }
 
 function ClientChecklistTable({
-  clientId,
   clientName,
   items,
-  onChange,
 }: {
-  clientId: string
   clientName: string
   items: SaleReadinessChecklistItem[]
-  onChange: (items: SaleReadinessChecklistItem[]) => void
 }) {
-  const [updating, setUpdating] = useState<string | null>(null)
-
-  const toggle = async (item: SaleReadinessChecklistItem) => {
-    setUpdating(item.id)
-    try {
-      const res = await fetch('/api/sale-readiness-checklist', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId,
-          items: items.map(current => (
-            current.id === item.id
-              ? { ...current, clientCompleted: !current.clientCompleted }
-              : current
-          )),
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Failed to update item.')
-      onChange((data.checklist?.items ?? items) as SaleReadinessChecklistItem[])
-    } catch {
-      // rollback or keep as-is
-    } finally {
-      setUpdating(null)
-    }
-  }
-
   return (
     <div className="my-6 space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-bold text-slate-900">Sale-Readiness Checklist</h3>
-          <p className="text-xs text-slate-500">Track and check off action items as you complete them.</p>
+          <p className="text-xs text-slate-500">Review the actions that can help prepare the business for sale.</p>
         </div>
         <button
           type="button"
@@ -336,7 +304,6 @@ function ClientChecklistTable({
       <table className="min-w-full divide-y divide-slate-200 text-sm">
         <thead className="bg-slate-50">
           <tr>
-            <th className="w-12 px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Done</th>
             <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Category</th>
             <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Item</th>
             <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Status</th>
@@ -345,18 +312,9 @@ function ClientChecklistTable({
         </thead>
         <tbody className="divide-y divide-slate-100">
           {items.map(item => (
-            <tr key={item.id} className={item.clientCompleted ? 'bg-emerald-50/40' : 'bg-white'}>
-              <td className="px-4 py-3 align-top">
-                <input
-                  type="checkbox"
-                  checked={item.clientCompleted}
-                  disabled={updating === item.id}
-                  onChange={() => void toggle(item)}
-                  className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                />
-              </td>
+            <tr key={item.id} className="bg-white">
               <td className="px-4 py-3 align-top text-sm font-medium leading-6 text-slate-700">{renderFormattedText(item.category)}</td>
-              <td className={`px-4 py-3 align-top text-sm font-medium leading-6 ${item.clientCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{renderFormattedText(item.item)}</td>
+              <td className="px-4 py-3 align-top text-sm font-medium leading-6 text-slate-700">{renderFormattedText(item.item)}</td>
               <td className="px-4 py-3 align-top"><StatusBadge value={item.status || 'Open'} /></td>
               <td className="px-4 py-3 align-top text-sm leading-6 text-slate-700">{renderFormattedText(item.actionNeeded)}</td>
             </tr>
@@ -393,7 +351,10 @@ function RoadmapReleasedReport({
     return () => { cancelled = true }
   }, [clientId])
 
-  const exportMarkdown = useMemo(() => buildClientReleasedRoadmapMarkdown(markdown, items), [markdown, items])
+  const exportMarkdown = useMemo(
+    () => sanitizeSaleReadinessRoadmapMarkdown(buildClientReleasedRoadmapMarkdown(markdown, items)),
+    [markdown, items],
+  )
   const blocks = useMemo(() => parseMarkdownBlocks(exportMarkdown), [exportMarkdown])
   const html = useMemo(() => buildImprovementRoadmapHtml({
     workstream: 'sales-readiness',
@@ -434,10 +395,8 @@ function RoadmapReleasedReport({
             return (
               <ClientChecklistTable
                 key={index}
-                clientId={clientId}
                 clientName={clientName}
                 items={items}
-                onChange={setItems}
               />
             )
           }

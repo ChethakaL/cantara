@@ -34,7 +34,7 @@ import { AGENT_RUN_KEYS } from '@/lib/agent-run-keys'
 import { saveAgentAnalysisRunClient } from '@/lib/agent-analysis-runs.client'
 import type { AgentRunHistoryItem } from '@/components/admin/AgentRunHistoryPanel'
 import { getStatusBadgeKind, isStatusCell } from '@/lib/report-export/status-cell'
-import { createChecklistItem, exportSaleReadinessChecklistExcel, sortSaleReadinessChecklist, type SaleReadinessChecklistItem, type SaleReadinessChecklistOrder, type SaleReadinessRoadmapStage } from '@/lib/sale-readiness-checklist'
+import { createChecklistItem, exportSaleReadinessChecklistExcel, sanitizeSaleReadinessRoadmapMarkdown, sortSaleReadinessChecklist, type SaleReadinessChecklistItem, type SaleReadinessChecklistOrder, type SaleReadinessRoadmapStage } from '@/lib/sale-readiness-checklist'
 import { isFlagTitleLine, isItemApprovedInMarkdown, normalizeTitleKey, toggleItemApprovalInMarkdown } from '@/lib/roadmap-flag-items'
 import { isAgentExcluded, toggleExcludedAgentId } from '@/lib/workstream-agents'
 
@@ -1006,7 +1006,7 @@ export default function ImprovementRoadmapTab({
       workstreamLabel: report.workstreamLabel || 'Sales Readiness',
       clientName: report.clientName || clientName,
       generatedAt: report.generatedAt,
-      markdown: report.markdown,
+      markdown: sanitizeSaleReadinessRoadmapMarkdown(report.markdown),
     }) : '',
   [report, clientName])
 
@@ -1526,7 +1526,7 @@ export default function ImprovementRoadmapTab({
 
           {hasFullReport && report && (
             <InlineEditableMarkdownReport
-              report={report}
+              report={{ ...report, markdown: sanitizeSaleReadinessRoadmapMarkdown(report.markdown) }}
               markdownComponents={markdownComponents}
               readOnly={readOnly}
               onSave={async (markdown) => {

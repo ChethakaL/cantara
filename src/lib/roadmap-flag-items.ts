@@ -193,10 +193,10 @@ export function buildClientReleasedRoadmapMarkdown(
     if (title.includes('checklist')) {
       // Build checklist table with approved items only
       const checklistTable = [
-        '| ✅ | Category | Item | Status | Action Needed |',
-        '|----|----------|------|--------|---------------|',
+        '| Category | Item | Status | Action Needed |',
+        '|----------|------|--------|---------------|',
         ...approvedChecklistItems.map(item =>
-          `| ${item.clientCompleted ? '☑' : '☐'} | ${item.category} | ${item.item} | ${item.status || 'Open'} | ${item.actionNeeded} |`
+          `| ${item.category} | ${item.item} | ${item.status || 'Open'} | ${item.actionNeeded} |`
         ),
       ].join('\n')
       clientSections.push({ title: 'Sale-Readiness Checklist', content: checklistTable })
