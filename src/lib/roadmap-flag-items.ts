@@ -1,10 +1,10 @@
-import { type SaleReadinessChecklistItem } from '@/lib/sale-readiness-checklist'
+import type { SaleReadinessChecklistItem } from '@/lib/sale-readiness-checklist'
 
 export function normalizeTitleKey(title: string): string {
   return String(title || '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/\s*(?:🔴|🟡|🟢)\s*(?:RED|YELLOW|GREEN)?/gi, '')
-    .replace(/^\*\*|\*\*$/g, '')
+    .replace(/\*\*|__/g, '')
     .replace(/^#+\s*/, '')
     .replace(/^[-*]\s*/, '')
     .trim()
@@ -20,38 +20,10 @@ export function isFlagTitleLine(lineText: string): boolean {
   if (!trimmed) return false
   if (trimmed.length > 300) return false
 
-  // Reject detail field lines
-  const lower = trimmed.toLowerCase()
-  if (
-    lower.startsWith('what:') ||
-    lower.startsWith('why:') ||
-    lower.startsWith('impact:') ||
-    lower.startsWith('impact on deal:') ||
-    lower.startsWith('how:') ||
-    lower.startsWith('owner:') ||
-    lower.startsWith('- what:') ||
-    lower.startsWith('- why:') ||
-    lower.startsWith('- impact:') ||
-    lower.startsWith('- impact on deal:') ||
-    lower.startsWith('- how:') ||
-    lower.startsWith('- owner:') ||
-    lower.startsWith('* what:') ||
-    lower.startsWith('* why:') ||
-    lower.startsWith('* impact:') ||
-    lower.startsWith('* impact on deal:') ||
-    lower.startsWith('* how:') ||
-    lower.startsWith('* owner:') ||
-    lower.startsWith('- **what') ||
-    lower.startsWith('**what') ||
-    lower.startsWith('- **why') ||
-    lower.startsWith('**why') ||
-    lower.startsWith('- **impact') ||
-    lower.startsWith('**impact') ||
-    lower.startsWith('- **how') ||
-    lower.startsWith('**how') ||
-    lower.startsWith('- **owner') ||
-    lower.startsWith('**owner')
-  ) {
+  // Require the field separator; categories such as "Owner & GM Dependency"
+  // and "Impact of Lease Terms" are flag titles, not detail fields.
+  const plain = trimmed.replace(/\*\*|__/g, '')
+  if (/^(?:[-*]\s*)?(?:what|why|impact(?: on deal)?|how|owner)\s*:/i.test(plain)) {
     return false
   }
 
@@ -86,7 +58,7 @@ export function toggleItemApprovalInMarkdown(fullMarkdown: string, targetTitleKe
 
     if (inFlagSection && isFlagTitleLine(line)) {
       const key = normalizeTitleKey(line)
-      if (key && key === targetTitleKey && !changed) {
+      if (key && key === normalizeTitleKey(targetTitleKey) && !changed) {
         changed = true
         const hasApproved = isItemApprovedInMarkdown(line)
         const cleanLine = line

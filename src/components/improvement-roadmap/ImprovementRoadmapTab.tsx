@@ -572,7 +572,7 @@ function FlagItemHeader({
   const cleanTitle = text
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/\s*(?:🔴|🟡|🟢)\s*(?:RED|YELLOW|GREEN)?/gi, '')
-    .replace(/^\*\*|\*\*$/g, '')
+    .replace(/\*\*|__/g, '')
     .replace(/^#+\s*/, '')
     .trim()
 
@@ -637,9 +637,15 @@ function FlagItemHeader({
 
 function createRoadmapMarkdownComponents(options: {
   readOnly?: boolean
-  onToggleApproval?: (titleKey: string) => void
+  onToggleApproval?: (titleKey: string) => Promise<void> | void
+  markdown: string
 }) {
   let isInsideFlagSection = false
+  // ReactMarkdown omits HTML comments from children. Read the source line so
+  // approval markers and title formatting survive rendering.
+  const lines = options.markdown.split('\n')
+  const sourceText = (node: any, children: React.ReactNode) =>
+    lines[(node?.position?.start?.line ?? 0) - 1] ?? getNodeText(children)
 
   return {
     h1: ({ children }: { children?: React.ReactNode }) => {
@@ -651,8 +657,8 @@ function createRoadmapMarkdownComponents(options: {
       isInsideFlagSection = text.includes('red flag') || text.includes('yellow flag') || text.includes('green flag')
       return <h2 className="mb-3 mt-10 text-lg font-bold tracking-tight text-slate-900 border-b border-slate-200 pb-2">{children}</h2>
     },
-    h3: ({ children }: { children?: React.ReactNode }) => {
-      const text = getNodeText(children)
+    h3: ({ children, node }: { children?: React.ReactNode; node?: any }) => {
+      const text = sourceText(node, children)
       if (isInsideFlagSection && isFlagTitleLine(text)) {
         return (
           <FlagItemHeader
@@ -667,8 +673,8 @@ function createRoadmapMarkdownComponents(options: {
     h4: ({ children }: { children?: React.ReactNode }) => (
       <h4 className="mb-2 mt-4 text-sm font-semibold text-slate-700">{children}</h4>
     ),
-    p: ({ children }: { children?: React.ReactNode }) => {
-      const text = getNodeText(children)
+    p: ({ children, node }: { children?: React.ReactNode; node?: any }) => {
+      const text = sourceText(node, children)
       if (isInsideFlagSection && isFlagTitleLine(text)) {
         return (
           <FlagItemHeader
@@ -976,20 +982,33 @@ export default function ImprovementRoadmapTab({
   const reportRef = useRef(report)
   reportRef.current = report
 
-  const handleToggleFlagApproval = async (titleKey: string) => {
-    const currentReport = reportRef.current
-    if (!currentReport?.markdown) return
-    const updatedMarkdown = toggleItemApprovalInMarkdown(currentReport.markdown, titleKey)
-    setReport(current => current ? { ...current, markdown: updatedMarkdown } : current)
-    try {
-      await fetch('/api/improvement-roadmap', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, markdown: updatedMarkdown }),
-      })
-    } catch (err) {
-      console.error('Failed to toggle flag approval:', err)
-    }
+  const flagApprovalQueue = useRef<Promise<void>>(Promise.resolve())
+  const handleToggleFlagApproval = (titleKey: string) => {
+    // Serialize clicks so each save uses the latest acknowledged report.
+    const save = flagApprovalQueue.current.then(async () => {
+      const currentReport = reportRef.current
+      if (!currentReport?.markdown) return
+      setError(null)
+      try {
+        const updatedMarkdown = toggleItemApprovalInMarkdown(currentReport.markdown, titleKey)
+        if (updatedMarkdown === currentReport.markdown) {
+          throw new Error('Could not find this flag item in the report. Refresh and try again.')
+        }
+        const res = await fetch('/api/improvement-roadmap', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId, markdown: updatedMarkdown }),
+        })
+        if (!res.ok) throw new Error(await res.text() || 'Failed to save flag approval.')
+        const data = await res.json()
+        reportRef.current = data.report
+        setReport(data.report)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save flag approval.')
+      }
+    })
+    flagApprovalQueue.current = save
+    return save
   }
 
   const toggleApprovalRef = useRef(handleToggleFlagApproval)
@@ -997,8 +1016,9 @@ export default function ImprovementRoadmapTab({
 
   const markdownComponents = useMemo(() => createRoadmapMarkdownComponents({
     readOnly,
+    markdown: sanitizeSaleReadinessRoadmapMarkdown(report?.markdown ?? ''),
     onToggleApproval: (titleKey) => toggleApprovalRef.current(titleKey),
-  }), [readOnly])
+  }), [readOnly, report?.markdown])
 
   const html = useMemo(() =>
     report?.markdown ? buildImprovementRoadmapHtml({
