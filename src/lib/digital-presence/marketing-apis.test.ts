@@ -29,11 +29,7 @@ test('recognizes PageSpeed target crawl failures separately from API failures', 
 })
 
 test('builds one location-specific organic search request and identifies the client result', async () => {
-  const previousLogin = process.env.DATA_FOR_SEO_LOGIN
-  const previousPassword = process.env.DATA_FOR_SEO_API_KEY
   const previousFetch = globalThis.fetch
-  process.env.DATA_FOR_SEO_LOGIN = 'test-login'
-  process.env.DATA_FOR_SEO_API_KEY = 'test-password'
   let requestUrl = ''
   let requestBody = ''
   globalThis.fetch = async (input, init) => {
@@ -47,7 +43,7 @@ test('builds one location-specific organic search request and identifies the cli
   try {
     const result = await fetchDataForSeoOrganic({
       businessName: 'Tails-A-Wagn', businessAddress: '1199 W Country Club Rd, Claremore, OK 74017', websiteUrl: 'https://www.tailsawagn.net',
-    })
+    }, async () => ({ login: 'test-login', password: 'test-password' }))
     assert.equal(requestUrl, 'https://api.dataforseo.com/v3/serp/google/organic/live/advanced')
     assert.deepEqual(JSON.parse(requestBody), [{ keyword: 'dog boarding Claremore', location_name: 'Claremore,Oklahoma,United States', language_code: 'en', depth: 10 }])
     assert.equal(result.status, 'connected')
@@ -55,19 +51,11 @@ test('builds one location-specific organic search request and identifies the cli
     assert.match(result.content, /Paid placement 1: competitor\.example/)
   } finally {
     globalThis.fetch = previousFetch
-    if (previousLogin === undefined) delete process.env.DATA_FOR_SEO_LOGIN
-    else process.env.DATA_FOR_SEO_LOGIN = previousLogin
-    if (previousPassword === undefined) delete process.env.DATA_FOR_SEO_API_KEY
-    else process.env.DATA_FOR_SEO_API_KEY = previousPassword
   }
 })
 
 test('reads review counts from the Maps rating votes_count field', async () => {
-  const previousLogin = process.env.DATA_FOR_SEO_LOGIN
-  const previousPassword = process.env.DATA_FOR_SEO_API_KEY
   const previousFetch = globalThis.fetch
-  process.env.DATA_FOR_SEO_LOGIN = 'test-login'
-  process.env.DATA_FOR_SEO_API_KEY = 'test-password'
   globalThis.fetch = async (input) => {
     const url = String(input)
     const items = url.includes('/maps/')
@@ -76,15 +64,14 @@ test('reads review counts from the Maps rating votes_count field', async () => {
     return new Response(JSON.stringify({ tasks: [{ status_code: 20000, result: [{ items }] }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
   try {
-    const evidence = await collectMarketingApiEvidence({ businessName: 'Tails-A-Wagn', businessAddress: '1199 W Country Club Rd, Claremore, OK 74017' })
+    const evidence = await collectMarketingApiEvidence(
+      { businessName: 'Tails-A-Wagn', businessAddress: '1199 W Country Club Rd, Claremore, OK 74017' },
+      { loadDataForSeoCredentials: async () => ({ login: 'test-login', password: 'test-password' }) },
+    )
     const maps = evidence.find(item => item.source === 'DataForSEO Google Maps local results')
     assert.equal(maps?.status, 'connected')
     assert.match(maps?.content ?? '', /review count 202/)
   } finally {
     globalThis.fetch = previousFetch
-    if (previousLogin === undefined) delete process.env.DATA_FOR_SEO_LOGIN
-    else process.env.DATA_FOR_SEO_LOGIN = previousLogin
-    if (previousPassword === undefined) delete process.env.DATA_FOR_SEO_API_KEY
-    else process.env.DATA_FOR_SEO_API_KEY = previousPassword
   }
 })

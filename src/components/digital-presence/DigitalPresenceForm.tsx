@@ -24,12 +24,14 @@ import { Button, cn } from '@/components/ui';
 import { DigitalAssetFormData } from '@/lib/digital-presence/types';
 import { MARKETING_INTAKE_FIELDS, type MarketingIntakeFieldKey } from '@/lib/marketing-intake';
 import MarketingIntakeRows from '@/components/client-portal/MarketingIntakeRows';
+import MarketingCallNotesUpload from './MarketingCallNotesUpload';
 
 interface Props {
   onSubmit: (data: DigitalAssetFormData) => void;
   loading: boolean;
   initialData?: Partial<DigitalAssetFormData>;
   clientName?: string;
+  clientId?: string;
   clientWebsite?: string;
   onSave?: (data: DigitalAssetFormData) => Promise<void> | void;
   saving?: boolean;
@@ -78,6 +80,7 @@ export default function DigitalPresenceForm({
   loading,
   initialData,
   clientName,
+  clientId,
   clientWebsite,
   onSave,
   saving = false,
@@ -696,6 +699,7 @@ export default function DigitalPresenceForm({
                 Add what the business knows about spend, results, referrals, bookings, and ownership. Leave unknown metrics blank; these answers are combined with public API research in the analysis.
               </p>
             </div>
+            {clientId && <MarketingCallNotesUpload clientId={clientId} />}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {([
                 ['marketingReportingPeriod', 'Reporting period', 'e.g. Oct 2025–Sep 2026'],

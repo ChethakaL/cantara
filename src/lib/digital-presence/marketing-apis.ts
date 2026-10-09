@@ -70,9 +70,17 @@ function mapKeywords(formData: DigitalAssetFormData) {
   return [service]
 }
 
-async function fetchDataForSeo(formData: DigitalAssetFormData): Promise<MarketingApiEvidence> {
-  const login = process.env.DATA_FOR_SEO_LOGIN?.trim() ?? ''
-  const password = process.env.DATA_FOR_SEO_API_KEY?.trim() ?? ''
+type DataForSeoCredentialLoader = () => Promise<{ login: string; password: string } | null>
+
+const loadStoredDataForSeoCredentials: DataForSeoCredentialLoader = async () => {
+  const { getStoredDataForSeoCredentials } = await import('@/lib/secure-settings')
+  return getStoredDataForSeoCredentials()
+}
+
+async function fetchDataForSeo(formData: DigitalAssetFormData, loadCredentials: DataForSeoCredentialLoader = loadStoredDataForSeoCredentials): Promise<MarketingApiEvidence> {
+  const credentials = await loadCredentials().catch(() => null)
+  const login = credentials?.login ?? ''
+  const password = credentials?.password ?? ''
   const location = normalizedLocation(formData.businessAddress)
   if (!login || !password) {
     return { source: 'DataForSEO Google Maps local results', status: 'skipped', content: 'DataForSEO skipped because credentials are not configured.' }
@@ -136,9 +144,10 @@ async function fetchDataForSeo(formData: DigitalAssetFormData): Promise<Marketin
   }
 }
 
-export async function fetchDataForSeoOrganic(formData: DigitalAssetFormData): Promise<MarketingApiEvidence> {
-  const login = process.env.DATA_FOR_SEO_LOGIN?.trim() ?? ''
-  const password = process.env.DATA_FOR_SEO_API_KEY?.trim() ?? ''
+export async function fetchDataForSeoOrganic(formData: DigitalAssetFormData, loadCredentials: DataForSeoCredentialLoader = loadStoredDataForSeoCredentials): Promise<MarketingApiEvidence> {
+  const credentials = await loadCredentials().catch(() => null)
+  const login = credentials?.login ?? ''
+  const password = credentials?.password ?? ''
   const location = normalizedLocation(formData.businessAddress)
   if (!login || !password) return { source: 'Google organic search visibility', status: 'skipped', content: 'Organic search results were not checked because search credentials are unavailable.' }
   if (!location) return { source: 'Google organic search visibility', status: 'skipped', content: 'Organic search results were not checked because the business location is missing.' }
@@ -308,10 +317,10 @@ async function fetchCrux(websiteUrl?: string): Promise<MarketingApiEvidence> {
   }
 }
 
-export async function collectMarketingApiEvidence(formData: DigitalAssetFormData): Promise<MarketingApiEvidence[]> {
+export async function collectMarketingApiEvidence(formData: DigitalAssetFormData, options: { loadDataForSeoCredentials?: DataForSeoCredentialLoader } = {}): Promise<MarketingApiEvidence[]> {
   const tasks = await Promise.allSettled([
-    fetchDataForSeo(formData),
-    fetchDataForSeoOrganic(formData),
+    fetchDataForSeo(formData, options.loadDataForSeoCredentials),
+    fetchDataForSeoOrganic(formData, options.loadDataForSeoCredentials),
     fetchPageSpeed(formData.websiteUrl),
     fetchCrux(formData.websiteUrl),
   ])

@@ -24,6 +24,7 @@ type StreamTextArgs = {
   userText: string;
   maxTokens?: number;
   temperature?: number;
+  responseFormat?: { type: "json_object" };
 };
 
 type CreateAgentMessageArgs = {
@@ -33,6 +34,7 @@ type CreateAgentMessageArgs = {
   content: AgentMessageBlock[] | string;
   maxTokens?: number;
   temperature?: number;
+  responseFormat?: { type: "json_object" };
 };
 
 /** Chat Completions multimodal user parts (text + images + file/PDF attachments). */
@@ -95,6 +97,7 @@ async function streamOpenAiText(args: StreamTextArgs): Promise<ReadableStream<Ui
           temperature: args.temperature,
         }),
         stream: true,
+        ...(args.responseFormat ? { response_format: args.responseFormat } : {}),
         messages: [
           ...(args.system.trim() ? [{ role: "system" as const, content: args.system }] : []),
           { role: "user", content: args.userText },
@@ -341,6 +344,7 @@ export async function createAgentMessage(args: CreateAgentMessageArgs): Promise<
     userText,
     maxTokens: args.maxTokens,
     temperature: args.temperature,
+    responseFormat: args.responseFormat,
   });
 }
 

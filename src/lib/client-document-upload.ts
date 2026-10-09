@@ -11,6 +11,7 @@ type UploadRuleKind =
   | 'pdf_or_excel'
   | 'pdf_or_docx'
   | 'transcript'
+  | 'marketing_notes'
   | 'spreadsheet'
   | 'pdf_or_image'
   | 'spreadsheet_or_pdf'
@@ -38,6 +39,7 @@ const DOCUMENT_UPLOAD_RULES: Record<string, UploadRuleKind> = {
   prior_offers: 'pdf_or_docx',
   sales_process_transcript: 'transcript',
   meeting_notes: 'transcript',
+  marketing_call_notes: 'marketing_notes',
   real_estate_appraisal: 'pdf_or_image',
   tax_returns_3yr: 'pdf_or_image',
   irs_941_940_3yr: 'pdf_or_image',
@@ -80,6 +82,8 @@ const DOCUMENT_UPLOAD_RULES: Record<string, UploadRuleKind> = {
   intellectual_property: 'pdf_or_image',
   environmental_reports: 'pdf',
 }
+
+export const MAX_MARKETING_CALL_NOTES_BYTES = 15 * 1024 * 1024
 
 export const SINGLE_FILE_DOCUMENT_IDS = new Set([
   // monthly_pl_excel / monthly_bs_excel intentionally multi-file so PDF packs
@@ -209,6 +213,11 @@ const ACCEPT_BY_RULE: Record<UploadRuleKind, Record<string, string[]>> = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
     'application/msword': ['.doc'],
   },
+  marketing_notes: {
+    'application/pdf': ['.pdf'],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+    'text/plain': ['.txt'],
+  },
   spreadsheet: {
     'text/csv': ['.csv'],
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
@@ -234,6 +243,7 @@ const ALLOWED_LABEL_BY_RULE: Record<UploadRuleKind, string> = {
   pdf_or_excel: 'PDF or Excel only',
   pdf_or_docx: 'PDF or Word only',
   transcript: 'PDF, Word, or .txt only',
+  marketing_notes: 'PDF, DOCX, or .txt only',
   spreadsheet: 'CSV or Excel only',
   pdf_or_image: 'PDF or image only (PNG, JPG)',
   spreadsheet_or_pdf: 'PDF, CSV, or Excel only',
@@ -245,6 +255,7 @@ const HINT_BY_RULE: Record<UploadRuleKind, string> = {
   pdf_or_excel: 'PDF or Excel only.',
   pdf_or_docx: 'PDF or Word only.',
   transcript: 'PDF, Word, or .txt only.',
+  marketing_notes: 'PDF, DOCX, or .txt only.',
   spreadsheet: 'CSV or Excel only.',
   pdf_or_image: 'PDF or image only (PNG, JPG).',
   spreadsheet_or_pdf: 'PDF, CSV, or Excel only.',
@@ -262,6 +273,13 @@ function fileMatchesRule(file: Pick<File, 'name' | 'type'>, rule: UploadRuleKind
       return isPdfUpload(file) || isDocxUpload(file)
     case 'transcript':
       return isTranscriptUpload(file)
+    case 'marketing_notes': {
+      const ext = fileExtension(file.name)
+      const type = fileMime(file)
+      return (ext === '.pdf' && (!type || type === 'application/pdf'))
+        || (ext === '.docx' && (!type || type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'))
+        || (ext === '.txt' && (!type || type === 'text/plain'))
+    }
     case 'spreadsheet':
       return isSpreadsheetUpload(file)
     case 'pdf_or_image':

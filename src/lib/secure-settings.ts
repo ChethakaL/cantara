@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 const ANTHROPIC_SECRET_KEY = "anthropic_api_key";
 const OPENAI_SECRET_KEY = "openai_api_key";
 const GOOGLE_PLACES_SECRET_KEY = "google_places_api_key";
+const DATA_FOR_SEO_CREDENTIALS_KEY = "dataforseo_credentials";
 const UNIPILE_MAIL_ACCOUNT_ID_KEY = "unipile_mail_account_id";
 const COMPOSIO_MAIL_CONNECTED_ACCOUNT_ID_KEY = "composio_mail_connected_account_id";
 const COMPOSIO_MONDAY_CONNECTED_ACCOUNT_ID_KEY = "composio_monday_connected_account_id";
@@ -117,6 +118,32 @@ export async function saveStoredPlacesApiKey(apiKey: string) {
     create: { key: GOOGLE_PLACES_SECRET_KEY, value: encryptSecret(trimmed) },
   });
   return maskSecret(trimmed);
+}
+
+export type DataForSeoCredentials = { login: string; password: string };
+
+export async function getStoredDataForSeoCredentials(): Promise<DataForSeoCredentials | null> {
+  const stored = await (prisma as any).appSecret.findUnique({ where: { key: DATA_FOR_SEO_CREDENTIALS_KEY } });
+  if (!stored?.value) return null;
+  try {
+    const parsed = JSON.parse(decryptSecret(stored.value));
+    if (typeof parsed?.login !== "string" || typeof parsed?.password !== "string") return null;
+    return { login: parsed.login, password: parsed.password };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveStoredDataForSeoCredentials(credentials: DataForSeoCredentials) {
+  const login = credentials.login.trim();
+  const password = credentials.password.trim();
+  if (!login || !password) throw new Error("DataForSEO login and API key are required");
+  await (prisma as any).appSecret.upsert({
+    where: { key: DATA_FOR_SEO_CREDENTIALS_KEY },
+    update: { value: encryptSecret(JSON.stringify({ login, password })) },
+    create: { key: DATA_FOR_SEO_CREDENTIALS_KEY, value: encryptSecret(JSON.stringify({ login, password })) },
+  });
+  return { maskedLogin: maskSecret(login), maskedApiKey: maskSecret(password) };
 }
 
 /**

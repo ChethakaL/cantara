@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { researchAllChannels } from '@/lib/digital-presence/claude-research';
 import { analyzeWithClaude, reanalyzeDigitalPresenceFromEdits } from '@/lib/digital-presence/claude-analyzer';
 import { AnalyzeRequestBody, ChannelType, DigitalPresenceReport } from '@/lib/digital-presence/types';
@@ -10,11 +11,50 @@ import {
 import { getPlacesApiKey } from '@/lib/secure-settings';
 import { prisma } from '@/lib/prisma';
 import { collectMarketingApiEvidence, toMarketingResearchResults } from '@/lib/digital-presence/marketing-apis';
+import { assertS3Configured, s3BucketName, s3Client } from '@/lib/s3';
+import { extractTranscriptText } from '@/lib/sales-review/analyze';
 
 export const maxDuration = 180;
 
 /** Digital Presence is OpenAI-only so web search always runs. */
 const DIGITAL_PRESENCE_PROVIDER = 'openai' as const;
+const MARKETING_CALL_NOTES_DOCUMENT_ID = 'marketing_call_notes';
+
+async function bodyToBuffer(body: unknown): Promise<Buffer> {
+  if (!body) return Buffer.alloc(0);
+  if (typeof (body as { transformToByteArray?: () => Promise<Uint8Array> }).transformToByteArray === 'function') {
+    return Buffer.from(await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray());
+  }
+  return Buffer.from(await new Response(body as BodyInit).arrayBuffer());
+}
+
+async function loadMarketingCallNotes(clientId: string): Promise<string> {
+  const documents = await (prisma as any).clientDocument.findMany({
+    where: { clientId, documentId: MARKETING_CALL_NOTES_DOCUMENT_ID },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    select: { fileName: true, mimeType: true, localPath: true, storageBucket: true },
+  });
+  if (!documents.length) return '';
+  assertS3Configured();
+  const notes: string[] = [];
+  let remainingChars = 240_000;
+  for (const document of documents.reverse()) {
+    if (!document.localPath) continue;
+    const object = await s3Client.send(new GetObjectCommand({
+      Bucket: document.storageBucket || s3BucketName,
+      Key: document.localPath,
+    }));
+    const buffer = await bodyToBuffer(object.Body);
+    const text = await extractTranscriptText(buffer, document.mimeType || '', document.fileName || 'marketing-call-notes');
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error(`No readable text could be extracted from marketing call notes file “${document.fileName}”. Please use a text-based PDF, Word document, or .txt file.`);
+    if (remainingChars <= 0) break;
+    notes.push(`### ${document.fileName || 'Advisor call notes'}\n${trimmed.slice(0, remainingChars)}`);
+    remainingChars -= trimmed.length;
+  }
+  return notes.join('\n\n');
+}
 
 const CHANNEL_LABELS: Record<ChannelType, string> = {
   website: 'Website',
@@ -90,6 +130,18 @@ export async function POST(req: NextRequest) {
       };
     } catch (err) {
       console.warn('[Marketing Agent] Could not load saved client intake; proceeding with submitted digital inputs.');
+    }
+    try {
+      enrichedFormData.marketingCallNotes = await loadMarketingCallNotes(clientId);
+      if (enrichedFormData.marketingCallNotes) {
+        console.info('[Marketing Agent] Loaded advisor call notes for analysis', {
+          clientId,
+          chars: enrichedFormData.marketingCallNotes.length,
+        });
+      }
+    } catch (err) {
+      console.error('[Marketing Agent] Could not load advisor call notes:', err);
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Could not read the uploaded marketing call notes.' }, { status: 400 });
     }
   }
 

@@ -17,6 +17,8 @@ export interface DigitalAssetFormData {
   businessAddress?: string;
   businessCategory?: string;
   marketingIntake?: Record<string, string>;
+  /** Extracted advisor call notes are analysis context and are not copied into report output. */
+  marketingCallNotes?: string;
 
   websiteUrl?: string;
   googleBusinessProfileUrl?: string;
