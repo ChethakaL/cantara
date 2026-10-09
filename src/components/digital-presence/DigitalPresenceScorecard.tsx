@@ -22,11 +22,19 @@ import {
   X,
   RefreshCw,
   Save,
+  Gauge,
+  Search,
+  DollarSign,
+  Users,
+  Activity,
+  Sparkles,
+  TrendingUp,
 } from 'lucide-react';
 import { DigitalPresenceReport, ChannelAssessment, ChannelType, TrafficLight, KeyMetric } from '@/lib/digital-presence/types';
 import { Badge, Card, cn } from '@/components/ui';
 import { ExportReportButton } from '@/components/report-export/ExportReportButton';
 import { buildDigitalPresenceReportHtml } from '@/lib/report-export/build-digital-presence-report';
+import { MARKETING_INTAKE_FIELDS } from '@/lib/marketing-intake';
 
 interface Props {
   report: DigitalPresenceReport;
@@ -126,6 +134,664 @@ function displayMetricLabel(channelType: ChannelType, label: string): string {
     return 'People Recommend %';
   }
   return label;
+}
+
+function parseMarketingInputRows(value?: string): Array<Record<string, string>> {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(row => row && typeof row === 'object' && !Array.isArray(row)) as Array<Record<string, string>>;
+  } catch {
+    return [];
+  }
+}
+
+const MARKETING_COLUMNS: Record<string, string> = Object.fromEntries(
+  Object.values(MARKETING_INTAKE_FIELDS).flat().map(column => [column.key, column.label]),
+);
+
+const money = (value?: string) => {
+  const amount = Number(value);
+  return value && Number.isFinite(amount) ? `$${amount.toLocaleString()}` : value?.trim() || 'Not provided';
+};
+
+function MarketingInputsPanel({ intake }: { intake: Record<string, string> }) {
+  const spendRows = parseMarketingInputRows(intake.marketingChannelsAndSpend);
+  const resultRows = parseMarketingInputRows(intake.marketingChannelResults);
+  const vendorRows = parseMarketingInputRows(intake.marketingPeopleAndVendors);
+  const referralRows = parseMarketingInputRows(intake.marketingReferralPartners);
+  const ownershipRows = parseMarketingInputRows(intake.marketingAccountOwnership);
+  const emailRows = parseMarketingInputRows(intake.marketingEmailProgram);
+  const includesAssumptions = Object.values(intake).some(value => /\b(?:assum(?:e|ed|ption)|sample|test entry)\b/i.test(value));
+  const monthlySpend = spendRows.reduce((sum, row) => {
+    const amount = Number(row.amount);
+    if (!Number.isFinite(amount)) return sum;
+    return sum + amount / (/annual/i.test(row.frequency ?? '') ? 12 : 1);
+  }, 0);
+  const hasSpend = spendRows.some(row => Number.isFinite(Number(row.amount)));
+  const allEstimates = spendRows.filter(row => row.amount?.trim()).every(row => /estimate/i.test(row.spendType ?? ''));
+  const knownTracking = resultRows.map(row => row.tracking).filter(Boolean);
+  const trackedLabel = knownTracking.some(value => /not tracked/i.test(value ?? ''))
+    ? 'Attribution gaps reported'
+    : knownTracking.every(value => /system reported/i.test(value ?? '')) && knownTracking.length
+      ? 'System-reported data'
+      : 'Reported figures; verification varies';
+  const text = (key: string) => intake[key]?.trim() || '';
+  const itemCard = 'min-w-0 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs';
+  const fact = (label: string, value: string, emphasis = false) => (
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className={cn('mt-0.5 break-words text-xs', emphasis ? 'font-bold text-slate-800' : 'text-slate-600')}>{value || 'Not provided'}</p>
+    </div>
+  );
+  const simpleRows = (rows: Array<Record<string, string>>, keys: string[], titleKey: string) => rows.length ? rows.map((row, index) => (
+    <article key={`${titleKey}-${index}`} className={itemCard}>
+      <h5 className="break-words text-xs font-semibold text-slate-800">{row[titleKey] || 'Unspecified'}</h5>
+      <div className="mt-2.5 grid gap-x-4 gap-y-2 sm:grid-cols-2">{keys.filter(key => key !== titleKey && row[key]?.trim()).map(key => fact(MARKETING_COLUMNS[key] ?? key, key.toLowerCase().includes('amount') || key.toLowerCase().includes('revenue') || key.toLowerCase().includes('cost') ? money(row[key]) : row[key]))}</div>
+    </article>
+  )) : null;
+
+  if (!Object.values(intake).some(value => typeof value === 'string' && value.trim())) return null;
+
+  return (
+    <div className="space-y-4">
+      {/* Top Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Approx. Monthly Spend</p>
+          <p className="mt-1 text-2xl font-bold text-slate-800">{hasSpend ? money(String(Math.round(monthlySpend))) : 'Not provided'}</p>
+          <p className="mt-1 text-[11px] text-slate-500">{allEstimates ? 'Owner estimate' : 'Reported amounts; confirm basis'}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Annualized Spend</p>
+          <p className="mt-1 text-2xl font-bold text-slate-800">{hasSpend ? money(String(Math.round(monthlySpend * 12))) : 'Not provided'}</p>
+          <p className="mt-1 text-[11px] text-slate-500">Run rate from entered channel amounts</p>
+        </div>
+        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Revenue Attribution</p>
+          <p className="mt-1 text-base font-bold text-slate-800 leading-snug">{trackedLabel}</p>
+          <p className="mt-1 text-[11px] text-slate-500">{text('marketingReportingPeriod') || 'Reporting period not provided'}</p>
+        </div>
+      </div>
+
+      {/* Spend Breakdown */}
+      {spendRows.length > 0 && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 rounded-lg bg-amber-50 text-amber-600">
+              <DollarSign className="w-3.5 h-3.5" />
+            </span>
+            <h4 className="text-xs font-semibold text-slate-800 uppercase tracking-wider">Channel Spend Breakdown</h4>
+          </div>
+          <div className="space-y-2">
+            {spendRows.map((row, index) => {
+              const amount = Number(row.amount);
+              const rowMonthly = Number.isFinite(amount) ? amount / (/annual/i.test(row.frequency ?? '') ? 12 : 1) : 0;
+              const share = monthlySpend > 0 ? Math.max(0, Math.min(100, (rowMonthly / monthlySpend) * 100)) : 0;
+              return (
+                <div key={index} className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 flex items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs font-semibold text-slate-700 truncate">{row.channel || 'Other channel'}</p>
+                      <span className="text-xs font-bold text-slate-800">{money(row.amount)}</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70">
+                      <div className="h-full rounded-full bg-amber-400 transition-all" style={{ width: `${share}%` }} />
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-white border border-slate-200 px-2.5 py-0.5 text-[10px] font-medium text-slate-600">
+                    {row.frequency || 'Monthly'} · {row.spendType || 'Basis not stated'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* Reported Outcomes */}
+      {resultRows.length > 0 && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
+              <TrendingUp className="w-3.5 h-3.5" />
+            </span>
+            <h4 className="text-xs font-semibold text-slate-800 uppercase tracking-wider">Reported Channel Results</h4>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {resultRows.map((row, index) => (
+              <article key={index} className={itemCard}>
+                <div className="flex items-start justify-between gap-2">
+                  <h5 className="min-w-0 break-words text-xs font-semibold text-slate-800">{row.source || 'Other source'}</h5>
+                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-medium text-slate-500">{row.tracking || 'Tracking not stated'}</span>
+                </div>
+                <div className="mt-2.5 grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                  {fact('Clicks or calls', row.clicks || 'Not tracked')}
+                  {fact('Inquiries', row.inquiries || 'Not tracked')}
+                  {fact('Bookings', row.bookings || 'Not tracked', true)}
+                  {fact('Revenue', money(row.revenue), true)}
+                </div>
+              </article>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* How Marketing Operates */}
+      {(emailRows.length > 0 || text('marketingBookingFunnel') || text('marketingPlanAndBudget')) && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 rounded-lg bg-blue-50 text-blue-600">
+              <Activity className="w-3.5 h-3.5" />
+            </span>
+            <h4 className="text-xs font-semibold text-slate-800 uppercase tracking-wider">How Marketing Operates</h4>
+          </div>
+          <div className="space-y-2.5">
+            {emailRows.length ? (
+              <article className={itemCard}>
+                <h5 className="text-xs font-semibold text-slate-800">Email &amp; Text Outreach</h5>
+                <div className="mt-2.5 grid gap-2 sm:grid-cols-3 pt-2 border-t border-slate-100">
+                  {fact('Active subscribers', emailRows.map(row => row.activeSubscribers).filter(Boolean).join(', ') || 'Not provided', true)}
+                  {fact('Sending cadence', emailRows.map(row => row.frequency).filter(Boolean).join(', ') || 'Not provided')}
+                  {fact('Reported measurement', emailRows.map(row => row.results).filter(Boolean).join('; ') || 'Not provided')}
+                </div>
+              </article>
+            ) : null}
+            {(text('marketingBookingFunnel') || text('marketingPlanAndBudget')) && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {text('marketingBookingFunnel') && (
+                  <article className={itemCard}>
+                    <h5 className="text-xs font-semibold text-slate-800">Booking &amp; Conversion Path</h5>
+                    <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-600">{text('marketingBookingFunnel')}</p>
+                  </article>
+                )}
+                {text('marketingPlanAndBudget') && (
+                  <article className={itemCard}>
+                    <h5 className="text-xs font-semibold text-slate-800">Budget, Plan, &amp; Goals</h5>
+                    <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-600">{text('marketingPlanAndBudget')}</p>
+                  </article>
+                )}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* People & Transferability */}
+      {(vendorRows.length > 0 || ownershipRows.length > 0) && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 rounded-lg bg-purple-50 text-purple-600">
+              <Users className="w-3.5 h-3.5" />
+            </span>
+            <h4 className="text-xs font-semibold text-slate-800 uppercase tracking-wider">People &amp; Account Transferability</h4>
+          </div>
+          <div className="space-y-2">
+            {simpleRows(vendorRows, ['name', 'role', 'monthlyCost', 'transferable'], 'name')}
+            {ownershipRows.length > 0 && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {ownershipRows.map((row, index) => (
+                  <article key={index} className={itemCard}>
+                    <h5 className="text-xs font-semibold text-slate-800">{row.asset || 'Marketing account'}</h5>
+                    <div className="mt-2.5 grid gap-2 sm:grid-cols-3 pt-2 border-t border-slate-100">
+                      {fact('Ownership', row.owner || 'Not verified')}
+                      {fact('Administrator access', row.adminAccess || 'Not verified')}
+                      {fact('Transfer after sale', row.transferable || 'Not confirmed')}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Referral & Reputation */}
+      {(referralRows.length > 0 || text('marketingReviewManagement')) && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 rounded-lg bg-amber-50 text-amber-600">
+              <Star className="w-3.5 h-3.5" />
+            </span>
+            <h4 className="text-xs font-semibold text-slate-800 uppercase tracking-wider">Referral Relationships &amp; Reputation</h4>
+          </div>
+          <div className="space-y-2">
+            {simpleRows(referralRows, ['partner', 'type', 'annualCustomers', 'annualRevenue'], 'partner')}
+            {text('marketingReviewManagement') && (
+              <article className={itemCard}>
+                <h5 className="text-xs font-semibold text-slate-800">Review Response Practice</h5>
+                <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-600">{text('marketingReviewManagement')}</p>
+              </article>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {includesAssumptions && (
+        <p className="border-l-2 border-amber-300 pl-3 text-[11px] leading-relaxed text-amber-800">
+          Some saved figures or descriptions are explicitly marked as assumed or sample information. Verify them with the business before relying on them.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function getScoreColorConfig(score: number) {
+  if (score >= 90) {
+    return {
+      cardBg: 'bg-emerald-50/70 border-emerald-200/80',
+      scoreText: 'text-emerald-600',
+      badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      label: 'Good (90-100)',
+    };
+  }
+  if (score >= 50) {
+    return {
+      cardBg: 'bg-amber-50/70 border-amber-200/80',
+      scoreText: 'text-amber-600',
+      badgeBg: 'bg-amber-100 text-amber-800 border-amber-200',
+      label: 'Needs Work (50-89)',
+    };
+  }
+  return {
+    cardBg: 'bg-rose-50/70 border-rose-200/80',
+    scoreText: 'text-rose-600',
+    badgeBg: 'bg-rose-100 text-rose-800 border-rose-200',
+    label: 'Poor (<50)',
+  };
+}
+
+function MarketingEvidencePanel({ evidence }: { evidence: NonNullable<DigitalPresenceReport['marketingEvidence']> }) {
+  if (!evidence.length) return null;
+
+  const cleanEvidenceContent = (content: string) => content
+    .split('\n')
+    .filter(line => !/^Reported DataForSEO request cost:/i.test(line))
+    .join('\n');
+
+  const advisorFriendlyText = (value: string) => value
+    .replace(/Chrome UX Report\s*\(CrUX\)|\bCrUX\b/gi, 'real visitor website data')
+    .replace(/Google PageSpeed Insights/gi, 'website speed test')
+    .replace(/DataForSEO/gi, 'local search results');
+
+  // Categorize evidence items to place Speed & Quality KPI cards at the top
+  const speedItem = evidence.find(
+    item => item.source === 'Google PageSpeed Insights' || item.source === 'Website speed and quality'
+  );
+  const cruxItem = evidence.find(
+    item => item.source === 'Chrome UX Report (CrUX)' || item.source === 'Real visitor website experience'
+  );
+  const searchItem = evidence.find(
+    item => item.source === 'Google organic search visibility' || item.source === 'Website visibility in Google search'
+  );
+  const mapsItem = evidence.find(
+    item => item.source === 'DataForSEO Google Maps local results' || item.source === 'Nearby businesses in local search'
+  );
+  const otherItems = evidence.filter(
+    item => item !== speedItem && item !== cruxItem && item !== searchItem && item !== mapsItem
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* 1. TOP: Website Speed and Quality (KPI Cards on top!) */}
+      {speedItem && (() => {
+        const content = cleanEvidenceContent(speedItem.content);
+        const scoreLine = content.split('\n').find(line => line.startsWith('Mobile Lighthouse scores:')) ?? '';
+        const scores = Array.from(scoreLine.matchAll(/([^:;]+):\s*(\d+)\/100/g)).map(match => ({
+          label: match[1].replace('Mobile Lighthouse scores:', '').trim(),
+          score: parseInt(match[2], 10),
+        }));
+        const testedUrl = content.match(/Tested URL:\s*(.+)/)?.[1];
+        const testTime = content.match(/Test time:\s*(.+)/)?.[1];
+        const opportunityLines = content
+          .split('\n')
+          .slice(content.split('\n').findIndex(line => line.startsWith('Largest opportunities:')) + 1)
+          .filter(line => line.startsWith('- '))
+          .map(line => line.slice(2));
+
+        // CrUX metrics if available
+        let cruxMetrics: Array<{ key: string; label: string; value: string; unit: string }> = [];
+        let cruxPeriod = '';
+        if (cruxItem && cruxItem.status === 'connected') {
+          const cruxContent = cleanEvidenceContent(cruxItem.content);
+          const metricLabels: Record<string, string> = {
+            LCP: 'Loading speed',
+            CLS: 'Layout stability',
+            INP: 'Responsiveness',
+            FCP: 'First content shown',
+            TTFB: 'Server response',
+          };
+          cruxMetrics = Array.from(cruxContent.matchAll(/([A-Z]+) p75:\s*([\d.]+)(?:\s*(ms))?/g)).map(match => ({
+            key: match[1],
+            label: metricLabels[match[1]] ?? match[1],
+            value: match[2],
+            unit: match[3] ?? '',
+          }));
+          cruxPeriod = cruxContent.match(/Collection period:\s*(.+)/)?.[1] ?? '';
+        }
+
+        return (
+          <Card className="p-4 space-y-4 border-slate-200/90 shadow-2xs">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-lg bg-blue-50 text-blue-600">
+                  <Gauge className="w-4 h-4" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800">Website Speed &amp; Quality</h4>
+                  <p className="text-xs text-slate-400">Mobile Lighthouse performance and site health audit</p>
+                </div>
+              </div>
+              <span className={cn(
+                'shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border',
+                speedItem.status === 'connected' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+              )}>
+                {speedItem.status === 'connected' ? 'Data retrieved' : 'Could not retrieve'}
+              </span>
+            </div>
+
+            {/* Top KPI Cards Grid */}
+            {scores.length > 0 ? (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {scores.map(metric => {
+                  const cfg = getScoreColorConfig(metric.score);
+                  return (
+                    <div
+                      key={metric.label}
+                      className={cn('rounded-xl border p-4 text-center transition-all shadow-2xs', cfg.cardBg)}
+                    >
+                      <p className="text-3xl font-extrabold tracking-tight">
+                        <span className={cfg.scoreText}>{metric.score}</span>
+                        <span className="text-xs font-semibold text-slate-400 ml-0.5">/100</span>
+                      </p>
+                      <p className="mt-1 text-xs font-bold uppercase tracking-wider text-slate-700">
+                        {metric.label}
+                      </p>
+                      <span className={cn('mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border', cfg.badgeBg)}>
+                        {cfg.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-600">{advisorFriendlyText(content)}</p>
+            )}
+
+            {/* CrUX Real Visitor Data */}
+            {cruxMetrics.length > 0 && (
+              <div className="pt-3 border-t border-slate-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Activity className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                    Real Visitor Website Experience (CrUX Field Data)
+                  </span>
+                  {cruxPeriod && <span className="text-[11px] text-slate-400">· {cruxPeriod}</span>}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  {cruxMetrics.map(m => (
+                    <div key={m.key} className="rounded-lg border border-slate-100 bg-slate-50/70 p-2.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{m.label}</p>
+                      <p className="text-base font-bold text-slate-800 mt-0.5">
+                        {m.value}
+                        <span className="text-xs font-normal text-slate-400 ml-1">{m.unit || 'score'}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Opportunities */}
+            {opportunityLines.length > 0 && (
+              <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 p-3.5">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                  <p className="text-xs font-semibold text-slate-700">Largest Speed Opportunities</p>
+                </div>
+                <ul className="space-y-1 text-xs text-slate-600">
+                  {opportunityLines.map((line, index) => (
+                    <li key={index} className="flex items-start gap-2">
+                      <span className="text-amber-500 font-bold shrink-0">•</span>
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between text-[11px] text-slate-400 gap-2">
+              {testedUrl && (
+                <a
+                  href={testedUrl.startsWith('http') ? testedUrl : `https://${testedUrl}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 hover:underline flex items-center gap-1 truncate max-w-md"
+                >
+                  <Globe className="w-3 h-3" />
+                  {testedUrl}
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              )}
+              {testTime && <span>Mobile lab test · {testTime} · point-in-time estimate</span>}
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* 2. Website Visibility in Google Search */}
+      {searchItem && (() => {
+        const content = cleanEvidenceContent(searchItem.content);
+        const keyword = content.match(/Search phrase:\s*(.+)/)?.[1];
+        const location = content.match(/Search location:\s*(.+)/)?.[1];
+        const results = content.split('\n').flatMap(line => {
+          const match = /^- (Organic result|Paid placement) (\d+):\s*([^;]+)(?: \[CLIENT WEBSITE\])?;\s*([^;]*);\s*(.*)$/.exec(line);
+          return match ? [{ kind: match[1], rank: match[2], domain: match[3], isClient: line.includes('[CLIENT WEBSITE]'), title: match[4], url: match[5] }] : [];
+        });
+
+        return (
+          <Card className="p-4 space-y-3 border-slate-200/90 shadow-2xs">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+                  <Search className="w-4 h-4" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800">Website Visibility in Google Search</h4>
+                  <p className="text-xs text-slate-400">
+                    Search query: <span className="font-semibold text-slate-600">{keyword || '—'}</span>{location ? ` · ${location}` : ''}
+                  </p>
+                </div>
+              </div>
+              <span className={cn(
+                'shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border',
+                searchItem.status === 'connected' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+              )}>
+                {searchItem.status === 'connected' ? 'Data retrieved' : 'Could not retrieve'}
+              </span>
+            </div>
+
+            {results.length > 0 ? (
+              <div className="space-y-2">
+                {results.map((result, index) => (
+                  <div
+                    key={`${result.kind}-${result.rank}-${index}`}
+                    className={cn(
+                      'flex min-w-0 items-center justify-between gap-3 rounded-xl border p-3 transition-colors',
+                      result.isClient
+                        ? 'border-emerald-300 bg-emerald-50/60 ring-1 ring-emerald-200/70 shadow-2xs'
+                        : result.kind === 'Paid placement'
+                        ? 'border-amber-200 bg-amber-50/40'
+                        : 'border-slate-100 bg-white hover:bg-slate-50/60'
+                    )}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <span className={cn(
+                        'shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold',
+                        result.isClient ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'
+                      )}>
+                        #{result.rank}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-slate-800 truncate">{result.title || result.domain}</p>
+                        <p className="text-[11px] text-slate-400 truncate">{result.domain}{result.url ? ` · ${result.url}` : ''}</p>
+                      </div>
+                    </div>
+                    <span className={cn(
+                      'shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border',
+                      result.isClient
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                        : result.kind === 'Paid placement'
+                        ? 'bg-amber-100 text-amber-800 border-amber-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    )}>
+                      {result.isClient ? 'Client website' : result.kind}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-600">No matching organic or paid listings were returned.</p>
+            )}
+
+            <p className="text-[10px] text-slate-400">Search results show visibility for this phrase at this time; paid placements do not establish client ad spend.</p>
+          </Card>
+        );
+      })()}
+
+      {/* 3. Nearby Businesses in Local Search (NO GAPS: 2-column balanced grid) */}
+      {mapsItem && (() => {
+        const content = cleanEvidenceContent(mapsItem.content);
+        const lines = content.split('\n').filter(line => line.startsWith('- Rank '));
+        const heading = content.split('\n').find(line => line.startsWith('Google Maps results for')) ?? '';
+        const rows = lines.map(line => {
+          const match = /^- Rank (\d+):\s*(.*)$/.exec(line);
+          if (!match) return null;
+          const parts = match[2].split(';').map(part => part.trim());
+          const name = parts.shift() ?? 'Unlabeled result';
+          const address = parts.find(part => /\d.*\b(?:OK|BC|WA|CA|TX|NY|AZ|CO|FL|ON|AB)\b/i.test(part)) ?? '';
+          const rating = parts.find(part => /^rating\s/i.test(part))?.replace(/^rating\s*/i, '') ?? '';
+          const reviews = parts.find(part => /^review count\s/i.test(part))?.replace(/^review count\s*/i, '') ?? '';
+          const website = parts.find(part => !/^rating\s|^review count\s|^\[POSSIBLE CLIENT LISTING\]$/i.test(part) && part !== address) ?? '';
+          return { rank: match[1], name: name.replace(' [POSSIBLE CLIENT LISTING]', ''), isSubject: name.includes('[POSSIBLE CLIENT LISTING]'), address, rating, reviews, website };
+        }).filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+        return (
+          <Card className="p-4 space-y-3 border-slate-200/90 shadow-2xs">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-lg bg-rose-50 text-rose-500">
+                  <MapPin className="w-4 h-4" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800">Nearby Businesses in Local Search</h4>
+                  {heading && <p className="text-xs text-slate-400">{heading}</p>}
+                </div>
+              </div>
+              <span className={cn(
+                'shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border',
+                mapsItem.status === 'connected' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+              )}>
+                {mapsItem.status === 'connected' ? 'Data retrieved' : 'Could not retrieve'}
+              </span>
+            </div>
+
+            {rows.length > 0 ? (
+              <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
+                {rows.map(row => (
+                  <article
+                    key={row.rank}
+                    className={cn(
+                      'min-w-0 rounded-xl border p-3.5 transition-all flex flex-col justify-between shadow-2xs',
+                      row.isSubject
+                        ? 'border-emerald-300 bg-emerald-50/50 ring-1 ring-emerald-200/70'
+                        : 'border-slate-200/80 bg-white hover:border-slate-300'
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-xs font-bold text-slate-800 break-words">{row.name}</p>
+                          {row.isSubject && (
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-semibold text-emerald-800 border border-emerald-200">
+                              Your business
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500 flex items-center gap-1 break-words">
+                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="line-clamp-1">{row.address || 'Address unavailable'}</span>
+                        </p>
+                      </div>
+                      <span className={cn(
+                        'shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold',
+                        row.isSubject ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'
+                      )}>
+                        #{row.rank}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200/60">
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                          {row.rating || '—'}
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          {row.reviews ? `${row.reviews} reviews` : 'No reviews'}
+                        </span>
+                      </div>
+                      {row.website && (
+                        <a
+                          href={row.website.startsWith('http') ? row.website : `https://${row.website}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] text-blue-600 hover:underline flex items-center gap-1 max-w-[160px] truncate"
+                        >
+                          {row.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                          <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                        </a>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-600">No local search results returned.</p>
+            )}
+
+            <p className="text-[10px] text-slate-400">Local search results near the business address. Rankings can vary by location and time.</p>
+          </Card>
+        );
+      })()}
+
+      {/* 4. Other Evidence (if any) */}
+      {otherItems.map((item, index) => (
+        <Card key={`${item.source}-${index}`} className="p-4 space-y-3 border-slate-200/90 shadow-2xs">
+          <div className="flex items-start justify-between gap-2">
+            <h4 className="text-sm font-semibold text-slate-800">{item.source}</h4>
+            <span className={cn(
+              'shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border',
+              item.status === 'connected' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+            )}>
+              {item.status === 'connected' ? 'Data retrieved' : 'Could not retrieve'}
+            </span>
+          </div>
+          {item.url && (
+            <a href={item.url} target="_blank" rel="noreferrer" className="block truncate text-xs text-blue-700 hover:underline">
+              {item.url}
+            </a>
+          )}
+          <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-600">
+            {advisorFriendlyText(cleanEvidenceContent(item.content))}
+          </p>
+        </Card>
+      ))}
+    </div>
+  );
 }
 
 function scoreForTrafficLight(light: TrafficLight, previous: ChannelAssessment['score']): ChannelAssessment['score'] {
@@ -521,7 +1187,7 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
           <div>
             <h2 className="text-lg font-bold text-slate-800">{currentReport.businessName}</h2>
             <p className="text-xs text-slate-400">
-              Digital Presence Report &middot; Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
+              Marketing Spend &amp; Performance Report &middot; Generated {new Date(currentReport.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
             {saveError && (
               <p className="text-xs font-medium text-rose-600 mt-1">{saveError}</p>
@@ -729,6 +1395,46 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
             </p>
           )}
         </div>
+      )}
+
+      {(currentReport.marketingAssessment || currentReport.marketingIntake || currentReport.marketingEvidence?.length) && (
+        <section className="space-y-4 border-t border-slate-200 pt-6">
+          <div className="flex items-center justify-between pb-1">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-slate-400" />
+                Marketing Spend &amp; Performance
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">Local search, website performance, marketing investment, channel outcomes, and transferability.</p>
+            </div>
+          </div>
+          {currentReport.marketingEvidence && <MarketingEvidencePanel evidence={currentReport.marketingEvidence} />}
+          {currentReport.marketingAssessment && (
+            <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-slate-400" />
+                <p className="text-xs font-semibold text-slate-600 uppercase tracking-widest">Advisor Assessment</p>
+              </div>
+              <p className="text-sm text-slate-700 leading-relaxed">
+                {currentReport.marketingAssessment
+                  .replace(/Chrome UX Report\s*\(CrUX\)|\bCrUX\b/gi, 'real visitor website data')
+                  .replace(/Google PageSpeed Insights/gi, 'website speed test')
+                  .replace(/Google Places API/gi, 'Google Business Profile records')
+                  .replace(/DataForSEO/gi, 'local search results')}
+              </p>
+            </div>
+          )}
+          {currentReport.marketingIntake && <MarketingInputsPanel intake={currentReport.marketingIntake} />}
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 flex items-start gap-2.5">
+            <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-amber-800 mb-0.5">Buyer Follow-Up Guidance</p>
+              <p className="text-xs text-amber-700 leading-relaxed">
+                Reconcile channel spend and bookings to platform exports and financials; obtain campaign-level ad and website analytics, email open/click/booking results, documented goals, and peak/off-season trends. A spend-to-revenue ratio needs verified marketing expense and revenue. Public search placement and website performance do not verify ad spend, traffic, bookings, or sales.
+              </p>
+            </div>
+          </div>
+        </section>
       )}
 
       {/* Disclaimer */}

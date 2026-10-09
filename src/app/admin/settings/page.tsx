@@ -27,6 +27,8 @@ type KeyStatus = {
   source: 'database' | 'env'
 }
 
+type DataForSeoStatus = { configured: boolean; maskedLogin: string | null; maskedApiKey: string | null; source: 'database' }
+
 type MondayBoard = {
   id: string
   name: string
@@ -56,6 +58,12 @@ export default function AdminSettingsPage() {
   const [placesMessage, setPlacesMessage] = useState<string | null>(null)
   const [placesError, setPlacesError] = useState<string | null>(null)
   const [placesSaving, setPlacesSaving] = useState(false)
+  const [dataForSeoStatus, setDataForSeoStatus] = useState<DataForSeoStatus | null>(null)
+  const [dataForSeoLogin, setDataForSeoLogin] = useState('')
+  const [dataForSeoApiKey, setDataForSeoApiKey] = useState('')
+  const [dataForSeoMessage, setDataForSeoMessage] = useState<string | null>(null)
+  const [dataForSeoError, setDataForSeoError] = useState<string | null>(null)
+  const [dataForSeoSaving, setDataForSeoSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -100,6 +108,9 @@ export default function AdminSettingsPage() {
       if (placesRes.ok) {
         setPlacesStatus(await placesRes.json())
       }
+
+      const dataForSeoRes = await fetch('/api/admin/settings/dataforseo-credential', { cache: 'no-store' })
+      if (dataForSeoRes.ok) setDataForSeoStatus(await dataForSeoRes.json())
 
       // Load Monday Settings
       const mRes = await fetch('/api/admin/settings/monday', { cache: 'no-store' })
@@ -319,6 +330,28 @@ export default function AdminSettingsPage() {
     }
   }
 
+  const saveDataForSeoCredentials = async () => {
+    setDataForSeoSaving(true)
+    setDataForSeoError(null)
+    setDataForSeoMessage(null)
+    try {
+      const res = await fetch('/api/admin/settings/dataforseo-credential', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login: dataForSeoLogin, apiKey: dataForSeoApiKey }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setDataForSeoStatus(await res.json())
+      setDataForSeoLogin('')
+      setDataForSeoApiKey('')
+      setDataForSeoMessage('DataForSEO credentials saved securely.')
+    } catch (err) {
+      setDataForSeoError(err instanceof Error ? err.message : 'Failed to save DataForSEO credentials')
+    } finally {
+      setDataForSeoSaving(false)
+    }
+  }
+
   const saveMondaySettings = async () => {
     setSaving(true)
     setMondayStatusMessage(null)
@@ -477,7 +510,7 @@ export default function AdminSettingsPage() {
             <div>
               <h2 className="text-base font-semibold text-slate-900">Google Places / Maps credential</h2>
               <p className="mt-1 text-xs text-slate-400">
-                Used by Competitor Analysis, Digital Presence, and the Client Location Map for geocoding and
+                Used by Competitor Analysis, Marketing Spend &amp; Performance, and the Client Location Map for geocoding and
                 place lookups. Agents read this key from the database only &mdash; not from .env &mdash; so it
                 must be saved here before those features will work.
               </p>
@@ -510,6 +543,40 @@ export default function AdminSettingsPage() {
             <Button onClick={() => void savePlacesKey()} disabled={placesSaving || !placesApiKey.trim()}>
               {placesSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {placesSaving ? 'Saving...' : 'Save Places API Key'}
+            </Button>
+          </div>
+        </section>
+
+        {/* DataForSEO credential */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+              <KeyRound className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">DataForSEO credential</h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Used for local business and Google search research in the Marketing Spend &amp; Performance Agent. Credentials are encrypted in the database; the agent reads them from here, not .env.
+              </p>
+              {loading ? (
+                <div className="mt-2 flex items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
+              ) : dataForSeoStatus?.configured ? (
+                <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700">
+                  <ShieldCheck className="h-4 w-4" /> Login {dataForSeoStatus.maskedLogin}; API key {dataForSeoStatus.maskedApiKey} <span className="text-emerald-500">(database)</span>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-amber-700">No DataForSEO credentials saved in the database yet.</p>
+              )}
+            </div>
+          </div>
+          <div className="space-y-4">
+            <Input label="DataForSEO login" type="text" autoComplete="off" value={dataForSeoLogin} onChange={e => setDataForSeoLogin(e.target.value)} placeholder="Account login/email" />
+            <Input label="DataForSEO API key" type="password" autoComplete="new-password" value={dataForSeoApiKey} onChange={e => setDataForSeoApiKey(e.target.value)} placeholder="API password/key" />
+            {dataForSeoError && <p className="text-sm text-rose-600">{dataForSeoError}</p>}
+            {dataForSeoMessage && <p className="text-sm text-emerald-700">{dataForSeoMessage}</p>}
+            <Button onClick={() => void saveDataForSeoCredentials()} disabled={dataForSeoSaving || !dataForSeoLogin.trim() || !dataForSeoApiKey.trim()}>
+              {dataForSeoSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              {dataForSeoSaving ? 'Saving...' : 'Save DataForSEO Credentials'}
             </Button>
           </div>
         </section>

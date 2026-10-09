@@ -1,0 +1,854 @@
+CANTARA — AGENT INPUTS AND ACCEPTED FILE TYPES
+Code audit date: 7 October 2026
+
+PURPOSE AND SCOPE
+This is a read-only audit of the code in cantara-next. It lists the client/advisor
+inputs for the agents, generators and calculators, plus the file formats offered
+by the client portal and the relevant advisor screens. It is not a live-production
+upload test. Per-client assignments and database-configured questions can vary.
+No code was changed for this audit.
+
+HOW TO READ THIS DOCUMENT
+- "Portal" means the shared Document Upload rules, used by both the portal picker
+  and the client-documents/upload API. Advisor screens may have different rules.
+- "Advisor" means the dedicated agent screen, not the client upload checklist.
+- "No restriction configured" means the portal and upload API do not enforce a
+  file-type rule for that slot. It does NOT prove the agent can analyze every type.
+- Listed documents are inputs to collect, not necessarily all hard requirements.
+  Explicit run requirements are called out where verified.
+- JPG and JPEG are the same image format (.jpg and .jpeg).
+- PDF/image portal slots offer .pdf, .png, .jpg, .jpeg and .webp. Several legal,
+  employment and tax analyzers explicitly recognize only PDF, PNG and JPEG as
+  document/image attachments. Use PDF, PNG or JPEG for those agents; WEBP is a
+  portal upload option, but is not consistently handled by their analysis routes.
+- DOC and DOCX are different formats. Several screens allow old .doc files, but
+  use a DOCX extractor or have no dedicated .doc parser. Prefer .docx or PDF.
+- MP3, WAV, MP4, HEIC, ZIP and GIF are not general supported portal formats.
+  Specific discrepancies and exceptions are recorded near the end.
+
+A. FINANCIAL / VALUATION
+
+1. Valuation Agent (ttm; contains six valuation sub-agents)
+Inputs:
+  - Required for the initial financial analysis: 36 months of monthly profit and
+    loss statements and 36 months of monthly balance sheets, with GL/account
+    codes and account names where available.
+  - Fiscal year-end information from Required Info.
+  - Optional: three fiscal years of accountant-prepared financial statements.
+  - Recast inputs: personal expenses and material non-recurring expenses for
+    36 months; advisor add-back/replacement compensation assumptions.
+  - Legacy/supporting inputs: shareholder remuneration, tenant improvements,
+    lease, Owner & GM Assessment output, additional valuation context.
+Portal formats, by input:
+  - Monthly P&L: PDF, XLSX, XLS.
+  - Monthly balance sheet: PDF, XLSX, XLS.
+  - Accountant statements: PDF, XLSX, XLS.
+  - Shareholder remuneration, personal expenses, non-recurring expenses:
+    CSV, XLSX, XLS.
+  - Tenant improvements: PDF, CSV, XLSX, XLS.
+  - Additional valuation context: PDF, XLSX, XLS (advisor-only context slot).
+Important:
+  The active monthly-statement resolver supports Excel/Excel or PDF/PDF pairs.
+  Excel is preferred when both Excel and PDF are present in a slot. Do not mix
+  a PDF P&L with an Excel balance sheet. CSV is mentioned in older advisor slot
+  definitions, but is neither offered by the shared monthly upload rules nor
+  classified as Excel by the current monthly-statement resolver.
+  Accountant statement help text mentions ZIP, but the shared upload rules do
+  not accept ZIP. Upload a merged PDF or individual year files instead.
+  The initial analysis requires only P&L and balance sheet; the older advisor
+  array's "required" label on add-back files is not the API's hard requirement.
+Sources: src/lib/ttm-agent/types.ts; src/lib/ttm-agent/orchestrator.ts;
+  src/lib/ttm-agent/pdf-monthly-statements.ts;
+  src/components/ttm-agent/TtmAnalysisTab.tsx; shared upload rules.
+
+Valuation sub-agents (inside the Valuation Agent; not six extra portal uploads):
+  a. WS2-1 Financial Analysis: monthly P&L + balance sheet; optional accountant
+     statements/context; creates the annual/TTM financial model.
+  b. WS2-2 Recast / EBITDA Normalization: initial financial model, advisor
+     normalization assumptions, optional personal/non-recurring expense files;
+     legacy disclosures and Owner & GM/lease/context evidence where supplied.
+  c. WS2-3 Revenue by Vertical: approved initial model and available recast data;
+     derives revenue categories/service-line trends. No separate required file.
+  d. WS2-4 Expense Benchmarking: approved initial model, available recast data
+     and built-in benchmarks. No separate required file.
+  e. WS2-5 Labor Expense Analysis: approved initial model and completed recast;
+     replacement compensation and optional Owner & GM assessment context.
+  f. WS2-10 Financial Report Generator: approved recast and completed WS2-3,
+     WS2-4 and WS2-5 outputs. No separate required client document.
+  Downstream runs have advisor approval/release gates in the orchestrator.
+Sources: src/app/api/ttm-agent/{orchestrate,recast,derived}/route.ts;
+  src/lib/ttm-agent/orchestrator.ts; ws3-revenue.ts; ws4-benchmarks.ts; ws5-labor.ts.
+
+2. External Valuation Report (alternative input workflow, not a separate catalog agent)
+Input: an externally prepared business valuation report.
+Dedicated advisor upload: PDF, XLSX, XLS, CSV, DOCX; maximum 25 MB.
+This is distinct from the narrower "Additional Valuation Context" document slot.
+The roadmap/buyer report can select the stored external valuation as its source.
+Sources: src/components/ttm-agent/ExternalValuationReport.tsx;
+  src/app/api/ttm-agent/external-report/route.ts.
+
+B. RISK, LEGAL AND OPERATIONS
+
+3. Employee Obligations Agent (employee_obligations)
+Inputs:
+  - Key employee/manager contracts, bonus agreements and amendments.
+  - Non-compete/non-solicitation agreements; current employee handbook.
+  - Benefits summary; independent contractor agreements and 1099 records.
+  - Management offer letters; severance/separation agreements (last 24 months).
+  - Retirement plan documents; current PTO balances/accrual ledger.
+  - Workers' compensation claims (last 24 months).
+  - Client name, state, DBA and optional employee count/employment breakdown.
+Run requirement: at least one document and client name in the analysis API.
+Portal formats:
+  - Key employee contracts: PDF only.
+  - Contractor/1099 slot: PDF, PNG, JPG/JPEG, WEBP (prefer PDF/PNG/JPEG).
+  - Handbook, non-competes, benefits, offer letters, severance, retirement, PTO
+    and workers' compensation slots: no file-type restriction configured.
+Advisor picker formats:
+  - Contracts, non-competes, handbook, offers, severance, retirement: PDF, DOCX, DOC.
+  - Benefits, contractors and workers' compensation: PDF, DOCX, XLSX, DOC.
+  - PTO ledger: XLSX, XLS, CSV, PDF.
+Analysis caveat: explicit binary handling exists for PDF, PNG/JPEG, XLSX and DOCX;
+  legacy DOC/XLS are not equivalently parsed. Use PDF/DOCX for text and XLSX for
+  spreadsheet evidence. Formats shown by a picker do not guarantee parsing.
+Sources: src/components/ws1-6/WS16Uploader.tsx;
+  src/app/api/employee-obligations/analyze/route.ts; shared upload rules.
+
+4. Employee Staffing & Compensation Agent (employee_comp)
+Inputs: employee/payroll roster with names, titles, weekly hours, compensation,
+  location, employment type, hire/rehire dates, pay basis, effective dates and
+  benefits classifications where available. No SSNs. Also uses the 24-hour-care
+  answer as business operating context. Supports pasted text and manual rows.
+Portal employee-list format: XLSX, XLS only.
+Advisor direct analysis: PDF, PNG, JPG/JPEG, XLSX, XLS, CSV; pasted text/manual entry.
+Sources: src/components/employee-comp/EmployeeCompTab.tsx;
+  src/app/api/employee-comp/analyze/route.ts; src/lib/employee-comp/analyze.ts.
+
+5. Insurance Review Agent (insurance_review)
+Inputs: all active business insurance policies; claim documents from the last
+  12 months if claims occurred. Policy and claim files are read from stored uploads.
+Portal and advisor formats: PDF only for both policies and claims.
+The analysis API needs at least one stored insurance file; claims are conditional.
+Sources: src/components/admin/InsuranceReviewTab.tsx;
+  src/app/api/insurance-review/route.ts; shared upload rules.
+
+6. Lease Analysis Agent (lease_analysis)
+Inputs: base lease(s), every amendment/addendum/rider; client/property context.
+Portal and advisor formats: PDF only.
+Text-searchable PDFs are preferred. The route also has handling for scanned or
+  low-text PDFs with an upstream page limit; large scanned packs may need splitting.
+Property owners see lease requests only when the advisor enables lease analysis.
+Sources: src/components/lease-analysis/LeaseUploader.tsx;
+  src/app/api/lease-analysis/analyze/route.ts; src/lib/client-portal-documents.ts.
+
+7. Legal Reports & Entity Search Agent (legal_entity_search)
+Actual advisor-screen inputs:
+  - Secretary of State filings (articles/formation records, amendments, annual reports).
+  - Certificates of good standing/existence.
+  - Registered agent confirmations.
+  - Corporate governance records (operating agreement, bylaws, shareholder
+    agreement, resolutions): supplemental.
+  - Trademark/IP registrations and assignments: supplemental.
+  - UCC search results, UCC-1/continuation filings and secured debt schedules:
+    direct advisor input; required when "Advisor to Run" is active.
+  - Business name, state, DBA, entity type and business address context.
+Portal formats for the linked legal documents: PDF, PNG, JPG/JPEG, WEBP;
+  prefer PDF/PNG/JPEG for analysis.
+Advisor direct picker: PDF, DOCX, XLSX, PNG, JPG, JPEG.
+Important mapping differences:
+  UCC search results and registered agent confirmations have no dedicated client
+  portal document slot. The advisor uploads them on this agent screen.
+  The catalog mapping includes business licenses and ownership/cap table, but
+  the actual Legal screen's input categories/import mapping are the categories
+  above. Do not substitute the catalog list for the actual input screen.
+  The advisor screen blocks a run when SOS/good-standing/registered-agent
+  categories are missing (unless its advisor-run mode changes that gate). The
+  API itself checks documents/client name, rather than every category.
+Sources: src/components/legal-entity-search/LegalEntitySearchTab.tsx;
+  src/app/api/legal-entity-search/analyze/route.ts.
+
+8. Litigation & Liens Agent (litigation_search)
+Inputs: business name and state (required for public-record search), owner name,
+  optional county/city; formal lien/court/title records and pending-litigation
+  disclosures as documentary evidence.
+Portal pending-litigation format: PDF, PNG, JPG/JPEG, WEBP.
+Lien-search/court-record slot: same shared formats, but hidden from client portal;
+  Cantara sources/handles these records.
+Advisor direct upload: PDF or image (picker uses image/*).
+Public-record search can run without a document upload.
+Sources: src/components/litigation-search/LitigationSearchTab.tsx;
+  src/app/api/litigation-search/route.ts; src/lib/litigation-search/search.ts;
+  src/lib/client-portal-documents.ts.
+
+9. Material Contracts Agent (contract_analysis)
+Inputs: vendor, supplier, software and service agreements over $5,000/year OR
+  lasting longer than 12 months, including amendments. Portal instructions ask
+  for an agreement-details spreadsheet where no formal contract exists.
+Portal slot: PDF, XLSX, XLS.
+Advisor direct picker and current analysis route: PDF.
+Critical mismatch: the analysis route treats every attachment as PDF (or extracts
+  PDF text). A spreadsheet can be stored in the portal, but there is no matching
+  Excel parser in this agent route. For analysis, supply a PDF of those details.
+Sources: src/lib/documentData.ts; src/components/contract-analysis/ContractUploader.tsx;
+  src/app/api/contract-analysis/analyze/route.ts.
+
+10. Org Chart Review Agent (org_chart_review)
+Input: current organization chart with names, roles/departments, reporting lines,
+  headcount and key-person/transition information.
+Portal format: PDF, PNG, JPG/JPEG, WEBP.
+Advisor picker: PDF, PNG, JPG/JPEG, XLSX, XLS, CSV.
+Analysis: handles PDF/images; spreadsheet files are passed as native document
+  blocks rather than parsed locally, so provider support may differ. PDF/PNG/JPEG
+  are the clearest choices for an organization diagram.
+Sources: src/components/org-chart/OrgChartReviewTab.tsx;
+  src/app/api/org-chart/analyze/route.ts; src/lib/org-chart/analyze.ts.
+
+11. Owner & GM Assessment Agent (owner_gm_assessment)
+Actual analysis input: owner/GM interview, discovery-call transcript or meeting
+  notes describing involvement, responsibilities, hours, compensation, GM role,
+  succession/transition and bench strength.
+Advisor picker: PDF, TXT, DOCX, DOC. Prefer PDF/TXT/DOCX; legacy DOC extraction
+  uses the same Word extractor and should not be promised as reliable.
+Portal catalog-associated supporting uploads:
+  - Employee list: XLSX, XLS.
+  - Org chart: PDF, PNG, JPG/JPEG, WEBP.
+  - SOP manual: PDF, DOCX, DOC.
+Important: the current initial-analysis endpoint uses the uploaded transcript
+  file. The catalog's employee list/org chart/SOP association is not proof that
+  those three files are automatically consumed in this analysis run.
+Sources: src/components/owner-gm-assessment/OwnerGmAssessmentTab.tsx;
+  src/app/api/owner-gm-assessment/route.ts; src/lib/owner-gm-assessment/analyze.ts.
+
+12. Ownership Verification Agent (ownership_verification)
+Inputs: articles of organization/incorporation; shareholders agreement if any;
+  current operating agreement/bylaws; organizational amendments; certificates
+  of good standing; most recent annual reports; name/state/DBA/entity type.
+Portal formats for all six document groups: PDF, PNG, JPG/JPEG, WEBP.
+Advisor direct picker: PDF, DOCX, DOC.
+Analyzer has explicit handling for PDF, PNG/JPEG, DOCX and XLSX. Legacy DOC and
+  WEBP are not equivalently handled. Prefer PDF/PNG/JPEG for portal documents.
+API allows a documented "all documents unavailable" path, rather than requiring
+  every listed document in every case.
+Sources: src/components/ws1-8/WS18Uploader.tsx;
+  src/app/api/ownership-verification/analyze/route.ts; src/lib/workstream-agents.ts.
+
+13. Permits & Zoning Agent (permits_zoning)
+Inputs: business licenses; kennel license; health permit; fire permit; zoning
+  verification/approval; certificate of occupancy; conditional/special-use
+  permit; signage permits; building permits; environmental permits; variance
+  approvals. Client name, state, DBA, property address and municipality provide context.
+Portal formats: PDF, PNG, JPG/JPEG, WEBP for all these document slots.
+Advisor direct picker: PDF, DOCX, DOC for every slot.
+Analyzer explicitly handles PDF, PNG/JPEG, DOCX and XLSX. Prefer PDF/PNG/JPEG
+  through the portal; DOC and WEBP are not equivalently handled.
+API also supports an "all documents unavailable" path.
+Sources: src/components/ws1-9/WS19Uploader.tsx;
+  src/app/api/permits-zoning/analyze/route.ts; src/lib/workstream-agents.ts.
+
+14. Real Estate Appraisal Agent (real_estate_appraisal)
+Input: one current appraisal document for property owned by the business.
+Portal: PDF, PNG, JPG/JPEG, WEBP.
+Advisor picker: PDF, PNG, JPG/JPEG.
+Analysis route accepts PDF or an image MIME type. Portal request is shown for
+  owners when appraisal is enabled, and hidden for leaseholders.
+Sources: src/components/admin/RealEstateAppraisalTab.tsx;
+  src/app/api/real-estate-appraisal/analyze/route.ts; client-portal-documents.ts.
+
+15. Software & Vendors Agent (vendor_directory)
+Inputs: manually entered vendor/software list: product/service name, vendor,
+  category, annual cost, contract status, transferability, login-access ownership
+  and notes. Contract analysis can populate vendor records.
+File types: no dedicated upload input for this directory. Contract evidence is
+  collected through Material Contracts, with the limitations listed there.
+Sources: src/components/vendor-directory/VendorDirectoryTab.tsx;
+  src/lib/contract-analysis/merge-vendors.ts; contract analysis routes.
+
+16. Tax Liability Review Agent (tax_liability_review)
+Inputs:
+  Required document groups on the agent screen:
+    - Federal/state income tax returns for the last 3 years.
+    - IRS Forms 941 and 940 for the last 3 years.
+    - State unemployment (SUI/SUTA) filings for the last 3 years.
+    - State sales/use tax returns, schedules and payment records for 3 years.
+  Supplemental: 1099-NEC/1099-MISC and contractor agreements; IRS/state tax
+    notices, audit correspondence, deficiency letters for the last 3 years.
+  Context: client name, state, entity type, fiscal year-end, employee count.
+Portal:
+  - All listed tax groups except state unemployment: PDF, PNG, JPG/JPEG, WEBP.
+  - State unemployment: no file-type restriction configured.
+Advisor picker: PDF, DOCX, XLSX, DOC, PNG, JPG/JPEG.
+Use PDF/PNG/JPEG from the portal, or PDF/DOCX/XLSX directly with the advisor.
+Old DOC and WEBP have no equivalent explicit parser/image branch in this route.
+Multi-year income-tax uploads allow a combined file or individual year files;
+  ZIP is advertised in description text but is rejected by shared upload rules.
+Sources: src/lib/tax-readiness.ts; src/components/tax-liability-review/TaxLiabilityReviewTab.tsx;
+  src/app/api/tax-liability-review/analyze/route.ts; shared upload rules.
+
+C. MARKET, PERFORMANCE AND GROWTH
+
+17. Client Location Map Agent (client_location_map)
+Inputs: customer/client address spreadsheet with customer names, street address,
+  city, state, ZIP/postcode and country; optional service type (boarding, daycare,
+  grooming). Facility address is used as the map center. Missing service type
+  defaults to Both / Multiple. A Cantara address-list template is available.
+Portal/advisor document input: CSV, XLSX, XLS.
+PDF/JPEG are not the portal formats for this customer address list.
+Sources: src/components/client-location-map/ClientLocationMapTab.tsx;
+  src/app/api/client-location-map/route.ts; src/lib/client-portal-documents.ts.
+
+18. Competitor Analysis Agent (competitor_analysis)
+Inputs: business name and physical address (required by API), business category,
+  website, radius, named competitors and optional competitor addresses/websites.
+The portal defines five competitor slots, with name/website required fields and
+  address/category optional. Analysis can also discover businesses via Places.
+File types: no dedicated document upload is required. Inputs are form text/URLs
+  plus public Google Places and website research.
+Sources: src/lib/competitor-analysis/types.ts; src/lib/competitor-form-fields.ts;
+  src/app/api/competitor-analysis/analyze/route.ts.
+
+19. Competitive Pricing Analysis Agent (pricing_analysis)
+Actual run inputs: seller website URL and exactly FIVE competitor names and
+  website URLs; optional pasted/manual seller and competitor pricing evidence.
+Also uses saved Competitor Analysis pricing findings/website research.
+Portal-associated documents: current/prior pricing schedules and revenue
+  breakdown. Each allows PDF, CSV, XLSX, XLS.
+Important: the current analysis route runs from URLs, manual evidence and saved
+  competitor data; it does not directly parse these two portal documents.
+File types for the core run: none; provide URLs and text. Those portal documents
+  remain supporting collection, not a substitute for the five competitor inputs.
+Sources: src/app/api/pricing-analysis/route.ts;
+  src/components/pricing-analysis/PricingAnalysisTab.tsx; shared upload rules.
+
+20. Digital Presence Agent (digital_presence)
+Inputs: business name; website URL; Google Business Profile URL; Facebook,
+  Instagram and TikTok handles/URLs; booking platform; Yelp, Nextdoor, LinkedIn,
+  Glassdoor and BBB URLs. The Required Info route currently hides the separate
+  Google Business locations question.
+File types: no dedicated required upload. Uses form text/URLs and online research.
+The legacy online-review document slot has PDF/image rules but is hidden from
+  client uploads; it is not a required input to the current digital analysis API.
+Sources: src/lib/digital-presence/types.ts;
+  src/app/api/digital-presence/analyze/route.ts;
+  src/app/api/client-form-questions/route.ts.
+
+21. Facility Review Agent (facility_review)
+Client/standard mode inputs: business/location details, condition notes and
+  photos. Portal photo sections: exterior, reception, boarding, grooming, indoor
+  play, outdoor play, and staff/operational areas.
+Photos: JPG/JPEG, PNG, WEBP. Portal allows up to five images per photo section;
+  standard analysis API allows up to 30 images, maximum 5 MB per image.
+Supporting portal document slots: health/safety inspection reports and violations
+  or citations for the last 36 months: PDF, PNG, JPG/JPEG, WEBP.
+Advisor visit mode: pasted meeting/visit notes OR a notes document; optional
+  photos and supporting documents. Notes/supporting documents: PDF, DOCX, TXT.
+Limits in advisor analysis: 20 photos, 5 MB each; up to 8 supporting documents,
+  15 MB each; notes file maximum 15 MB. Notes are required in advisor mode.
+Important: the main standard analysis route consumes images and notes. Health/
+  safety and violation checklist uploads are associated evidence, not proof that
+  this route automatically reads those files.
+Sources: src/app/dashboard/page.tsx (facility photo intake);
+  src/components/facility-review/FacilityReviewTab.tsx;
+  src/app/api/facility-review/{analyze,advisor-analyze,extract-notes}/route.ts.
+
+22. Occupancy Review Agent (occupancy_review)
+Inputs: 24 months of monthly boarding/daycare counts; owner-stated total daily
+  capacity, boarding runs/kennels, daycare spots; optional grooming and bathing
+  stations and analysis period. Monthly data can also be entered/reviewed in forms.
+Portal main data slot: CSV, XLSX, XLS. A sample CSV template is available.
+Advisor main-slot picker also offers PDF, but upload uses the shared API, which
+  rejects PDF for occupancy_review.
+Advisor supporting slot (occupancy_supporting): picker offers PDF, XLSX, CSV,
+  XLS, DOCX, PNG, JPG/JPEG; no shared per-slot format rule is configured.
+Analysis caveat: PDF is attached as PDF; other file bytes are decoded as UTF-8 in
+  the analysis route. Main portal CSV/Excel uploads have a separate XLSX-based
+  parser that populates structured monthly/capacity inputs. Use those structured
+  inputs and verify the review grid. Direct binary XLSX/DOCX/image supporting
+  files are not reliably analyzed merely because the picker accepts them.
+Sources: src/components/occupancy-review/OccupancyReviewTab.tsx;
+  src/app/api/occupancy-review/route.ts; src/lib/occupancy-upload-parser.ts;
+  src/lib/occupancy-form-fields.ts.
+
+23. Pricing by Vertical Agent (pricing_vertical)
+Inputs: current pricing and changes over the last 24 months; historical rate
+  cards/schedules; revenue breakdown by service line (36 months/three fiscal years
+  and TTM); business website; saved WS2-3 Revenue by Vertical output when present.
+Portal pricing schedule and revenue breakdown: PDF, CSV, XLSX, XLS.
+Advisor picker:
+  - Pricing schedule: PDF, DOCX, XLSX, XLS, CSV, PNG, JPG/JPEG.
+  - Revenue breakdown: XLSX, XLS, CSV, PDF.
+Uploads through the shared document API remain restricted to the portal formats;
+  DOCX/images offered by the pricing picker are rejected for pricing_schedule.
+The selected stored-document workflow extracts spreadsheet text and supplies
+  native PDF/image attachments. Text-based PDF/CSV/XLSX/XLS evidence is supported
+  by the document evidence loader; do not assume every legacy single-file input
+  has the same parsing behavior.
+Sources: src/components/pricing-vertical/PricingByVerticalTab.tsx;
+  src/app/api/pricing-vertical/route.ts;
+  src/lib/pricing-vertical/document-evidence.ts; analyze.ts.
+
+24. Sales Process Review Agent (sales_process_review)
+Actual run input: discovery/sales/customer inquiry call transcript or written
+  conversation notes, uploaded by Cantara/advisor. Business name is context.
+Transcript formats: PDF, TXT, DOCX, DOC. Prefer text-readable PDF/TXT/DOCX;
+  legacy DOC uses a DOCX extractor, so support is not reliable.
+The sales_process_transcript slot is hidden from client portal Document Upload.
+No MP3/WAV/MP4 transcription upload is implemented in this agent route, despite
+  some labels mentioning a "recording". Upload a written transcript.
+Catalog also associates pricing_schedule (PDF, CSV, XLSX, XLS), but the actual
+  analysis endpoint loads the latest sales_process_transcript, not the pricing file.
+Sources: src/components/sales-review/SalesProcessReviewTab.tsx;
+  src/app/api/sales-review/analyze/route.ts; src/lib/sales-review/analyze.ts;
+  src/lib/client-portal-documents.ts.
+
+D. REPORTS, DEAL PROCESS AND MANUAL DIRECTORIES
+
+25. Sales Readiness Roadmap (sales_readiness_roadmap)
+Inputs: completed diligence agent outputs; advisor-selected source exclusions;
+  advisor-edited checklist category/item/status/action wording and approvals.
+Checklist generation needs at least one eligible completed source (or selected
+  external valuation input); full-report generation uses approved checklist items.
+Direct file types: none. It synthesizes saved outputs. External valuation can be
+  selected; see entry 2 for the dedicated upload formats.
+Legacy WS1/WS2 roadmap aliases resolve to this unified roadmap agent.
+Sources: src/app/api/improvement-roadmap/route.ts;
+  src/lib/completed-agent-outputs.ts; src/lib/workstream-agents.ts.
+
+26. WS1 Assessment Report (ws1_assessment)
+Inputs: stored WS1 legal, compliance, operational and financial agent findings
+  and client details. No dedicated source document upload.
+File types: none directly; uses saved agent reports.
+Status: still present in catalog/API, but the standard internal-assessment tab
+  is commented out in the current advisor navigation.
+Sources: src/app/api/assessment-report/route.ts;
+  src/components/assessment-report/AssessmentReportTab.tsx;
+  src/app/admin/client/[id]/page.tsx.
+
+27. WS2 Assessment Report (ws2_assessment)
+Inputs: stored WS2 financial, market, growth and operations agent findings and
+  client details. No dedicated source document upload.
+File types: none directly; uses saved agent reports.
+Status: same catalog/API availability and commented-out navigation as WS1.
+Sources: same files as entry 26, using workstream=ws2.
+
+28. WS1 / WS2 Buyer Reports (buyer_report)
+Inputs: a generated full Sales Readiness Roadmap (required by API), saved
+  workstream agent outputs and optional selected external valuation.
+File types: none directly. External valuation formats are in entry 2.
+Two advisor report tabs use the same API with different workstream values.
+Sources: src/app/api/buyer-report/route.ts;
+  src/components/buyer-report/BuyerReportTab.tsx.
+
+29. CIM Generator Agent (cim)
+Inputs: client/business description and location, deal/transaction terms,
+  ownership/management, operations, staffing, property/lease details, financial
+  history and TTM, normalization, service lines, competitive/digital information,
+  risks, growth initiatives and contacts. Advisor can edit the structured CIM form.
+Auto-fill reads client profile and available valuation/recast, lease, competitor,
+  digital presence, employee obligations and insurance review outputs.
+File types: no required new diligence upload; uses existing reports and form text.
+The CIM editor also offers optional image uploads (image/*) for visual assets;
+  these are presentation assets, not required analysis documents.
+Sources: src/lib/cim/types.ts; src/app/api/cim/auto-fill/route.ts;
+  src/components/cim/CimGeneratorTab.tsx.
+
+30. Deal Teaser Generator Agent (teaser)
+Inputs: transaction snapshot, region/location, business/service model, capacity,
+  financial highlights (revenue, growth, normalized EBITDA, margin), investment
+  highlights, operating/property details, contact information and branding.
+Auto-fill uses client profile and available valuation/recast, lease, competitor,
+  employee obligations, insurance and digital presence reports.
+File types: no dedicated required upload; structured text and saved reports.
+Sources: src/lib/teaser/types.ts; src/app/api/teaser/auto-fill/route.ts;
+  src/components/teaser/TeaserGeneratorTab.tsx.
+
+31. LOI Review & Comparison (loi_review)
+Inputs: one or more buyer letters of intent/offers; client details for comparison
+  of price, structure, working capital, earnout/holdback, diligence, financing,
+  timing, closing conditions, exclusivity and other terms.
+Advisor picker: PDF, DOCX.
+Analysis caveat: PDF is attached properly, but all non-PDF files are decoded as
+  raw UTF-8 without a Word extractor in this route. DOCX is advertised but not
+  properly parsed here. Use PDF for the current comparative analysis.
+The separate prior_offers portal checklist slot accepts PDF, DOCX, DOC; that does
+  not establish equivalent parsing or automatic import into the LOI analysis.
+Sources: src/components/loi-review/LoiReviewTab.tsx;
+  src/app/api/loi-review/route.ts; shared upload rules.
+
+32. Net Proceeds Calculator Agent (net_proceeds)
+Inputs: valuation, cash at closing, seller obligations, months to close, debt
+  balances/payments, actual/target working capital, deferred revenue, escrow,
+  seller note, earnout, rollover equity, other deferred consideration, legal/
+  advisory/accounting/bonus costs, payroll tax and federal/state tax assumptions.
+Optional real-estate module: sale/retain decision, ownership percentage, sale
+  price, loans/payoffs, seller financing, commissions, title/escrow/legal costs,
+  transfer taxes, 1031 selection and estimated tax liability.
+File types: none; manual numeric/form input and saved client data. This is a
+  calculator, not a document-reading agent.
+Source: src/components/net-proceeds/NetProceedsCalculator.tsx.
+
+33. Professional Advisors Agent (professional_advisors)
+Inputs: role, name, company, email, phone and notes for CPA/accountant/bookkeeper,
+  legal counsel, insurance/benefits, financial advisor and other contacts.
+File types: none; structured contact directory/manual or portal form responses.
+Status: included by workstream rules for M&A/BOTH; explicit opt-in handling exists
+  for other workstreams. Standard advisor tab/catalog row is currently commented
+  out, so do not assume it is visible in every navigation view.
+Sources: src/components/advisors/ProfessionalAdvisorsTab.tsx;
+  src/lib/workstream-agents.ts; src/app/api/client-form-questions/route.ts.
+
+34. Meeting Notes Agent (meeting_notes; legacy/inactive screen)
+Input: advisor meeting/call notes or written transcript.
+Shared/admin picker formats: PDF, TXT, DOCX, DOC. Hidden from client uploads.
+Status: still listed in the assignment catalog, but the dedicated tab is commented
+  out. Its component calls /api/meeting-notes/analyze; no matching API route exists
+  in this checkout. It cannot be confirmed as an operational standalone agent.
+There is a separate Meetings workflow for notes/report generation, and Facility
+  Review also accepts advisor visit notes; these are not the missing endpoint.
+Sources: src/components/meeting-notes/MeetingNotesTab.tsx;
+  src/app/admin/client/[id]/page.tsx; src/lib/client-portal-documents.ts;
+  src/lib/meetings.ts.
+
+E. AUDIT FINDINGS TO KEEP THE REQUEST LIST ACCURATE
+
+1. No single consistent "all agents accept PDF/JPEG/Excel" rule exists. Formats
+   are controlled by document slot and upload path.
+2. Ten defined checklist slots have no shared format rule: state unemployment,
+   employee handbook, non-competes, benefits, offer letters, severance, retirement,
+   PTO ledger, workers' compensation and the hidden/unused customer-count slot.
+   This is a validation gap, not verified support for arbitrary formats.
+3. PDF/image slot pickers include WEBP, despite their hint saying only PNG/JPG.
+   Server validation is even broader (image/* or GIF by extension). Do not tell
+   clients every such image will be analyzed: several analyzers handle only PNG/JPEG.
+4. ZIP is mentioned for accountant statements and tax returns, but shared upload
+   rules reject it; neither slot has a confirmed ZIP analysis workflow.
+5. Old .doc is offered in several pickers but not reliably parsed. Request DOCX/PDF.
+6. Material Contracts: portal accepts Excel; analyzer is PDF-oriented.
+7. LOI comparison: DOCX picker option lacks DOCX extraction in the analysis route.
+8. Occupancy: advisor main picker offers PDF but shared main-slot upload rejects
+   it. Binary supporting files are decoded as text in the analysis route.
+9. Pricing by Vertical: advisor pricing picker offers DOCX/images, but shared
+   pricing_schedule upload only accepts PDF/CSV/Excel.
+10. Competitive Pricing's mapped uploads, Owner & GM's mapped supporting files,
+    and Facility Review's inspection/citation slots are not all automatically read
+    by their current initial-analysis routes. Supply the actual run inputs above.
+11. Legal Reports has advisor-only UCC and registered-agent requirements that
+    are not represented by dedicated client portal checklist slots.
+12. Meeting Notes is a legacy catalog entry with its dedicated route absent.
+13. Shared upload validation often trusts MIME OR extension. Listed formats are
+    intended UI options, not evidence of file-content integrity or a live test.
+
+F. COMPLETE DOCUMENT-SLOT FORMAT REFERENCE
+This appendix is extracted from documentData.ts + client-document-upload.ts.
+"Required", "yes/no" and "conditional" below describe the document checklist,
+not a universal hard requirement to run every agent. Workstream/client selections
+and property ownership determine which slots are visible. Five slots are hidden
+from client Document Upload: sales_process_transcript, meeting_notes,
+customer_count, litigation_search_docs and online_reviews.
+
+Monthly P&L [monthly_pl_excel]
+  Types: .pdf, .xlsx, .xls
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Monthly Balance Sheet [monthly_bs_excel]
+  Types: .pdf, .xlsx, .xls
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Accountant-Prepared Financial Statements [accountant_statements]
+  Types: .pdf, .xlsx, .xls
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+  Multi-year: one combined file OR one file per year (3 year slots); same type rules.
+
+Shareholder List + Remuneration (36 months) [shareholder_remuneration_36m]
+  Types: .csv, .xlsx, .xls
+  Checklist: conditional; client-visible when applicable; single file in portal UI.
+
+Personal Expenses Charged to Business (36 months) [personal_expenses_36m]
+  Types: .csv, .xlsx, .xls
+  Checklist: conditional; client-visible when applicable; single file in portal UI.
+
+Material One-Off Non-Recurring Expenses (36 months) [non_recurring_expenses_36m]
+  Types: .csv, .xlsx, .xls
+  Checklist: conditional; client-visible when applicable; single file in portal UI.
+
+Material Tenant Improvements (36 months) [tenant_improvements_36m]
+  Types: .pdf, .csv, .xlsx, .xls
+  Checklist: conditional; client-visible when applicable; single file in portal UI.
+
+Articles of Organization / Incorporation [articles_org]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Shareholder's Agreement [shareholder_agreement]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Operating Agreement / Bylaws [operating_agreement_bylaws]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Amendments to Organizational Documents [org_document_amendments]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Good Standing Certificate [good_standing_certificate]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Annual Reports [annual_reports]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Business Licenses (City + County) [business_licenses]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Kennel License [kennel_license]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Health Permit [health_permit]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Fire Permit [fire_permit]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Zoning Verification / Approval [zoning_approval]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Certificate of Occupancy [certificate_occupancy]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Conditional Use Permit [conditional_use_permit]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Signage Permit [signage_permit]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Building Permits (if renovation done) [building_permits]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Environmental Permits [environmental_permits]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Variance Approvals [variance_approvals]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Health & Safety Inspection Reports [health_safety]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Violations / Citations (last 36 months) [violations]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Sales Tax / Seller's Permit [sales_tax_permit]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: conditional; client-visible when applicable; multiple files permitted in portal UI.
+
+Lease(s) + All Addendums [leases]
+  Types: .pdf
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Real Estate Appraisal [real_estate_appraisal]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: required; client-visible when applicable; single file in portal UI.
+
+Business Tax Returns (3 years) [tax_returns_3yr]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+  Multi-year: one combined file OR one file per year (3 year slots); same type rules.
+
+IRS Forms 941 & 940 (3 Years) [irs_941_940_3yr]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+State Unemployment Filings [state_unemployment_filings]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Forms 1099-NEC / 1099-MISC + Contractor Agreements [contractor_1099_agreements]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+State Sales & Use Tax Returns (3 Years) [sales_use_tax_3yr]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+IRS / State Tax Notices & Audit Correspondence (3 Years) [irs_tax_notices_3yr]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Accounts Payable Aging [accounts_payable]
+  Types: .pdf, .xlsx, .xls
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Bank Statements (12 months) [bank_statements]
+  Types: .pdf
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Loan Documents / Line of Credit [loan_docs]
+  Types: .pdf
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Insurance Claims (last 12 months) [insurance_claims_12m]
+  Types: .pdf
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Employee List (titles, hours, compensation) [employee_list]
+  Types: .xlsx, .xls
+  Checklist: required; client-visible when applicable; single file in portal UI.
+
+Organizational Chart [org_chart]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; single file in portal UI.
+
+Key Employee / Manager Contracts & Employee Bonus Agreements [key_employee_contracts]
+  Types: .pdf
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Employee Handbook [employee_handbook]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Non-Compete / Non-Solicitation Agreements [non_compete_agreements]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Benefits Summary [employee_benefits_summary]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Offer Letters [offer_letters]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Severance / Separation Agreements [severance_agreements]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Retirement Plan Documents [retirement_plan_docs]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+PTO Accrual Ledger or Balance Report [pto_accrual_ledger]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Workers' Compensation Claims (24 months) [workers_comp_claims_24m]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Operations / SOP Manual [sop_manual]
+  Types: .pdf, .docx, .doc
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Insurance Policies (all active) [insurance_policies]
+  Types: .pdf
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Vendor Contracts [material_contracts]
+  Types: .pdf, .xlsx, .xls
+  Checklist: required; client-visible when applicable; multiple files permitted in portal UI.
+
+Sales Call Transcript / Recording [sales_process_transcript]
+  Types: .pdf, .txt, .docx, .doc
+  Checklist: yes/no; hidden from clients; multiple files permitted in portal UI.
+
+Meeting Notes / Call Notes [meeting_notes]
+  Types: .pdf, .txt, .docx, .doc
+  Checklist: yes/no; hidden from clients; multiple files permitted in portal UI.
+
+Lien Search / Court Records [litigation_search_docs]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; hidden from clients; multiple files permitted in portal UI.
+
+Occupancy Review Data [occupancy_review]
+  Types: .csv, .xlsx, .xls
+  Checklist: required; client-visible when applicable; single file in portal UI.
+
+Client Address List (CSV or Excel) [client_addresses]
+  Types: .csv, .xlsx, .xls
+  Checklist: required; client-visible when applicable; single file in portal UI.
+
+Revenue Breakdown by Service Line (36 months) [revenue_breakdown]
+  Types: .pdf, .csv, .xlsx, .xls
+  Checklist: required; client-visible when applicable; single file in portal UI.
+
+Active Customer Count (last 12 months) [customer_count]
+  Types: NO FILE-TYPE RESTRICTION CONFIGURED
+  Checklist: required; hidden from clients; multiple files permitted in portal UI.
+
+Current Pricing Schedule [pricing_schedule]
+  Types: .pdf, .csv, .xlsx, .xls
+  Checklist: required; client-visible when applicable; single file in portal UI.
+
+Online Review Summary (Google / Yelp) [online_reviews]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; hidden from clients; multiple files permitted in portal UI.
+
+Ownership / Cap Table [ownership_structure]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Prior LOIs / Offers Received [prior_offers]
+  Types: .pdf, .docx, .doc
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Environmental Reports (if any) [environmental_reports]
+  Types: .pdf
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Trademarks / IP Registrations [intellectual_property]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Pending Litigation / Legal Disputes [pending_litigation]
+  Types: .pdf, .png, .jpg, .jpeg, .webp
+  Checklist: yes/no; client-visible when applicable; multiple files permitted in portal UI.
+
+Additional slots outside the main document catalog:
+- valuation_context: .pdf, .xlsx, .xls; advisor-only valuation context.
+- facility photo sections: .jpg, .jpeg, .png, .webp via dedicated photo UI.
+- occupancy_supporting: no shared type restriction; advisor picker offers
+  .pdf, .xlsx, .csv, .xls, .docx, .png, .jpg, .jpeg. See occupancy parsing caveat.
+- External valuation: .pdf, .xlsx, .xls, .csv, .docx via dedicated endpoint.
+
+G. AUDIT SOURCES AND LIMITS
+Primary code sources:
+- src/components/admin/ClientManager.tsx (30 active catalog rows)
+- src/lib/workstream-agents.ts (canonical workstreams and document associations)
+- src/app/admin/client/[id]/page.tsx (active and commented-out navigation)
+- src/lib/documentData.ts (67 checklist document definitions)
+- src/lib/client-document-upload.ts (shared picker/server format rules)
+- src/lib/client-portal-documents.ts (hidden slots, templates, ownership rules)
+- src/components/documents/DocumentUploadPanel.tsx
+- src/components/documents/ClientDocumentUpload.tsx
+- src/app/api/client-documents/upload/route.ts
+- src/app/api/client-form-questions/route.ts (database-defined questions + defaults)
+- src/lib/competitor-form-fields.ts; src/lib/occupancy-form-fields.ts
+- Per-agent UI, API and parser files cited in the individual entries above.
+
+Existing reference checked:
+- legal-report-portal-document-mapping.txt: useful legal-only mapping; it is not
+  a complete agent inventory. Its older client-specific observations were not
+  used as current upload-format rules.
+- Architecture Markdown files and README exist, but current UI/API/parser code
+  is the source used for this list. No existing complete current list was found.
+
+This audit covers the Cantara client diligence/valuation/M&A agent workspace,
+including hidden/legacy entries and nested valuation agents. General chat,
+sales-lead CRM/research and meeting management features are outside that client
+agent inventory. Agent Overview/Agent Status are management/reporting views,
+not additional client document-analysis agents.
+Live database configuration and live provider uploads were not inspected or
+executed. Formats described as "offered" or "handled" are code observations;
+where UI and processing differ, that difference is explicitly recorded.

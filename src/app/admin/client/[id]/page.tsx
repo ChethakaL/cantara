@@ -86,7 +86,7 @@ const AGENT_TABS = [
   // WS2 — Performance
   { key: 'pricing-analysis', label: 'Competitive Pricing Analysis', badge: null, icon: FileText, group: 'WS2 — Performance' },
   { key: 'competitor', label: 'Competitor Analysis', badge: null, icon: Bot, group: 'WS2 — Performance' },
-  { key: 'digital', label: 'Digital Presence', badge: null, icon: Globe2, group: 'WS2 — Performance' },
+  { key: 'digital', label: 'Marketing Spend & Performance Agent', badge: null, icon: Globe2, group: 'WS2 — Performance' },
   { key: 'facility-review', label: 'Facility Review Agent', badge: null, icon: Camera, group: 'WS2 — Performance' },
   { key: 'occupancy-review', label: 'Occupancy Review', badge: null, icon: TrendingUp, group: 'WS2 — Performance' },
   { key: 'pricing-vertical', label: 'Pricing by Vertical', badge: null, icon: FileText, group: 'WS2 — Performance' },

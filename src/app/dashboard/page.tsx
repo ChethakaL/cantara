@@ -48,6 +48,8 @@ import { useChatRoom } from '@/hooks/useChatRoom'
 import { ChatThread } from '@/components/chat/ChatThread'
 import { Ws2WorkbookView } from '@/components/ttm-agent/Ws2WorkbookView'
 import DigitalPresenceScorecard from '@/components/digital-presence/DigitalPresenceScorecard'
+import MarketingIntakeRows from '@/components/client-portal/MarketingIntakeRows'
+import { isMarketingIntakeField } from '@/lib/marketing-intake'
 import ClientApprovedAgentOutput, { type ClientApprovedClient } from '@/components/client-portal/ClientApprovedAgentOutput'
 import ClientLocationMapTab from '@/components/client-location-map/ClientLocationMapTab'
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
@@ -69,7 +71,7 @@ export type ClientPortalFormQuestion = {
   fieldKey: string
   label: string
   description?: string | null
-  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number' | 'fiscal-year-end'
+  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number' | 'fiscal-year-end' | 'marketing-rows'
   placeholder?: string | null
   required: boolean
   options?: string[] | null
@@ -278,7 +280,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
     formLabels: {
       business_operations: 'Business Operations',
       facility_review: 'Facility Review',
-      digital_presence: 'Digital Presence',
+      digital_presence: 'Marketing Spend & Performance Agent',
       competitor_analysis: 'Competitor & Pricing Inputs',
       occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',
@@ -2243,11 +2245,12 @@ function FormQuestionFields({
         const commonClass =
           'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400 mt-auto'
         const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
+        const marketingStructured = isMarketingIntakeField(question.fieldKey)
         const value = formResponses[question.fieldKey] ?? ''
-        const isNa = !question.required && !structured && isFormFieldNa(value)
-        const showNaToggle = !question.required && !structured
-        const Shell = structured || showNaToggle || question.inputType === 'fiscal-year-end' ? 'div' : 'label'
-        const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2 flex flex-col justify-between' : 'flex flex-col justify-between'
+        const isNa = !question.required && !structured && !marketingStructured && isFormFieldNa(value)
+        const showNaToggle = !question.required && !structured && !marketingStructured
+        const Shell = structured || marketingStructured || showNaToggle || question.inputType === 'fiscal-year-end' ? 'div' : 'label'
+        const shellClass = question.inputType === 'textarea' || structured || marketingStructured ? 'md:col-span-2 flex flex-col justify-between' : 'flex flex-col justify-between'
         return (
           <Shell key={question.id} className={shellClass}>
             <div className="flex items-start justify-between gap-2">
@@ -2283,6 +2286,8 @@ function FormQuestionFields({
                 onChange={value => onUpdate(question.fieldKey, value)}
                 onError={onError}
               />
+            ) : marketingStructured ? (
+              <MarketingIntakeRows fieldKey={question.fieldKey} value={value} onChange={value => onUpdate(question.fieldKey, value)} />
             ) : isNa ? (
               <div className={`${commonClass} mt-1 bg-slate-50 text-slate-400 border-dashed`}>
                 Not applicable
@@ -2919,7 +2924,10 @@ function AgentInformationTab({
 
   return (
     <div id="tour-information-container" className="space-y-4">
-      <div className="bg-white rounded-2xl border border-slate-200 p-1 flex flex-wrap gap-1">
+      <div
+        className="bg-white rounded-2xl border border-slate-200 p-1.5 max-h-14 flex items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-smooth [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-slate-100 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-400"
+        style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 #f1f5f9' }}
+      >
         {visibleFormKeys.map(key => {
           const formNotApplicable = isRequiredInfoFormNotApplicable(client.sectionSubmissions, key)
           const isComplete = isFormTabComplete(key)
@@ -2927,7 +2935,7 @@ function AgentInformationTab({
             <button
               key={key}
               onClick={() => setActiveFormTab(key)}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 formNotApplicable
                   ? activeFormTab === key
                     ? 'bg-slate-200 text-slate-500 border border-slate-300'

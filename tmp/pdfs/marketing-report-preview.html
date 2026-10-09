@@ -1,77 +1,9 @@
-/**
- * Shared PDF-ready report HTML generator.
- * Produces a self-contained HTML document styled with Cantara branding that
- * can be printed to PDF via window.print() or saved as .html.
- */
-
-import { CANTARA_COVER_BRAND_CSS, buildCantaraCoverBrandHtml } from './cantara-cover-branding'
-import { applyInlineBoldToHtml, formatSummaryBodyText } from './format-report-markdown'
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-export interface ReportSection {
-  title: string
-  content: string // HTML content for this section
-  newPage?: boolean // Force page break before this section
-}
-
-export interface ReportConfig {
-  title: string           // e.g. "Lease Analysis Report"
-  subtitle: string        // e.g. "Deal Killer & Risk Assessment"
-  clientName: string
-  generatedAt: string
-  sections: ReportSection[]
-  summary?: string        // Executive summary plain text (legacy)
-  summaryHtml?: string    // Pre-formatted executive summary HTML for cover page
-  flags?: { red: number; orange: number; green: number }
-  kpis?: Array<{ label: string; value: string }> // Top KPI cards
-}
-
-// ── Generator ────────────────────────────────────────────────────────────────
-
-export function generateReportHtml(config: ReportConfig): string {
-  const date = new Date(config.generatedAt).toLocaleDateString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
-
-  const kpiStrip = config.kpis?.length
-    ? `
-      <div class="kpi-strip">
-        ${config.kpis.map(k => `
-          <div class="kpi-cell">
-            <div class="kpi-value">${escapeHtml(k.value)}</div>
-            <div class="kpi-label">${escapeHtml(k.label)}</div>
-          </div>`).join('')}
-      </div>`
-    : ''
-
-  const summaryBlock = config.summaryHtml
-    ? `<div class="executive-summary">
-        <p class="summary-label">Executive Summary</p>
-        <div class="summary-body">${config.summaryHtml}</div>
-       </div>`
-    : config.summary
-      ? `<div class="executive-summary">
-        <p class="summary-label">Executive Summary</p>
-        <div class="summary-body">${formatSummaryBodyText(config.summary)}</div>
-       </div>`
-      : ''
-
-  const sectionBlocks = config.sections.map((section, idx) => `
-    ${idx > 0 && !section.newPage ? '<div class="section-divider"></div>' : ''}
-    <div class="report-section" ${section.newPage ? 'style="page-break-before: always;"' : ''}>
-      <h2>${escapeHtml(section.title)}</h2>
-      ${renderInlineMarkdown(section.content)}
-    </div>`).join('\n')
-
-  return `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${escapeHtml(config.clientName)} — ${escapeHtml(config.title)}</title>
+<title>Sample Pet Resort — Marketing Spend &amp; Performance Agent Report</title>
 <style>
   @page {
     size: A4;
@@ -142,7 +74,35 @@ export function generateReportHtml(config: ReportConfig): string {
     align-items: center;
     min-height: 0;
   }
-  ${CANTARA_COVER_BRAND_CSS}
+  
+  .cover-brand-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 100%;
+  }
+  .cover img.cantara-logo {
+    height: 32px;
+    margin-bottom: 24px;
+    filter: brightness(1.1);
+  }
+  .cover .cantara-brand-text {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 5px;
+    color: #CAA15F;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .cover .cantara-brand-sub {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: #64748b;
+    font-weight: 600;
+  }
+
   .cover .divider {
     width: 60px;
     height: 3px;
@@ -558,6 +518,27 @@ export function generateReportHtml(config: ReportConfig): string {
     margin-bottom: 4px;
     line-height: 1.6;
   }
+
+  @page {
+    size: A4;
+    margin: 22mm 16mm 20mm 16mm !important;
+  }
+  @page :first {
+    margin: 0 !important;
+  }
+  @media print {
+    body {
+      margin: 0 !important;
+    }
+    .cover {
+      page-break-after: always;
+      min-height: 100vh !important;
+      height: 100vh !important;
+    }
+    .report-section {
+      padding-top: 8px;
+    }
+  }
 </style>
 </head>
 <body>
@@ -569,15 +550,19 @@ export function generateReportHtml(config: ReportConfig): string {
 <!-- COVER PAGE -->
 <div class="cover">
   <div class="cover-top">
-    ${buildCantaraCoverBrandHtml()}
+    <div class="cover-brand-block">
+    <img class="cantara-logo" src="/brand/logo-wordmark-dark.svg" alt="Cantara" onerror="this.style.display='none'" />
+    <div class="cantara-brand-text">Cantara</div>
+    <div class="cantara-brand-sub">Pet Business Advisors</div>
+  </div>
     <div class="divider"></div>
   </div>
   <div class="cover-mid">
-    <h1>${escapeHtml(config.clientName)}</h1>
-    <div class="report-title">${escapeHtml(config.title)}</div>
+    <h1>Sample Pet Resort</h1>
+    <div class="report-title">Marketing Spend &amp; Performance Agent Report</div>
   </div>
   <div class="cover-bottom">
-    <div class="cover-date">${date}</div>
+    <div class="cover-date">October 8, 2026</div>
     <div class="confidential">Confidential &mdash; For Internal Use Only</div>
   </div>
 </div>
@@ -585,101 +570,91 @@ export function generateReportHtml(config: ReportConfig): string {
 <div class="report-shell">
 <!-- REPORT BODY -->
 <div class="report-body">
-  ${kpiStrip}
-  ${summaryBlock}
-  ${sectionBlocks}
+  
+      <div class="kpi-strip">
+        
+          <div class="kpi-cell">
+            <div class="kpi-value">3.5/5</div>
+            <div class="kpi-label">Overall Score</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-value">0</div>
+            <div class="kpi-label">Channels Good</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-value">0</div>
+            <div class="kpi-label">Channels At Risk</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-value">0</div>
+            <div class="kpi-label">Active Assets</div>
+          </div>
+      </div>
+  <div class="executive-summary">
+        <p class="summary-label">Executive Summary</p>
+        <div class="summary-body"><p style="margin:0;font-size:13px;line-height:1.7;color:#475569;">Local search visibility is established.</p></div>
+       </div>
+  
+    
+    <div class="report-section" >
+      <h2>Channel Scores</h2>
+      <table class="report-table"><thead><tr><th>Channel</th><th>Score</th><th>Status</th><th>Summary</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="section-divider"></div>
+    <div class="report-section" >
+      <h2>Digital Asset Inventory</h2>
+      <p>No active digital assets found.</p>
+    </div>
+
+    
+    <div class="report-section" style="page-break-before: always;">
+      <h2>Marketing Spend &amp; Performance</h2>
+      
+          
+    <div style="margin: 0 0 16px; break-inside: avoid;">
+      <h4 style="font-size: 13px; font-weight: 700; color: #1e293b; margin: 0 0 8px;">Marketing Investment &amp; Attribution Summary</h4>
+      <table class="report-table"><thead><tr><th>Financial Metric</th><th>Reported Amount</th><th>Basis &amp; Verification</th></tr></thead><tbody><tr><td>Estimated Monthly Spend</td><td>$900</td><td>Owner estimate</td></tr>
+<tr><td>Annualized Spend Run-Rate</td><td>$10,800</td><td>Annualized based on entered channel amounts</td></tr>
+<tr><td>Revenue Attribution</td><td>Not provided</td><td>Verification varies by source</td></tr></tbody></table>
+    </div>
+  
+          <div style="margin: 16px 0;"><h3 style="font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">Public Market &amp; Website Findings</h3>
+        <div style="margin: 14px 0 18px; break-inside: avoid;">
+          <h4 style="font-size: 13px; font-weight: 700; color: #1e293b; margin: 0 0 4px;">Website Speed &amp; Quality (Lighthouse Audit)</h4>
+          <p style="font-size: 11px; color: #64748b; margin-bottom: 8px;">Tested URL: <a href="https://tailsawagn.net/" target="_blank" style="color: #2563eb; text-decoration: underline;">https://tailsawagn.net/</a></p>
+          <table class="report-table"><thead><tr><th>Audit Metric</th><th>Score</th><th>Status</th><th>Details &amp; Opportunities</th></tr></thead><tbody><tr><td>Performance</td><td>59/100</td><td>Fair</td><td>Optimization recommended</td></tr>
+<tr><td>Accessibility</td><td>91/100</td><td>Good</td><td>Meets standard Lighthouse thresholds</td></tr>
+<tr><td>Best Practices</td><td>96/100</td><td>Good</td><td>Meets standard Lighthouse thresholds</td></tr>
+<tr><td>SEO</td><td>92/100</td><td>Good</td><td>Meets standard Lighthouse thresholds</td></tr></tbody></table>
+        </div>
+      </div>
+          
+            <div class="executive-summary" style="margin: 16px 0;">
+              <p class="summary-label">Advisor Assessment</p>
+              <p style="font-size: 12.5px; line-height: 1.6; color: #334155; margin: 0;">Marketing investment is owner-reported.</p>
+            </div>
+          
+          <div style="margin: 16px 0;"><h3 style="font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">Owner-Provided Marketing Operations</h3>
+          <div style="margin: 14px 0; break-inside: avoid;">
+            <h4 style="font-size: 13px; font-weight: 700; color: #1e293b; margin: 0 0 6px;">Marketing Channels &amp; Spend</h4>
+            <table class="report-table"><thead><tr><th>Channel</th><th>Amount</th><th>Frequency</th><th>Basis</th></tr></thead><tbody><tr><td>Google Ads</td><td>$900</td><td>Monthly</td><td>Estimate</td></tr></tbody></table>
+          </div>
+        </div>
+          
+          <div class="flag-item orange" style="margin-top: 14px;">
+            <div class="flag-title">Buyer Follow-Up Guidance</div>
+            <div class="flag-detail">Reconcile channel spend and bookings to platform exports and financials; obtain campaign-level advertising and website analytics, email results, written goals, and peak/off-season trends. Calculating spend as a share of revenue requires verified marketing expense and revenue. Public search placement and website performance do not verify advertising spend, traffic, bookings, or sales.</div>
+          </div>
+        
+    </div>
 </div>
 
 <!-- DISCLAIMER -->
 <div class="disclaimer">
-  <p>DISCLAIMER: This report has been generated by Cantara&rsquo;s AI-powered analysis platform for internal advisory use. Information is derived from uploaded documents and public data sources. All findings should be independently verified during formal due diligence. This document does not constitute financial, legal, or investment advice. &copy; ${new Date().getFullYear()} Cantara Pet Advisors. All rights reserved.</p>
+  <p>DISCLAIMER: This report has been generated by Cantara&rsquo;s AI-powered analysis platform for internal advisory use. Information is derived from uploaded documents and public data sources. All findings should be independently verified during formal due diligence. This document does not constitute financial, legal, or investment advice. &copy; 2026 Cantara Pet Advisors. All rights reserved.</p>
 </div>
 </div>
 
 </body>
-</html>`
-}
-
-// ── Utility: HTML table builder ──────────────────────────────────────────────
-
-export function buildHtmlTable(
-  headers: Array<string | number | null | undefined>,
-  rows: Array<Array<string | number | null | undefined>>,
-  options?: { totalRow?: boolean; prelineHeaders?: boolean },
-): string {
-  const ths = headers
-    .map((h) => {
-      const raw = h == null ? '' : String(h)
-      if (options?.prelineHeaders && raw.includes('\n')) {
-        const parts = raw.split('\n').map((line) => escapeHtml(line.trim())).filter(Boolean)
-        const inner = parts
-          .map((p, i) =>
-            i === 0
-              ? `<div style="font-weight:700;">${p}</div>`
-              : `<div style="font-size:10px;font-weight:600;color:#64748b;margin-top:2px;">${p}</div>`,
-          )
-          .join('')
-        return `<th style="vertical-align:bottom;text-align:right;">${inner}</th>`
-      }
-      return `<th>${escapeHtml(raw)}</th>`
-    })
-    .join('')
-  const trs = rows.map((row, idx) => {
-    const isTotal = options?.totalRow && idx === rows.length - 1
-    const tds = row.map(cell => `<td>${renderTableCell(cell)}</td>`).join('')
-    return `<tr${isTotal ? ' class="total-row"' : ''}>${tds}</tr>`
-  }).join('\n')
-
-  return `<table class="report-table"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`
-}
-
-function renderTableCell(cell: string | number | null | undefined): string {
-  const escaped = escapeHtml(cell)
-  if (typeof cell !== 'string') return escaped
-
-  const value = cell.trim()
-  if (!/^https?:\/\/[^\s<]+$/i.test(value)) return escaped
-
-  return `<a href="${escaped}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${escaped}</a>`
-}
-
-export function buildFlagListHtml(
-  flags: Array<{ issue: string | null | undefined; whyItMatters: string | null | undefined }>,
-  color: 'red' | 'orange' | 'green',
-): string {
-  if (!flags.length) return ''
-  return flags.map(f => `
-    <div class="flag-item ${color}">
-      <div class="flag-title">${escapeHtml(f.issue)}</div>
-      <div class="flag-detail">${escapeHtml(f.whyItMatters)}</div>
-    </div>`).join('\n')
-}
-
-export function buildInfoGrid(pairs: Array<{ label: string | null | undefined; value: string | number | null | undefined }>): string {
-  return `<div class="info-grid">${pairs.map(p => `
-    <div class="info-cell">
-      <div class="info-label">${escapeHtml(p.label)}</div>
-      <div class="info-value">${escapeHtml(p.value)}</div>
-    </div>`).join('')}
-  </div>`
-}
-
-export function buildBulletList(items: Array<string | number | null | undefined>): string {
-  if (!items.length) return ''
-  return `<ul class="report-list">${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function escapeHtml(str: string | number | null | undefined): string {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
-function renderInlineMarkdown(html: string): string {
-  return applyInlineBoldToHtml(html)
-}
+</html>

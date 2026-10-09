@@ -23,7 +23,7 @@ const KNOWN_SOURCE_AGENTS: WorkstreamAgentSelection[] = [
   { agentId: 'client_location_map', agentName: 'Client Location Map Agent' },
   { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent' },
   { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent' },
-  { agentId: 'digital_presence', agentName: 'Digital Presence Agent' },
+  { agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent' },
   { agentId: 'employee_obligations', agentName: 'Employee Obligations Agent' },
   { agentId: 'employee_comp', agentName: 'Employee Staffing & Compensation Agent' },
   { agentId: 'facility_review', agentName: 'Facility Review Agent' },

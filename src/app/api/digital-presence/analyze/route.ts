@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { researchAllChannels } from '@/lib/digital-presence/claude-research';
 import { analyzeWithClaude, reanalyzeDigitalPresenceFromEdits } from '@/lib/digital-presence/claude-analyzer';
 import { AnalyzeRequestBody, ChannelType, DigitalPresenceReport } from '@/lib/digital-presence/types';
@@ -8,11 +9,52 @@ import {
   resolveAnalyzeModelId,
 } from '@/lib/agent-analyze-provider';
 import { getPlacesApiKey } from '@/lib/secure-settings';
+import { prisma } from '@/lib/prisma';
+import { collectMarketingApiEvidence, toMarketingResearchResults } from '@/lib/digital-presence/marketing-apis';
+import { assertS3Configured, s3BucketName, s3Client } from '@/lib/s3';
+import { extractTranscriptText } from '@/lib/sales-review/analyze';
 
 export const maxDuration = 180;
 
 /** Digital Presence is OpenAI-only so web search always runs. */
 const DIGITAL_PRESENCE_PROVIDER = 'openai' as const;
+const MARKETING_CALL_NOTES_DOCUMENT_ID = 'marketing_call_notes';
+
+async function bodyToBuffer(body: unknown): Promise<Buffer> {
+  if (!body) return Buffer.alloc(0);
+  if (typeof (body as { transformToByteArray?: () => Promise<Uint8Array> }).transformToByteArray === 'function') {
+    return Buffer.from(await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray());
+  }
+  return Buffer.from(await new Response(body as BodyInit).arrayBuffer());
+}
+
+async function loadMarketingCallNotes(clientId: string): Promise<string> {
+  const documents = await (prisma as any).clientDocument.findMany({
+    where: { clientId, documentId: MARKETING_CALL_NOTES_DOCUMENT_ID },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    select: { fileName: true, mimeType: true, localPath: true, storageBucket: true },
+  });
+  if (!documents.length) return '';
+  assertS3Configured();
+  const notes: string[] = [];
+  let remainingChars = 240_000;
+  for (const document of documents.reverse()) {
+    if (!document.localPath) continue;
+    const object = await s3Client.send(new GetObjectCommand({
+      Bucket: document.storageBucket || s3BucketName,
+      Key: document.localPath,
+    }));
+    const buffer = await bodyToBuffer(object.Body);
+    const text = await extractTranscriptText(buffer, document.mimeType || '', document.fileName || 'marketing-call-notes');
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error(`No readable text could be extracted from marketing call notes file “${document.fileName}”. Please use a text-based PDF, Word document, or .txt file.`);
+    if (remainingChars <= 0) break;
+    notes.push(`### ${document.fileName || 'Advisor call notes'}\n${trimmed.slice(0, remainingChars)}`);
+    remainingChars -= trimmed.length;
+  }
+  return notes.join('\n\n');
+}
 
 const CHANNEL_LABELS: Record<ChannelType, string> = {
   website: 'Website',
@@ -33,7 +75,7 @@ export async function POST(req: NextRequest) {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
-  const { formData, modelId: requestedModelId, reanalyzeFromEdits, existingReport } = body;
+  const { formData, clientId, modelId: requestedModelId, reanalyzeFromEdits, existingReport } = body;
   const provider = DIGITAL_PRESENCE_PROVIDER;
   const modelId = resolveAnalyzeModelId(provider, requestedModelId);
 
@@ -59,6 +101,48 @@ export async function POST(req: NextRequest) {
 
   if (!formData?.businessName?.trim()) {
     return new Response(JSON.stringify({ error: 'Business name is required.' }), { status: 400 });
+  }
+
+  let enrichedFormData = { ...formData };
+  if (clientId && req.cookies.get('cantara_role')?.value?.toLowerCase() === 'admin' && /^[a-zA-Z0-9_-]{1,100}$/.test(clientId)) {
+    try {
+      const client = await (prisma as any).clientProfile.findUnique({
+        where: { id: clientId },
+        select: { businessAddress: true, businessCategory: true, sectionSubmissions: true },
+      });
+      const submissions = (client?.sectionSubmissions ?? {}) as Record<string, any>;
+      const responses = (submissions.agentFormResponses ?? {}) as Record<string, unknown>;
+      const marketingFieldKeys = [
+        'marketingReportingPeriod', 'marketingChannelsAndSpend', 'marketingChannelResults',
+        'marketingReferralPartners', 'marketingEmailProgram', 'marketingBookingFunnel',
+        'marketingPeopleAndVendors', 'marketingAccountOwnership', 'marketingReviewManagement',
+        'marketingPlanAndBudget',
+      ];
+      const marketingIntake = Object.fromEntries(marketingFieldKeys.flatMap(key => {
+        const value = responses[key];
+        return typeof value === 'string' && value.trim() ? [[key, value.slice(0, 12000)]] : [];
+      }));
+      enrichedFormData = {
+        ...enrichedFormData,
+        businessAddress: enrichedFormData.businessAddress || client?.businessAddress || undefined,
+        businessCategory: enrichedFormData.businessCategory || client?.businessCategory || undefined,
+        marketingIntake: { ...marketingIntake, ...(enrichedFormData.marketingIntake ?? {}) },
+      };
+    } catch (err) {
+      console.warn('[Marketing Agent] Could not load saved client intake; proceeding with submitted digital inputs.');
+    }
+    try {
+      enrichedFormData.marketingCallNotes = await loadMarketingCallNotes(clientId);
+      if (enrichedFormData.marketingCallNotes) {
+        console.info('[Marketing Agent] Loaded advisor call notes for analysis', {
+          clientId,
+          chars: enrichedFormData.marketingCallNotes.length,
+        });
+      }
+    } catch (err) {
+      console.error('[Marketing Agent] Could not load advisor call notes:', err);
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Could not read the uploaded marketing call notes.' }, { status: 400 });
+    }
   }
 
   const tavilyKey = process.env.TAVILY_API_KEY || '';
@@ -118,7 +202,7 @@ export async function POST(req: NextRequest) {
         });
 
         const researchData = await researchAllChannels(
-          formData,
+          enrichedFormData,
           tavilyKey,
           (channelType, channelLabel, completed, total) => {
             const label = CHANNEL_LABELS[channelType] ?? channelLabel;
@@ -135,6 +219,27 @@ export async function POST(req: NextRequest) {
           { provider, modelId },
         );
 
+        send({ type: 'progress', phase: 'research', message: 'Checking local search visibility and website performance…' });
+        const apiEvidence = await collectMarketingApiEvidence(enrichedFormData);
+        for (const evidence of apiEvidence) {
+          const progressLabels: Record<string, string> = {
+            'DataForSEO Google Maps local results': 'Nearby local businesses',
+            'Google organic search visibility': 'Website visibility in Google search',
+            'Google PageSpeed Insights': 'Website speed and quality',
+            'Chrome UX Report (CrUX)': 'Real visitor website experience',
+          };
+          send({ type: 'progress', phase: 'research', message: `${progressLabels[evidence.source] ?? evidence.source}: ${evidence.status === 'connected' ? 'retrieved' : evidence.status === 'skipped' ? 'not available' : 'could not retrieve'}` });
+          const channelType: ChannelType = evidence.source.includes('Google Business Profile') || evidence.source === 'DataForSEO Google Maps local results'
+            ? 'google_business'
+            : 'website';
+          let channel = researchData.find(item => item.channelType === channelType);
+          if (!channel && evidence.status === 'connected') {
+            channel = { channelType, inputUrl: evidence.url, searchQueries: [], results: [] };
+            researchData.push(channel);
+          }
+          if (channel) channel.results.push(...toMarketingResearchResults([evidence]));
+        }
+
         const googleApiKey = await getPlacesApiKey();
         if (!googleApiKey) {
           send({
@@ -145,9 +250,9 @@ export async function POST(req: NextRequest) {
         }
         if (googleApiKey) {
           try {
-            const searchQuery = (formData as any).businessAddress
-              ? `${formData.businessName} ${(formData as any).businessAddress}`
-              : formData.businessName;
+            const searchQuery = enrichedFormData.businessAddress
+              ? `${enrichedFormData.businessName} ${enrichedFormData.businessAddress}`
+              : enrichedFormData.businessName;
             const placeMatch = await findPlaceByText(searchQuery, googleApiKey);
             if (placeMatch?.placeId) {
               const placeDetails = await getPlaceDetails(placeMatch.placeId, googleApiKey);
@@ -188,7 +293,12 @@ export async function POST(req: NextRequest) {
           total: researchData.length,
         });
 
-        const report = await analyzeWithClaude(formData, researchData, { provider, modelId });
+        const analyzedReport = await analyzeWithClaude(enrichedFormData, researchData, { provider, modelId });
+        const report = {
+          ...analyzedReport,
+          marketingIntake: enrichedFormData.marketingIntake ?? {},
+          marketingEvidence: apiEvidence,
+        };
         send({ type: 'complete', report });
         controller.close();
       } catch (err: any) {

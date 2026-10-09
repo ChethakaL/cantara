@@ -34,6 +34,9 @@ export function buildDigitalPresenceFormData(
     linkedinUrl: pickFirstMeaningful(dp.linkedinUrl, responses.linkedinUrl),
     glassdoorUrl: pickFirstMeaningful(dp.glassdoorUrl, responses.glassdoorUrl),
     bbbUrl: pickFirstMeaningful(dp.bbbUrl, responses.bbbUrl),
+    marketingIntake: Object.fromEntries(Object.entries(responses).filter(([key, value]) =>
+      key.startsWith('marketing') && typeof value === 'string' && value.trim(),
+    )) as Record<string, string>,
   }
 }
 

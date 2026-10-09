@@ -122,7 +122,7 @@ const AGENT_CATALOG = [
   { id: 'pricing_analysis', name: 'Competitive Pricing Analysis Agent', defaultDocumentIds: ['pricing_schedule', 'revenue_breakdown'] },
   { id: 'competitor_analysis', name: 'Competitor Analysis Agent', defaultDocumentIds: [] },
   { id: 'teaser', name: 'Deal Teaser Generator Agent', defaultDocumentIds: [] },
-  { id: 'digital_presence', name: 'Digital Presence Agent', defaultDocumentIds: [] },
+  { id: 'digital_presence', name: 'Marketing Spend & Performance Agent', defaultDocumentIds: [] },
   { id: 'employee_obligations', name: 'Employee Obligations Agent', defaultDocumentIds: ['key_employee_contracts', 'employee_handbook', 'non_compete_agreements', 'employee_benefits_summary', 'offer_letters', 'severance_agreements', 'retirement_plan_docs', 'pto_accrual_ledger', 'workers_comp_claims_24m'] },
   { id: 'employee_comp', name: 'Employee Staffing & Compensation Agent', defaultDocumentIds: ['employee_list'] },
   { id: 'facility_review', name: 'Facility Review Agent', defaultDocumentIds: ['health_safety', 'violations'] },

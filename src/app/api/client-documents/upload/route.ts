@@ -6,7 +6,7 @@ import { uploadClientDocumentToDrive } from "@/lib/composio";
 import { assertS3Configured, buildPresignedFileUrl, buildPublicFileUrl, s3BucketName, s3Client } from "@/lib/s3";
 import { serializeInsuranceReview, summarizeInsuranceClaimPdf } from "@/lib/insurance-review";
 import { syncDocumentStatusForUpload } from "@/lib/client-document-status-sync";
-import { isPdfUpload, validateDocumentUpload } from "@/lib/client-document-upload";
+import { isPdfUpload, MAX_MARKETING_CALL_NOTES_BYTES, validateDocumentUpload } from "@/lib/client-document-upload";
 import { parseOccupancyUpload } from "@/lib/occupancy-upload-parser";
 import { occupancyInputsToFormResponses } from "@/lib/occupancy-form-fields";
 
@@ -158,6 +158,9 @@ export async function POST(req: NextRequest) {
     const uploadValidationError = validateDocumentUpload(documentId, file);
     if (uploadValidationError) {
       return new Response(uploadValidationError, { status: 400 });
+    }
+    if (documentId === "marketing_call_notes" && file.size > MAX_MARKETING_CALL_NOTES_BYTES) {
+      return new Response("Marketing call notes must be 15 MB or smaller.", { status: 413 });
     }
 
     console.info("[client-documents/upload] Start", {

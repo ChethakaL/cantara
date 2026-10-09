@@ -44,7 +44,7 @@ const SYSTEM_WORKSTREAM_AGENTS: Record<string, AgentSelection[]> = {
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent' },
     { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent' },
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent' },
-    { agentId: 'digital_presence', agentName: 'Digital Presence Agent' },
+    { agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent' },
     { agentId: 'facility_review', agentName: 'Facility Review Agent' },
     { agentId: 'occupancy_review', agentName: 'Occupancy Review Agent' },
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent' },
@@ -74,6 +74,81 @@ const BUSINESS_OPERATIONS_QUESTIONS: FormQuestionRow[] = [
     description: 'Choose the month; its last day is selected automatically. Adjust the day if needed.', inputType: 'fiscal-year-end',
     placeholder: null, required: true, options: [],
     groupKey: null, groupLabel: null, sortOrder: -1,
+  },
+]
+
+// Marketing intake remains attached to the legacy digital_presence agent ID so
+// existing assignments and saved submissions continue to work.
+const MARKETING_AGENT_QUESTIONS: FormQuestionRow[] = [
+  {
+    id: 'marketing-agent-period', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingReportingPeriod', label: 'What period do these marketing figures cover?',
+    description: 'Please use the last 12 months where possible and note the start/end dates. Monthly figures are most helpful.',
+    inputType: 'text', placeholder: 'e.g. Oct 2025–Sep 2026', required: false, options: [],
+    groupKey: 'marketing_performance', groupLabel: 'Marketing Spend & Performance', sortOrder: 200,
+  },
+  {
+    id: 'marketing-agent-channels-spend', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingChannelsAndSpend', label: 'Which marketing channels do you use, and what do you spend on each?',
+    description: 'Include monthly or annual spend for Google Ads, TikTok, directories, sponsorships, agencies, and other channels. Separate ad spend from agency/platform fees; estimates are okay.',
+    inputType: 'marketing-rows', placeholder: null, required: false, options: [],
+    groupKey: 'marketing_performance', groupLabel: 'Marketing Spend & Performance', sortOrder: 210,
+  },
+  {
+    id: 'marketing-agent-results', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingChannelResults', label: 'What results do you track by marketing channel or customer source?',
+    description: 'Add a row for each source you know. Include paid ads, organic search, veterinarian/referral sources, and repeat customers. Leave unknown numbers blank and choose “Not tracked” when appropriate.',
+    inputType: 'marketing-rows', placeholder: null, required: false, options: [],
+    groupKey: 'marketing_performance', groupLabel: 'Marketing Spend & Performance', sortOrder: 220,
+  },
+  {
+    id: 'marketing-agent-email', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingEmailProgram', label: 'Do you use email or text marketing?',
+    description: 'Add a row for each email or text platform. Enter only the metrics you know.',
+    inputType: 'marketing-rows', placeholder: null, required: false, options: [],
+    groupKey: 'marketing_operations', groupLabel: 'Marketing Operations & Transferability', sortOrder: 240,
+  },
+  {
+    id: 'marketing-agent-booking', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingBookingFunnel', label: 'How do marketing inquiries turn into bookings?',
+    description: 'Describe your booking platform and how you track website bookings, phone calls, inquiries, and missed/unconverted leads. Include any monthly totals you have.',
+    inputType: 'textarea', placeholder: 'Booking system, tracking method, monthly inquiries/bookings, gaps', required: false, options: [],
+    groupKey: 'marketing_performance', groupLabel: 'Marketing Spend & Performance', sortOrder: 250,
+  },
+  {
+    id: 'marketing-agent-owners', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingPeopleAndVendors', label: 'Who manages marketing and what do they handle?',
+    description: 'List owners, employees, agencies, and vendors; their responsibilities, approximate cost, and any work that depends on one specific person.',
+    inputType: 'marketing-rows', placeholder: null, required: false, options: [],
+    groupKey: 'marketing_operations', groupLabel: 'Marketing Operations & Transferability', sortOrder: 260,
+  },
+  {
+    id: 'marketing-agent-accounts', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingAccountOwnership', label: 'Who owns and can access your marketing accounts and assets?',
+    description: 'Include ad accounts, website/domain, analytics, social profiles, mailing lists, and creative files. Do not provide passwords or credentials.',
+    inputType: 'marketing-rows', placeholder: null, required: false, options: [],
+    groupKey: 'marketing_operations', groupLabel: 'Marketing Operations & Transferability', sortOrder: 270,
+  },
+  {
+    id: 'marketing-agent-referral-partners', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingReferralPartners', label: 'Which veterinarians or referral partners send customers to you?',
+    description: 'Add the key partners you rely on. Customer or revenue estimates are optional if you do not track them.',
+    inputType: 'marketing-rows', placeholder: null, required: false, options: [],
+    groupKey: 'marketing_performance', groupLabel: 'Marketing Spend & Performance', sortOrder: 235,
+  },
+  {
+    id: 'marketing-agent-reviews', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingReviewManagement', label: 'Who monitors and responds to online reviews?',
+    description: 'Briefly describe who owns review responses, how often profiles are checked, and how customer issues are followed up.',
+    inputType: 'textarea', placeholder: 'e.g. Office manager checks Google reviews weekly and replies within two days', required: false, options: [],
+    groupKey: 'marketing_operations', groupLabel: 'Marketing Operations & Transferability', sortOrder: 275,
+  },
+  {
+    id: 'marketing-agent-plan', agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent',
+    fieldKey: 'marketingPlanAndBudget', label: 'Do you have a written marketing plan, budget, or goals?',
+    description: 'Summarize annual goals, planned budget versus actual spend, key measures, and how often results are reviewed.',
+    inputType: 'textarea', placeholder: 'Plan/goals, budget, actuals, KPIs, review cadence, or “not documented”', required: false, options: [],
+    groupKey: 'marketing_operations', groupLabel: 'Marketing Operations & Transferability', sortOrder: 280,
   },
 ]
 SYSTEM_WORKSTREAM_AGENTS.both = [...SYSTEM_WORKSTREAM_AGENTS.ws1, ...SYSTEM_WORKSTREAM_AGENTS.ws2].filter(
@@ -361,6 +436,7 @@ export async function GET(req: NextRequest) {
 
   const questions = dedupeQuestions([
     ...BUSINESS_OPERATIONS_QUESTIONS,
+    ...MARKETING_AGENT_QUESTIONS.filter(question => agentIds.includes('digital_presence')),
     ...ensureOccupancyFormFields(
       ensureCompetitorFormFields(rows, agentIds),
       agentIds,
@@ -370,6 +446,7 @@ export async function GET(req: NextRequest) {
     .filter(q => q.fieldKey !== 'googleBusinessLocations')
     .map(question => ({
       ...question,
+      agentName: question.agentId === 'digital_presence' ? 'Marketing Spend & Performance Agent' : question.agentName,
       options: Array.isArray(question.options) ? question.options : null,
     }))
 
@@ -380,7 +457,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const clientId = String(body.clientId ?? '')
   if (!clientId) return new Response('clientId required', { status: 400 })
-  const saveMode = body.mode === 'draft' ? 'draft' : 'final'
+  const saveMode = body.mode === 'draft' ? 'draft' : body.mode === 'partial' ? 'partial' : 'final'
 
   const client = await (prisma as any).clientProfile.findUnique({
     where: { id: clientId },
@@ -389,9 +466,12 @@ export async function POST(req: NextRequest) {
   if (!client) return new Response('Not Found', { status: 404 })
 
   const existing = (client.sectionSubmissions as Record<string, any>) ?? {}
+  const normalizedResponses = normalizeResponses(body.responses)
   const responses = saveMode === 'draft'
-    ? mergeDraftResponses(existing.agentFormResponses, normalizeResponses(body.responses))
-    : normalizeResponses(body.responses)
+    ? mergeDraftResponses(existing.agentFormResponses, normalizedResponses)
+    : saveMode === 'partial'
+      ? { ...normalizeResponses(existing.agentFormResponses), ...normalizedResponses }
+      : normalizedResponses
   const sectionSubmissions = compatibilitySections(client, existing, responses)
   const websiteUrl = responses.businessWebsite || client.websiteUrl || undefined
 
