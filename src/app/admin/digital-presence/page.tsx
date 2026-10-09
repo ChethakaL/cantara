@@ -153,7 +153,7 @@ export default function DigitalPresencePage() {
               <Globe2 className="w-5 h-5 text-amber-600" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-800">Digital Presence Analysis</h1>
+              <h1 className="text-xl font-bold text-slate-800">Marketing Spend & Performance Agent</h1>
               <p className="text-sm text-slate-400">M&A Due Diligence · Workstream 3</p>
             </div>
           </div>

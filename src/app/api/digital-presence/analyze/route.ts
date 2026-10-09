@@ -8,6 +8,8 @@ import {
   resolveAnalyzeModelId,
 } from '@/lib/agent-analyze-provider';
 import { getPlacesApiKey } from '@/lib/secure-settings';
+import { prisma } from '@/lib/prisma';
+import { collectMarketingApiEvidence, toMarketingResearchResults } from '@/lib/digital-presence/marketing-apis';
 
 export const maxDuration = 180;
 
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
-  const { formData, modelId: requestedModelId, reanalyzeFromEdits, existingReport } = body;
+  const { formData, clientId, modelId: requestedModelId, reanalyzeFromEdits, existingReport } = body;
   const provider = DIGITAL_PRESENCE_PROVIDER;
   const modelId = resolveAnalyzeModelId(provider, requestedModelId);
 
@@ -59,6 +61,36 @@ export async function POST(req: NextRequest) {
 
   if (!formData?.businessName?.trim()) {
     return new Response(JSON.stringify({ error: 'Business name is required.' }), { status: 400 });
+  }
+
+  let enrichedFormData = { ...formData };
+  if (clientId && req.cookies.get('cantara_role')?.value?.toLowerCase() === 'admin' && /^[a-zA-Z0-9_-]{1,100}$/.test(clientId)) {
+    try {
+      const client = await (prisma as any).clientProfile.findUnique({
+        where: { id: clientId },
+        select: { businessAddress: true, businessCategory: true, sectionSubmissions: true },
+      });
+      const submissions = (client?.sectionSubmissions ?? {}) as Record<string, any>;
+      const responses = (submissions.agentFormResponses ?? {}) as Record<string, unknown>;
+      const marketingFieldKeys = [
+        'marketingReportingPeriod', 'marketingChannelsAndSpend', 'marketingChannelResults',
+        'marketingReferralPartners', 'marketingEmailProgram', 'marketingBookingFunnel',
+        'marketingPeopleAndVendors', 'marketingAccountOwnership', 'marketingReviewManagement',
+        'marketingPlanAndBudget',
+      ];
+      const marketingIntake = Object.fromEntries(marketingFieldKeys.flatMap(key => {
+        const value = responses[key];
+        return typeof value === 'string' && value.trim() ? [[key, value.slice(0, 12000)]] : [];
+      }));
+      enrichedFormData = {
+        ...enrichedFormData,
+        businessAddress: enrichedFormData.businessAddress || client?.businessAddress || undefined,
+        businessCategory: enrichedFormData.businessCategory || client?.businessCategory || undefined,
+        marketingIntake: { ...marketingIntake, ...(enrichedFormData.marketingIntake ?? {}) },
+      };
+    } catch (err) {
+      console.warn('[Marketing Agent] Could not load saved client intake; proceeding with submitted digital inputs.');
+    }
   }
 
   const tavilyKey = process.env.TAVILY_API_KEY || '';
@@ -118,7 +150,7 @@ export async function POST(req: NextRequest) {
         });
 
         const researchData = await researchAllChannels(
-          formData,
+          enrichedFormData,
           tavilyKey,
           (channelType, channelLabel, completed, total) => {
             const label = CHANNEL_LABELS[channelType] ?? channelLabel;
@@ -135,6 +167,27 @@ export async function POST(req: NextRequest) {
           { provider, modelId },
         );
 
+        send({ type: 'progress', phase: 'research', message: 'Checking local search visibility and website performance…' });
+        const apiEvidence = await collectMarketingApiEvidence(enrichedFormData);
+        for (const evidence of apiEvidence) {
+          const progressLabels: Record<string, string> = {
+            'DataForSEO Google Maps local results': 'Nearby local businesses',
+            'Google organic search visibility': 'Website visibility in Google search',
+            'Google PageSpeed Insights': 'Website speed and quality',
+            'Chrome UX Report (CrUX)': 'Real visitor website experience',
+          };
+          send({ type: 'progress', phase: 'research', message: `${progressLabels[evidence.source] ?? evidence.source}: ${evidence.status === 'connected' ? 'retrieved' : evidence.status === 'skipped' ? 'not available' : 'could not retrieve'}` });
+          const channelType: ChannelType = evidence.source.includes('Google Business Profile') || evidence.source === 'DataForSEO Google Maps local results'
+            ? 'google_business'
+            : 'website';
+          let channel = researchData.find(item => item.channelType === channelType);
+          if (!channel && evidence.status === 'connected') {
+            channel = { channelType, inputUrl: evidence.url, searchQueries: [], results: [] };
+            researchData.push(channel);
+          }
+          if (channel) channel.results.push(...toMarketingResearchResults([evidence]));
+        }
+
         const googleApiKey = await getPlacesApiKey();
         if (!googleApiKey) {
           send({
@@ -145,9 +198,9 @@ export async function POST(req: NextRequest) {
         }
         if (googleApiKey) {
           try {
-            const searchQuery = (formData as any).businessAddress
-              ? `${formData.businessName} ${(formData as any).businessAddress}`
-              : formData.businessName;
+            const searchQuery = enrichedFormData.businessAddress
+              ? `${enrichedFormData.businessName} ${enrichedFormData.businessAddress}`
+              : enrichedFormData.businessName;
             const placeMatch = await findPlaceByText(searchQuery, googleApiKey);
             if (placeMatch?.placeId) {
               const placeDetails = await getPlaceDetails(placeMatch.placeId, googleApiKey);
@@ -188,7 +241,12 @@ export async function POST(req: NextRequest) {
           total: researchData.length,
         });
 
-        const report = await analyzeWithClaude(formData, researchData, { provider, modelId });
+        const analyzedReport = await analyzeWithClaude(enrichedFormData, researchData, { provider, modelId });
+        const report = {
+          ...analyzedReport,
+          marketingIntake: enrichedFormData.marketingIntake ?? {},
+          marketingEvidence: apiEvidence,
+        };
         send({ type: 'complete', report });
         controller.close();
       } catch (err: any) {

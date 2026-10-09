@@ -16,6 +16,8 @@ import {
   type StructuredFormFieldKey,
 } from '@/lib/structured-form-excel'
 import { FORM_FIELD_NA_VALUE, isFormFieldNa } from '@/lib/client-form-na'
+import MarketingIntakeRows from '@/components/client-portal/MarketingIntakeRows'
+import { isMarketingIntakeField } from '@/lib/marketing-intake'
 
 type ClientPortalFormQuestion = {
   id: string
@@ -23,7 +25,7 @@ type ClientPortalFormQuestion = {
   fieldKey: string
   label: string
   description?: string | null
-  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number' | 'fiscal-year-end'
+  inputType: 'text' | 'url' | 'textarea' | 'select' | 'number' | 'fiscal-year-end' | 'marketing-rows'
   placeholder?: string | null
   required: boolean
   options?: string[] | null
@@ -48,7 +50,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
     formLabels: {
       business_operations: 'Business Operations',
       facility_review: 'Facility Review',
-      digital_presence: 'Digital Presence',
+      digital_presence: 'Marketing Spend & Performance Agent',
       competitor_analysis: 'Competitor & Pricing Inputs',
       occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',
@@ -94,11 +96,12 @@ function FormQuestionFields({
         const commonClass =
           'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400'
         const structured = Boolean(STRUCTURED_FORM_COLUMNS[question.fieldKey])
+        const marketingStructured = isMarketingIntakeField(question.fieldKey)
         const value = formResponses[question.fieldKey] ?? ''
-        const isNa = !question.required && !structured && isFormFieldNa(value)
-        const showNaToggle = !question.required && !structured
-        const Shell = structured || showNaToggle || question.inputType === 'fiscal-year-end' ? 'div' : 'label'
-        const shellClass = question.inputType === 'textarea' || structured ? 'md:col-span-2' : ''
+        const isNa = !question.required && !structured && !marketingStructured && isFormFieldNa(value)
+        const showNaToggle = !question.required && !structured && !marketingStructured
+        const Shell = structured || marketingStructured || showNaToggle || question.inputType === 'fiscal-year-end' ? 'div' : 'label'
+        const shellClass = question.inputType === 'textarea' || structured || marketingStructured ? 'md:col-span-2' : ''
         return (
           <Shell key={question.id} className={shellClass}>
             <div className="flex items-start justify-between gap-2">
@@ -132,6 +135,8 @@ function FormQuestionFields({
                 onChange={value => onUpdate(question.fieldKey, value)}
                 onError={onError}
               />
+            ) : marketingStructured ? (
+              <MarketingIntakeRows fieldKey={question.fieldKey} value={value} onChange={value => onUpdate(question.fieldKey, value)} />
             ) : isNa ? (
               <div className={`${commonClass} mt-1 bg-slate-50 text-slate-400 border-dashed`}>
                 Not applicable

@@ -34,7 +34,7 @@ export const SYSTEM_WORKSTREAM_AGENTS: Record<Exclude<Workstream, null>, Workstr
     { agentId: 'client_location_map', agentName: 'Client Location Map Agent', documentIds: ['client_addresses'] },
     { agentId: 'pricing_analysis', agentName: 'Competitive Pricing Analysis Agent', documentIds: ['pricing_schedule', 'revenue_breakdown'] },
     { agentId: 'competitor_analysis', agentName: 'Competitor Analysis Agent', documentIds: [] },
-    { agentId: 'digital_presence', agentName: 'Digital Presence Agent', documentIds: [] },
+    { agentId: 'digital_presence', agentName: 'Marketing Spend & Performance Agent', documentIds: [] },
     { agentId: 'facility_review', agentName: 'Facility Review Agent', documentIds: ['health_safety', 'violations'] },
     { agentId: 'occupancy_review', agentName: 'Occupancy Review Agent', documentIds: ['occupancy_review'] },
     { agentId: 'pricing_vertical', agentName: 'Pricing by Vertical Agent', documentIds: ['revenue_breakdown', 'pricing_schedule'] },

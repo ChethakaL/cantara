@@ -477,7 +477,7 @@ export default function AdminSettingsPage() {
             <div>
               <h2 className="text-base font-semibold text-slate-900">Google Places / Maps credential</h2>
               <p className="mt-1 text-xs text-slate-400">
-                Used by Competitor Analysis, Digital Presence, and the Client Location Map for geocoding and
+                Used by Competitor Analysis, Marketing Spend &amp; Performance, and the Client Location Map for geocoding and
                 place lookups. Agents read this key from the database only &mdash; not from .env &mdash; so it
                 must be saved here before those features will work.
               </p>

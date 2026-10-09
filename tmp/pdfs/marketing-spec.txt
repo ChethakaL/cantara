@@ -1,0 +1,150 @@
+Claude output re a possible new Marketing Spend agent:
+
+
+
+Here's my full analysis and recommendations for the new agent, given it's a sale-specific WS2
+agent (feeding both Sale Readiness Consulting and the M&A process).
+
+Recommended name
+
+"Marketing Spend & Performance Agent" (WS2)
+
+Rationale: it mirrors the simple, functional naming of the existing "Digital Presence Agent," and
+"spend & performance" (rather than just "spend") signals it covers not just dollars but efficiency,
+tracking maturity, and transferability — which matter more to a buyer than raw budget numbers.
+
+What it should cover
+
+Since this is sale-specific, the frame isn't "how do we improve marketing" — it's "how does a
+buyer assess marketing as a transferable, revenue-generating asset." That reframes the scope:
+
+   ●​ Paid search (SEO + SEM) — organic visibility for local search terms, website ranking
+      and SEO, Google Business Profile optimization (usually the single biggest lead driver for
+      a hyper-local service business), plus actual Google Ads spend + additional fees if
+      applicable (agency, etc), structure, keywords, and conversion tracking
+   ●​ Paid social — Meta/TikTok ad spend specifically (budget levels, campaign types,
+      boosted posts vs. real campaigns) — the piece the Digital Presence agent explicitly
+      doesn't touch
+   ●​ Other paid channels common to pet care — Rover/Wag/Yelp Ads/Nextdoor, directory
+      listings
+   ●​ Spend as % of revenue — benchmarked against comparable service businesses; both
+      "too low" (under-investment) and "too high" (inefficiency/dependency) are diligence flags
+   ●​ Channel mix / revenue attribution — how much revenue is paid-dependent vs.
+      organic/referral/repeat — buyers discount businesses that need ever-increasing ad
+      spend to sustain revenue. List other client sources like events, sponsorships, referrals,
+      etc.
+   ●​ Email list — Most of the time this is a big revenue driver. How many subscribers, how
+      many active, open rate, CTR, strategy. Highlights red flags or opportunities.
+   ●​ Vendor/team structure — in-house vs. agency vs. owner doing it all personally
+      (key-person risk). When the team (not the owner) manages marketing in-house, that's a
+      green flag!
+   ●​ Documented plan/budget — written annual marketing plan vs. ad hoc spend, same
+      with goals: are there any set, and do they measure against them?
+
+Relationship to the Digital Presence Agent
+Option A — Standalone, paired agent (spend/SEO/paid only; leave Digital Presence as-is)
+
+   ●​ Pros: fast to build, zero risk to a working agent, clean separation of concerns
+      (content/organic vs. financial/paid), fits your existing pattern of many discrete specialized
+      agents
+   ●​ Cons: two outputs to manually synthesize per engagement; risk of overlapping or slightly
+      inconsistent findings (e.g., both agents commenting on Instagram)
+
+Option B — Unified agent that absorbs Digital Presence and retires it
+
+   ●​ Pros: one complete marketing picture (organic + paid + spend) — best for CIM/buyer
+      narrative, no redundancy
+   ●​ Cons: requires rebuilding and re-validating something that already works; bigger,
+      harder-to-maintain spec; breaks the modular pattern across your ~29 agents
+
+Option C — New agent orchestrates the Digital Presence agent as an input, then layers
+spend/SEO on top
+
+   ●​ Pros: best of both — a single synthesized output when you want it, but each piece stays
+      independently maintainable; doesn't touch the working agent; scales cleanly if you add
+      more marketing-adjacent agents later (email, local SEO, reviews)
+   ●​ Cons: more upfront complexity (needs a composition/hand-off step, not just a prompt);
+      depends on the Digital Presence agent's output being structured enough to feed
+      downstream reliably
+
+My recommendation: build it as Option A now, but design its output schema so it can be
+merged with the Digital Presence agent's output later — i.e., aim at Option C as the
+medium-term target rather than committing to a full orchestration layer before you know it's
+worth the build cost. This gets you spend coverage fastest, doesn't put the working agent at risk,
+and keeps the door open to a unified view once you've run it on a few real engagements. I'd
+only jump straight to B if you're fairly confident the current Digital Presence agent needs a
+rework anyway.
+
+How it should gather data
+
+1. Owner questionnaire only — fast, no access/security complexity, but self-reported numbers
+are unverifiable and most independent owners don't actually track CAC or spend-by-channel, so
+you'd get thin data.
+
+2. Direct account access (Google Ads, Meta Ads Manager, GA4) — the most accurate and
+buyer-credible numbers, but this runs into real friction: it requires the owner to grant OAuth-level
+access, isn't something Cantara should be handling via stored credentials, and is a heavy build
+for a boutique firm before you know this needs to be a repeatable, scaled product.
+
+3. Hybrid — structured questionnaire + owner-provided exports/screenshots (Meta Ads
+Manager summary, Google Ads dashboard, GA4/GBP insights) — real numbers without
+touching credentials, plus the questionnaire captures the qualitative diligence flags (who
+manages it, is there a plan, who owns the accounts) that raw numbers alone won't surface.
+Main downside is it's still manual/asynchronous, but that's true of the financial intake you
+already do.
+
+4. Documents Cantara already collects — zero new owner effort, but financials only show one
+aggregate "marketing expense" line — not enough to assess channel mix, SEO health, or ad
+efficiency.
+
+My recommendation: Option 3 (hybrid). This is a point-in-time sale-readiness assessment,
+not an always-on tactical tool, so a structured intake is the right weight — it gets defensible
+numbers without a credentials/security problem, and it's the option most likely to surface the
+findings that actually matter for a sale (account ownership, documentation, key-person
+dependency) rather than just a spend total. Treat direct account access (Option 2) as a possible
+phase-2 enhancement once you've validated the questionnaire approach across a few
+engagements.
+
+What it should produce
+
+1. Scored/rubric assessment — fast to scan, easy to benchmark across clients over time,
+clean red/yellow/green diligence flags — but reductive on its own, and your scoring criteria won't
+feel credible until you've built a comparables library.
+
+2. Narrative report — reads well for the owner, but harder to scan and harder to reuse in
+CIM/valuation work.
+
+3. Structured data only, feeding the Roadmap/CIM — most reusable and composable across
+your other deliverables, but not directly handoff-able to an owner without an extra formatting
+step.
+
+4. Combination — internal scored assessment + owner-facing narrative summary
+
+My recommendation: Option 4, since this agent explicitly needs to serve two audiences —
+internal use (feeding CIM/valuation and cross-engagement benchmarking as your agent library
+matures) and the owner conversation itself, consistent with how your other named deliverables
+(like the Sale Readiness Roadmap) work. If you want to ship something simpler first, build the
+scored rubric alone as v1 — it's the more foundational, reusable piece — and add the narrative
+layer once you've run it live and know what's actually worth explaining to owners.
+
+Gaps you may be missing
+
+A few things that fall outside "SEO / ad spend / social" as stated but matter a lot in a pet-resort
+sale context:
+   ●​ Reviews & reputation management — sits between your two agents (not "content
+      posting," not "ad spend") but is often the single biggest driver of bookings for a local
+      service business. Someone needs to own this.
+   ●​ Referral and vet-partner channels — for many pet resorts this is the largest channel by
+      revenue, and it's entirely outside both "digital presence" and "ad spend" framing. Worth a
+      dedicated line item.
+   ●​ Booking funnel/conversion health, not just traffic — does the site actually convert
+      visits into bookings (online booking widget, phone tracking), since spend efficiency is
+      meaningless without this.
+   ●​ Seasonality — boarding demand spikes around holidays, so spend efficiency should be
+      read against seasonal patterns, not a flat annual average.
+   ●​ Key-person dependency — is the owner personally running all of this with no
+      documented process, which ties directly into Cantara's core "can this run without the
+      current owner" thesis.
+
+Best way to get info from clients: Form with questions and uploads
+

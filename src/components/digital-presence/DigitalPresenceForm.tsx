@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { Button, cn } from '@/components/ui';
 import { DigitalAssetFormData } from '@/lib/digital-presence/types';
+import { MARKETING_INTAKE_FIELDS, type MarketingIntakeFieldKey } from '@/lib/marketing-intake';
+import MarketingIntakeRows from '@/components/client-portal/MarketingIntakeRows';
 
 interface Props {
   onSubmit: (data: DigitalAssetFormData) => void;
@@ -162,7 +164,7 @@ export default function DigitalPresenceForm({
         {/* Top Informational Copy */}
         <p className="text-xs text-slate-500">
           No document upload required. Online channels and profile handles are prefilled automatically from the
-          Required Information form (Digital Presence section) submitted by the client in the Client Portal. You can
+          Required Information form submitted by the client in the Client Portal. You can
           verify, fine-tune, or add additional digital channels below before running analysis.
         </p>
 
@@ -685,6 +687,66 @@ export default function DigitalPresenceForm({
               </div>
             </div>
           </div>
+
+          {/* Marketing Spend & Performance — directly follows the digital footprint inputs. */}
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4 space-y-4">
+            <div className="flex flex-col gap-1 border-b border-indigo-100 pb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-900">Marketing Spend &amp; Performance</h3>
+              <p className="text-[11px] leading-relaxed text-slate-600">
+                Add what the business knows about spend, results, referrals, bookings, and ownership. Leave unknown metrics blank; these answers are combined with public API research in the analysis.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {([
+                ['marketingReportingPeriod', 'Reporting period', 'e.g. Oct 2025–Sep 2026'],
+                ['marketingChannelsAndSpend', 'Marketing channels and spend', ''],
+                ['marketingChannelResults', 'Results by channel or customer source', ''],
+                ['marketingReferralPartners', 'Veterinarian and referral partners', ''],
+                ['marketingEmailProgram', 'Email and text marketing', ''],
+                ['marketingBookingFunnel', 'Booking funnel', 'Describe the booking process and what is tracked'],
+                ['marketingPeopleAndVendors', 'People and marketing vendors', ''],
+                ['marketingAccountOwnership', 'Account ownership and access', ''],
+                ['marketingReviewManagement', 'Review management', 'Who checks and responds to reviews?'],
+                ['marketingPlanAndBudget', 'Marketing plan, budget, and goals', 'Summarize the plan, budget, KPIs, or note if not documented'],
+              ] as Array<[MarketingIntakeFieldKey | 'marketingReportingPeriod' | 'marketingBookingFunnel' | 'marketingReviewManagement' | 'marketingPlanAndBudget', string, string]>).map(([key, label, placeholder]) => {
+                const isRows = Object.prototype.hasOwnProperty.call(MARKETING_INTAKE_FIELDS, key);
+                const value = form.marketingIntake?.[key] ?? '';
+                return (
+                  <div key={key} className={`min-w-0 rounded-lg border border-indigo-100 bg-white p-3 ${isRows || key !== 'marketingReportingPeriod' ? 'md:col-span-2' : ''}`}>
+                    <label htmlFor={`digital-marketing-${key}`} className="mb-1 block text-[11px] font-semibold text-slate-600">{label}</label>
+                    {isRows ? (
+                      <MarketingIntakeRows
+                        fieldKey={key}
+                        value={value}
+                        onChange={next => setForm(current => ({
+                          ...current,
+                          marketingIntake: { ...(current.marketingIntake ?? {}), [key]: next },
+                        }))}
+                      />
+                    ) : key === 'marketingReportingPeriod' ? (
+                      <input
+                        id={`digital-marketing-${key}`}
+                        type="text"
+                        value={value}
+                        onChange={event => setForm(current => ({ ...current, marketingIntake: { ...(current.marketingIntake ?? {}), [key]: event.target.value } }))}
+                        placeholder={placeholder}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                    ) : (
+                      <textarea
+                        id={`digital-marketing-${key}`}
+                        value={value}
+                        onChange={event => setForm(current => ({ ...current, marketingIntake: { ...(current.marketingIntake ?? {}), [key]: event.target.value } }))}
+                        placeholder={placeholder}
+                        rows={3}
+                        className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Action Footer */}
@@ -737,12 +799,12 @@ export default function DigitalPresenceForm({
               {loading ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                  Analyzing Digital Presence...
+                  Analyzing Marketing Spend & Performance...
                 </>
               ) : (
                 <>
                   <Search className="w-3.5 h-3.5 mr-2" />
-                  Run Digital Presence Analysis
+                  Run Marketing Spend & Performance Analysis
                 </>
               )}
             </Button>

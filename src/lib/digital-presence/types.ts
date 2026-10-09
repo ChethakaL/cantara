@@ -14,6 +14,9 @@ export type ChannelType =
 
 export interface DigitalAssetFormData {
   businessName: string;
+  businessAddress?: string;
+  businessCategory?: string;
+  marketingIntake?: Record<string, string>;
 
   websiteUrl?: string;
   googleBusinessProfileUrl?: string;
@@ -87,9 +90,19 @@ export interface DigitalPresenceReport {
   channels: ChannelAssessment[];
   digitalAssetInventory: AssetInventoryItem[];
   maReadinessNotes: string;
+  marketingAssessment?: string;
+  /** Owner/advisor supplied questionnaire answers used as analysis context. */
+  marketingIntake?: Record<string, string>;
+  marketingEvidence?: Array<{
+    source: string;
+    status: 'connected' | 'skipped' | 'error';
+    content: string;
+    url?: string;
+  }>;
 }
 
 export interface AnalyzeRequestBody {
+  clientId?: string;
   formData?: DigitalAssetFormData;
   reanalyzeFromEdits?: boolean;
   existingReport?: DigitalPresenceReport;

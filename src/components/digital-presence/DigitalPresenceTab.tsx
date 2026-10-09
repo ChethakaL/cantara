@@ -47,6 +47,20 @@ interface LogEntry {
 
 let _logId = 0;
 
+function normalizePageSpeedEvidence(report: DigitalPresenceReport): DigitalPresenceReport {
+  if (!Array.isArray(report.marketingEvidence)) return report;
+  return {
+    ...report,
+    marketingEvidence: report.marketingEvidence.map(item => {
+      const targetFetchFailure = item.source === 'Google PageSpeed Insights'
+        && /FAILED_DOCUMENT_REQUEST|ERR_TIMED_OUT|unable to reliably load the page/i.test(item.content);
+      return targetFetchFailure && item.status === 'error'
+        ? { ...item, status: 'skipped' as const, content: `PageSpeed's crawler could not fetch this site, so no Lighthouse score is available. This is a target-site crawl timeout, not an API-key error. CrUX field data may still be available.\n\n${item.content}` }
+        : item;
+    }),
+  };
+}
+
 interface Props extends AgentTabReadOnlyProps {
   clientId: string;
   clientName: string;
@@ -174,7 +188,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
       setInitialLoadDone(true);
       return;
     }
-    const payload = activeRun.report as DigitalPresenceReport;
+    const payload = normalizePageSpeedEvidence(activeRun.report as DigitalPresenceReport);
     if (payload?.businessName || payload?.channels?.length) {
       setReport(payload);
       setStatus('complete');
@@ -185,7 +199,8 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
   function selectRun(run: AgentRunHistoryItem) {
     setActiveId(run.id);
     const full = runs.find((item) => item.id === run.id);
-    const payload = (full?.report ?? null) as DigitalPresenceReport | null;
+    const rawPayload = (full?.report ?? null) as DigitalPresenceReport | null;
+    const payload = rawPayload ? normalizePageSpeedEvidence(rawPayload) : null;
     if (payload) {
       setReport(payload);
       setStatus('complete');
@@ -234,12 +249,25 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     setSavingInputs(true);
     try {
       await persistFormData(formData);
+      await persistMarketingIntake(formData.marketingIntake ?? {});
       setLastFormData(formData);
-      showToast('Digital presence inputs saved to client record', 'success');
+      showToast('Marketing analysis inputs saved to client record', 'success');
     } catch (err: any) {
       showToast(err?.message || 'Failed to save inputs', 'error');
     } finally {
       setSavingInputs(false);
+    }
+  }
+
+  async function persistMarketingIntake(marketingIntake: Record<string, string>) {
+    const res = await fetch('/api/client-form-questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, mode: 'partial', responses: marketingIntake }),
+    });
+    if (!res.ok) {
+      const message = await res.text().catch(() => '');
+      throw new Error(message || 'Marketing inputs save failed.');
     }
   }
 
@@ -259,7 +287,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     });
     if (!res.ok) {
       const message = await res.text().catch(() => '');
-      throw new Error(message || 'Digital Presence report save failed.');
+      throw new Error(message || 'Marketing report save failed.');
     }
   }
 
@@ -271,7 +299,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     });
     if (!res.ok) {
       const message = await res.text().catch(() => '');
-      throw new Error(message || 'Digital Presence form save failed.');
+      throw new Error(message || 'Marketing inputs save failed.');
     }
   }
 
@@ -322,13 +350,13 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     await saveAgentAnalysisRunClient({
       clientId,
       agentKey: AGENT_RUN_KEYS.digitalPresence,
-      fileName: `${nextReport.businessName} — Digital Presence`,
+      fileName: `${nextReport.businessName} — Marketing Spend & Performance`,
       report: nextReport,
       aiProvider,
       aiModel,
     });
     await reloadRuns({ selectNewest: true });
-    showToast('Digital presence edits saved', 'success');
+    showToast('Marketing report edits saved', 'success');
   }
 
   async function handleSubmit(formData: DigitalAssetFormData) {
@@ -343,11 +371,13 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
 
     try {
       await persistFormData(formData);
+      await persistMarketingIntake(formData.marketingIntake ?? {});
 
       const res = await fetch('/api/digital-presence/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          clientId,
           formData,
           provider: DIGITAL_PRESENCE_PROVIDER,
           modelId: resolveAgentModelId(DIGITAL_PRESENCE_PROVIDER),
@@ -393,7 +423,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
             }
             appendLog({ phase: ev.phase, message: ev.message });
           } else if (event.type === 'complete') {
-            const finalReport = applyOverridesToReport(event.report, manualOverrides);
+            const finalReport = applyOverridesToReport(normalizePageSpeedEvidence(event.report), manualOverrides);
             setReport(finalReport);
             setStatus('complete');
             try {
@@ -405,7 +435,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
               await saveAgentAnalysisRunClient({
                 clientId,
                 agentKey: AGENT_RUN_KEYS.digitalPresence,
-                fileName: `${finalReport.businessName} — Digital Presence`,
+                fileName: `${finalReport.businessName} — Marketing Spend & Performance`,
                 report: finalReport,
                 aiProvider: DIGITAL_PRESENCE_PROVIDER,
                 aiModel: modelId,
@@ -489,7 +519,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
       await saveAgentAnalysisRunClient({
         clientId,
         agentKey: AGENT_RUN_KEYS.digitalPresence,
-        fileName: `${nextReport.businessName} — Digital Presence`,
+        fileName: `${nextReport.businessName} — Marketing Spend & Performance`,
         report: nextReport,
         aiProvider: DIGITAL_PRESENCE_PROVIDER,
         aiModel: resolveAgentModelId(DIGITAL_PRESENCE_PROVIDER),
@@ -512,7 +542,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
       setStatus('idle');
       setComposingNew(false);
       setDeleteModalOpen(false);
-      showToast('Digital presence report deleted', 'success');
+    showToast('Marketing report deleted', 'success');
       await reloadRuns();
     } catch {
       showToast('Failed to delete report', 'error');
@@ -527,14 +557,14 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `digital-presence-${data.businessName.replace(/\s+/g, '-').toLowerCase()}.json`;
+    a.download = `marketing-spend-performance-${data.businessName.replace(/\s+/g, '-').toLowerCase()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
   const isLoading = status === 'researching' || status === 'analyzing';
 
-  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(report), 'Digital Presence');
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(report), 'Marketing Spend & Performance Agent');
   if (readOnlyGate) return readOnlyGate;
 
   const showStartingWorkspace = (status === 'idle' || composingNew) && !isLoading;
@@ -545,7 +575,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
           <h1 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
-            Digital Presence &amp; Online Footprint
+            Marketing Spend &amp; Performance Agent
           </h1>
           <p className="text-xs text-slate-500 mt-1">
             Comprehensive audit of search visibility, online reputation, Google Business Profile, and social media footprint for{' '}
@@ -558,7 +588,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
               <>
                 <ExportReportButton
                   html={buildDigitalPresenceReportHtml(report)}
-                  fileName={`digital-presence-${(report.businessName || clientName).replace(/\s+/g, '-').toLowerCase()}`}
+                  fileName={`marketing-spend-performance-${(report.businessName || clientName).replace(/\s+/g, '-').toLowerCase()}`}
                   buttonClassName="border-slate-200 text-slate-600 hover:bg-slate-50 text-xs px-3 py-1.5 cursor-pointer"
                 />
                 <button
@@ -641,7 +671,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
             />
             {status === 'researching' && 'Gathering multi-channel web data\u2026'}
             {status === 'analyzing' && 'Scoring & analysing online reputation\u2026'}
-            {status === 'complete' && 'Digital presence analysis complete'}
+            {status === 'complete' && 'Marketing Spend & Performance analysis complete'}
           </div>
           {isLoading && researchProgress && (
             <span className="tabular-nums">
@@ -751,7 +781,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
           <div className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4">
             <AlertCircle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-semibold text-rose-700">Digital Presence Analysis Failed</p>
+              <p className="text-sm font-semibold text-rose-700">Marketing Spend & Performance Analysis Failed</p>
               <p className="text-sm text-rose-600 mt-1">{error}</p>
             </div>
           </div>
@@ -781,8 +811,8 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
       {/* Delete Confirmation Modal */}
       <DeleteConfirmModal
         open={deleteModalOpen}
-        title="Delete Digital Presence Report?"
-        description="This will permanently delete the current digital presence report from this client record. The underlying channels from the Client Portal will remain intact and you can re-run analysis at any time."
+        title="Delete Marketing Spend & Performance Report?"
+        description="This will permanently delete the current Marketing Spend & Performance report from this client record. The underlying channel inputs from the Client Portal will remain intact and you can re-run analysis at any time."
         onClose={() => setDeleteModalOpen(false)}
         onConfirm={handleDeleteReport}
         confirmLabel="Delete Report"
