@@ -27,6 +27,7 @@ import {
 import { Button, Badge, ProgressBar, Modal, Input, Textarea, GoldLine } from '@/components/ui'
 import { DocumentUploadPanel, type DocumentUploadStatusSummary } from '@/components/documents/DocumentUploadPanel'
 import { DocumentUploadAccordion } from '@/components/documents/DocumentUploadAccordion'
+import { documentUploadFormatBadge } from '@/lib/client-document-upload'
 import { RevenueBreakdownReview } from '@/components/client-portal/RevenueBreakdownReview'
 import { OccupancyDataReview } from '@/components/client-portal/OccupancyDataReview'
 import { ExportReportButton } from '@/components/report-export/ExportReportButton'
@@ -1510,7 +1511,7 @@ function DocumentReferenceLink({ docId }: { docId: string }) {
           download
         >
           <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-          Download 24-Month Occupancy Sample (CSV)
+          Download 24-Month Occupancy Sample
         </a>
         <p className="mt-1 ml-[22px] text-[11px] text-emerald-800 font-medium">
           This is just a sample template. Please ensure you put 24 months of data when uploading your own occupancy report.
@@ -1531,7 +1532,7 @@ function DocumentReferenceLink({ docId }: { docId: string }) {
           {ref.label}
         </a>
         <p className="mt-1 ml-[22px] text-[11px] text-emerald-800 font-medium">
-          Prefer filling this template, then upload it here. You can also upload your own CSV/Excel as usual — if service type is missing we default to Both / Multiple.
+          Prefer filling this template, then upload it here. You can also provide your own customer address list — if service type is missing, we default to Both / Multiple.
         </p>
       </div>
     )
@@ -1585,7 +1586,7 @@ function MultiYearDocumentUpload({
           </Badge>
         </div>
         <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-          Use <span className="font-medium text-slate-600">one file</span> if all years are in a single PDF or ZIP, or upload{' '}
+          Use <span className="font-medium text-slate-600">one file</span> if it covers all years, or upload{' '}
           <span className="font-medium text-slate-600">each year separately</span> as you receive them.
         </p>
       </div>
@@ -1600,7 +1601,7 @@ function MultiYearDocumentUpload({
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-slate-800">All years in one file</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">One PDF with all returns, or a ZIP with a file per year inside.</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">Include all required documents for the years covered in this file.</p>
           </div>
         </div>
         <DocumentUploadPanel
@@ -3406,6 +3407,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                 <DocumentUploadAccordion
                   key={doc.id}
                   title={doc.name}
+                  formatBadge={documentUploadFormatBadge(doc.id)}
                   description={doc.description}
                   assignedTo={s.assignedTo}
                   fileCount={fileCount}
@@ -3520,6 +3522,7 @@ function CollectionTab({ valuationDocs, categories, getStatus, setStatus, client
                   <DocumentUploadAccordion
                     key={doc.id}
                     title={doc.name}
+                    formatBadge={documentUploadFormatBadge(doc.id)}
                     description={doc.description}
                     assignedTo={s.assignedTo}
                     fileCount={fileCount}

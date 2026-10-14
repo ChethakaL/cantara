@@ -19,7 +19,7 @@ import { Badge, Button, Input, Modal, Select, Textarea } from '@/components/ui'
 import { ClientDocumentUpload } from '@/components/documents/ClientDocumentUpload'
 import { AdminDocumentFileList } from '@/components/admin/AdminDocumentFileList'
 import { fetchClientDocumentsBatch, mergeUploadedFiles, type FilesByDocumentId } from '@/lib/client-document-files'
-import type { ClientUploadedFile } from '@/lib/client-document-upload'
+import { documentUploadFormatBadge, type ClientUploadedFile } from '@/lib/client-document-upload'
 import { VALUATION_DOCS, getDocsForAgentSelections, getDocsForWorkstream, mergeDocumentCategories } from '@/lib/documentData'
 import {
   CLIENT_PORTAL_HIDDEN_DOC_IDS,
@@ -572,6 +572,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         key={`${doc.id}-multi-${refreshKey}`}
         tone="admin"
         title={doc.name}
+        formatBadge={documentUploadFormatBadge(doc.id)}
         description={doc.description}
         assignedTo={getResolvedStatus(doc.id).assignedTo}
         defaultOpen={shouldForceOpen}
@@ -603,7 +604,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         <div className="space-y-3">
           <div className="rounded-lg border border-slate-200 bg-white p-3">
             <p className="text-xs font-semibold text-slate-800">All years in one file</p>
-            <p className="mt-0.5 mb-2 text-[11px] text-slate-500">PDF or ZIP covering every required year.</p>
+            <p className="mt-0.5 mb-2 text-[11px] text-slate-500">Include the documents for all required years in this file.</p>
             <AdminDocumentFileList
               clientId={client.id}
               files={getFilesForSlot(combinedId, [combinedId, doc.id])}
@@ -690,6 +691,7 @@ export default function AdminDocumentsView({ client, onClientUpdated }: { client
         key={`${doc.id}-${refreshKey}`}
         tone="admin"
         title={doc.name}
+        formatBadge={documentUploadFormatBadge(doc.id)}
         description={doc.description}
         assignedTo={resolvedStatus.assignedTo}
         defaultOpen={shouldForceOpen}

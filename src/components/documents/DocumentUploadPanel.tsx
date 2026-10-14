@@ -37,20 +37,27 @@ export function DocumentUploadPanel({
   const [uploadProgress, setUploadProgress] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [hasRejectedFile, setHasRejectedFile] = useState(false)
 
   useEffect(() => {
     onStatusChange?.(buildDocumentUploadStatusSummary(files))
   }, [files, onStatusChange])
 
   const isSingle = isSingleFileDocument(uploadDocumentId)
-  const formatHint = documentUploadFormatHint(uploadDocumentId)
   const accept = getDocumentUploadAccept(uploadDocumentId)
   const isSingleSlotFilled = isSingle && files.length >= 1
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     disabled: uploading || !uploaderEmail || isSingleSlotFilled,
     multiple: !isSingle,
     accept,
+    onDropAccepted: () => setHasRejectedFile(false),
+    onDropRejected: rejected => {
+      setHasRejectedFile(true)
+      const fileNames = rejected.map(({ file }) => `“${file.name}”`).join(', ')
+      const formatHint = documentUploadFormatHint(uploadDocumentId)
+      setError(`${fileNames} ${rejected.length === 1 ? 'is' : 'are'} not an accepted file type.${formatHint ? ` Accepted formats: ${formatHint}` : ''}`)
+    },
     onDrop: async accepted => {
       if (!accepted.length || !uploaderEmail) return
 
@@ -175,6 +182,8 @@ export function DocumentUploadPanel({
           className={`flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-xs transition-colors ${
             uploading
               ? 'cursor-wait border-amber-300 bg-amber-50 text-amber-800'
+              : isDragReject || hasRejectedFile
+                ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400 opacity-60'
               : isDragActive
                 ? 'cursor-pointer border-amber-400 bg-amber-50 text-amber-800'
                 : 'cursor-pointer border-slate-300 bg-white text-slate-600 hover:border-amber-400 hover:bg-amber-50/40'
@@ -200,9 +209,8 @@ export function DocumentUploadPanel({
 
       <p className="text-[10px] text-slate-400 leading-relaxed">
         {isSingle
-          ? 'Single file required (e.g. 1 consolidated spreadsheet).'
+          ? 'Single file required.'
           : 'You can upload one or more files. New uploads are added — they never replace existing files.'}
-        {formatHint ? ` Accepted formats: ${formatHint}` : ''}
       </p>
 
       {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}

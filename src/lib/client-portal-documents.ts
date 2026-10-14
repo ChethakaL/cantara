@@ -22,27 +22,27 @@ export const MULTI_YEAR_UPLOAD_SLOTS: Record<string, string[]> = {
 
 export const DOCUMENT_REFERENCE_TEMPLATES: Partial<Record<string, { label: string; path: string }>> = {
   employee_list: {
-    label: 'Download employee list template (Excel)',
+    label: 'Download employee list template',
     path: '/api/client-portal/templates/employee-list',
   },
   occupancy_review: {
-    label: 'Download sample template (CSV) — please replace with 24 months of your data',
+    label: 'Download sample template — please replace with 24 months of your data',
     path: '/PawPartner_hyline_hotel_everson_wa_occupancy_alls_export_20260722_100237.csv',
   },
   client_addresses: {
-    label: 'Download Cantara Customer Address List template (Excel)',
+    label: 'Download Cantara Customer Address List template',
     path: '/Cantara%20Customer%20Address%20List.xlsx',
   },
 }
 
 export const DOCUMENT_ASSIGN_HELP: Partial<Record<string, string>> = {
   employee_list:
-    'A spreadsheet listing each employee with job title, average weekly hours, and compensation (no SSNs). Use the template if helpful.',
+    'A list of each employee with job title, average weekly hours, and compensation (no SSNs). Use the template if helpful.',
   leases: 'Include the base lease and every amendment, addendum, or rider.',
   real_estate_appraisal: 'Upload one current appraisal document for the real estate owned by the business.',
-  material_contracts: 'Vendor, supplier, software, and service agreements exceeding $5,000/year or longer than 12 months. If there is no formal agreement, upload a spreadsheet with the agreement details.',
+  material_contracts: 'Vendor, supplier, software, and service agreements exceeding $5,000/year or longer than 12 months. If there is no formal agreement, upload a document with the agreement details.',
   client_addresses:
-    'Download the Cantara Customer Address List template and fill it in, or upload your own CSV/Excel with customer names, street addresses (city/state/zip/country), and optional service types (boarding, daycare, grooming). If service type is missing, we default to Both / Multiple.',
+    'Download the Cantara Customer Address List template and fill it in, or provide customer names, street addresses (city/state/zip/country), and optional service types (boarding, daycare, grooming). If service type is missing, we default to Both / Multiple.',
 }
 
 export function isClientPortalDocument(doc: { id: string }): boolean {
