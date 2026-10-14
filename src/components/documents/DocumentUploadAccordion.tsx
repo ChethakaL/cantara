@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui'
 
 type DocumentUploadAccordionProps = {
   title: string
+  formatBadge?: string | null
   description?: string
   assignedTo?: string | null
   deadlineBadge?: ReactNode
@@ -20,6 +21,7 @@ type DocumentUploadAccordionProps = {
 
 export function DocumentUploadAccordion({
   title,
+  formatBadge,
   description,
   assignedTo,
   deadlineBadge,
@@ -52,6 +54,11 @@ export function DocumentUploadAccordion({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium text-slate-800">{title}</p>
+              {formatBadge && (
+                <Badge color="slate" className="font-mono text-[10px] tracking-wide">
+                  {formatBadge}
+                </Badge>
+              )}
               {assignedTo && (
                 <Badge color="slate">
                   {assignedTo.trim().toLowerCase() === 'me' || assignedTo.trim().toLowerCase() === 'self'

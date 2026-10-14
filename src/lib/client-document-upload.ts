@@ -43,11 +43,20 @@ const DOCUMENT_UPLOAD_RULES: Record<string, UploadRuleKind> = {
   real_estate_appraisal: 'pdf_or_image',
   tax_returns_3yr: 'pdf_or_image',
   irs_941_940_3yr: 'pdf_or_image',
+  state_unemployment_filings: 'pdf_or_image',
   contractor_1099_agreements: 'pdf_or_image',
   sales_use_tax_3yr: 'pdf_or_image',
   irs_tax_notices_3yr: 'pdf_or_image',
   employee_list: 'excel',
   key_employee_contracts: 'pdf',
+  employee_handbook: 'pdf',
+  non_compete_agreements: 'pdf',
+  employee_benefits_summary: 'pdf',
+  offer_letters: 'pdf',
+  severance_agreements: 'pdf',
+  retirement_plan_docs: 'pdf',
+  pto_accrual_ledger: 'spreadsheet_or_pdf',
+  workers_comp_claims_24m: 'pdf',
   revenue_breakdown: 'spreadsheet_or_pdf',
   pricing_schedule: 'spreadsheet_or_pdf',
   online_reviews: 'pdf_or_image',
@@ -159,14 +168,11 @@ function isSpreadsheetUpload(file: Pick<File, 'name' | 'type'>): boolean {
 function isImageUpload(file: Pick<File, 'name' | 'type'>): boolean {
   const type = fileMime(file)
   const ext = fileExtension(file.name)
-  return (
-    type.startsWith('image/') ||
-    ext === '.png' ||
-    ext === '.jpg' ||
-    ext === '.jpeg' ||
-    ext === '.webp' ||
-    ext === '.gif'
-  )
+  const allowedExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+  const allowedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
+  if (ext && !allowedExtensions.has(ext)) return false
+  if (type && !allowedMimeTypes.has(type)) return false
+  return allowedExtensions.has(ext) || allowedMimeTypes.has(type)
 }
 
 function isDocxUpload(file: Pick<File, 'name' | 'type'>): boolean {
@@ -245,7 +251,7 @@ const ALLOWED_LABEL_BY_RULE: Record<UploadRuleKind, string> = {
   transcript: 'PDF, Word, or .txt only',
   marketing_notes: 'PDF, DOCX, or .txt only',
   spreadsheet: 'CSV or Excel only',
-  pdf_or_image: 'PDF or image only (PNG, JPG)',
+  pdf_or_image: 'PDF, PNG, JPEG, or WEBP only',
   spreadsheet_or_pdf: 'PDF, CSV, or Excel only',
 }
 
@@ -257,7 +263,7 @@ const HINT_BY_RULE: Record<UploadRuleKind, string> = {
   transcript: 'PDF, Word, or .txt only.',
   marketing_notes: 'PDF, DOCX, or .txt only.',
   spreadsheet: 'CSV or Excel only.',
-  pdf_or_image: 'PDF or image only (PNG, JPG).',
+  pdf_or_image: 'PDF, PNG, JPEG, or WEBP only.',
   spreadsheet_or_pdf: 'PDF, CSV, or Excel only.',
 }
 
@@ -311,6 +317,25 @@ export function formatDocumentUploadAcceptAttribute(documentId: string): string 
     for (const ext of extensions) parts.add(ext)
   }
   return Array.from(parts).join(',')
+}
+
+/** Readable list of the accepted extensions, suitable for the document title badge. */
+export function documentUploadFormatBadge(documentId: string): string | null {
+  const accept = getDocumentUploadAccept(documentId)
+  if (!accept) return null
+
+  const extensions = new Set(Object.values(accept).flat())
+  const formats = new Set<string>()
+  for (const extension of extensions) {
+    const normalized = extension.toLowerCase()
+    if (normalized === '.jpg' || normalized === '.jpeg') {
+      formats.add('JPEG')
+    } else {
+      formats.add(normalized.replace(/^\./, '').toUpperCase())
+    }
+  }
+
+  return formats.size > 0 ? Array.from(formats).join(' · ') : null
 }
 
 export function validateDocumentUpload(documentId: string, file: Pick<File, 'name' | 'type'>): string | null {
