@@ -326,7 +326,7 @@ export function documentUploadFormatBadge(documentId: string): string | null {
 
   const extensions = new Set(Object.values(accept).flat())
   const formats = new Set<string>()
-  for (const extension of extensions) {
+  for (const extension of Array.from(extensions)) {
     const normalized = extension.toLowerCase()
     if (normalized === '.jpg' || normalized === '.jpeg') {
       formats.add('JPEG')
