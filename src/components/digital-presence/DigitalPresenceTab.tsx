@@ -564,7 +564,7 @@ export default function DigitalPresenceTab({ clientId, clientName, clientWebsite
 
   const isLoading = status === 'researching' || status === 'analyzing';
 
-  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(report), 'Marketing Spend & Performance Agent');
+  const readOnlyGate = agentTabReadOnlyGate(readOnly, !initialLoadDone, Boolean(report), 'Marketing Performance and Digital Presence');
   if (readOnlyGate) return readOnlyGate;
 
   const showStartingWorkspace = (status === 'idle' || composingNew) && !isLoading;

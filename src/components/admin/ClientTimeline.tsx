@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, ChevronDown, ChevronUp, FileText, Loader2, Pencil, UploadCloud } from 'lucide-react'
 import { Button, Card, Modal, Textarea } from '@/components/ui'
+import { getAdminEmail } from '@/lib/store'
 
 type TimelineStage = {
   key: string
@@ -17,7 +18,7 @@ type TimelineStage = {
   missingDocuments?: { id: string; name: string }[]
 }
 
-const CALL_GROUP_KEYS = ['facility-review-call', 'owner-involvement-call', 'sales-process-call'] as const
+const CALL_GROUP_KEYS = ['facility-review-call', 'owner-involvement-call', 'sales-process-call', 'marketing-call'] as const
 
 type TimelineDisplayItem =
   | { kind: 'stage'; stage: TimelineStage }
@@ -113,6 +114,19 @@ export default function ClientTimeline({ clientId }: { clientId: string }) {
     setSaving(notesStage.key)
     setError(null)
     try {
+      if (notesStage.key === 'marketing-call' && notesFile) {
+        const uploadForm = new FormData()
+        uploadForm.append('file', notesFile)
+        uploadForm.append('clientId', clientId)
+        uploadForm.append('documentId', 'marketing_call_notes')
+        uploadForm.append('uploaderEmail', getAdminEmail())
+        const uploadResponse = await fetch('/api/client-documents/upload', { method: 'POST', body: uploadForm })
+        if (!uploadResponse.ok) throw new Error(await uploadResponse.text() || 'Could not upload marketing call notes.')
+        await load()
+        setNotesStage(null)
+        setNotesFile(null)
+        return
+      }
       const form = new FormData()
       form.set('stageKey', notesStage.key)
       if (notesFile) form.set('file', notesFile)
@@ -320,7 +334,7 @@ export default function ClientTimeline({ clientId }: { clientId: string }) {
                       <div>
                         <h3 className="font-semibold text-slate-800">Calls</h3>
                         <p className="mt-1 text-sm text-slate-500">
-                          Complete facility, owner involvement, and sales process calls — add notes or upload transcripts for each.
+                          Complete facility, owner involvement, sales process, and marketing calls — add notes or upload transcripts for each.
                         </p>
                         <p className="mt-2 text-xs font-medium text-slate-500">
                           {item.completedCount} of {item.stages.length} calls complete
@@ -361,7 +375,7 @@ export default function ClientTimeline({ clientId }: { clientId: string }) {
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-500">
-            Paste your notes below or upload a PDF/TXT file. You can reopen this editor anytime to update them.
+            Paste your notes below or upload a PDF, Word, or TXT file. Marketing call uploads are also available in the Marketing agent.
           </p>
           <Textarea
             label="Notes"
@@ -377,10 +391,10 @@ export default function ClientTimeline({ clientId }: { clientId: string }) {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Or upload a file</p>
             <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
               <UploadCloud className="h-4 w-4 text-amber-600" />
-              {notesFile?.name || 'Choose PDF or TXT'}
+              {notesFile?.name || 'Choose PDF, Word, or TXT'}
               <input
                 type="file"
-                accept=".pdf,.txt"
+                accept=".pdf,.docx,.txt"
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0]

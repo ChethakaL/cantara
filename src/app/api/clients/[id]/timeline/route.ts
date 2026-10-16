@@ -15,6 +15,7 @@ const STAGES = [
   { key: 'facility-review-call', label: 'Facility Review Call', description: 'Complete the facility review call and capture notes.', notes: true },
   { key: 'owner-involvement-call', label: 'Owner Involvement Call', description: 'Complete the owner involvement call and capture notes.', notes: true },
   { key: 'sales-process-call', label: 'Sales Process Call', description: 'Complete the sales process call and capture notes or upload the transcript.', notes: true },
+  { key: 'marketing-call', label: 'Marketing Call', description: 'Capture advisor marketing call notes or upload the transcript. Notes are shared with the Marketing agent.', notes: true },
   { key: 'run-agents', label: 'Run Agents', description: 'Run the assigned agents after the preparation steps are complete.', notes: false },
 ] as const
 
@@ -60,13 +61,22 @@ async function loadTimeline(clientId: string) {
   const automatic = await getAutomaticCompletion(clientId)
   if (!automatic) return null
   const existing = await (prisma as any).clientTimelineStage.findMany({ where: { clientId } })
+  const marketingNotes = await (prisma as any).clientDocument.findMany({
+    where: { clientId, documentId: 'marketing_call_notes' },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { fileName: true, createdAt: true },
+  })
   const byKey = new Map<string, any>(existing.map((stage: any) => [stage.stageKey, stage]))
   const stages = stageDefinitions().map(stage => {
     const saved = byKey.get(stage.key)
-    const notesSaved = Boolean(saved?.notesText || saved?.notesFileName)
+    const marketingDocument = stage.key === 'marketing-call' ? marketingNotes[0] : null
+    const notesText = saved?.notesText || null
+    const notesFileName = marketingDocument?.fileName || saved?.notesFileName || null
+    const notesSaved = Boolean(notesText || notesFileName)
     const autoCompleted = Boolean((automatic as any)[stage.key]) || (stage.notes && notesSaved)
     const completed = Boolean(saved?.manualOverride ? saved.status === 'COMPLETED' : saved?.status === 'COMPLETED' || autoCompleted)
-    return { ...stage, ...(saved || {}), autoCompleted, completed, status: completed ? 'COMPLETED' : 'PENDING', missingDocuments: stage.key === 'client-documents' ? (automatic as any).missingDocuments : undefined }
+    return { ...stage, ...(saved || {}), notesText, notesFileName, autoCompleted, completed, status: completed ? 'COMPLETED' : 'PENDING', missingDocuments: stage.key === 'client-documents' ? (automatic as any).missingDocuments : undefined }
   })
   return { stages }
 }

@@ -55,7 +55,7 @@ export function DocumentUploadAccordion({
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium text-slate-800">{title}</p>
               {formatBadge && (
-                <Badge color="slate" className="font-mono text-[10px] tracking-wide">
+                <Badge color="slate" className="bg-cantara-navy text-white border-cantara-navy">
                   {formatBadge}
                 </Badge>
               )}
