@@ -29,30 +29,37 @@ async function bodyToBuffer(body: unknown): Promise<Buffer> {
 }
 
 async function loadMarketingCallNotes(clientId: string): Promise<string> {
+  const timelineStage = await (prisma as any).clientTimelineStage.findUnique({
+    where: { clientId_stageKey: { clientId, stageKey: 'marketing-call' } },
+    select: { notesText: true },
+  })
   const documents = await (prisma as any).clientDocument.findMany({
     where: { clientId, documentId: MARKETING_CALL_NOTES_DOCUMENT_ID },
     orderBy: { createdAt: 'desc' },
     take: 20,
     select: { fileName: true, mimeType: true, localPath: true, storageBucket: true },
   });
-  if (!documents.length) return '';
-  assertS3Configured();
   const notes: string[] = [];
   let remainingChars = 240_000;
-  for (const document of documents.reverse()) {
-    if (!document.localPath) continue;
-    const object = await s3Client.send(new GetObjectCommand({
-      Bucket: document.storageBucket || s3BucketName,
-      Key: document.localPath,
-    }));
-    const buffer = await bodyToBuffer(object.Body);
-    const text = await extractTranscriptText(buffer, document.mimeType || '', document.fileName || 'marketing-call-notes');
-    const trimmed = text.trim();
-    if (!trimmed) throw new Error(`No readable text could be extracted from marketing call notes file “${document.fileName}”. Please use a text-based PDF, Word document, or .txt file.`);
-    if (remainingChars <= 0) break;
-    notes.push(`### ${document.fileName || 'Advisor call notes'}\n${trimmed.slice(0, remainingChars)}`);
-    remainingChars -= trimmed.length;
+  if (documents.length) {
+    assertS3Configured();
+    for (const document of documents.reverse()) {
+      if (!document.localPath) continue;
+      const object = await s3Client.send(new GetObjectCommand({
+        Bucket: document.storageBucket || s3BucketName,
+        Key: document.localPath,
+      }));
+      const buffer = await bodyToBuffer(object.Body);
+      const text = await extractTranscriptText(buffer, document.mimeType || '', document.fileName || 'marketing-call-notes');
+      const trimmed = text.trim();
+      if (!trimmed) throw new Error(`No readable text could be extracted from marketing call notes file “${document.fileName}”. Please use a text-based PDF, Word document, or .txt file.`);
+      if (remainingChars <= 0) break;
+      notes.push(`### ${document.fileName || 'Advisor call notes'}\n${trimmed.slice(0, remainingChars)}`);
+      remainingChars -= trimmed.length;
+    }
   }
+  const timelineText = String(timelineStage?.notesText || '').trim();
+  if (timelineText && remainingChars > 0) notes.push(`### Marketing call notes\n${timelineText.slice(0, remainingChars)}`);
   return notes.join('\n\n');
 }
 

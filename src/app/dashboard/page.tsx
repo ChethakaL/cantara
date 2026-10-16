@@ -281,7 +281,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
     formLabels: {
       business_operations: 'Business Operations',
       facility_review: 'Facility Review',
-      digital_presence: 'Marketing Spend & Performance Agent',
+      digital_presence: 'Marketing Performance and Digital Presence',
       competitor_analysis: 'Competitor & Pricing Inputs',
       occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',

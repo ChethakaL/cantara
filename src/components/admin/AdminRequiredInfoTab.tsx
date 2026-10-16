@@ -18,6 +18,7 @@ import {
 import { FORM_FIELD_NA_VALUE, isFormFieldNa } from '@/lib/client-form-na'
 import MarketingIntakeRows from '@/components/client-portal/MarketingIntakeRows'
 import { isMarketingIntakeField } from '@/lib/marketing-intake'
+import RequiredInfoMeetingCall from '@/components/admin/RequiredInfoMeetingCall'
 
 type ClientPortalFormQuestion = {
   id: string
@@ -50,7 +51,7 @@ function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
     formLabels: {
       business_operations: 'Business Operations',
       facility_review: 'Facility Review',
-      digital_presence: 'Marketing Spend & Performance Agent',
+      digital_presence: 'Marketing Performance and Digital Presence',
       competitor_analysis: 'Competitor & Pricing Inputs',
       occupancy_review: 'Occupancy Review',
       vendor_directory: 'Software & Vendors',
@@ -317,7 +318,7 @@ function StructuredRowsInput({
   )
 }
 
-export default function AdminRequiredInfoTab({
+function RequiredInfoQuestionnaireTab({
   client,
   setClient,
 }: {
@@ -534,6 +535,23 @@ export default function AdminRequiredInfoTab({
           </div>
         </Card>
       )}
+    </div>
+  )
+}
+
+export default function AdminRequiredInfoTab({
+  client,
+  setClient,
+}: {
+  client: Client
+  setClient: Dispatch<SetStateAction<Client | null>>
+}) {
+  // Per the onboarding discussion, replace the marketing questionnaire with
+  // the Meeting Call while leaving other Required Info forms available.
+  return (
+    <div className="space-y-4">
+      <RequiredInfoMeetingCall clientId={client.id} />
+      <RequiredInfoQuestionnaireTab client={client} setClient={setClient} />
     </div>
   )
 }

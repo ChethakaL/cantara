@@ -49,7 +49,7 @@ export function buildDigitalPresenceReportHtml(report: DigitalPresenceReport): s
   const marketingEvidenceHtml = buildMarketingEvidenceHtml(report.marketingEvidence)
 
   const config: ReportConfig = {
-    title: 'Marketing Spend & Performance Agent Report',
+    title: 'Marketing Performance and Digital Presence Report',
     subtitle: 'Marketing Performance & M&A Readiness',
     clientName: report.businessName,
     generatedAt: report.generatedAt,
