@@ -22,8 +22,9 @@ import {
 } from 'lucide-react';
 import { Button, cn } from '@/components/ui';
 import { DigitalAssetFormData } from '@/lib/digital-presence/types';
-import { MARKETING_INTAKE_FIELDS, type MarketingIntakeFieldKey } from '@/lib/marketing-intake';
-import MarketingIntakeRows from '@/components/client-portal/MarketingIntakeRows';
+// Temporarily unused while the marketing questionnaire UI is hidden (advisor call notes only).
+// import { MARKETING_INTAKE_FIELDS, type MarketingIntakeFieldKey } from '@/lib/marketing-intake';
+// import MarketingIntakeRows from '@/components/client-portal/MarketingIntakeRows';
 import MarketingCallNotesUpload from './MarketingCallNotesUpload';
 
 interface Props {
@@ -691,15 +692,19 @@ export default function DigitalPresenceForm({
             </div>
           </div>
 
-          {/* Marketing Spend & Performance — directly follows the digital footprint inputs. */}
+          {/* Marketing Spend & Performance — advisor call notes only for now. */}
           <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4 space-y-4">
             <div className="flex flex-col gap-1 border-b border-indigo-100 pb-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-900">Marketing Spend &amp; Performance</h3>
               <p className="text-[11px] leading-relaxed text-slate-600">
-                Add what the business knows about spend, results, referrals, bookings, and ownership. Leave unknown metrics blank; these answers are combined with public API research in the analysis.
+                Upload advisor call notes or a transcript. These notes are combined with public API research in the analysis.
               </p>
+              {/* Previous questionnaire intro (kept for later):
+              Add what the business knows about spend, results, referrals, bookings, and ownership. Leave unknown metrics blank; these answers are combined with public API research in the analysis.
+              */}
             </div>
             {clientId && <MarketingCallNotesUpload clientId={clientId} />}
+            {/* Temporarily hidden: full marketing questionnaire form — we only use advisor call notes for now.
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {([
                 ['marketingReportingPeriod', 'Reporting period', 'e.g. Oct 2025–Sep 2026'],
@@ -750,6 +755,7 @@ export default function DigitalPresenceForm({
                 );
               })}
             </div>
+            */}
           </div>
         </div>
 
