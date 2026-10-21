@@ -31,6 +31,10 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { DigitalPresenceReport, ChannelAssessment, ChannelType, TrafficLight, KeyMetric } from '@/lib/digital-presence/types';
+import {
+  BUYER_FOLLOW_UP_GUIDANCE_POINTS,
+  splitMarketingAssessmentPoints,
+} from '@/lib/digital-presence/marketing-assessment-display';
 import { Badge, Card, cn } from '@/components/ui';
 import { ExportReportButton } from '@/components/report-export/ExportReportButton';
 import { buildDigitalPresenceReportHtml } from '@/lib/report-export/build-digital-presence-report';
@@ -1410,28 +1414,34 @@ export default function DigitalPresenceScorecard({ report, onReset, onRerun, onR
           </div>
           {currentReport.marketingEvidence && <MarketingEvidencePanel evidence={currentReport.marketingEvidence} />}
           {currentReport.marketingAssessment && (
-            <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
+            <div className="bg-slate-50 rounded-xl p-4 space-y-3 border border-slate-100">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-slate-400" />
                 <p className="text-xs font-semibold text-slate-600 uppercase tracking-widest">Advisor Assessment</p>
               </div>
-              <p className="text-sm text-slate-700 leading-relaxed">
-                {currentReport.marketingAssessment
-                  .replace(/Chrome UX Report\s*\(CrUX\)|\bCrUX\b/gi, 'real visitor website data')
-                  .replace(/Google PageSpeed Insights/gi, 'website speed test')
-                  .replace(/Google Places API/gi, 'Google Business Profile records')
-                  .replace(/DataForSEO/gi, 'local search results')}
-              </p>
+              <ul className="space-y-2 pl-0 list-none">
+                {splitMarketingAssessmentPoints(currentReport.marketingAssessment).map((point) => (
+                  <li key={point} className="flex items-start gap-2.5 text-sm text-slate-700 leading-relaxed">
+                    <span className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-slate-400" aria-hidden />
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           {currentReport.marketingIntake && <MarketingInputsPanel intake={currentReport.marketingIntake} />}
           <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 flex items-start gap-2.5">
             <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-            <div>
+            <div className="min-w-0 space-y-2">
               <p className="text-xs font-semibold text-amber-800 mb-0.5">Buyer Follow-Up Guidance</p>
-              <p className="text-xs text-amber-700 leading-relaxed">
-                Reconcile channel spend and bookings to platform exports and financials; obtain campaign-level ad and website analytics, email open/click/booking results, documented goals, and peak/off-season trends. A spend-to-revenue ratio needs verified marketing expense and revenue. Public search placement and website performance do not verify ad spend, traffic, bookings, or sales.
-              </p>
+              <ul className="space-y-1.5 pl-0 list-none">
+                {BUYER_FOLLOW_UP_GUIDANCE_POINTS.map((point) => (
+                  <li key={point} className="flex items-start gap-2 text-xs text-amber-700 leading-relaxed">
+                    <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" aria-hidden />
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </section>

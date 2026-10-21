@@ -1,5 +1,9 @@
 import type { DigitalPresenceReport } from '@/lib/digital-presence/types'
 import {
+  BUYER_FOLLOW_UP_GUIDANCE_POINTS,
+  splitMarketingAssessmentPoints,
+} from '@/lib/digital-presence/marketing-assessment-display'
+import {
   generateReportHtml,
   buildHtmlTable,
   buildBulletList,
@@ -73,14 +77,14 @@ export function buildDigitalPresenceReportHtml(report: DigitalPresenceReport): s
           ${report.marketingAssessment ? `
             <div class="executive-summary" style="margin: 16px 0;">
               <p class="summary-label">Advisor Assessment</p>
-              <p style="font-size: 12.5px; line-height: 1.6; color: #334155; margin: 0;">${escapeHtml(advisorFriendlyText(report.marketingAssessment))}</p>
+              ${buildBulletList(splitMarketingAssessmentPoints(report.marketingAssessment))}
             </div>
           ` : ''}
           ${marketingInputHtml ? `<div style="margin: 16px 0;"><h3 style="font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">Owner-Provided Marketing Operations</h3>${marketingInputHtml}</div>` : ''}
           ${report.marketingIntake && Object.values(report.marketingIntake).some(value => /\b(?:assum(?:e|ed|ption)|sample|test entry)\b/i.test(value)) ? '<div class="flag-item orange" style="margin-top: 10px;"><div class="flag-title">Assumptions Note</div><div class="flag-detail">Some saved figures or descriptions are marked as assumed or sample information. Verify them with the business before relying on them.</div></div>' : ''}
           <div class="flag-item orange" style="margin-top: 14px;">
             <div class="flag-title">Buyer Follow-Up Guidance</div>
-            <div class="flag-detail">Reconcile channel spend and bookings to platform exports and financials; obtain campaign-level advertising and website analytics, email results, written goals, and peak/off-season trends. Calculating spend as a share of revenue requires verified marketing expense and revenue. Public search placement and website performance do not verify advertising spend, traffic, bookings, or sales.</div>
+            <div class="flag-detail">${buildBulletList([...BUYER_FOLLOW_UP_GUIDANCE_POINTS])}</div>
           </div>
         `,
       }] : []),
@@ -482,14 +486,6 @@ function marketingEvidenceTitle(source: string): string {
     'Google organic search visibility': 'Website visibility in Google search',
   }
   return labels[source] ?? source
-}
-
-function advisorFriendlyText(value: string): string {
-  return value
-    .replace(/Chrome UX Report\s*\(CrUX\)|\bCrUX\b/gi, 'real visitor website data')
-    .replace(/Google PageSpeed Insights/gi, 'website speed test')
-    .replace(/Google Places API/gi, 'Google Business Profile records')
-    .replace(/DataForSEO/gi, 'local search results')
 }
 
 function escapeHtml(str: string): string {
