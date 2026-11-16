@@ -1448,7 +1448,7 @@ function OverviewTab({
       >
         <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-3">Assigned Workstream</p>
         <h3 className="text-xl font-semibold text-slate-800 cantara-serif">
-          {client.workstream ? wsLabel[client.workstream] : 'Awaiting Workstream Assignment'}
+          {getWorkstreamPortalTitle(client) ?? 'Awaiting Workstream Assignment'}
         </h3>
         <p className="text-sm text-slate-500 mt-3 max-w-2xl leading-relaxed">
           Your advisor team will guide you through the process. If you have questions at any point, use the chat button in the bottom right corner.

@@ -189,7 +189,15 @@ export function mapClientListItemForFrontend(client: any, unreadCount = 0) {
     propertyOwnership: "",
     workstream: client.workstream ? client.workstream.toLowerCase() : null,
     customWorkstreamId: client.customWorkstreamId ?? null,
-    customWorkstream: null,
+    customWorkstream: client.customWorkstream
+      ? {
+          id: client.customWorkstream.id,
+          name: client.customWorkstream.name,
+          description: null,
+          isSystem: false,
+          agents: [],
+        }
+      : null,
     workstreamAgents: [],
     stage: client.stage ? client.stage.toLowerCase() : "onboarding",
     businessType: client.businessType ? client.businessType.toLowerCase() : "single",

@@ -16,8 +16,9 @@ export function getWorkstreamPortalTitle(client: Pick<Client, 'workstream' | 'cu
 }
 
 export function getWorkstreamPortalSubtitle(client: Pick<Client, 'workstream' | 'customWorkstream'>): string {
-  if (client.customWorkstream?.name?.trim()) {
-    return 'Custom workstream'
+  const customName = client.customWorkstream?.name?.trim()
+  if (customName) {
+    return customName
   }
   if (!client.workstream) return 'Awaiting workstream assignment'
   return WORKSTREAM_LABELS[client.workstream] ?? 'Client portal'

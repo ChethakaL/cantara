@@ -181,7 +181,15 @@ export { SearchableSelect } from '@/components/ui/SearchableSelect'
 export type { SearchableSelectOption } from '@/components/ui/SearchableSelect'
 export type { DatePickerProps } from '@/components/ui/DatePicker'
 
-export function WorkstreamBadge({ ws }: { ws: string | null }) {
+export function WorkstreamBadge({
+  ws,
+  customName,
+}: {
+  ws: string | null
+  customName?: string | null
+}) {
+  const trimmedCustomName = customName?.trim()
+  if (trimmedCustomName) return <Badge color="gold">{trimmedCustomName}</Badge>
   if (!ws) return <Badge color="slate">Not Provisioned</Badge>
   const cfg = WS_LABELS[ws] ?? { label: ws, color: 'slate' as const }
   return <Badge color={cfg.color}>{cfg.label}</Badge>
