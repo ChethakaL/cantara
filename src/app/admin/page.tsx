@@ -595,10 +595,10 @@ export default function AdminDashboard() {
     const standard = STANDARD_WORKSTREAM_SECTIONS
       .map((section) => sectionMap.get(section.id)!)
       .filter((section) => section.clients.length > 0)
-    const custom = [...sectionMap.values()]
+    const custom = Array.from(sectionMap.values())
       .filter((section) => section.id.startsWith('custom:'))
       .sort((a, b) => a.label.localeCompare(b.label))
-    return [...standard, ...custom]
+    return standard.concat(custom)
   })()
 
   const totalClients = clients.length
