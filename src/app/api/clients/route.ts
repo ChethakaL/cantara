@@ -26,6 +26,12 @@ export async function GET(_req: NextRequest) {
         driveFolderId: true,
         workstream: true,
         customWorkstreamId: true,
+        customWorkstream: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         stage: true,
         businessType: true,
         valuationDocUploaded: true,

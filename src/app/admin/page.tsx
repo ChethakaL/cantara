@@ -16,13 +16,29 @@ import type { Client } from '@/lib/store'
 
 type DrivePickerTarget = 'parent' | 'new-parent' | 'new-existing' | `client:${string}`
 
-const WORKSTREAM_SECTIONS = [
+const STANDARD_WORKSTREAM_SECTIONS = [
   { id: 'onboarding', label: 'Onboarding', color: '#94a3b8' },
   { id: 'ws1', label: 'Workstream 1', color: '#3b82f6' },
   { id: 'ws2', label: 'Workstream 2', color: '#10b981' },
   { id: 'both', label: 'WS1 + WS2', color: '#b8922a' },
   { id: 'ma', label: 'M&A', color: '#f43f5e' },
-]
+] as const
+
+function getClientWorkstreamGroup(client: Client): { id: string; label: string; color: string } {
+  const customName = client.customWorkstream?.name?.trim()
+  if (customName) {
+    return {
+      id: `custom:${client.customWorkstreamId || customName.toLowerCase()}`,
+      label: customName,
+      color: '#b8922a',
+    }
+  }
+  if (!client.workstream) {
+    return STANDARD_WORKSTREAM_SECTIONS[0]
+  }
+  const standard = STANDARD_WORKSTREAM_SECTIONS.find((section) => section.id === client.workstream)
+  return standard ?? { id: client.workstream, label: client.workstream, color: '#94a3b8' }
+}
 
 function MondaySetupCard({
   status,
@@ -562,10 +578,28 @@ export default function AdminDashboard() {
     (c.email?.toLowerCase() || '').includes(search.toLowerCase())
   )
 
-  const byGroup = (groupId: string) => {
-    if (groupId === 'onboarding') return filtered.filter(c => !c.workstream)
-    return filtered.filter(c => (c.workstream?.toLowerCase() || '') === groupId.toLowerCase())
-  }
+  const workstreamSections = (() => {
+    const sectionMap = new Map<string, { id: string; label: string; color: string; clients: Client[] }>()
+    for (const section of STANDARD_WORKSTREAM_SECTIONS) {
+      sectionMap.set(section.id, { id: section.id, label: section.label, color: section.color, clients: [] })
+    }
+    for (const client of filtered) {
+      const group = getClientWorkstreamGroup(client)
+      const existing = sectionMap.get(group.id)
+      if (existing) {
+        existing.clients.push(client)
+      } else {
+        sectionMap.set(group.id, { ...group, clients: [client] })
+      }
+    }
+    const standard = STANDARD_WORKSTREAM_SECTIONS
+      .map((section) => sectionMap.get(section.id)!)
+      .filter((section) => section.clients.length > 0)
+    const custom = [...sectionMap.values()]
+      .filter((section) => section.id.startsWith('custom:'))
+      .sort((a, b) => a.label.localeCompare(b.label))
+    return [...standard, ...custom]
+  })()
 
   const totalClients = clients.length
   const totalMessages = inboxUnreadTotal
@@ -960,18 +994,15 @@ export default function AdminDashboard() {
           </div>
 
           {/* Client groups */}
-          {WORKSTREAM_SECTIONS.map(section => {
-            const group = byGroup(section.id)
-            if (group.length === 0) return null
-            return (
+          {workstreamSections.map(section => (
               <div key={section.id} className="mb-8">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-2 h-2 rounded-full" style={{ background: section.color }} />
                   <h3 className="text-sm font-semibold text-slate-700">{section.label}</h3>
-                  <span className="text-xs text-slate-400">({group.length})</span>
+                  <span className="text-xs text-slate-400">({section.clients.length})</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {group.map((client, i) => (
+                  {section.clients.map((client, i) => (
                     <ClientCard
                       key={client.id}
                       client={client}
@@ -981,8 +1012,7 @@ export default function AdminDashboard() {
                   ))}
                 </div>
               </div>
-            )
-          })}
+            ))}
 
           {loadingClients && (
             <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
@@ -1164,7 +1194,7 @@ function ClientCard({ client, delay, messageUnread = 0 }: { client: Client; dela
           </div>
 
           <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <WorkstreamBadge ws={client.workstream} />
+            <WorkstreamBadge ws={client.workstream} customName={client.customWorkstream?.name} />
             <Badge color="slate">{stageLabel[client.stage] ?? client.stage}</Badge>
           </div>
 

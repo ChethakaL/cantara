@@ -652,7 +652,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             <span className="text-white/80 text-sm cantara-serif">{client.name}</span>
             <span className="text-white/30 ml-3 text-xs">{client.company}</span>
           </div>
-          <WorkstreamBadge ws={client.workstream} />
+          <WorkstreamBadge ws={client.workstream} customName={client.customWorkstream?.name} />
           <Badge color={stageColors[client.stage] as 'slate' | 'gold' | 'blue' | 'green' | 'red'}>
             {client.stage.charAt(0).toUpperCase() + client.stage.slice(1)}
           </Badge>
