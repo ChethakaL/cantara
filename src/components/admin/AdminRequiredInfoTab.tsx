@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { ChevronRight, FileSpreadsheet, Loader2, Plus, Trash2, Upload } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, FileSpreadsheet, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { Button, Card } from '@/components/ui'
 import { ClientCompetitorInputsFields } from '@/components/client-portal/ClientCompetitorInputsFields'
 import { FiscalYearEndPicker } from '@/components/client-portal/FiscalYearEndPicker'
@@ -19,6 +19,12 @@ import { FORM_FIELD_NA_VALUE, isFormFieldNa } from '@/lib/client-form-na'
 import MarketingIntakeRows from '@/components/client-portal/MarketingIntakeRows'
 import { isMarketingIntakeField } from '@/lib/marketing-intake'
 import RequiredInfoMeetingCall from '@/components/admin/RequiredInfoMeetingCall'
+import {
+  REQUIRED_INFO_FORM_CATALOG,
+  REQUIRED_INFO_FORM_LABELS,
+  patchRequiredInfoVisibility,
+  type RequiredInfoFormKey,
+} from '@/lib/required-info-forms'
 
 type ClientPortalFormQuestion = {
   id: string
@@ -35,29 +41,11 @@ type ClientPortalFormQuestion = {
   sortOrder?: number
 }
 
-function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
-  const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
-  return {
-    activeFormKeys: [
-      'business_operations',
-      ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
-      ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
-      ...(hasAgentForm('competitor_analysis') || hasAgentForm('pricing_analysis') ? ['competitor_analysis'] : []),
-      ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
-      // Hidden: vendor info now collected via Document Upload → Vendor Contracts
-      // ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
-      ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
-    ],
-    formLabels: {
-      business_operations: 'Business Operations',
-      facility_review: 'Facility Review',
-      digital_presence: 'Marketing Performance and Digital Presence',
-      competitor_analysis: 'Competitor & Pricing Inputs',
-      occupancy_review: 'Occupancy Review',
-      vendor_directory: 'Software & Vendors',
-      professional_advisors: 'Professional Advisors',
-    } as Record<string, string>,
-  }
+type VisibilityCatalogItem = {
+  key: RequiredInfoFormKey
+  label: string
+  defaultVisible: boolean
+  visible: boolean
 }
 
 function buildOrderedFormQuestionGroups(
@@ -327,8 +315,17 @@ function RequiredInfoQuestionnaireTab({
 }) {
   const [formQuestions, setFormQuestions] = useState<ClientPortalFormQuestion[]>([])
   const [formResponses, setFormResponses] = useState<Record<string, string>>({})
+  const [visibilityCatalog, setVisibilityCatalog] = useState<VisibilityCatalogItem[]>(
+    REQUIRED_INFO_FORM_CATALOG.map(item => ({
+      key: item.key,
+      label: item.label,
+      defaultVisible: item.key === 'business_operations',
+      visible: item.key === 'business_operations',
+    })),
+  )
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [savingVisibility, setSavingVisibility] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const autoSaveSkipRef = useRef(true)
@@ -339,12 +336,15 @@ function RequiredInfoQuestionnaireTab({
     setLoading(true)
     async function loadFormQuestions() {
       try {
-        const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(client.id)}`)
+        const res = await fetch(`/api/client-form-questions?clientId=${encodeURIComponent(client.id)}&forAdvisor=1`)
         if (!res.ok) return
         const data = await res.json()
         if (cancelled) return
         setFormQuestions(data.questions ?? [])
         setFormResponses(data.responses ?? {})
+        if (Array.isArray(data.visibility?.catalog)) {
+          setVisibilityCatalog(data.visibility.catalog)
+        }
         setTimeout(() => { autoSaveSkipRef.current = false }, 0)
       } catch {
         if (!cancelled) setFormQuestions([])
@@ -392,6 +392,35 @@ function RequiredInfoQuestionnaireTab({
     }
   }
 
+  async function toggleFormVisibility(formKey: RequiredInfoFormKey) {
+    const item = visibilityCatalog.find(entry => entry.key === formKey)
+    if (!item || savingVisibility) return
+    const nextVisible = !item.visible
+    const nextClient = patchRequiredInfoVisibility(client, formKey, nextVisible, item.defaultVisible)
+    setSavingVisibility(true)
+    setError('')
+    setVisibilityCatalog(prev => prev.map(entry => (
+      entry.key === formKey ? { ...entry, visible: nextVisible } : entry
+    )))
+    setClient(nextClient)
+    try {
+      const res = await fetch(`/api/clients/${encodeURIComponent(client.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sectionSubmissions: nextClient.sectionSubmissions }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+    } catch (err) {
+      setVisibilityCatalog(prev => prev.map(entry => (
+        entry.key === formKey ? { ...entry, visible: item.visible } : entry
+      )))
+      setClient(client)
+      setError(err instanceof Error ? err.message : 'Could not update Required Info visibility.')
+    } finally {
+      setSavingVisibility(false)
+    }
+  }
+
   useEffect(() => {
     if (autoSaveSkipRef.current || !formQuestions.length) return
     const timeout = setTimeout(() => {
@@ -400,17 +429,57 @@ function RequiredInfoQuestionnaireTab({
     return () => clearTimeout(timeout)
   }, [formResponses, formQuestions.length])
 
-  const { activeFormKeys, formLabels: formLabelsMap } = buildRequiredInfoFormTabs(formQuestions)
-  const [activeFormTab, setActiveFormTab] = useState<string>('')
+  const formLabelsMap = REQUIRED_INFO_FORM_LABELS as Record<string, string>
+  // Visible (client-facing) sections first, then hidden — keeps the scroll row scannable.
+  const sortedVisibilityCatalog = [...visibilityCatalog].sort((a, b) => {
+    if (a.visible === b.visible) {
+      return visibilityCatalog.findIndex(item => item.key === a.key) - visibilityCatalog.findIndex(item => item.key === b.key)
+    }
+    return a.visible ? -1 : 1
+  })
+  const allFormKeys = sortedVisibilityCatalog.map(item => item.key)
+  const [activeFormTab, setActiveFormTab] = useState<string>('business_operations')
 
   useEffect(() => {
-    if (activeFormKeys.length && (!activeFormTab || !activeFormKeys.includes(activeFormTab))) {
-      setActiveFormTab(activeFormKeys[0])
+    if (allFormKeys.length && (!activeFormTab || !allFormKeys.includes(activeFormTab as RequiredInfoFormKey))) {
+      setActiveFormTab(allFormKeys[0])
     }
-  }, [activeFormKeys, activeFormTab])
+  }, [allFormKeys.join('|'), activeFormTab])
 
-  const currentIndex = activeFormKeys.indexOf(activeFormTab)
-  const hasNext = currentIndex !== -1 && currentIndex < activeFormKeys.length - 1
+  const currentIndex = allFormKeys.indexOf(activeFormTab as RequiredInfoFormKey)
+  const hasNext = currentIndex !== -1 && currentIndex < allFormKeys.length - 1
+  const activeVisibility = visibilityCatalog.find(item => item.key === activeFormTab)
+  const tabScrollRef = useRef<HTMLDivElement | null>(null)
+  const [tabScrollState, setTabScrollState] = useState({ canLeft: false, canRight: false })
+
+  const updateTabScrollState = () => {
+    const el = tabScrollRef.current
+    if (!el) return
+    const maxScroll = el.scrollWidth - el.clientWidth
+    setTabScrollState({
+      canLeft: el.scrollLeft > 4,
+      canRight: maxScroll > 4 && el.scrollLeft < maxScroll - 4,
+    })
+  }
+
+  useEffect(() => {
+    updateTabScrollState()
+    const el = tabScrollRef.current
+    if (!el) return
+    const onScroll = () => updateTabScrollState()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', updateTabScrollState)
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', updateTabScrollState)
+    }
+  }, [sortedVisibilityCatalog.map(item => `${item.key}:${item.visible}`).join('|'), loading])
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    const el = tabScrollRef.current
+    if (!el) return
+    el.scrollBy({ left: direction === 'left' ? -220 : 220, behavior: 'smooth' })
+  }
 
   if (loading) {
     return (
@@ -426,7 +495,7 @@ function RequiredInfoQuestionnaireTab({
   if (!formQuestions.length) {
     return (
       <Card className="p-6 text-sm text-slate-500">
-        No required info forms are active for this client’s current workstream.
+        No required info forms are available yet.
       </Card>
     )
   }
@@ -434,22 +503,85 @@ function RequiredInfoQuestionnaireTab({
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-        Advisors can fill or correct the same required-info forms shown in the client portal. Changes save back to the shared client form responses.
+        Checked sections are visible in the client portal. Defaults follow this client&apos;s workstream/agents — toggle any section to show or hide it regardless of workstream.
       </div>
 
-      <Card className="p-1 flex flex-wrap gap-1">
-        {activeFormKeys.map(key => (
+      <Card className="relative overflow-hidden">
+        <div className="flex items-stretch gap-1 p-1">
           <button
-            key={key}
-            onClick={() => setActiveFormTab(key)}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-              activeFormTab === key ? 'text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            type="button"
+            aria-label="Scroll sections left"
+            disabled={!tabScrollState.canLeft}
+            onClick={() => scrollTabs('left')}
+            className={`shrink-0 self-center inline-flex h-8 w-8 items-center justify-center rounded-xl border transition-all ${
+              tabScrollState.canLeft
+                ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                : 'border-transparent text-slate-300 cursor-default'
             }`}
-            style={activeFormTab === key ? { background: '#0d1829' } : {}}
           >
-            {formLabelsMap[key]}
+            <ChevronLeft className="h-4 w-4" />
           </button>
-        ))}
+
+          <div
+            ref={tabScrollRef}
+            className="min-w-0 flex-1 flex flex-nowrap gap-1 overflow-x-auto pb-1.5 [scrollbar-width:thin] [scrollbar-color:#c4b59a_#f1ebe3] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-cantara-beige/60 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#c4b59a]"
+          >
+            {sortedVisibilityCatalog.map(item => {
+              const selected = activeFormTab === item.key
+              return (
+                <div
+                  key={item.key}
+                  className={`shrink-0 rounded-xl text-xs font-semibold transition-all inline-flex items-center gap-1.5 pl-2 pr-1 py-1 ${
+                    selected ? 'text-white shadow-sm' : item.visible ? 'text-slate-700' : 'text-slate-400'
+                  }`}
+                  style={selected ? { background: '#0d1829' } : {}}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={item.visible}
+                    aria-label={`${item.visible ? 'Hide' : 'Show'} ${item.label} in client portal`}
+                    disabled={savingVisibility}
+                    onClick={() => void toggleFormVisibility(item.key)}
+                    className={`inline-flex h-4 w-4 items-center justify-center rounded border transition-all disabled:opacity-60 ${
+                      item.visible
+                        ? selected
+                          ? 'border-emerald-300 bg-emerald-400 text-white'
+                          : 'border-emerald-500 bg-emerald-500 text-white'
+                        : selected
+                          ? 'border-white/40 bg-transparent text-transparent hover:border-white/70'
+                          : 'border-slate-300 bg-white text-transparent hover:border-slate-400'
+                    }`}
+                  >
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFormTab(item.key)}
+                    className={`whitespace-nowrap px-2 py-1 rounded-lg transition-all ${
+                      selected ? 'text-white' : item.visible ? 'hover:bg-slate-50' : 'hover:text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+
+          <button
+            type="button"
+            aria-label="Scroll sections right"
+            disabled={!tabScrollState.canRight}
+            onClick={() => scrollTabs('right')}
+            className={`shrink-0 self-center inline-flex h-8 w-8 items-center justify-center rounded-xl border transition-all ${
+              tabScrollState.canRight
+                ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                : 'border-transparent text-slate-300 cursor-default'
+            }`}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
       </Card>
 
       {activeFormTab !== '' && (
@@ -458,9 +590,11 @@ function RequiredInfoQuestionnaireTab({
             <div className="min-w-0 flex-1">
               <h4 className="text-sm font-semibold text-slate-800">{formLabelsMap[activeFormTab]}</h4>
               <p className="mt-1 text-xs text-slate-500">
-                {activeFormTab === 'facility_review'
-                  ? 'Fill the facility review answers here if the advisor team needs to enter them directly.'
-                  : 'Fill or correct these client required-info answers directly from the advisor portal.'}
+                {activeVisibility && !activeVisibility.visible
+                  ? 'Hidden from the client portal. Advisors can still fill it here, or check the box above to show it to the client.'
+                  : activeFormTab === 'facility_review'
+                    ? 'Fill the facility review answers here if the advisor team needs to enter them directly.'
+                    : 'Fill or correct these client required-info answers directly from the advisor portal.'}
               </p>
             </div>
           </div>
@@ -523,7 +657,7 @@ function RequiredInfoQuestionnaireTab({
                   className="flex items-center gap-1.5 border-slate-200 hover:bg-slate-50 transition-all font-semibold text-xs text-slate-700"
                   onClick={async () => {
                     const success = await saveFormResponses()
-                    if (success) setActiveFormTab(activeFormKeys[currentIndex + 1])
+                    if (success) setActiveFormTab(allFormKeys[currentIndex + 1])
                   }}
                   disabled={saving}
                 >

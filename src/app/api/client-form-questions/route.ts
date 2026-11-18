@@ -4,6 +4,13 @@ import { ensureCompetitorFormFields } from '@/lib/competitor-form-fields'
 import { buildOccupancyReviewInputs, occupancyInputsToFormResponses, ensureOccupancyFormFields } from '@/lib/occupancy-form-fields'
 import { syncStructuredToFormResponses, formatProfessionalAdvisors, formatVendorDirectory } from '@/lib/sync-form-responses'
 import { normalizeOptionalFormValue } from '@/lib/client-form-na'
+import {
+  REQUIRED_INFO_FORM_CATALOG,
+  agentIdsForRequiredInfoVisibility,
+  getDefaultRequiredInfoVisibility,
+  resolveRequiredInfoVisibility,
+  type RequiredInfoFormKey,
+} from '@/lib/required-info-forms'
 
 type AgentSelection = { agentId: string; agentName?: string | null }
 type FormQuestionRow = {
@@ -155,7 +162,7 @@ SYSTEM_WORKSTREAM_AGENTS.both = [...SYSTEM_WORKSTREAM_AGENTS.ws1, ...SYSTEM_WORK
   (agent, index, agents) => agents.findIndex(item => item.agentId === agent.agentId) === index,
 )
 
-function activeAgentIds(client: any): string[] {
+function workstreamAgentIds(client: any): string[] {
   const customAgents = client.customWorkstream?.agents?.map((a: any) => ({ agentId: a.agentId, agentName: a.agentName })) ?? []
   const workstreamKey = String(client.workstream ?? '').toLowerCase()
   const systemAgents = customAgents.length ? customAgents : (SYSTEM_WORKSTREAM_AGENTS[workstreamKey] ?? [])
@@ -168,9 +175,26 @@ function activeAgentIds(client: any): string[] {
   return ids.filter(id => id !== 'professional_advisors')
 }
 
-function isAdvisorFacilityReviewMode(client: any): boolean {
-  const submissions = (client.sectionSubmissions as Record<string, any>) ?? {}
-  return submissions.facilityReviewMode === 'advisor'
+function resolveFormVisibility(client: any) {
+  const baseAgentIds = workstreamAgentIds(client)
+  const sectionSubmissions = (client.sectionSubmissions as Record<string, unknown>) ?? {}
+  const defaults = getDefaultRequiredInfoVisibility({
+    agentIds: baseAgentIds,
+    facilityReviewMode: typeof sectionSubmissions.facilityReviewMode === 'string' ? sectionSubmissions.facilityReviewMode : null,
+  })
+  const resolved = resolveRequiredInfoVisibility({
+    agentIds: baseAgentIds,
+    sectionSubmissions,
+  })
+  return { baseAgentIds, defaults, resolved }
+}
+
+function catalogAgentIds(): string[] {
+  return Array.from(
+    new Set(
+      REQUIRED_INFO_FORM_CATALOG.flatMap(item => item.agentIds).filter(id => id !== 'business_operations'),
+    ),
+  )
 }
 
 function dedupeQuestions(rows: FormQuestionRow[]): FormQuestionRow[] {
@@ -394,6 +418,7 @@ function parseVendorDirectory(raw: string | undefined) {
 export async function GET(req: NextRequest) {
   const clientId = req.nextUrl.searchParams.get('clientId')
   if (!clientId) return new Response('clientId required', { status: 400 })
+  const forAdvisor = req.nextUrl.searchParams.get('forAdvisor') === '1'
 
   const client = await (prisma as any).clientProfile.findUnique({
     where: { id: clientId },
@@ -411,12 +436,35 @@ export async function GET(req: NextRequest) {
   })
   if (!client) return new Response('Not Found', { status: 404 })
 
-  const agentIds = activeAgentIds(client)
-    .filter(id => !isAdvisorFacilityReviewMode(client) || id !== 'facility_review')
-    .filter(id => /^[a-z0-9_]+$/.test(id))
+  const { defaults, resolved } = resolveFormVisibility(client)
+  const agentIds = (
+    forAdvisor
+      ? catalogAgentIds()
+      : agentIdsForRequiredInfoVisibility(resolved)
+  ).filter(id => /^[a-z0-9_]+$/.test(id))
+
+  const existing = (client.sectionSubmissions as Record<string, any>) ?? {}
+  const responses = {
+    ...buildPrefillResponses(client, existing),
+    ...syncStructuredToFormResponses(existing, client),
+  }
+  const visibilityPayload = {
+    defaults,
+    resolved,
+    catalog: REQUIRED_INFO_FORM_CATALOG.map(item => ({
+      key: item.key as RequiredInfoFormKey,
+      label: item.label,
+      defaultVisible: defaults[item.key],
+      visible: resolved[item.key],
+    })),
+  }
+
   if (!agentIds.length) {
-    const existing = (client.sectionSubmissions as Record<string, any>) ?? {}
-    return NextResponse.json({ questions: BUSINESS_OPERATIONS_QUESTIONS, responses: existing.agentFormResponses ?? {} })
+    return NextResponse.json({
+      questions: BUSINESS_OPERATIONS_QUESTIONS,
+      responses: existing.agentFormResponses ?? {},
+      visibility: visibilityPayload,
+    })
   }
 
   const inList = agentIds.map(id => `'${id}'`).join(',')
@@ -427,12 +475,6 @@ export async function GET(req: NextRequest) {
     WHERE "isActive" = true AND "agentId" IN (${inList})
     ORDER BY "sortOrder" ASC, label ASC
   `) as FormQuestionRow[]
-
-  const existing = (client.sectionSubmissions as Record<string, any>) ?? {}
-  const responses = {
-    ...buildPrefillResponses(client, existing),
-    ...syncStructuredToFormResponses(existing, client),
-  }
 
   const questions = dedupeQuestions([
     ...BUSINESS_OPERATIONS_QUESTIONS,
@@ -453,7 +495,7 @@ export async function GET(req: NextRequest) {
       options: Array.isArray(question.options) ? question.options : null,
     }))
 
-  return NextResponse.json({ questions, responses })
+  return NextResponse.json({ questions, responses, visibility: visibilityPayload })
 }
 
 export async function POST(req: NextRequest) {
