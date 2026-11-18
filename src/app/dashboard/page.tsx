@@ -59,6 +59,7 @@ import { readCompetitorSlots } from '@/lib/competitor-portal-form'
 import { FORM_FIELD_NA_VALUE, isFormFieldAnswered, isFormFieldNa } from '@/lib/client-form-na'
 import { parseFiscalYearEnd } from '@/lib/fiscal-year'
 import {
+  buildRequiredInfoFormTabsFromQuestions,
   canMarkRequiredInfoFormNotApplicable,
   isRequiredInfoFormNotApplicable,
   patchRequiredInfoFormAssignment,
@@ -262,31 +263,6 @@ const getTourTargetId = (step: number) => {
     case 12: return 'tour-requirements-container'
     case 13: return 'tour-roadmap-container'
     default: return null
-  }
-}
-
-function buildRequiredInfoFormTabs(formQuestions: ClientPortalFormQuestion[]) {
-  const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
-  return {
-    activeFormKeys: [
-      'business_operations',
-      ...(hasAgentForm('facility_review') ? ['facility_review'] : []),
-      ...(hasAgentForm('digital_presence') ? ['digital_presence'] : []),
-      ...(hasAgentForm('competitor_analysis') || hasAgentForm('pricing_analysis') ? ['competitor_analysis'] : []),
-      ...(hasAgentForm('occupancy_review') ? ['occupancy_review'] : []),
-      // Hidden: vendor info now collected via Document Upload → Vendor Contracts
-      // ...(hasAgentForm('vendor_directory') ? ['vendor_directory'] : []),
-      ...(hasAgentForm('professional_advisors') ? ['professional_advisors'] : []),
-    ],
-    formLabels: {
-      business_operations: 'Business Operations',
-      facility_review: 'Facility Review',
-      digital_presence: 'Marketing Performance and Digital Presence',
-      competitor_analysis: 'Competitor & Pricing Inputs',
-      occupancy_review: 'Occupancy Review',
-      vendor_directory: 'Software & Vendors',
-      professional_advisors: 'Professional Advisors',
-    } as Record<string, string>,
   }
 }
 
@@ -2034,9 +2010,14 @@ function AssignTab({
               }))}
 
               {(() => {
-                const { activeFormKeys, formLabels: FORM_LABELS } = buildRequiredInfoFormTabs(formQuestions)
+                const { activeFormKeys, formLabels: FORM_LABELS } = buildRequiredInfoFormTabsFromQuestions(
+                  formQuestions,
+                  client.sectionSubmissions as Record<string, unknown> | null | undefined,
+                )
+                // Business Operations is short and completed in onboarding — not assignable here.
+                const assignableFormKeys = activeFormKeys.filter(formKey => formKey !== 'business_operations')
 
-                if (activeFormKeys.length === 0) return null
+                if (assignableFormKeys.length === 0) return null
 
                 return (
                   <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
@@ -2045,7 +2026,7 @@ function AssignTab({
                       <p className="text-xs text-slate-500 mt-1">Choose who will complete each form. Enter the answers in the Required Info tab.</p>
                     </div>
                     <div className="divide-y divide-slate-100">
-                      {activeFormKeys.map(formKey => {
+                      {assignableFormKeys.map(formKey => {
                         const formAssignments = (client.sectionSubmissions as any)?.formAssignments ?? {}
                         const assignedTo = formAssignments[formKey] ?? (formKey === 'competitor_analysis' ? formAssignments.pricing_analysis : '') ?? ''
                         const formNotApplicable = isRequiredInfoFormNotApplicable(client.sectionSubmissions, formKey)
@@ -2814,8 +2795,10 @@ function AgentInformationTab({
     return () => clearTimeout(timeout)
   }, [formResponses, formHydrated, formQuestions.length, clientId])
 
-  const hasAgentForm = (agentId: string) => formQuestions.some(q => q.agentId === agentId)
-  const { activeFormKeys, formLabels: FORM_LABELS } = buildRequiredInfoFormTabs(formQuestions)
+  const { activeFormKeys, formLabels: FORM_LABELS } = buildRequiredInfoFormTabsFromQuestions(
+    formQuestions,
+    client.sectionSubmissions as Record<string, unknown> | null | undefined,
+  )
 
   const memberAssignedTo = sessionTeamMember ? [sessionTeamMember.name, sessionTeamMember.email] : []
   const isFormAssignedToCurrentTeamMember = (formKey: string) => {
